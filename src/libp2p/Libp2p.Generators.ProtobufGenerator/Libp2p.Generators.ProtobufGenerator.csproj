@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <PackageCopyToOutput>true</PackageCopyToOutput>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="Microsoft.CodeAnalysis">
+            <HintPath>..\..\..\..\.nuget\packages\microsoft.codeanalysis.common\4.4.0\lib\netcoreapp3.1\Microsoft.CodeAnalysis.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf.Tools" Version="3.22.0">
+
+        </PackageReference>
+    </ItemGroup>
+
+
+    <PropertyGroup>
+        <protoc_linux64>tools\linux_x64\protoc</protoc_linux64>
+        <protoc_linux86>tools\linux_x86\protoc</protoc_linux86>
+        <protoc_macosx64>tools\macosx_x64\protoc</protoc_macosx64>
+        <protoc_macosx86>tools\macosx_x86\protoc</protoc_macosx86>
+        <protoc_windows64>tools\windows_x64\protoc.exe</protoc_windows64>
+        <protoc_windows86>tools\windows_x86\protoc.exe</protoc_windows86>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(MSBuildRuntimeType)' == 'Core' or ('$(MSBuildVersion)' != '' and $([System.Version]::Parse($(MSBuildVersion))) &gt;= $([System.Version]::Parse(15.3))) ">
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(Linux))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X64'">$(protoc_linux64)</protoc>
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(Linux))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X86'">$(protoc_linux86)</protoc>
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(OSX))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X64'">$(protoc_macosx64)</protoc>
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(OSX))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X86'">$(protoc_macosx86)</protoc>
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(Windows))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X64'">$(protoc_windows64)</protoc>
+        <protoc Condition="'$([MSBuild]::IsOsPlatform(Windows))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X86'">$(protoc_windows86)</protoc>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="Libp2p.Generators.ProtobufGenerator.ProtocLocation">
+            <_Parameter1>$(NuGetPackageRoot)google.protobuf.tools\3.22.0\$(protoc)</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+</Project>

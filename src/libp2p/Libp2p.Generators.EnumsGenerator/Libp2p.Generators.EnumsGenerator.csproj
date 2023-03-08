@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="Microsoft.CodeAnalysis">
+            <HintPath>..\..\..\..\.nuget\packages\microsoft.codeanalysis.common\4.4.0\lib\netcoreapp3.1\Microsoft.CodeAnalysis.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <Description>Core routines and APIs</Description>
+        <PackageTags>libp2p network</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+        <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="BouncyCastle.Cryptography">
+            <HintPath>..\..\..\..\.nuget\packages\bouncycastle.cryptography\2.0.0\lib\net6.0\BouncyCastle.Cryptography.dll</HintPath>
+        </Reference>
+        <Reference Include="Multiformats.Hash">
+            <HintPath>..\..\..\..\.nuget\packages\multiformats.hash\1.5.0\lib\netstandard2.0\Multiformats.Hash.dll</HintPath>
+        </Reference>
+        <Reference Include="SimpleBase">
+            <HintPath>..\..\..\..\.nuget\packages\simplebase\4.0.0\lib\netstandard2.1\SimpleBase.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.1.23110.8"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0-preview.1.23110.8"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0-preview.1.23110.8"/>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>
