@@ -1,10 +1,13 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Net;
 using System.Net.Sockets;
-using Libp2p.Core;
-using Libp2p.Core.Enums;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 
-namespace Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols;
 
 // TODO: Rewrite with SocketAsyncEventArgs
 public class IpTcpProtocol : IProtocol

@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Collections.Concurrent;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public interface IChannelFactory
 {
@@ -39,3 +42,5 @@ public interface IChannelFactory
     void Connected(IRemotePeer peer);
     event RemotePeerConnected OnRemotePeerConnection;
 }
+
+public delegate void RemotePeerConnected(IRemotePeer peer);

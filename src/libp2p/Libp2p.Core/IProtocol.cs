@@ -1,4 +1,7 @@
-namespace Libp2p.Core;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+namespace Nethermind.Libp2p.Core;
 
 // TODO: Try the synchronous approach
 public interface IProtocol

@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Libp2p.Core.Tests")]
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 // TODO: Rewrite using standard buffered channels
 

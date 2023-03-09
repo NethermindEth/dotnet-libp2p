@@ -1,4 +1,4 @@
-namespace Libp2p.Core.Enums;
+namespace Nethermind.Libp2p.Core.Enums;
 public enum Key
 {
     // 128-bit AES symmetric key
@@ -34,6 +34,9 @@ public enum Key
     // BLS12-381 concatenated public keys in both the G1 and G2 fields
     // draft
     Bls12_381G1g2Pub = 0xee,
+    // Sr25519 public key
+    // draft
+    Sr25519Pub = 0xef,
     // P-256 public Key (compressed)
     // draft
     P256Pub = 0x1200,
@@ -64,9 +67,21 @@ public enum Key
     // Curve25519 private key
     // draft
     X25519Priv = 0x1302,
+    // Sr25519 private key
+    // draft
+    Sr25519Priv = 0x1303,
     // RSA private key
     // draft
     RsaPriv = 0x1305,
+    // P-256 private key
+    // draft
+    P256Priv = 0x1306,
+    // P-384 private key
+    // draft
+    P384Priv = 0x1307,
+    // P-521 private key
+    // draft
+    P521Priv = 0x1308,
     // JSON object containing only the required members of a JWK (RFC 7518 and RFC 7517) representing the public key. Serialisation based on JCS (RFC 8785)
     // draft
     Jwk_jcsPub = 0xeb51,

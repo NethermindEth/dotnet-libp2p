@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Runtime.InteropServices;
 
-namespace Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols;
 
 [StructLayout(LayoutKind.Explicit, Size = 12)]
 internal struct YamuxHeader

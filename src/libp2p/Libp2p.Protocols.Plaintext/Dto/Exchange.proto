@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-option csharp_namespace = "Libp2p.Protocols.PlainText.Dto";
+option csharp_namespace = "Nethermind.Libp2p.Protocols.PlainText.Dto";
 
 message Exchange {
   optional bytes id = 1;

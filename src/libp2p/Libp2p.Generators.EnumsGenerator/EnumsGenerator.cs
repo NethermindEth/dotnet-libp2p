@@ -1,12 +1,15 @@
-﻿using Microsoft.CodeAnalysis;
+﻿// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
-namespace Libp2p.Generators.EnumsGenerator;
+using Microsoft.CodeAnalysis;
+
+namespace Nethermind.Libp2p.Generators.EnumsGenerator;
 
 [Generator]
 public class EnumsGenerator : ISourceGenerator
 {
     record MultiCodeCode(string Name, string Tag, string Code, string Status, string Desc);
-    
+
     public void Execute(GeneratorExecutionContext context)
     {
         string? projectDirectory =
@@ -25,7 +28,7 @@ public class EnumsGenerator : ISourceGenerator
         {
             return;
         }
-        
+
         string filePath = projectDirectory.Substring(0, projectDirectory.IndexOf("src") + "src".Length) +
                           Path.DirectorySeparatorChar + "multicodec" + Path.DirectorySeparatorChar + "table.csv";
         if (!File.Exists(filePath))
@@ -50,13 +53,16 @@ public class EnumsGenerator : ISourceGenerator
                     $"{(string.IsNullOrEmpty(x.Desc) ? "" : $"    // {x.Desc}\n")}" +
                     $"{(x.Status == "permanent" ? "" : $"    // {x.Status}\n")}" + $"    {Cap(x.Name)} = {x.Code},\n")
                 .Concat(new[] { "    Unknown,\n" });
-            File.WriteAllText(Path.Combine(enumsDirectory,$"{e}.cs"), $"namespace Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
+            File.WriteAllText(Path.Combine(enumsDirectory, $"{e}.cs"),
+                $"namespace Nethermind.Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
         }
 
 
         string? Cap(string? s)
         {
-            return string.IsNullOrEmpty(s) ? s : string.Join("", s!.Split("-").Select(x => char.ToUpper(x![0]) + x[1..]));
+            return string.IsNullOrEmpty(s)
+                ? s
+                : string.Join("", s!.Split("-").Select(x => char.ToUpper(x![0]) + x[1..]));
         }
     }
 

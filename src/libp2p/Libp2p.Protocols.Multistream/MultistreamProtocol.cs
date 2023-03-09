@@ -1,6 +1,9 @@
-using Libp2p.Core;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
-namespace Libp2p.Protocols;
+using Nethermind.Libp2p.Core;
+
+namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 ///     https://github.com/multiformats/multistream-select

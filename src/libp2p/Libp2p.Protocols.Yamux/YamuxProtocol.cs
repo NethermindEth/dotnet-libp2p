@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Buffers.Binary;
 using System.Text;
-using Libp2p.Core;
+using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 
-namespace Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols;
 
 public class YamuxProtocol : SymetricProtocol, IProtocol
 {

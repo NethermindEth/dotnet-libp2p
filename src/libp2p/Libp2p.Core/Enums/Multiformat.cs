@@ -1,4 +1,4 @@
-namespace Libp2p.Core.Enums;
+namespace Nethermind.Libp2p.Core.Enums;
 public enum Multiformat
 {
     // draft

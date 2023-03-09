@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>

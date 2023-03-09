@@ -1,7 +1,10 @@
-using System.Text;
-using Libp2p.Core.Enums;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
-namespace Libp2p.Core;
+using System.Text;
+using Nethermind.Libp2p.Core.Enums;
+
+namespace Nethermind.Libp2p.Core;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/addressing/README.md

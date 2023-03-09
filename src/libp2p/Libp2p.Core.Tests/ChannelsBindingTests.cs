@@ -1,4 +1,7 @@
-namespace Libp2p.Core.Tests;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelsBindingTests
 {
@@ -7,7 +10,7 @@ public class ChannelsBindingTests
     {
         Channel downChannel = new();
         Channel upChannel = new();
-        Channel downChannelFromProtocolPov = downChannel.Reverse as Channel;
+        Channel downChannelFromProtocolPov = (Channel)downChannel.Reverse;
         downChannelFromProtocolPov.Bind(upChannel);
 
         await downChannel.CloseAsync();

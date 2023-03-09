@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Libp2p.Protocols.PlainText.Dto {
+namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
 
   /// <summary>Holder for reflection information generated from Exchange.proto</summary>
   public static partial class ExchangeReflection {
@@ -25,12 +25,12 @@ namespace Libp2p.Protocols.PlainText.Dto {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
             "Cg5FeGNoYW5nZS5wcm90byImCghFeGNoYW5nZRIKCgJpZBgBIAEoDBIOCgZw",
-            "dWJrZXkYAiABKAxCIaoCHkxpYnAycC5Qcm90b2NvbHMuUGxhaW5UZXh0LkR0",
-            "bw=="));
+            "dWJrZXkYAiABKAxCLKoCKU5ldGhlcm1pbmQuTGlicDJwLlByb3RvY29scy5Q",
+            "bGFpblRleHQuRHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Libp2p.Protocols.PlainText.Dto.Exchange), global::Libp2p.Protocols.PlainText.Dto.Exchange.Parser, new[]{ "Id", "Pubkey" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.Exchange), global::Nethermind.Libp2p.Protocols.PlainText.Dto.Exchange.Parser, new[]{ "Id", "Pubkey" }, null, null, null, null)
           }));
     }
     #endregion
@@ -51,7 +51,7 @@ namespace Libp2p.Protocols.PlainText.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]

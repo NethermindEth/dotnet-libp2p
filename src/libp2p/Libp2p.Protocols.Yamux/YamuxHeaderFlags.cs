@@ -1,4 +1,7 @@
-namespace Libp2p.Protocols;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+namespace Nethermind.Libp2p.Protocols;
 
 [Flags]
 public enum YamuxHeaderFlags : short

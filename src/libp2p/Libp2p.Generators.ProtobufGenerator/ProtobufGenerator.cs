@@ -1,8 +1,11 @@
-﻿using System.Diagnostics;
+﻿// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using System.Diagnostics;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 
-namespace Libp2p.Generators.ProtobufGenerator;
+namespace Nethermind.Libp2p.Generators.ProtobufGenerator;
 
 [Generator]
 public class ProtobufGenerator : ISourceGenerator

@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Runtime.CompilerServices;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public interface IListener
 {
@@ -9,3 +12,5 @@ public interface IListener
     Task DisconectAsync();
     TaskAwaiter GetAwaiter();
 }
+
+public delegate Task OnConnection(IRemotePeer peer);

@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Libp2p.Core.Dto {
+namespace Nethermind.Libp2p.Core.Dto {
 
   /// <summary>Holder for reflection information generated from KeyPair.proto</summary>
   public static partial class KeyPairReflection {
@@ -27,13 +27,13 @@ namespace Libp2p.Core.Dto {
             "Cg1LZXlQYWlyLnByb3RvIjEKCVB1YmxpY0tleRIWCgRUeXBlGAEgAigOMggu",
             "S2V5VHlwZRIMCgREYXRhGAIgAigMIjIKClByaXZhdGVLZXkSFgoEVHlwZRgB",
             "IAIoDjIILktleVR5cGUSDAoERGF0YRgCIAIoDCo5CgdLZXlUeXBlEgcKA1JT",
-            "QRAAEgsKB0VkMjU1MTkQARINCglTZWNwMjU2azEQAhIJCgVFQ0RTQRADQhKq",
-            "Ag9MaWJwMnAuQ29yZS5EdG8="));
+            "QRAAEgsKB0VkMjU1MTkQARINCglTZWNwMjU2azEQAhIJCgVFQ0RTQRADQh2q",
+            "AhpOZXRoZXJtaW5kLkxpYnAycC5Db3JlLkR0bw=="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
-          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Libp2p.Core.Dto.KeyType), }, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Libp2p.Core.Dto.PublicKey), global::Libp2p.Core.Dto.PublicKey.Parser, new[]{ "Type", "Data" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Libp2p.Core.Dto.PrivateKey), global::Libp2p.Core.Dto.PrivateKey.Parser, new[]{ "Type", "Data" }, null, null, null, null)
+          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Nethermind.Libp2p.Core.Dto.KeyType), }, null, new pbr::GeneratedClrTypeInfo[] {
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Core.Dto.PublicKey), global::Nethermind.Libp2p.Core.Dto.PublicKey.Parser, new[]{ "Type", "Data" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Core.Dto.PrivateKey), global::Nethermind.Libp2p.Core.Dto.PrivateKey.Parser, new[]{ "Type", "Data" }, null, null, null, null)
           }));
     }
     #endregion
@@ -65,7 +65,7 @@ namespace Libp2p.Core.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Libp2p.Core.Dto.KeyPairReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Core.Dto.KeyPairReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -99,12 +99,12 @@ namespace Libp2p.Core.Dto {
 
     /// <summary>Field number for the "Type" field.</summary>
     public const int TypeFieldNumber = 1;
-    private readonly static global::Libp2p.Core.Dto.KeyType TypeDefaultValue = global::Libp2p.Core.Dto.KeyType.Rsa;
+    private readonly static global::Nethermind.Libp2p.Core.Dto.KeyType TypeDefaultValue = global::Nethermind.Libp2p.Core.Dto.KeyType.Rsa;
 
-    private global::Libp2p.Core.Dto.KeyType type_;
+    private global::Nethermind.Libp2p.Core.Dto.KeyType type_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Libp2p.Core.Dto.KeyType Type {
+    public global::Nethermind.Libp2p.Core.Dto.KeyType Type {
       get { if ((_hasBits0 & 1) != 0) { return type_; } else { return TypeDefaultValue; } }
       set {
         _hasBits0 |= 1;
@@ -270,7 +270,7 @@ namespace Libp2p.Core.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {
@@ -293,7 +293,7 @@ namespace Libp2p.Core.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {
@@ -322,7 +322,7 @@ namespace Libp2p.Core.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Libp2p.Core.Dto.KeyPairReflection.Descriptor.MessageTypes[1]; }
+      get { return global::Nethermind.Libp2p.Core.Dto.KeyPairReflection.Descriptor.MessageTypes[1]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -356,12 +356,12 @@ namespace Libp2p.Core.Dto {
 
     /// <summary>Field number for the "Type" field.</summary>
     public const int TypeFieldNumber = 1;
-    private readonly static global::Libp2p.Core.Dto.KeyType TypeDefaultValue = global::Libp2p.Core.Dto.KeyType.Rsa;
+    private readonly static global::Nethermind.Libp2p.Core.Dto.KeyType TypeDefaultValue = global::Nethermind.Libp2p.Core.Dto.KeyType.Rsa;
 
-    private global::Libp2p.Core.Dto.KeyType type_;
+    private global::Nethermind.Libp2p.Core.Dto.KeyType type_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Libp2p.Core.Dto.KeyType Type {
+    public global::Nethermind.Libp2p.Core.Dto.KeyType Type {
       get { if ((_hasBits0 & 1) != 0) { return type_; } else { return TypeDefaultValue; } }
       set {
         _hasBits0 |= 1;
@@ -527,7 +527,7 @@ namespace Libp2p.Core.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {
@@ -550,7 +550,7 @@ namespace Libp2p.Core.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {

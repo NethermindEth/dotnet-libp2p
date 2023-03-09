@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Runtime.CompilerServices;
 
-namespace Libp2p.Core.TestsBase;
+namespace Nethermind.Libp2p.Core.TestsBase;
 
 public class TestChannel : IChannel
 {

@@ -38,7 +38,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <AssemblyAttribute Include="Libp2p.Generators.ProtobufGenerator.ProtocLocation">
+        <AssemblyAttribute Include="Nethermind.Libp2p.Generators.ProtobufGenerator.ProtocLocation">
             <_Parameter1>$(NuGetPackageRoot)google.protobuf.tools\3.22.0\$(protoc)</_Parameter1>
         </AssemblyAttribute>
     </ItemGroup>

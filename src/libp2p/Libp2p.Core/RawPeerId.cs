@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Google.Protobuf;
-using Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Dto;
 using Multiformats.Hash;
 using SimpleBase;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public class RawPeerId
 {

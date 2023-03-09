@@ -1,4 +1,4 @@
-namespace Libp2p.Core.Enums;
+namespace Nethermind.Libp2p.Core.Enums;
 public enum Hash
 {
     // The first 64-bits of a murmur3-x64-128 - used for UnixFS directory sharding.

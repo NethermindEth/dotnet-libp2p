@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 internal class ConsoleReader
 {
     private readonly Queue<TaskCompletionSource<string>> _requests = new();

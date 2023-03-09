@@ -1,5 +1,8 @@
-using Libp2p.Builder;
-using Libp2p.Core;
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Nethermind.Libp2p.Builder;
+using Nethermind.Libp2p.Core;
 
 IPeerFactory peerFactory = Libp2pPeerFactoryBuilder.Instance
     .AddAppLayerProtocol<ChatProtocol>()

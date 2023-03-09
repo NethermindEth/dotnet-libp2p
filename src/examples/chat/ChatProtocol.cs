@@ -1,5 +1,8 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Text;
-using Libp2p.Core;
+using Nethermind.Libp2p.Core;
 
 internal class ChatProtocol : SymetricProtocol, IProtocol
 {

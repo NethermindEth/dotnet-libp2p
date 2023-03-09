@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Text;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {

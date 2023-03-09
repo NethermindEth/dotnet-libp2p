@@ -1,8 +1,11 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 public class ChannelFactory : IChannelFactory
 {

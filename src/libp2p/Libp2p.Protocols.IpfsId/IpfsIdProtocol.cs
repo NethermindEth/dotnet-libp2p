@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Google.Protobuf;
-using Libp2p.Core;
-using Libp2p.Core.Enums;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 
-namespace Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify

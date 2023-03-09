@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Google.Protobuf;
-using Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Dto;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 using Org.BouncyCastle.Security;
 
-namespace Libp2p.Core;
+namespace Nethermind.Libp2p.Core;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/peer-ids/peer-ids.md
