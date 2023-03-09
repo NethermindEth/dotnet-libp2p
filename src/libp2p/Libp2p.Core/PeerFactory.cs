@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Libp2p.Enums;
+using Libp2p.Core.Enums;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Libp2p.Core;

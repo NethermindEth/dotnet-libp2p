@@ -5,55 +5,58 @@ namespace Libp2p.Generators.EnumsGenerator;
 [Generator]
 public class EnumsGenerator : ISourceGenerator
 {
+    record MultiCodeCode(string Name, string Tag, string Code, string Status, string Desc);
+    
     public void Execute(GeneratorExecutionContext context)
     {
-        string? projectDir =
+        string? projectDirectory =
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.projectdir", out string? result)
                 ? result
                 : null;
-        if (projectDir is null || !projectDir.Contains("src"))
+        if (projectDirectory is null || !projectDirectory.Contains("src"))
         {
             return;
         }
 
-        string filePath = projectDir.Substring(0, projectDir.IndexOf("src") + "src".Length) +
+        // This is not how generators should work, but
+        // it allows to really add the enums to the project and make multicodec an **optional** git submodule
+        string enumsDirectory = Path.Combine(projectDirectory, "Enums");
+        if (!Directory.Exists(enumsDirectory))
+        {
+            return;
+        }
+        
+        string filePath = projectDirectory.Substring(0, projectDirectory.IndexOf("src") + "src".Length) +
                           Path.DirectorySeparatorChar + "multicodec" + Path.DirectorySeparatorChar + "table.csv";
         if (!File.Exists(filePath))
         {
             return;
         }
 
-        List<(string name, string tag, string code, string status, string desc)> vals = new();
-        foreach (string l in File.ReadAllLines(filePath)
-                     .Skip(1))
-        {
-            string[] s = l.Split(",").Select(x => x.Trim('\t', ' ')).ToArray();
-            vals.Add((s[0], s[1], s[2], s[3], s[4]));
-        }
+        List<MultiCodeCode> vals = File.ReadAllLines(filePath)
+            .Skip(1)
+            .Select(l => l.Split(",").Select(x => x.Trim('\t', ' ')).ToArray())
+            .Select(s => new MultiCodeCode(s[0], s[1], s[2], s[3], s[4]))
+            .ToList();
 
-        IEnumerable<IGrouping<string, (string name, string tag, string code, string status, string desc)>> grouped =
-            vals.GroupBy(x => x.tag);
+        IEnumerable<IGrouping<string, MultiCodeCode>> grouped =
+            vals.GroupBy(x => x.Tag);
         Console.WriteLine();
 
-        foreach (IGrouping<string, (string name, string tag, string code, string status, string desc)> g in grouped)
+        foreach (IGrouping<string, MultiCodeCode> g in grouped)
         {
             string? e = Cap(g.Key);
             IEnumerable<string> vs = g.Select(x =>
-                    $"{(Noe(x.desc) ? "" : $"    // {x.desc}\n")}" +
-                    $"{(x.status == "permanent" ? "" : $"    // {x.status}\n")}" + $"    {Cap(x.name)} = {x.code},\n")
+                    $"{(string.IsNullOrEmpty(x.Desc) ? "" : $"    // {x.Desc}\n")}" +
+                    $"{(x.Status == "permanent" ? "" : $"    // {x.Status}\n")}" + $"    {Cap(x.Name)} = {x.Code},\n")
                 .Concat(new[] { "    Unknown,\n" });
-            context.AddSource($"{e}.cs", $"namespace Libp2p.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
+            File.WriteAllText(Path.Combine(enumsDirectory,$"{e}.cs"), $"namespace Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
         }
 
 
         string? Cap(string? s)
         {
-            return Noe(s) ? s : string.Join("", s!.Split("-").Select(x => char.ToUpper(x![0]) + x.Substring(1)));
-        }
-
-        bool Noe(string? s)
-        {
-            return s is null || s.Trim().Length == 0;
+            return string.IsNullOrEmpty(s) ? s : string.Join("", s!.Split("-").Select(x => char.ToUpper(x![0]) + x[1..]));
         }
     }
 

@@ -1,6 +1,6 @@
 using Google.Protobuf;
 using Libp2p.Core;
-using Libp2p.Enums;
+using Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace Libp2p.Protocols;

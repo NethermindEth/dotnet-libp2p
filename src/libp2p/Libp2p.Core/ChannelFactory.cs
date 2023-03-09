@@ -15,7 +15,7 @@ public class ChannelFactory : IChannelFactory
     public ChannelFactory(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = _serviceProvider.GetService<ILoggerFactory>().CreateLogger<ChannelFactory>();
+        _logger = _serviceProvider.GetService<ILoggerFactory>()?.CreateLogger<ChannelFactory>();
     }
 
     public IEnumerable<IProtocol> SubProtocols { get; private set; }
@@ -118,7 +118,7 @@ public class ChannelFactory : IChannelFactory
         {
             Id = $"{_parent.Id} <> {subprotocol?.Id}"
         };
-        _logger.LogDebug("Create chan {0}", chan.Id);
+        _logger?.LogDebug("Create chan {0}", chan.Id);
         return chan;
     }
 }

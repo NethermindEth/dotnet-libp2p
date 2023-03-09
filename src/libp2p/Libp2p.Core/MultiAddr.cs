@@ -1,5 +1,5 @@
 using System.Text;
-using Libp2p.Enums;
+using Libp2p.Core.Enums;
 
 namespace Libp2p.Core;
 
