@@ -17,9 +17,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Reference Include="Google.Protobuf">
-            <HintPath>..\..\..\..\.nuget\packages\google.protobuf\3.22.0\lib\net5.0\Google.Protobuf.dll</HintPath>
-        </Reference>
+        <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
     </ItemGroup>
 
 </Project>

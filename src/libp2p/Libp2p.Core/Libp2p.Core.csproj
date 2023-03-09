@@ -17,18 +17,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Reference Include="BouncyCastle.Cryptography">
-            <HintPath>..\..\..\..\.nuget\packages\bouncycastle.cryptography\2.0.0\lib\net6.0\BouncyCastle.Cryptography.dll</HintPath>
-        </Reference>
-        <Reference Include="Multiformats.Hash">
-            <HintPath>..\..\..\..\.nuget\packages\multiformats.hash\1.5.0\lib\netstandard2.0\Multiformats.Hash.dll</HintPath>
-        </Reference>
-        <Reference Include="SimpleBase">
-            <HintPath>..\..\..\..\.nuget\packages\simplebase\4.0.0\lib\netstandard2.1\SimpleBase.dll</HintPath>
-        </Reference>
-    </ItemGroup>
-
-    <ItemGroup>
+        <PackageReference Include="BouncyCastle.Cryptography" Version="2.0.0" Aliases="BouncyCastleCryptography"/>
         <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.1.23110.8"/>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0-preview.1.23110.8"/>
@@ -37,6 +26,8 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="Multiformats.Hash" Version="1.5.0"/>
+        <PackageReference Include="SimpleBase" Version="4.0.0"/>
     </ItemGroup>
 
     <ItemGroup>

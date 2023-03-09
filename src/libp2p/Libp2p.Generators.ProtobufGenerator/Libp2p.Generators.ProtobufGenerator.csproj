@@ -8,15 +8,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Reference Include="Microsoft.CodeAnalysis">
-            <HintPath>..\..\..\..\.nuget\packages\microsoft.codeanalysis.common\4.4.0\lib\netcoreapp3.1\Microsoft.CodeAnalysis.dll</HintPath>
-        </Reference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="Google.Protobuf.Tools" Version="3.22.0">
-
-        </PackageReference>
+        <PackageReference Include="Google.Protobuf.Tools" Version="3.22.0"/>
+        <PackageReference Include="Microsoft.CodeAnalysis" Version="4.4.0"/>
     </ItemGroup>
 
 
