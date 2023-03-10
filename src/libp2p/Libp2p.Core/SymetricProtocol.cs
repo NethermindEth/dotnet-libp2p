@@ -3,7 +3,7 @@
 
 namespace Nethermind.Libp2p.Core;
 
-public abstract class SymetricProtocol
+public abstract class SymmetricProtocol
 {
     public Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
     {

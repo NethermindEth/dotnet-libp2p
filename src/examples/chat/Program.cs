@@ -19,7 +19,7 @@ if (args.Length > 0 && args[0] == "-d")
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-    await remotePeer.DisconectAsync();
+    await remotePeer.DisconnectAsync();
 }
 else
 {
@@ -31,7 +31,7 @@ else
         ts.Token);
     Console.WriteLine($"Listener started at {listener.Address}");
     listener.OnConnection += async remotePeer => Console.WriteLine($"A peer connected {remotePeer.Address}");
-    Console.CancelKeyPress += delegate { listener.DisconectAsync(); };
+    Console.CancelKeyPress += delegate { listener.DisconnectAsync(); };
 
     await listener;
 }

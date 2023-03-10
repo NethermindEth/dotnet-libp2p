@@ -95,7 +95,7 @@ public class PeerFactory : IPeerFactory
         public event OnConnection? OnConnection;
         public MultiAddr Address => _localPeer.Address;
 
-        public Task DisconectAsync()
+        public Task DisconnectAsync()
         {
             return _chan.CloseAsync();
         }
@@ -154,7 +154,7 @@ public class PeerFactory : IPeerFactory
             return _factory.DialAsync<TProtocol>(token);
         }
 
-        public Task DisconectAsync()
+        public Task DisconnectAsync()
         {
             return Channel.CloseAsync();
         }
