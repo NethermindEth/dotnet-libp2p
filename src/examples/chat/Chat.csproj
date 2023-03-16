@@ -9,25 +9,25 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BouncyCastle.Cryptography" Version="2.0.0" Aliases="BouncyCastleCryptography"/>
-        <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
-        <PackageReference Include="Google.Protobuf.Tools" Version="3.22.0"/>
-        <PackageReference Include="Multiformats.Hash" Version="1.5.0"/>
-        <PackageReference Include="Noise.NET" Version="1.0.0"/>
-        <PackageReference Include="SimpleBase" Version="4.0.0"/>
+        <PackageReference Include="BouncyCastle.Cryptography" Version="2.1.1" Aliases="BouncyCastleCryptography" />
+        <PackageReference Include="Google.Protobuf" Version="3.22.1" />
+        <PackageReference Include="Google.Protobuf.Tools" Version="3.22.1" />
+        <PackageReference Include="Multiformats.Hash" Version="1.5.0" />
+        <PackageReference Include="Noise.NET" Version="1.0.0" />
+        <PackageReference Include="SimpleBase" Version="4.0.0" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" PrivateAssets="all"/>
-        <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all"/>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.5.0" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />
     </ItemGroup>
     <ItemGroup>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj"/>
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj"/>
+        <ProjectReference Include="..\..\libp2p\Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
     </ItemGroup>
 
 </Project>

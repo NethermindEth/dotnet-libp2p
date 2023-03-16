@@ -12,14 +12,17 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NUnit" />
     <PackageReference Include="NUnit3TestAdapter" />
-    <PackageReference Include="NUnit.Analyzers" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="NSubstitute.Analyzers.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj"/>
-    <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj"/>
+    <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
   </ItemGroup>
 
 </Project>
