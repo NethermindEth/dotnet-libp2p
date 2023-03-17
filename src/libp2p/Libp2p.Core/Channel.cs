@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
@@ -136,6 +137,11 @@ internal class Channel : IChannel
             {
                 lk.Release();
             }
+        }
+
+        public async Task<ReadOnlySequence<byte>> ReadAsync(int length = 0, bool blocking = true, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
         }
     }
 }

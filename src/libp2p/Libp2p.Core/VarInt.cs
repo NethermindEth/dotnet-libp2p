@@ -61,23 +61,23 @@ public static class VarInt
         return 0;
     }
 
-    public static async Task<ulong> Decode(IReader buf)
-    {
-        ulong res = 0;
-        byte mul = 0;
-        byte[] buff = new byte[1];
-        for (int i = 0; i < 9; i++)
-        {
-            await buf.ReadAsync(buff);
-            byte @byte = buff[0];
-            res += ((ulong)@byte & 127) << mul;
-            mul += 7;
-            if ((@byte & 128) == 0)
-            {
-                return res;
-            }
-        }
-
-        return 0;
-    }
+    // public static async Task<ulong> Decode(IReader buf)
+    // {
+    //     ulong res = 0;
+    //     byte mul = 0;
+    //     byte[] buff = new byte[1];
+    //     for (int i = 0; i < 9; i++)
+    //     {
+    //         await buf.ReadAsync(1, );
+    //         byte @byte = buff[0];
+    //         res += ((ulong)@byte & 127) << mul;
+    //         mul += 7;
+    //         if ((@byte & 128) == 0)
+    //         {
+    //             return res;
+    //         }
+    //     }
+    //
+    //     return 0;
+    // }
 }

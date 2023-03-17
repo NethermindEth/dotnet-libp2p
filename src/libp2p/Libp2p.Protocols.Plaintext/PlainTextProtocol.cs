@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
@@ -31,8 +32,7 @@ public class PlainTextProtocol : SymetricProtocol, IProtocol
         await channel.Writer.WriteAsync(sizeBuf.Concat(buf).ToArray());
 
         ulong structSize = await channel.Reader.ReadVarintAsync();
-        buf = new byte[structSize];
-        await channel.Reader.ReadAsync(buf);
+        buf = (await channel.Reader.ReadAsync()).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
         _ = isListener

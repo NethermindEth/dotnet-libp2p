@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core;
@@ -59,7 +60,6 @@ public class IpTcpProtocol : IProtocol
                         : Multiaddr.Ip6, (client.RemoteEndPoint as IPEndPoint).Address.ToString(), Multiaddr.Tcp,
                     (client.RemoteEndPoint as IPEndPoint).Port);
                 IChannel chan = channelFactory.SubListen(clientContext);
-                byte[] buf = new byte[client.ReceiveBufferSize];
                 Task.Run(async () =>
                 {
                     try
@@ -67,6 +67,8 @@ public class IpTcpProtocol : IProtocol
                         while (!chan.IsClosed)
                         {
                             client.Poll(TimeSpan.FromSeconds(10), SelectMode.SelectRead);
+                            
+                            byte[] buf = new byte[client.Available];
                             int len = await client.ReceiveAsync(buf);
                             if (len != 0)
                             {
@@ -83,15 +85,15 @@ public class IpTcpProtocol : IProtocol
                         await chan.CloseAsync();
                     }
                 }, chan.Token);
-                byte[] inbuf = new byte[client.SendBufferSize];
                 Task.Run(async () =>
                 {
                     try
                     {
+                        byte[] inbuf = new byte[client.SendBufferSize];
                         while (!chan.IsClosed)
                         {
-                            int len = await chan.Reader.ReadAsync(inbuf, false);
-                            await client.SendAsync(inbuf[..len]);
+                            var b  = await chan.Reader.ReadAsync(false);
+                            await client.SendAsync(b.ToArray());
                         }
                     }
                     catch (SocketException e)
