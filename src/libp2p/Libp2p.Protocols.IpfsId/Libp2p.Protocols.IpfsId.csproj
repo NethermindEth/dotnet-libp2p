@@ -1,19 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-    </PropertyGroup>
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
 
-    <ItemGroup>
-        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj"/>
-        <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-        <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj"/>
-    </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+  </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
-    </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+  </ItemGroup>
 
 </Project>

@@ -3,51 +3,39 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33213.308
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "..\examples", "{0DC1C6A1-0A5B-43BA-9605-621C21A16716}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{0DC1C6A1-0A5B-43BA-9605-621C21A16716}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chat", "..\examples\chat\Chat.csproj", "{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Chat", "..\examples\chat\Chat.csproj", "{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "protocols", "protocols", "{6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core", "Libp2p.Core\Libp2p.Core.csproj", "{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core", "Libp2p.Core\Libp2p.Core.csproj", "{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Generators.EnumsGenerator", "Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj", "{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.EnumsGenerator", "Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj", "{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Yamux", "Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj", "{5C164A63-988A-4E29-AE32-2E49344889B9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux", "Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj", "{5C164A63-988A-4E29-AE32-2E49344889B9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.IpTcp", "Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj", "{5D75E6A7-F477-4C0F-AB7C-73E5872D4B6D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.IpTcp", "Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj", "{5D75E6A7-F477-4C0F-AB7C-73E5872D4B6D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Multistream", "Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj", "{FD857783-0995-4BB2-81DE-0B11639F68F4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistream", "Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj", "{FD857783-0995-4BB2-81DE-0B11639F68F4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Plaintext", "Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj", "{3E391742-9273-43BB-9A94-31E2476977B5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Plaintext", "Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj", "{3E391742-9273-43BB-9A94-31E2476977B5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.IpfsId", "Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.IpfsId", "Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Generators.ProtobufGenerator", "Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj", "{A69DCBED-2903-42BC-8DBC-07E94282E7B4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.ProtobufGenerator", "Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj", "{A69DCBED-2903-42BC-8DBC-07E94282E7B4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Builder.Libp2pPeer", "Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj", "{65051C4B-62CC-4E30-A77B-6C561400897C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Builder.Libp2pPeer", "Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj", "{65051C4B-62CC-4E30-A77B-6C561400897C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Multistream.Tests", "Libp2p.Protocols.Multistream.Tests\Libp2p.Protocols.Multistream.Tests.csproj", "{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistream.Tests", "Libp2p.Protocols.Multistream.Tests\Libp2p.Protocols.Multistream.Tests.csproj", "{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.TestsBase", "Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj", "{1464CF1F-0951-4A66-B18C-E453354AC8DB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.TestsBase", "Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj", "{1464CF1F-0951-4A66-B18C-E453354AC8DB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.Tests", "Libp2p.Core.Tests\Libp2p.Core.Tests.csproj", "{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.Tests", "Libp2p.Core.Tests\Libp2p.Core.Tests.csproj", "{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}"
 EndProject
 Global
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
-		{5C164A63-988A-4E29-AE32-2E49344889B9} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{5D75E6A7-F477-4C0F-AB7C-73E5872D4B6D} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{FD857783-0995-4BB2-81DE-0B11639F68F4} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{3E391742-9273-43BB-9A94-31E2476977B5} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{94540284-FC9C-4513-B104-21B922741FF6} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -77,7 +65,19 @@ Global
 		{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}.Debug|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
+		{5C164A63-988A-4E29-AE32-2E49344889B9} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{5D75E6A7-F477-4C0F-AB7C-73E5872D4B6D} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{FD857783-0995-4BB2-81DE-0B11639F68F4} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{3E391742-9273-43BB-9A94-31E2476977B5} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{94540284-FC9C-4513-B104-21B922741FF6} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}
 	EndGlobalSection
 EndGlobal
