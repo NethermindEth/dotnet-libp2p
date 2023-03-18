@@ -7,7 +7,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {
-    Task WriteLineAsync(string str, bool prependedWithSize = true)
+    ValueTask WriteLineAsync(string str, bool prependedWithSize = true)
     {
         int len = Encoding.UTF8.GetByteCount(str) + 1;
         byte[] buf = new byte[VarInt.GetSizeInBytes(len) + len];
@@ -18,7 +18,7 @@ public interface IWriter
         return WriteAsync(buf);
     }
 
-    Task WriteVarintAsync(int val)
+    ValueTask WriteVarintAsync(int val)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
         int offset = 0;
@@ -26,7 +26,7 @@ public interface IWriter
         return WriteAsync(buf);
     }
 
-    Task WriteSizeAndDataAsync(byte[] data)
+    ValueTask WriteSizeAndDataAsync(byte[] data)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(data.Length) + data.Length];
         int offset = 0;
@@ -35,5 +35,5 @@ public interface IWriter
         return WriteAsync(buf);
     }
 
-    Task WriteAsync(byte[] bytes);
+    ValueTask WriteAsync(ArraySegment<byte> bytes);
 }

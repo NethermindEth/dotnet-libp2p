@@ -27,9 +27,8 @@ public class IpfsIdProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
         IPeerContext context)
     {
-        ulong size = await channel.Reader.ReadVarintAsync();
-        byte[] identifyDto = new byte[size];
-        await channel.Reader.ReadAsync(identifyDto);
+        int size = await channel.Reader.ReadVarintAsync();
+        byte[] identifyDto = (await channel.Reader.ReadAsync(size)).ToArray();
 
         string? pubKey = context.RemotePeer.Address.At(Multiaddr.P2p);
         Identify? identity = Identify.Parser.ParseFrom(identifyDto, 0, (int)size);

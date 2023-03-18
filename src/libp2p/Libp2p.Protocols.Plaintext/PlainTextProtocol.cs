@@ -31,8 +31,8 @@ public class PlainTextProtocol : SymetricProtocol, IProtocol
         VarInt.Encode(size, sizeBuf, ref offset1);
         await channel.Writer.WriteAsync(sizeBuf.Concat(buf).ToArray());
 
-        ulong structSize = await channel.Reader.ReadVarintAsync();
-        buf = (await channel.Reader.ReadAsync()).ToArray();
+        int structSize = await channel.Reader.ReadVarintAsync();
+        buf = (await channel.Reader.ReadAsync(structSize)).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
         _ = isListener

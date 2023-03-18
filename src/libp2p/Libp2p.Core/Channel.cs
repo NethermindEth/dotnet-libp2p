@@ -81,67 +81,106 @@ internal class Channel : IChannel
         (parent as Channel).OnClose(async () => { State.Cancel(); });
     }
 
-    private class ReaderWriter : IReader, IWriter
+    internal class ReaderWriter : IReader, IWriter
     {
-        private readonly byte[] iq = new byte[1024 * 1024];
-        private readonly SemaphoreSlim lk = new(0);
-        private int rPtr;
-        private int wPtr;
+        private ArraySegment<byte> _bytes;
+        private ManualResetEventSlim _canWrite = new();
+        private ManualResetEventSlim _read = new();
+        private SemaphoreSlim _canRead = new(0, 1);
+
         public string Name { get; set; }
 
-        public async Task<int> ReadAsync(byte[] bytes, bool blocking = true, CancellationToken token = default)
+
+        internal class MemorySegment<T> : ReadOnlySequenceSegment<T>
         {
-            int len = bytes.Length;
-
-            int restSize = bytes.Length;
-            while (restSize != 0)
+            public MemorySegment(ReadOnlyMemory<T> memory)
             {
-                int sizeAvailable = wPtr - rPtr;
-                if (sizeAvailable > 0)
-                {
-                    if (sizeAvailable < restSize)
-                    {
-                        Array.ConstrainedCopy(iq, rPtr, bytes, bytes.Length - restSize, sizeAvailable);
-                        restSize -= sizeAvailable;
-                        rPtr += sizeAvailable;
-                        if (!blocking)
-                        {
-                            return len - restSize;
-                        }
+                Memory = memory;
+            }
 
-                        await lk.WaitAsync(token);
-                        sizeAvailable = wPtr - rPtr;
-                    }
-                    else
-                    {
-                        Array.ConstrainedCopy(iq, rPtr, bytes, len - restSize, restSize);
-                        rPtr += restSize;
-                        return len;
-                    }
+            public MemorySegment<T> Append(ReadOnlyMemory<T> memory)
+            {
+                var segment = new MemorySegment<T>(memory)
+                {
+                    RunningIndex = RunningIndex + Memory.Length
+                };
+
+                Next = segment;
+
+                return segment;
+            }
+        }
+
+        public async ValueTask<ReadOnlySequence<byte>> ReadAsync(int length,
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+        {
+            if (_bytes.Count == 0 && blockingMode == ReadBlockingMode.DontWait)
+            {
+                return new ReadOnlySequence<byte>();
+            }
+            await _canRead.WaitAsync(token);
+
+            int bytesToRead = length != 0
+                ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Count))
+                : _bytes.Count;
+            
+            MemorySegment<byte>? chunk = null;
+            MemorySegment<byte>? lchunk;
+            do
+            {
+                ReadOnlyMemory<byte> anotherChunk = null;
+                
+                if (_bytes.Count <= bytesToRead)
+                {
+                    anotherChunk = _bytes;
+                    bytesToRead -= _bytes.Count;
+                    _bytes = null;
+                    _read.Set();
+                    _canWrite.Set();
+                }
+                else if (_bytes.Count > bytesToRead)
+                {
+                    anotherChunk = _bytes[..bytesToRead];
+                    _bytes = _bytes[bytesToRead..];
+                    bytesToRead = 0;
+                }
+
+                if (chunk == null)
+                {
+                    lchunk = chunk = new MemorySegment<byte>(anotherChunk);
                 }
                 else
                 {
-                    await lk.WaitAsync(token);
+                    lchunk = chunk.Append(anotherChunk);
                 }
-            }
+            } while (bytesToRead != 0);
 
-            return len;
+            _canRead.Release();
+            return new ReadOnlySequence<byte>(chunk, 0, lchunk, lchunk.Memory.Length);
         }
 
-        public async Task WriteAsync(byte[] bytes)
+        public ReaderWriter()
         {
-            Array.ConstrainedCopy(bytes, 0, iq, wPtr, bytes.Length);
-            int prev = wPtr;
-            wPtr += bytes.Length;
-            if (prev == rPtr)
+            _canWrite.Set();
+            _read.Reset();
+        }
+
+        public async ValueTask WriteAsync(ArraySegment<byte> bytes)
+        {
+            if (bytes.Count == 0)
             {
-                lk.Release();
+                return;
             }
-        }
 
-        public async Task<ReadOnlySequence<byte>> ReadAsync(int length = 0, bool blocking = true, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
+            _canWrite.Wait();
+            if (_bytes != null)
+            {
+                throw new InvalidProgramException();
+            }
+
+            _bytes = bytes;
+            _canRead.Release();
+            _read.Wait();
         }
     }
 }

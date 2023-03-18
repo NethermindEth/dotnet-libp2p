@@ -8,20 +8,31 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
-    // async Task<string> ReadLineAsync(bool prependedWithSize = true)
-    // {
-    //     ulong size = await ReadVarintAsync();
-    //     byte[] buf = new byte[size];
-    //     await ReadAsync(size, );
-    //     return Encoding.UTF8.GetString(buf).TrimEnd('\n');
-    // }
+    async Task<string> ReadLineAsync(bool prependedWithSize = true)
+    {
+        int size = (int)(await ReadVarintAsync());
+        return Encoding.UTF8.GetString(await ReadAsync(size)).TrimEnd('\n');
+    }
 
-    // Task<ulong> ReadVarintAsync()
-    // {
-    //     return VarInt.Decode(this);
-    // }
+    Task<int> ReadVarintAsync()
+    {
+        return VarInt.Decode(this);
+    }
 
-    Task<ReadOnlySequence<byte>> ReadAsync(int length = 0, bool blocking = true, CancellationToken token = default);
+    Task<ulong> ReadVarintUlongAsync()
+    {
+        return VarInt.DecodeUlong(this);
+    }
+
+    ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default);
+}
+
+public enum ReadBlockingMode
+{
+    WaitAll,
+    WaitAny,
+    DontWait
 }
 
 

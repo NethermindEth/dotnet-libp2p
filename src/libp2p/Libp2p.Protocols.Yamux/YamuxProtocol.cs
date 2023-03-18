@@ -33,7 +33,7 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
             while (true)
             {
                 YamuxHeader header = await ReadHeader(channel.Reader);
-                byte[] data = null;
+                byte[]? data = null;
                 if (header.Type == YamuxHeaderType.Data && header.Flags == 0)
                 {
                     data = new byte[header.Length];
@@ -53,7 +53,7 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
                     {
                         channels[header.StreamID].State = 2;
 
-                        Task.Run(async () =>
+                        _ = Task.Run(async () =>
                         {
                             channelFactory.Connected(context.RemotePeer as IRemotePeer);
                             foreach (IChannelRequest request in channelFactory.SubDialRequests
@@ -121,13 +121,12 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
                         {
                             while (true)
                             {
-                                byte[] buf = new byte[65526];
-                                int size = await channels[streamId].Channel.Reader.ReadAsync(buf, false);
+                                byte[] data = (await channels[streamId].Channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny)).ToArray();
                                 await WriteHeader(channel.Writer,
                                     new YamuxHeader
                                     {
-                                        Type = YamuxHeaderType.Data, Length = size, StreamID = streamId
-                                    }, buf[..size]);
+                                        Type = YamuxHeaderType.Data, Length = data.Length, StreamID = streamId
+                                    }, data);
                             }
                         });
                     }
@@ -149,9 +148,8 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
 
     private async Task<YamuxHeader> ReadHeader(IReader reader)
     {
-        byte[] sizeBuf = new byte[12];
-        int bytesRead = await reader.ReadAsync(sizeBuf);
-        YamuxHeader header = MarshalYamuxHeader(sizeBuf);
+        byte[] headerData = (await reader.ReadAsync(12)).ToArray();
+        YamuxHeader header = MarshalYamuxHeader(headerData);
         _logger?.LogDebug("Read a header, stream-{0} type={1} flags={2}", header.StreamID, header.Type, header.Flags);
         return header;
     }

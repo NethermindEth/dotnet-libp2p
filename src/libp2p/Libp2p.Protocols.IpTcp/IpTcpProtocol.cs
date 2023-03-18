@@ -48,7 +48,7 @@ public class IpTcpProtocol : IProtocol
                 Multiaddr.Tcp,
                 (srv.LocalEndPoint as IPEndPoint).Port.ToString());
 
-        Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             while (true)
             {
@@ -60,7 +60,7 @@ public class IpTcpProtocol : IProtocol
                         : Multiaddr.Ip6, (client.RemoteEndPoint as IPEndPoint).Address.ToString(), Multiaddr.Tcp,
                     (client.RemoteEndPoint as IPEndPoint).Port);
                 IChannel chan = channelFactory.SubListen(clientContext);
-                Task.Run(async () =>
+                _ = Task.Run(async () =>
                 {
                     try
                     {
@@ -85,15 +85,15 @@ public class IpTcpProtocol : IProtocol
                         await chan.CloseAsync();
                     }
                 }, chan.Token);
-                Task.Run(async () =>
+                _ = Task.Run(async () =>
                 {
                     try
                     {
                         byte[] inbuf = new byte[client.SendBufferSize];
                         while (!chan.IsClosed)
                         {
-                            var b  = await chan.Reader.ReadAsync(false);
-                            await client.SendAsync(b.ToArray());
+                            byte[] data = (await chan.Reader.ReadAsync(0, ReadBlockingMode.WaitAny)).ToArray();
+                            await client.SendAsync(data);
                         }
                     }
                     catch (SocketException e)
@@ -139,14 +139,13 @@ public class IpTcpProtocol : IProtocol
 
         IChannel chan = channelFactory.SubDial(context);
 
-        Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
                 while (!chan.IsClosed)
                 {
-                    client.Poll(TimeSpan.FromSeconds(10), SelectMode.SelectRead);
                     int len = await client.ReceiveAsync(buf);
                     if (len != 0)
                     {
@@ -164,16 +163,15 @@ public class IpTcpProtocol : IProtocol
             }
         });
 
-        Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
-            byte[] inbuf = new byte[client.SendBufferSize];
             try
             {
                 while (!chan.IsClosed)
                 {
-                    int len = await chan.Reader.ReadAsync(inbuf, false);
-                    _logger?.LogDebug("Send data, len={0}", len);
-                    await client.SendAsync(inbuf[..len]);
+                    byte[] data = (await chan.Reader.ReadAsync(0, ReadBlockingMode.WaitAny)).ToArray();
+                    _logger?.LogDebug("Send data, len={0}", data.Length);
+                    await client.SendAsync(data);
                 }
 
                 waitForStop.SetCanceled();
