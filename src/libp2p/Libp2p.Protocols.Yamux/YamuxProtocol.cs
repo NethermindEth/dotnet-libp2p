@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 using Nethermind.Libp2p.Core;
@@ -33,11 +34,10 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
             while (true)
             {
                 YamuxHeader header = await ReadHeader(channel.Reader);
-                byte[]? data = null;
+                ReadOnlySequence<byte> data = default;
                 if (header.Type == YamuxHeaderType.Data && header.Flags == 0)
                 {
-                    data = new byte[header.Length];
-                    await channel.Reader.ReadAsync(data);
+                    data = await channel.Reader.ReadAsync(header.Length);
                 }
 
                 if (header.StreamID == 0)
@@ -121,11 +121,11 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
                         {
                             while (true)
                             {
-                                byte[] data = (await channels[streamId].Channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny)).ToArray();
+                                ReadOnlySequence<byte> data = await channels[streamId].Channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny);
                                 await WriteHeader(channel.Writer,
                                     new YamuxHeader
                                     {
-                                        Type = YamuxHeaderType.Data, Length = data.Length, StreamID = streamId
+                                        Type = YamuxHeaderType.Data, Length = (int)data.Length, StreamID = streamId
                                     }, data);
                             }
                         });
@@ -134,8 +134,7 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
                     if (header.Type == YamuxHeaderType.Data && header.Flags == 0)
                     {
                         await channels[header.StreamID].Channel.Writer.WriteAsync(data);
-                        _logger?.LogDebug("Data, stream-{0}: {1}", header.StreamID,
-                            Encoding.ASCII.GetString(data));
+                        _logger?.LogDebug("Data, stream-{0}, len={1}", header.StreamID, data.Length);
                     }
 
                     if (header.Flags == YamuxHeaderFlags.Fin)
@@ -154,17 +153,18 @@ public class YamuxProtocol : SymetricProtocol, IProtocol
         return header;
     }
 
-    private async Task WriteHeader(IWriter writer, YamuxHeader header, byte[]? data = null)
+    private async Task WriteHeader(IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
     {
-        byte[] sizeBuf = new byte[12 + (data?.Length ?? 0)];
-        header.Length = data?.Length ?? 0;
-        UnmarshalYamuxHeader(sizeBuf, ref header);
-        data?.CopyTo(sizeBuf, 12);
+        byte[] headerBuffer = new byte[12];
+        header.Length = (int)data.Length;
+        
+        UnmarshalYamuxHeader(headerBuffer, ref header);
+        
         _logger?.LogInformation(
             $"Write header, stream-{header.StreamID} type={header.Type} flags={header.Flags} {(header.Type != YamuxHeaderType.Data
                 ? ""
                 : "\ndata " + Encoding.ASCII.GetString(data))}");
-        await writer.WriteAsync(sizeBuf);
+        await writer.WriteAsync(data.Prepend(headerBuffer));
     }
 
     private static YamuxHeader MarshalYamuxHeader(Span<byte> data)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Nethermind.Libp2p.Core;
@@ -26,6 +27,14 @@ public interface IReader
 
     ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default);
+
+    async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync([EnumeratorCancellation] CancellationToken token = default)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            yield return await ReadAsync(0, ReadBlockingMode.WaitAny, token);
+        }
+    }
 }
 
 public enum ReadBlockingMode

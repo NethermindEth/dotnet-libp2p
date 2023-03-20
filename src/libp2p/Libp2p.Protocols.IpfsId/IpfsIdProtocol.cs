@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Enums;

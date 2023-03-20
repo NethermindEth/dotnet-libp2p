@@ -7,8 +7,12 @@ using Nethermind.Libp2p.Protocols;
 namespace Nethermind.Libp2p.Builder;
 
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>
-{
-    public static Libp2pPeerFactoryBuilder Instance => new();
+{   
+    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
+    {
+    }
+    
+    public static Libp2pPeerFactoryBuilder Create => new();
 
     protected override Libp2pPeerFactoryBuilder BuildTransportLayer()
     {

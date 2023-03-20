@@ -3,6 +3,10 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Unicode;
+using Microsoft.Extensions.Logging;
+using Org.BouncyCastle.Utilities.Encoders;
 
 [assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Libp2p.Core.Tests")]
@@ -13,13 +17,15 @@ namespace Nethermind.Libp2p.Core;
 
 internal class Channel : IChannel
 {
-    private IChannel _reversedChannel;
+    private IChannel? _reversedChannel;
+    private ILogger<Channel>? _logger;
 
-    public Channel()
+    public Channel(ILoggerFactory ? loggerFactory = null)
     {
+        _logger = loggerFactory?.CreateLogger<Channel>();
         Id = "unknown";
-        Reader = new ReaderWriter();
-        Writer = new ReaderWriter();
+        Reader = new ReaderWriter(_logger);
+        Writer = new ReaderWriter(_logger);
     }
 
     private Channel(IReader reader, IWriter writer)
@@ -35,13 +41,14 @@ internal class Channel : IChannel
     {
         get
         {
-            if (_reversedChannel != null)
+            if (_reversedChannel is not null)
             {
                 return _reversedChannel;
             }
 
             Channel x = new((ReaderWriter)Writer, (ReaderWriter)Reader)
             {
+                _logger = this._logger,
                 _reversedChannel = this,
                 State = State,
                 Id = Id + "-rev"
@@ -83,104 +90,78 @@ internal class Channel : IChannel
 
     internal class ReaderWriter : IReader, IWriter
     {
-        private ArraySegment<byte> _bytes;
-        private ManualResetEventSlim _canWrite = new();
-        private ManualResetEventSlim _read = new();
-        private SemaphoreSlim _canRead = new(0, 1);
+        private readonly ILogger? _logger;
 
-        public string Name { get; set; }
-
-
-        internal class MemorySegment<T> : ReadOnlySequenceSegment<T>
+        public ReaderWriter(ILogger ?logger = null)
         {
-            public MemorySegment(ReadOnlyMemory<T> memory)
-            {
-                Memory = memory;
-            }
-
-            public MemorySegment<T> Append(ReadOnlyMemory<T> memory)
-            {
-                var segment = new MemorySegment<T>(memory)
-                {
-                    RunningIndex = RunningIndex + Memory.Length
-                };
-
-                Next = segment;
-
-                return segment;
-            }
+            _logger = logger;
         }
+        private ReadOnlySequence<byte> _bytes;
+        private readonly SemaphoreSlim _canWrite = new(1, 1);
+        private readonly SemaphoreSlim _read = new(0, 1);
+        private readonly SemaphoreSlim _canRead = new(1, 1);
 
         public async ValueTask<ReadOnlySequence<byte>> ReadAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
-            if (_bytes.Count == 0 && blockingMode == ReadBlockingMode.DontWait)
+            if (_bytes.Length == 0 && blockingMode == ReadBlockingMode.DontWait)
             {
                 return new ReadOnlySequence<byte>();
             }
             await _canRead.WaitAsync(token);
 
-            int bytesToRead = length != 0
-                ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Count))
-                : _bytes.Count;
+            long bytesToRead = length != 0
+                ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Length))
+                : _bytes.Length;
             
-            MemorySegment<byte>? chunk = null;
-            MemorySegment<byte>? lchunk;
+            ReadOnlySequence<byte> chunk = default;
             do
             {
-                ReadOnlyMemory<byte> anotherChunk = null;
+                ReadOnlySequence<byte> anotherChunk = default;
                 
-                if (_bytes.Count <= bytesToRead)
+                if (_bytes.Length <= bytesToRead)
                 {
                     anotherChunk = _bytes;
-                    bytesToRead -= _bytes.Count;
-                    _bytes = null;
-                    _read.Set();
-                    _canWrite.Set();
+                    bytesToRead -= _bytes.Length;
+                    _logger?.LogTrace("Read chunk {0} bytes: {1}", _bytes.Length, Encoding.UTF8.GetString(_bytes.ToArray()));
+                    _bytes = default;
+                    _read.Release();
+                    _canWrite.Release();
                 }
-                else if (_bytes.Count > bytesToRead)
+                else if (_bytes.Length > bytesToRead)
                 {
-                    anotherChunk = _bytes[..bytesToRead];
-                    _bytes = _bytes[bytesToRead..];
+                    anotherChunk = _bytes.Slice(0, bytesToRead);
+                    _bytes = _bytes.Slice(bytesToRead, _bytes.End);
+                    _logger?.LogTrace("Read enough {0} bytes: {1}", anotherChunk.Length, Encoding.UTF8.GetString(anotherChunk.ToArray()));
+                    _canRead.Release();
                     bytesToRead = 0;
                 }
 
-                if (chunk == null)
-                {
-                    lchunk = chunk = new MemorySegment<byte>(anotherChunk);
-                }
-                else
-                {
-                    lchunk = chunk.Append(anotherChunk);
-                }
+                chunk = chunk.Length == 0 ? anotherChunk : chunk.Append(anotherChunk.First);
             } while (bytesToRead != 0);
 
-            _canRead.Release();
-            return new ReadOnlySequence<byte>(chunk, 0, lchunk, lchunk.Memory.Length);
+            return chunk;
         }
 
-        public ReaderWriter()
+        public async ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
         {
-            _canWrite.Set();
-            _read.Reset();
-        }
-
-        public async ValueTask WriteAsync(ArraySegment<byte> bytes)
-        {
-            if (bytes.Count == 0)
-            {
-                return;
-            }
-
-            _canWrite.Wait();
-            if (_bytes != null)
+            await _canWrite.WaitAsync();
+            if (_bytes.Length != 0)
             {
                 throw new InvalidProgramException();
             }
-
+            
+            _logger?.LogTrace("Write {0} bytes: {1}", bytes.Length, Encoding.UTF8.GetString(bytes.ToArray()));
+            
+            if (bytes.Length == 0)
+            {
+                _canWrite.Release();
+                return;
+            }
+            
             _bytes = bytes;
             _canRead.Release();
-            _read.Wait();
+            await _read.WaitAsync();
         }
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Text;
 
 namespace Nethermind.Libp2p.Core;
@@ -15,7 +16,7 @@ public interface IWriter
         VarInt.Encode(len, buf, ref offset);
         Encoding.UTF8.GetBytes(str, 0, str.Length, buf, offset);
         buf[^1] = 0x0a;
-        return WriteAsync(buf);
+        return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
     ValueTask WriteVarintAsync(int val)
@@ -23,7 +24,7 @@ public interface IWriter
         byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
         int offset = 0;
         VarInt.Encode(val, buf, ref offset);
-        return WriteAsync(buf);
+        return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
     ValueTask WriteSizeAndDataAsync(byte[] data)
@@ -32,8 +33,8 @@ public interface IWriter
         int offset = 0;
         VarInt.Encode(data.Length, buf, ref offset);
         Array.ConstrainedCopy(data, 0, buf, offset, data.Length);
-        return WriteAsync(buf);
+        return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
-    ValueTask WriteAsync(ArraySegment<byte> bytes);
+    ValueTask WriteAsync(ReadOnlySequence<byte> bytes);
 }

@@ -60,7 +60,7 @@ public class ChannelFactory : IChannelFactory
         switch (subProtocol)
         {
             default:
-                subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
+                _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
                 break;
         }
 
@@ -76,7 +76,7 @@ public class ChannelFactory : IChannelFactory
         switch (subProtocol)
         {
             default:
-                subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context);
+                _ = subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context);
                 break;
         }
 
@@ -92,7 +92,7 @@ public class ChannelFactory : IChannelFactory
         switch (subProtocol)
         {
             default:
-                subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
+                _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
                 break;
         }
 
@@ -117,10 +117,8 @@ public class ChannelFactory : IChannelFactory
 
     private Channel CreateChannel(IProtocol subprotocol)
     {
-        Channel chan = new()
-        {
-            Id = $"{_parent.Id} <> {subprotocol?.Id}"
-        };
+        Channel chan = ActivatorUtilities.CreateInstance<Channel>(_serviceProvider);
+        chan.Id = $"{_parent.Id} <> {subprotocol?.Id}";
         _logger?.LogDebug("Create chan {0}", chan.Id);
         return chan;
     }
