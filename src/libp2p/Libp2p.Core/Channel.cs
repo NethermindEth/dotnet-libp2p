@@ -65,9 +65,10 @@ internal class Channel : IChannel
 
     public CancellationToken Token => State.Token;
 
-    public async Task CloseAsync(bool graceful = true)
+    public Task CloseAsync(bool graceful = true)
     {
         State.Cancel();
+        return Task.CompletedTask;
     }
 
     public void OnClose(Func<Task> action)
@@ -84,8 +85,17 @@ internal class Channel : IChannel
     {
         Reader = (ReaderWriter)parent.Writer;
         Writer = (ReaderWriter)parent.Reader;
-        OnClose(async () => { (parent as Channel).State.Cancel(); });
-        (parent as Channel).OnClose(async () => { State.Cancel(); });
+        Channel parentChannel = (Channel)parent;
+        OnClose(() =>
+        {
+            parentChannel.State.Cancel();
+            return Task.CompletedTask;
+        });
+        parentChannel.OnClose(() =>
+        {
+            State.Cancel();
+            return Task.CompletedTask;
+        });
     }
 
     internal class ReaderWriter : IReader, IWriter
@@ -99,7 +109,7 @@ internal class Channel : IChannel
         private ReadOnlySequence<byte> _bytes;
         private readonly SemaphoreSlim _canWrite = new(1, 1);
         private readonly SemaphoreSlim _read = new(0, 1);
-        private readonly SemaphoreSlim _canRead = new(1, 1);
+        private readonly SemaphoreSlim _canRead = new(0, 1);
 
         public async ValueTask<ReadOnlySequence<byte>> ReadAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
@@ -150,15 +160,15 @@ internal class Channel : IChannel
             {
                 throw new InvalidProgramException();
             }
-            
+
             _logger?.LogTrace("Write {0} bytes: {1}", bytes.Length, Encoding.UTF8.GetString(bytes.ToArray()));
-            
+
             if (bytes.Length == 0)
             {
                 _canWrite.Release();
                 return;
             }
-            
+
             _bytes = bytes;
             _canRead.Release();
             await _read.WaitAsync();

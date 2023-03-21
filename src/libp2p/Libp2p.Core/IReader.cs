@@ -9,9 +9,9 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
-    async Task<string> ReadLineAsync(bool prependedWithSize = true)
+    async Task<string> ReadLineAsync()
     {
-        int size = (int)(await ReadVarintAsync());
+        int size = await ReadVarintAsync();
         return Encoding.UTF8.GetString(await ReadAsync(size)).TrimEnd('\n');
     }
 
