@@ -40,7 +40,7 @@ else
         ts.Token);
     logger.LogInformation($"Listener started at {listener.Address}");
     listener.OnConnection += async remotePeer => logger.LogInformation($"A peer connected {remotePeer.Address}");
-    Console.CancelKeyPress += delegate { listener.DisconectAsync(); };
+    Console.CancelKeyPress += delegate { listener.DisconnectAsync(); };
 
     await listener;
 }
