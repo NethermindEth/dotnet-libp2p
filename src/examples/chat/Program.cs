@@ -7,11 +7,11 @@ using Nethermind.Libp2p.Builder;
 using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddSingleton<Libp2pPeerFactoryBuilder>()
+    .AddLibp2pBuilder()
     .AddLogging(builder => builder.SetMinimumLevel(LogLevel.Trace).AddConsole())
     .BuildServiceProvider();
 
-IPeerFactory peerFactory = serviceProvider.GetService<Libp2pPeerFactoryBuilder>()!
+IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactoryBuilder>()!
     .AddAppLayerProtocol<ChatProtocol>()
     .Build();
 

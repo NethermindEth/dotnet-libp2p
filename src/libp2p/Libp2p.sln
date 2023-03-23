@@ -33,6 +33,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.TestsBase", "Li
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.Tests", "Libp2p.Core.Tests\Libp2p.Core.Tests.csproj", "{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.Benchmarks", "Libp2p.Core.Benchmarks\Libp2p.Core.Benchmarks.csproj", "{1074EB57-7149-46A8-A1EC-7342035EA9CF}"
+EndProject
 Global
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -76,6 +78,8 @@ Global
 		{1464CF1F-0951-4A66-B18C-E453354AC8DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1074EB57-7149-46A8-A1EC-7342035EA9CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1074EB57-7149-46A8-A1EC-7342035EA9CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

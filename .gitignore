@@ -354,3 +354,5 @@ MigrationBackup/
 *.pcapng
 /devnotes
 .idea
+
+*.log

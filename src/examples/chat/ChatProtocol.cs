@@ -18,7 +18,8 @@ internal class ChatProtocol : SymetricProtocol, IProtocol
         {
             while (!channel.Token.IsCancellationRequested)
             {
-                ReadOnlySequence<byte> read = await channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny, channel.Token);
+                ReadOnlySequence<byte> read =
+                    await channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny, channel.Token);
                 Console.Write(Encoding.UTF8.GetString(read).Replace("\n\n", "\n> "));
             }
         }, channel.Token);

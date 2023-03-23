@@ -27,7 +27,7 @@ public class Identity
         }
 
         byte[] publicKey = new byte[32];
-        Ed25519.GeneratePublicKey(privateKey, publicKey);
+        Ed25519.GeneratePublicKey(privateKey, 0, publicKey, 0);
 
         _privateKey = privateKey;
         PublicKey = new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(publicKey) };

@@ -35,7 +35,7 @@ public class PeerFactory : IPeerFactory
 
     private Task DialAsync<TProtocol>(CancellationToken token) where TProtocol : IProtocol
     {
-        TaskCompletionSource cts = new(token);
+        TaskCompletionSource<bool> cts = new(token);
         _appFactory.SubDialRequests.Add(new ChannelRequest
             { SubProtocol = ActivatorUtilities.CreateInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
         return cts.Task;

@@ -44,7 +44,7 @@ public class ChannelFactory : IChannelFactory
                         await chan.CloseAsync();
                     }
 
-                    req.CompletionSource.SetResult();
+                    req.CompletionSource.SetResult(true);
                 });
 
                 break;

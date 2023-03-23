@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Nethermind.Libp2p.Core;
 
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
-    where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>
+    where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : PeerFactory
 {
     private readonly List<Func<IProtocol>> _appLayerProtocols = new();
@@ -25,7 +25,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
         ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
     }
 
-    public TBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(instance is null
             ? () => ActivatorUtilities.CreateInstance<TProtocol>(ServiceProvider)

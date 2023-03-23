@@ -75,7 +75,7 @@ public static class VarInt
                 return res;
             }
         }
-    
+
         return 0;
     }
 
@@ -86,14 +86,14 @@ public static class VarInt
         for (int i = 0; i < 9; i++)
         {
             byte @byte = (await buf.ReadAsync(1)).FirstSpan[0];
-            res += ((int)@byte & 127) << mul;
+            res += (@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)
             {
                 return res;
             }
         }
-    
+
         return 0;
     }
 }

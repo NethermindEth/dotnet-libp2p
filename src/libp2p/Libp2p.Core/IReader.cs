@@ -12,7 +12,7 @@ public interface IReader
     async Task<string> ReadLineAsync()
     {
         int size = await ReadVarintAsync();
-        return Encoding.UTF8.GetString(await ReadAsync(size)).TrimEnd('\n');
+        return Encoding.UTF8.GetString((await ReadAsync(size)).ToArray()).TrimEnd('\n');
     }
 
     Task<int> ReadVarintAsync()
@@ -28,7 +28,8 @@ public interface IReader
     ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default);
 
-    async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync([EnumeratorCancellation] CancellationToken token = default)
+    async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
+        [EnumeratorCancellation] CancellationToken token = default)
     {
         while (!token.IsCancellationRequested)
         {
@@ -43,12 +44,3 @@ public enum ReadBlockingMode
     WaitAny,
     DontWait
 }
-
-
-// class X
-// {
-//     void P()
-//     {
-//         System.Threading.Channels.Channel<byte> c = System.Threading.Channels.Channel.CreateBounded<byte>(0);
-//     }
-// }

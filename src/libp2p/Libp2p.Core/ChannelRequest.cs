@@ -6,7 +6,7 @@ namespace Nethermind.Libp2p.Core;
 public class ChannelRequest : IChannelRequest
 {
     public IProtocol? SubProtocol { get; init; }
-    public TaskCompletionSource? CompletionSource { get; init; }
+    public TaskCompletionSource<bool>? CompletionSource { get; init; }
 
     public override string ToString()
     {
