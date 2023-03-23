@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol : SymetricProtocol, IProtocol
+public class YamuxProtocol : SymmetricProtocol, IProtocol
 {
     private readonly ILogger? _logger;
 

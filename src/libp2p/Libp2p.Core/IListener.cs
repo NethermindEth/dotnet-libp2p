@@ -9,7 +9,7 @@ public interface IListener
 {
     MultiAddr Address { get; }
     event OnConnection OnConnection;
-    Task DisconectAsync();
+    Task DisconnectAsync();
     TaskAwaiter GetAwaiter();
 }
 

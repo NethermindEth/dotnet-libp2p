@@ -356,3 +356,4 @@ MigrationBackup/
 .idea
 
 *.log
+.vscode

@@ -1,39 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <TargetFramework>netstandard2.1</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-        <LangVersion>latest</LangVersion>
-        <RootNamespace>Nethermind.Libp2p.Core</RootNamespace>
-    </PropertyGroup>
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Nethermind.Libp2p.Core</RootNamespace>
+  </PropertyGroup>
 
-    <PropertyGroup>
-        <Description>Core routines and APIs</Description>
-        <PackageTags>libp2p network</PackageTags>
-    </PropertyGroup>
+  <PropertyGroup>
+    <Description>Core routines and APIs</Description>
+    <PackageTags>libp2p network</PackageTags>
+  </PropertyGroup>
 
-    <ItemGroup>
-        <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-        <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-    </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+  </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="BouncyCastle.Cryptography" Version="2.0.0" Aliases="BouncyCastleCryptography"/>
-        <PackageReference Include="Google.Protobuf" Version="3.22.0"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.1.23110.8"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0-preview.1.23110.8"/>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0-preview.1.23110.8"/>
-        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="Multiformats.Hash" Version="1.5.0"/>
-        <PackageReference Include="SimpleBase" Version="4.0.0"/>
-    </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Aliases="BouncyCastleCryptography"/>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Multiformats.Hash" />
+    <PackageReference Include="SimpleBase" />
+  </ItemGroup>
 
-    <ItemGroup>
-        <Folder Include="Enums\"/>
-    </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Enums\"/>
+  </ItemGroup>
 
 </Project>
