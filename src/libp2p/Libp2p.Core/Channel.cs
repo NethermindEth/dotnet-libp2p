@@ -12,8 +12,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Core;
 
-// TODO: Rewrite using standard buffered channels
-
 internal class Channel : IChannel
 {
     private IChannel? _reversedChannel;
@@ -89,8 +87,8 @@ internal class Channel : IChannel
 
     public void Bind(IChannel parent)
     {
-        Reader = (ReaderWriter)parent.Writer;
-        Writer = (ReaderWriter)parent.Reader;
+        Reader = (ReaderWriter)((Channel)parent).Writer;
+        Writer = (ReaderWriter)((Channel)parent).Reader;
         Channel parentChannel = (Channel)parent;
         OnClose(() =>
         {
@@ -195,5 +193,16 @@ internal class Channel : IChannel
             _canRead.Release();
             await _read.WaitAsync();
         }
+    }
+
+    public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default)
+    {
+        return Reader.ReadAsync(length, blockingMode, token);
+    }
+
+    public ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
+    {
+        return Writer.WriteAsync(bytes);
     }
 }

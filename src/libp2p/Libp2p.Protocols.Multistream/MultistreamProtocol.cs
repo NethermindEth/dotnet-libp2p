@@ -25,8 +25,8 @@ public class MultistreamProtocol : IProtocol
         IProtocol? selected = null;
         foreach (IProtocol selector in channelFactory.SubProtocols)
         {
-            await channel.Writer.WriteLineAsync(selector.Id);
-            string selectorLine = await channel.Reader.ReadLineAsync();
+            await channel.WriteLineAsync(selector.Id);
+            string selectorLine = await channel.ReadLineAsync();
             if (selectorLine == selector.Id)
             {
                 selected = selector;
@@ -60,15 +60,15 @@ public class MultistreamProtocol : IProtocol
         IProtocol? selected = null;
         while (!channel.IsClosed)
         {
-            string proto = await channel.Reader.ReadLineAsync();
+            string proto = await channel.ReadLineAsync();
             selected = channelFactory.SubProtocols.FirstOrDefault(x => x.Id == proto);
             if (selected is not null)
             {
-                await channel.Writer.WriteLineAsync(selected.Id);
+                await channel.WriteLineAsync(selected.Id);
                 break;
             }
 
-            await channel.Writer.WriteLineAsync(ProtocolNotSupported);
+            await channel.WriteLineAsync(ProtocolNotSupported);
         }
 
         if (selected is null)
@@ -82,8 +82,8 @@ public class MultistreamProtocol : IProtocol
 
     private async Task<bool> SendHello(IChannel channel)
     {
-        await channel.Writer.WriteLineAsync(Id);
-        string line = await channel.Reader.ReadLineAsync();
+        await channel.WriteLineAsync(Id);
+        string line = await channel.ReadLineAsync();
         return line == Id;
     }
 }

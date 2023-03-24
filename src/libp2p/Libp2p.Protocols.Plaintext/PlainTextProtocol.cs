@@ -29,10 +29,10 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         byte[] sizeBuf = new byte[sizeOfSize];
         int offset1 = 0;
         VarInt.Encode(size, sizeBuf, ref offset1);
-        await channel.Writer.WriteAsync(new ReadOnlySequence<byte>(sizeBuf.Concat(buf).ToArray()));
+        await channel.WriteAsync(new ReadOnlySequence<byte>(sizeBuf.Concat(buf).ToArray()));
 
-        int structSize = await channel.Reader.ReadVarintAsync();
-        buf = (await channel.Reader.ReadAsync(structSize)).ToArray();
+        int structSize = await channel.ReadVarintAsync();
+        buf = (await channel.ReadAsync(structSize)).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
         _ = isListener

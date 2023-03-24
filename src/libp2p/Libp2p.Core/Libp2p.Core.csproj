@@ -14,12 +14,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+    <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="BouncyCastle.Cryptography" Aliases="BouncyCastleCryptography"/>
+    <PackageReference Include="BouncyCastle.Cryptography" Aliases="BouncyCastleCryptography" />
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
@@ -33,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Enums\"/>
+    <Folder Include="Enums\" />
   </ItemGroup>
 
 </Project>

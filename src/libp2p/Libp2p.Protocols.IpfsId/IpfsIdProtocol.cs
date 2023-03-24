@@ -4,7 +4,6 @@
 using System.Buffers;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -28,11 +27,11 @@ public class IpfsIdProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
         IPeerContext context)
     {
-        int size = await channel.Reader.ReadVarintAsync();
-        byte[] identifyDto = (await channel.Reader.ReadAsync(size)).ToArray();
+        int size = await channel.ReadVarintAsync();
+        byte[] identifyDto = (await channel.ReadAsync(size)).ToArray();
 
-        string? pubKey = context.RemotePeer.Address.At(Multiaddr.P2p);
-        Identify? identity = Identify.Parser.ParseFrom(identifyDto, 0, (int)size);
+        //string? pubKey = context.RemotePeer.Address.At(Multiaddr.P2p);
+        Identify identity = Identify.Parser.ParseFrom(identifyDto, 0, size);
 
         context.RemotePeer.Identity = Identity.FromPublicKey(identity.PublicKey.ToByteArray());
         _logger?.LogInformation("Received peer id={0}", identity.PublicKey);
@@ -53,7 +52,7 @@ public class IpfsIdProtocol : IProtocol
         };
         byte[] ar = new byte[identify.CalculateSize()];
         identify.WriteTo(ar);
-        await channel.Writer.WriteSizeAndDataAsync(ar);
+        await channel.WriteSizeAndDataAsync(ar);
         _logger?.LogInformation("Sent peer id to {0}", context.RemotePeer.Address);
 
         await channel.CloseAsync();

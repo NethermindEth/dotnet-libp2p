@@ -4,6 +4,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>Nethermind.Libp2p.Protocols</RootNamespace>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 

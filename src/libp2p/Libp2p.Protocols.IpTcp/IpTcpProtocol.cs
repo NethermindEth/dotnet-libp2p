@@ -83,7 +83,7 @@ public class IpTcpProtocol : IProtocol
                             int len = await client.ReceiveAsync(buf, SocketFlags.None);
                             if (len != 0)
                             {
-                                await chan.Writer.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                                await chan.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
                             }
                         }
                     }
@@ -96,7 +96,7 @@ public class IpTcpProtocol : IProtocol
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in chan.Reader.ReadAllAsync())
+                        await foreach (ReadOnlySequence<byte> data in chan.ReadAllAsync())
                         {
                             await client.SendAsync(data.ToArray(), SocketFlags.None);
                         }
@@ -155,7 +155,7 @@ public class IpTcpProtocol : IProtocol
                     if (len != 0)
                     {
                         _logger?.LogDebug("Receive data, len={0}", len);
-                        await chan.Writer.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
+                        await chan.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
                     }
                 }
 
@@ -172,7 +172,7 @@ public class IpTcpProtocol : IProtocol
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in chan.Reader.ReadAllAsync())
+                await foreach (ReadOnlySequence<byte> data in chan.ReadAllAsync())
                 {
                     await client.SendAsync(data.ToArray(), SocketFlags.None);
                 }
