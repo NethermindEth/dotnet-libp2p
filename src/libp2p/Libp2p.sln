@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33213.308
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{0DC1C6A1-0A5B-43BA-9605-621C21A16716}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{0DC1C6A1-0A5B-43BA-9605-621C21A16716}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Chat", "..\examples\chat\Chat.csproj", "{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Chat", "..\samples\chat\Chat.csproj", "{9958ABBD-36EF-4CD6-8D5D-822D283C5E8B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "protocols", "protocols", "{6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}"
 EndProject
@@ -33,7 +33,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.TestsBase", "Li
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.Tests", "Libp2p.Core.Tests\Libp2p.Core.Tests.csproj", "{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Core.Benchmarks", "Libp2p.Core.Benchmarks\Libp2p.Core.Benchmarks.csproj", "{1074EB57-7149-46A8-A1EC-7342035EA9CF}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.Benchmarks", "Libp2p.Core.Benchmarks\Libp2p.Core.Benchmarks.csproj", "{1074EB57-7149-46A8-A1EC-7342035EA9CF}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Noise", "Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj", "{6C81FFE2-A58F-41B9-8C40-0F7448497D84}"
 EndProject
