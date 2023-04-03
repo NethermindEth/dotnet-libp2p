@@ -9,11 +9,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj"/>
-        <ProjectReference Include="..\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj"/>
-        <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj"/>
-        <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj"/>
-        <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj"/>
+        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
     </ItemGroup>
 
     <ItemGroup>

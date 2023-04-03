@@ -149,8 +149,7 @@ internal class Channel : IChannel
                 {
                     anotherChunk = _bytes;
                     bytesToRead -= _bytes.Length;
-                    _logger?.LogTrace("Read chunk {0} bytes: {1}", _bytes.Length,
-                        Encoding.UTF8.GetString(_bytes.ToArray()));
+                    _logger?.LogTrace("Read chunk {0} bytes", _bytes.Length);
                     _bytes = default;
                     _read.Release();
                     _canWrite.Release();
@@ -159,8 +158,7 @@ internal class Channel : IChannel
                 {
                     anotherChunk = _bytes.Slice(0, bytesToRead);
                     _bytes = _bytes.Slice(bytesToRead, _bytes.End);
-                    _logger?.LogTrace("Read enough {0} bytes: {1}", anotherChunk.Length,
-                        Encoding.UTF8.GetString(anotherChunk.ToArray()));
+                    _logger?.LogTrace("Read enough {0} bytes", anotherChunk.Length);
                     bytesToRead = 0;
                     _canRead.Release();
                 }
@@ -181,7 +179,7 @@ internal class Channel : IChannel
                 throw new InvalidProgramException();
             }
 
-            _logger?.LogTrace("Write {0} bytes: {1}", bytes.Length, Encoding.UTF8.GetString(bytes.ToArray()));
+            _logger?.LogTrace("Write {0} bytes", bytes.Length);
 
             if (bytes.Length == 0)
             {

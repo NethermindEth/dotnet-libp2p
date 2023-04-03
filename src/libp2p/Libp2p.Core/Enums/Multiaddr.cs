@@ -19,15 +19,20 @@ public enum Multiaddr
     Sctp = 0x84,
     // draft
     Udp = 0x0111,
-    // draft
+    // Use webrtc or webrtc-direct instead
+    // deprecated
     P2pWebrtcStar = 0x0113,
-    // draft
+    // Use webrtc or webrtc-direct instead
+    // deprecated
     P2pWebrtcDirect = 0x0114,
-    // draft
+    // deprecated
     P2pStardust = 0x0115,
-    // WebRTC
+    // ICE-lite webrtc transport with SDP munging during connection establishment and without use of a STUN server
     // draft
-    Webrtc = 0x0118,
+    WebrtcDirect = 0x0118,
+    // webrtc transport where connection establishment is according to w3c spec
+    // draft
+    Webrtc = 0x0119,
     P2pCircuit = 0x0122,
     // draft
     Udt = 0x012d,

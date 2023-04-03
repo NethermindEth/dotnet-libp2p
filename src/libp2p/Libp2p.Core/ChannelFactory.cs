@@ -24,45 +24,56 @@ public class ChannelFactory : IChannelFactory
     public IEnumerable<IProtocol> SubProtocols { get; private set; }
     public BlockingCollection<IChannelRequest> SubDialRequests { get; } = new();
 
+
     public IChannel SubDial(IPeerContext context, IChannelRequest? req = null)
     {
         IProtocol? subProtocol = SubProtocols.FirstOrDefault();
 
         Channel chan = CreateChannel(subProtocol);
-        switch (subProtocol)
+        ChannelFactory? sf = _subchannelsFactory as ChannelFactory;
+        ChannelFactory? s = req is null
+            ? sf
+            : ActivatorUtilities.CreateInstance<ChannelFactory>(_serviceProvider)
+                .Connect(sf._parent, sf._subchannelsFactory, req.SubProtocol);
+        _ = subProtocol.DialAsync(chan.Reverse, s, context).ContinueWith(async t =>
         {
-            default:
-                ChannelFactory? sf = _subchannelsFactory as ChannelFactory;
-                ChannelFactory? s = req is null
-                    ? sf
-                    : ActivatorUtilities.CreateInstance<ChannelFactory>(_serviceProvider)
-                        .Connect(sf._parent, sf._subchannelsFactory, req.SubProtocol);
-                subProtocol.DialAsync(chan.Reverse, s, context).ContinueWith(async t =>
-                {
-                    if (!chan.IsClosed)
-                    {
-                        await chan.CloseAsync();
-                    }
+            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            {
+            }
 
-                    req.CompletionSource.SetResult(true);
-                });
+            if (!chan.IsClosed)
+            {
+                await chan.CloseAsync(t.Exception is null);
+            }
 
-                break;
-        }
+            req?.CompletionSource?.SetResult(true);
+        });
+
 
         return chan;
     }
 
     public IChannel SubListen(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = SubProtocols.FirstOrDefault();
+        PeerContext peerContext = (PeerContext)context;
+
         Channel chan = CreateChannel(subProtocol);
-        switch (subProtocol)
+        _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            default:
-                _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
-                break;
-        }
+            var dd = _subchannelsFactory.SubProtocols;
+            var d = subProtocol;
+            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            {
+            }
+
+            if (!chan.IsClosed)
+            {
+                await chan.CloseAsync();
+            }
+
+            req?.CompletionSource?.SetResult(true);
+        });
 
         return chan;
     }
@@ -70,15 +81,23 @@ public class ChannelFactory : IChannelFactory
     public IChannel SubDialAndBind(IChannel parent, IPeerContext context,
         IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-        switch (subProtocol)
+        _ = subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            default:
-                _ = subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context);
-                break;
-        }
+            var d = subProtocol;
+            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            {
+            }
+
+            if (!chan.IsClosed)
+            {
+                await chan.CloseAsync();
+            }
+
+            req?.CompletionSource?.SetResult(true);
+        });
 
         return chan;
     }
@@ -89,19 +108,28 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-        switch (subProtocol)
+        _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            default:
-                _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context);
-                break;
-        }
+            var d = subProtocol;
+            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            {
+            }
+
+            if (!chan.IsClosed)
+            {
+                await chan.CloseAsync();
+            }
+
+            req?.CompletionSource?.SetResult(true);
+        });
 
         return chan;
     }
 
-    public void Connected(IRemotePeer peer)
+
+    public void Connected(IPeer peer)
     {
-        OnRemotePeerConnection?.Invoke(peer);
+        OnRemotePeerConnection?.Invoke((IRemotePeer)peer);
     }
 
     public event RemotePeerConnected? OnRemotePeerConnection;

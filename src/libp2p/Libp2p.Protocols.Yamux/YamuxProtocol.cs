@@ -23,6 +23,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
     protected override async Task ConnectAsync(IChannel channel, IChannelFactory channelFactory,
         IPeerContext context, bool isListener)
     {
+        _logger?.LogInformation("connect yamux");
         int streamIdCounter = isListener ? 2 : 1;
         Dictionary<int, ChannelState> channels = new()
         {
@@ -31,9 +32,9 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         await WriteHeaderAsync(channel,
             new YamuxHeader { Flags = YamuxHeaderFlags.Syn, Type = YamuxHeaderType.Ping, StreamID = 0 });
 
-        _ = Task.Run(async () =>
+        await Task.Run(async () =>
         {
-            while (true)
+            while (!channel.IsClosed)
             {
                 YamuxHeader header = await ReadHeaderAsync(channel);
                 ReadOnlySequence<byte> data = default;
@@ -54,10 +55,10 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     if (header.Flags == YamuxHeaderFlags.Ack)
                     {
                         channels[header.StreamID].State = 2;
-
+                        channelFactory.Connected(context.RemotePeer);
                         _ = Task.Run(async () =>
                         {
-                            channelFactory.Connected(context.RemotePeer as IRemotePeer);
+                            
                             foreach (IChannelRequest request in channelFactory.SubDialRequests
                                          .GetConsumingEnumerable())
                             {

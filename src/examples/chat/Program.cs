@@ -7,13 +7,11 @@ using Nethermind.Libp2p.Builder;
 using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2pBuilder()
+    .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
     .AddLogging(builder => builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information).AddConsole())
     .BuildServiceProvider();
 
-IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactoryBuilder>()!
-    .AddAppLayerProtocol<ChatProtocol>()
-    .Build();
+IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
 ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
 CancellationTokenSource ts = new();

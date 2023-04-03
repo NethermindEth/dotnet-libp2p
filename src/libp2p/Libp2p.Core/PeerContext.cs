@@ -7,12 +7,14 @@ public class PeerContext : IPeerContext
 {
     public IPeer LocalPeer { get; set; }
     public IPeer RemotePeer { get; set; }
-    public IProtocol[] ApplayerProtocols { get; }
+    public IEnumerable<IProtocol> ApplayerProtocols { get; init; }
     public MultiAddr RemoteEndpoint { get; set; }
     public MultiAddr LocalEndpoint { get; set; }
 
     public IPeerContext Fork()
     {
-        return (PeerContext)MemberwiseClone();
+        PeerContext result = (PeerContext)MemberwiseClone();
+        result.RemotePeer = ((PeerFactory.RemotePeer)RemotePeer).Fork();
+        return result;
     }
 }

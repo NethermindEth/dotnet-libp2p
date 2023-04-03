@@ -15,13 +15,17 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
     public static Libp2pPeerFactoryBuilder Create => new();
 
-    protected override Libp2pPeerFactoryBuilder BuildTransportLayer()
+    protected override IPeerFactoryBuilder BuildTransportLayer()
     {
         return Over<IpTcpProtocol>()
             .Select<MultistreamProtocol>()
+            //.Over<NoiseProtocol>()
+// #if DEBUG
             .Over<PlainTextProtocol>()
+// #endif
             .Select<MultistreamProtocol>()
             .Over<YamuxProtocol>()
-            .Select<MultistreamProtocol>();
+            .Select<MultistreamProtocol>()
+            .AddAppLayerProtocol<IpfsIdProtocol>();
     }
 }
