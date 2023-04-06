@@ -61,7 +61,7 @@ public class IpfsIdProtocol : IProtocol
         {
             Identify identify = new()
             {
-                AgentVersion = "github.com/Nethermind/dotnet-libp2p/examples/data-transfer-benchmark@1.0.0",
+                AgentVersion = "github.com/Nethermind/dotnet-libp2p/samples/data-transfer-benchmark@1.0.0",
                 ProtocolVersion = SubProtocolId,
                 ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToByteArray()) },
                 ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToByteArray()),
