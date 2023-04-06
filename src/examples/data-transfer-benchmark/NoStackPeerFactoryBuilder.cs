@@ -5,7 +5,7 @@ using Nethermind.Libp2p.Builder;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
-namespace Chat;
+namespace DataTransferBenchmark;
 
 public class NoStackPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     IPeerFactoryBuilder

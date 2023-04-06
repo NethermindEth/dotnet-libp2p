@@ -61,8 +61,8 @@ public class ChannelFactory : IChannelFactory
         Channel chan = CreateChannel(subProtocol);
         _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            var dd = _subchannelsFactory.SubProtocols;
-            var d = subProtocol;
+            IEnumerable<IProtocol> dd = _subchannelsFactory.SubProtocols;
+            IProtocol d = subProtocol;
             if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
             {
             }
@@ -86,7 +86,7 @@ public class ChannelFactory : IChannelFactory
         chan.Bind(parent);
         _ = subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            var d = subProtocol;
+            IProtocol d = subProtocol;
             if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
             {
             }
@@ -110,7 +110,7 @@ public class ChannelFactory : IChannelFactory
         chan.Bind(parent);
         _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
         {
-            var d = subProtocol;
+            IProtocol d = subProtocol;
             if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
             {
             }

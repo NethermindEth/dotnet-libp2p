@@ -97,7 +97,7 @@ public class PeerFactory : IPeerFactory
                 ApplayerProtocols = _appLayerProtocols
             });
         result.Channel = chan;
-        var tcs = new TaskCompletionSource<bool>();
+        TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
         _appFactory.OnRemotePeerConnection += remotePeer =>
         {
             if (((RemotePeer)remotePeer).LocalPeer != peer)

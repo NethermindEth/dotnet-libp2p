@@ -15,8 +15,6 @@ namespace Nethermind.Libp2p.Core;
 /// </summary>
 public class Identity
 {
-    private readonly byte[] _privateKey;
-
     public Identity(byte[]? privateKey = null)
     {
         if (privateKey == null)
@@ -29,7 +27,7 @@ public class Identity
         byte[] publicKey = new byte[32];
         Ed25519.GeneratePublicKey(privateKey, 0, publicKey, 0);
 
-        _privateKey = privateKey;
+        PrivateKey = privateKey;
         PublicKey = new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(publicKey) };
     }
 
@@ -39,6 +37,7 @@ public class Identity
     }
 
     public PublicKey PublicKey { get; }
+    public byte[] PrivateKey { get; }
 
     public string PeerId => new RawPeerId(PublicKey).ToString();
     public byte[] PeerIdBytes => new RawPeerId(PublicKey).ToByteArray();

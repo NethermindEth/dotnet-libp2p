@@ -4,7 +4,8 @@
 using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
-using Org.BouncyCastle.Crypto.Signers;
+
+namespace DataTransferBenchmark;
 
 public class DataTransferBenchmarkProtocol : IProtocol
 {
@@ -16,7 +17,7 @@ public class DataTransferBenchmarkProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger<DataTransferBenchmarkProtocol>();
     }
     
-    public const int TotalLoad = 1024 * 1024 * 1024;
+    public const long TotalLoad = 1024L * 1024 * 100;
     private Random rand = new ();
     
     public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
@@ -30,13 +31,13 @@ public class DataTransferBenchmarkProtocol : IProtocol
 
             while (!downChannel.Token.IsCancellationRequested)
             {
-                var bytesToWrite = (int)Math.Min(bytes.Length, TotalLoad - bytesWritten);
+                int bytesToWrite = (int)Math.Min(bytes.Length, TotalLoad - bytesWritten);
                 if (bytesToWrite == 0)
                 {
                     break;
                 }
                 rand.NextBytes(bytes.AsSpan(0, bytesToWrite));
-                var bytesToSend = new ReadOnlySequence<byte>(bytes, 0, bytesToWrite);
+                ReadOnlySequence<byte> bytesToSend = new ReadOnlySequence<byte>(bytes, 0, bytesToWrite);
                 bytesWritten += bytesToWrite;
                 await downChannel.WriteAsync(bytesToSend);
                 _logger?.LogDebug($"DIAL WRIT {bytesToSend.Length}");
@@ -61,8 +62,8 @@ public class DataTransferBenchmarkProtocol : IProtocol
 
     public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
     {
-        int total = await downChannel.ReadVarintAsync();
-        long bytesRead = 0;
+        ulong total = await downChannel.ReadVarintUlongAsync();
+        ulong bytesRead = 0;
         while (!downChannel.Token.IsCancellationRequested)
         {
             ReadOnlySequence<byte> read =
@@ -76,7 +77,7 @@ public class DataTransferBenchmarkProtocol : IProtocol
             await downChannel.WriteAsync(read);
             _logger?.LogDebug($"LIST WRITE {read.Length}");
 
-            bytesRead += read.Length;
+            bytesRead += (ulong)read.Length;
             if (bytesRead == total)
             {
                 _logger?.LogInformation($"LIST DONE");

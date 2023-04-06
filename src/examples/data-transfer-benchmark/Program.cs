@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
-using Chat;
+using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Builder;
 using Nethermind.Libp2p.Core;
 
@@ -33,7 +32,7 @@ await Task.Delay(1000);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<DataTransferBenchmarkProtocol>();
-    var elapsed = timeSpent.Elapsed;
+    TimeSpan elapsed = timeSpent.Elapsed;
     Console.WriteLine("Libp2p");
     Console.WriteLine("Elapsed {0}", timeSpent.Elapsed);
     Console.WriteLine("Speed {0:0.00} MiB/s", DataTransferBenchmarkProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);
@@ -55,7 +54,7 @@ await Task.Delay(1000);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<DataTransferBenchmarkProtocol>();
-    var elapsed = timeSpent.Elapsed;
+    TimeSpan elapsed = timeSpent.Elapsed;
     Console.WriteLine("NoStack");
     Console.WriteLine("Elapsed {0}", timeSpent.Elapsed);
     Console.WriteLine("Speed {0:0.00} MiB/s", DataTransferBenchmarkProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);

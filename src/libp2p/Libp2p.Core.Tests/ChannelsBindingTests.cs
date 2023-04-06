@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Threading.Tasks;
-
 namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelsBindingTests

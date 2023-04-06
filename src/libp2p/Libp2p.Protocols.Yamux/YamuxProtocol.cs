@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Text;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;

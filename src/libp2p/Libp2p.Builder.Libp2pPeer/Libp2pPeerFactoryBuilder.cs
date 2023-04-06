@@ -19,9 +19,9 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     {
         return Over<IpTcpProtocol>()
             .Select<MultistreamProtocol>()
-            //.Over<NoiseProtocol>()
+            .Over<NoiseProtocol>()
 // #if DEBUG
-            .Over<PlainTextProtocol>()
+            .Or<PlainTextProtocol>()
 // #endif
             .Select<MultistreamProtocol>()
             .Over<YamuxProtocol>()
