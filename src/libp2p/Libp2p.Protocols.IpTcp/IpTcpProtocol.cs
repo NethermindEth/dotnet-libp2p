@@ -66,6 +66,18 @@ public class IpTcpProtocol : IProtocol
                         ? Multiaddr.Ip4
                         : Multiaddr.Ip6, remoteIpEndpoint.Address.ToString(), Multiaddr.Tcp,
                     remoteIpEndpoint.Port);
+                clientContext.LocalPeer.Address = context.LocalPeer.Address.Replace(
+                        context.LocalEndpoint.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6, newIpProtocol,
+                        remoteIpEndpoint.Address.ToString())
+                    .Replace(
+                        Multiaddr.Tcp,
+                        remoteIpEndpoint.Port.ToString());
+                clientContext.RemotePeer.Address = new MultiAddr()
+                    .Append(remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
+                        ? Multiaddr.Ip4
+                        : Multiaddr.Ip6, remoteIpEndpoint.Address.ToString())
+                    .Append(Multiaddr.Tcp, remoteIpEndpoint.Port.ToString());
+                
                 IChannel chan = channelFactory.SubListen(clientContext);
 
                 _ = Task.Run(async () =>
@@ -83,11 +95,11 @@ public class IpTcpProtocol : IProtocol
                             int len = await client.ReceiveAsync(buf, SocketFlags.None);
                             if (len != 0)
                             {
-                                await chan.Writer.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                                await chan.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
                             }
                         }
                     }
-                    catch (SocketException e)
+                    catch (SocketException)
                     {
                         await chan.CloseAsync(false);
                     }
@@ -96,12 +108,12 @@ public class IpTcpProtocol : IProtocol
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in chan.Reader.ReadAllAsync())
+                        await foreach (ReadOnlySequence<byte> data in chan.ReadAllAsync())
                         {
                             await client.SendAsync(data.ToArray(), SocketFlags.None);
                         }
                     }
-                    catch (SocketException e)
+                    catch (SocketException)
                     {
                         await chan.CloseAsync(false);
                     }
@@ -114,7 +126,7 @@ public class IpTcpProtocol : IProtocol
     {
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        MultiAddr addr = context.RemotePeer.Address!;
+        MultiAddr addr = context.RemotePeer.Address;
         Multiaddr ipProtocol = addr.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(Multiaddr.Tcp)!);
@@ -122,7 +134,7 @@ public class IpTcpProtocol : IProtocol
         {
             await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
         }
-        catch (SocketException se)
+        catch (SocketException)
         {
             _logger?.LogInformation("Failed to connect");
             // TODO: Add proper exception and reconnection handling
@@ -142,20 +154,21 @@ public class IpTcpProtocol : IProtocol
             Multiaddr.Tcp, localEndpoint.Port);
         context.LocalPeer.Address = context.LocalEndpoint.Append(Multiaddr.P2p, context.LocalPeer.Identity.PeerId);
 
-        IChannel chan = channelFactory.SubDial(context);
-
+        IChannel upChannel = channelFactory.SubDial(context);
+        //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
+        
         _ = Task.Run(async () =>
         {
             byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
-                while (!chan.IsClosed)
+                while (!upChannel.IsClosed)
                 {
                     int len = await client.ReceiveAsync(buf, SocketFlags.None);
                     if (len != 0)
                     {
                         _logger?.LogDebug("Receive data, len={0}", len);
-                        await chan.Writer.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
+                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
                     }
                 }
 
@@ -163,7 +176,7 @@ public class IpTcpProtocol : IProtocol
             }
             catch (SocketException)
             {
-                await chan.CloseAsync();
+                await upChannel.CloseAsync();
                 waitForStop.SetCanceled();
             }
         });
@@ -172,16 +185,16 @@ public class IpTcpProtocol : IProtocol
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in chan.Reader.ReadAllAsync())
+                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
                     await client.SendAsync(data.ToArray(), SocketFlags.None);
                 }
 
                 waitForStop.SetCanceled();
             }
-            catch (SocketException e)
+            catch (SocketException)
             {
-                await chan.CloseAsync(false);
+                await upChannel.CloseAsync(false);
                 waitForStop.SetCanceled();
             }
         });

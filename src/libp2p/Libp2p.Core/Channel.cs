@@ -3,7 +3,6 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using System.Text;
 using Microsoft.Extensions.Logging;
 
 [assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
@@ -11,8 +10,6 @@ using Microsoft.Extensions.Logging;
 [assembly: InternalsVisibleTo("Libp2p.Core.Benchmarks")]
 
 namespace Nethermind.Libp2p.Core;
-
-// TODO: Rewrite using standard buffered channels
 
 internal class Channel : IChannel
 {
@@ -89,8 +86,8 @@ internal class Channel : IChannel
 
     public void Bind(IChannel parent)
     {
-        Reader = (ReaderWriter)parent.Writer;
-        Writer = (ReaderWriter)parent.Reader;
+        Reader = (ReaderWriter)((Channel)parent).Writer;
+        Writer = (ReaderWriter)((Channel)parent).Reader;
         Channel parentChannel = (Channel)parent;
         OnClose(() =>
         {
@@ -151,8 +148,7 @@ internal class Channel : IChannel
                 {
                     anotherChunk = _bytes;
                     bytesToRead -= _bytes.Length;
-                    _logger?.LogTrace("Read chunk {0} bytes: {1}", _bytes.Length,
-                        Encoding.UTF8.GetString(_bytes.ToArray()));
+                    _logger?.LogTrace("Read chunk {0} bytes", _bytes.Length);
                     _bytes = default;
                     _read.Release();
                     _canWrite.Release();
@@ -161,8 +157,7 @@ internal class Channel : IChannel
                 {
                     anotherChunk = _bytes.Slice(0, bytesToRead);
                     _bytes = _bytes.Slice(bytesToRead, _bytes.End);
-                    _logger?.LogTrace("Read enough {0} bytes: {1}", anotherChunk.Length,
-                        Encoding.UTF8.GetString(anotherChunk.ToArray()));
+                    _logger?.LogTrace("Read enough {0} bytes", anotherChunk.Length);
                     bytesToRead = 0;
                     _canRead.Release();
                 }
@@ -183,7 +178,7 @@ internal class Channel : IChannel
                 throw new InvalidProgramException();
             }
 
-            _logger?.LogTrace("Write {0} bytes: {1}", bytes.Length, Encoding.UTF8.GetString(bytes.ToArray()));
+            _logger?.LogTrace("Write {0} bytes", bytes.Length);
 
             if (bytes.Length == 0)
             {
@@ -195,5 +190,16 @@ internal class Channel : IChannel
             _canRead.Release();
             await _read.WaitAsync();
         }
+    }
+
+    public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default)
+    {
+        return Reader.ReadAsync(length, blockingMode, token);
+    }
+
+    public ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
+    {
+        return Writer.WriteAsync(bytes);
     }
 }

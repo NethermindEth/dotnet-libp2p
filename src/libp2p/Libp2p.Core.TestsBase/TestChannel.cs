@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
@@ -14,8 +15,6 @@ public class TestChannel : IChannel
         _channel = new Channel();
     }
 
-    public IReader Reader => _channel.Reader;
-    public IWriter Writer => _channel.Writer;
     public bool IsClosed => _channel.IsClosed;
     public CancellationToken Token => _channel.Token;
 
@@ -37,5 +36,16 @@ public class TestChannel : IChannel
     public IChannel Reverse()
     {
         return _channel.Reverse;
+    }
+
+    public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default)
+    {
+        return _channel.ReadAsync(length, blockingMode, token);
+    }
+
+    public ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
+    {
+        return _channel.WriteAsync(bytes);
     }
 }

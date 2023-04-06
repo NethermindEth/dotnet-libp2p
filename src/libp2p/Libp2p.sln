@@ -35,6 +35,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.Tests", "Libp2p
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core.Benchmarks", "Libp2p.Core.Benchmarks\Libp2p.Core.Benchmarks.csproj", "{1074EB57-7149-46A8-A1EC-7342035EA9CF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Noise", "Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj", "{6C81FFE2-A58F-41B9-8C40-0F7448497D84}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataTransferBenchmark", "..\examples\data-transfer-benchmark\DataTransferBenchmark.csproj", "{049C11E6-1DD9-48C3-B492-BFFE0A3CE9F5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Noise.Tests", "Libp2p.Protocols.Noise.Tests\Libp2p.Protocols.Noise.Tests.csproj", "{6870A003-4BD2-4394-AE09-CE738B383A9A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -68,6 +74,12 @@ Global
 		{8D0D5F96-3165-44BF-BFD7-5E595DC7D930}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1074EB57-7149-46A8-A1EC-7342035EA9CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{1074EB57-7149-46A8-A1EC-7342035EA9CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C81FFE2-A58F-41B9-8C40-0F7448497D84}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C81FFE2-A58F-41B9-8C40-0F7448497D84}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{049C11E6-1DD9-48C3-B492-BFFE0A3CE9F5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{049C11E6-1DD9-48C3-B492-BFFE0A3CE9F5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6870A003-4BD2-4394-AE09-CE738B383A9A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6870A003-4BD2-4394-AE09-CE738B383A9A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -80,6 +92,9 @@ Global
 		{3E391742-9273-43BB-9A94-31E2476977B5} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{94540284-FC9C-4513-B104-21B922741FF6} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{6C81FFE2-A58F-41B9-8C40-0F7448497D84} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{049C11E6-1DD9-48C3-B492-BFFE0A3CE9F5} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
+		{6870A003-4BD2-4394-AE09-CE738B383A9A} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}

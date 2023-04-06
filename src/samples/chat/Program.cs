@@ -7,20 +7,23 @@ using Nethermind.Libp2p.Builder;
 using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2pBuilder()
-    .AddLogging(builder => builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information).AddConsole())
+    .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
+    .AddLogging(builder => 
+        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
+            .AddSimpleConsole(l =>
+            {
+                l.SingleLine = true;
+                l.TimestampFormat = "[HH:mm:ss.FFF]";
+            }))
     .BuildServiceProvider();
 
-IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactoryBuilder>()!
-    .AddAppLayerProtocol<ChatProtocol>()
-    .Build();
+IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
 ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
 CancellationTokenSource ts = new();
 
 if (args.Length > 0 && args[0] == "-d")
 {
-    await Task.Delay(5000);
     MultiAddr remoteAddr = args[1];
     ILocalPeer localPeer = peerFactory.Create();
 

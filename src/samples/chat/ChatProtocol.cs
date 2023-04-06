@@ -19,7 +19,7 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
             while (!channel.Token.IsCancellationRequested)
             {
                 ReadOnlySequence<byte> read =
-                    await channel.Reader.ReadAsync(0, ReadBlockingMode.WaitAny, channel.Token);
+                    await channel.ReadAsync(0, ReadBlockingMode.WaitAny, channel.Token);
                 Console.Write(Encoding.UTF8.GetString(read).Replace("\n\n", "\n> "));
             }
         }, channel.Token);
@@ -28,7 +28,7 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
             string line = await Reader.ReadLineAsync(channel.Token);
             Console.Write("> ");
             byte[] buf = Encoding.UTF8.GetBytes(line + "\n\n");
-            await channel.Writer.WriteAsync(new ReadOnlySequence<byte>(buf));
+            await channel.WriteAsync(new ReadOnlySequence<byte>(buf));
         }
     }
 }

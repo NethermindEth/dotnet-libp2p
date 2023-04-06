@@ -9,16 +9,13 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : PeerFactory
 {
-    private readonly List<Func<IProtocol>> _appLayerProtocols = new();
+    private readonly List<IProtocol> _appLayerProtocols = new();
 
-    private readonly Stack<Layer> protocolStack = new();
+    private readonly Stack<Layer> _protocolStack = new();
+    // ReSharper disable once MemberCanBePrivate.Global
     protected readonly IServiceProvider ServiceProvider;
 
-    private IProtocol? inititalProtocol = null;
-    private IChannelFactory? inititalProtocolFactory = null;
-
-    private bool isSelecting;
-    private IChannelFactory? preselectProtocolFactory = null;
+    private bool _isSelecting;
 
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
     {
@@ -28,31 +25,31 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(instance is null
-            ? () => ActivatorUtilities.CreateInstance<TProtocol>(ServiceProvider)
-            : () => instance);
+            ? ActivatorUtilities.CreateInstance<TProtocol>(ServiceProvider)
+            : instance);
         return (TBuilder)this;
     }
 
     protected TBuilder Over<TProtocol>() where TProtocol : IProtocol
     {
         TProtocol newProtocol = ActivatorUtilities.CreateInstance<TProtocol>(ServiceProvider);
-        if (isSelecting)
+        if (_isSelecting)
         {
-            if (protocolStack.Peek().Protocols.Count == 0)
+            if (_protocolStack.Peek().Protocols.Count == 0)
             {
-                protocolStack.Peek().Protocols.Add(newProtocol);
+                _protocolStack.Peek().Protocols.Add(newProtocol);
             }
             else
             {
-                isSelecting = false;
-                protocolStack.Push(new Layer());
-                protocolStack.Peek().Protocols.Add(newProtocol);
+                _isSelecting = false;
+                _protocolStack.Push(new Layer());
+                _protocolStack.Peek().Protocols.Add(newProtocol);
             }
         }
         else
         {
-            protocolStack.Push(new Layer());
-            protocolStack.Peek().Protocols.Add(newProtocol);
+            _protocolStack.Push(new Layer());
+            _protocolStack.Peek().Protocols.Add(newProtocol);
         }
 
         return (TBuilder)this;
@@ -61,47 +58,45 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
     protected TBuilder Select<TProtocol>() where TProtocol : IProtocol
     {
         Over<TProtocol>();
-        isSelecting = true;
-        protocolStack.Peek().IsSelector = true;
-        protocolStack.Push(new Layer());
+        _isSelecting = true;
+        _protocolStack.Peek().IsSelector = true;
+        _protocolStack.Push(new Layer());
         return (TBuilder)this;
     }
 
     protected TBuilder Or<TProtocol>() where TProtocol : IProtocol
     {
         TProtocol newProtocol = ActivatorUtilities.CreateInstance<TProtocol>(ServiceProvider);
-        protocolStack.Peek().Protocols.Add(newProtocol);
+        _protocolStack.Peek().Protocols.Add(newProtocol);
         return (TBuilder)this;
     }
 
-    private TBuilder Or(Func<IProtocol> protoFactory)
+    private TBuilder Or(IProtocol protocol)
     {
-        IProtocol newProtocol = protoFactory();
-        protocolStack.Peek().Protocols.Add(newProtocol);
+        _protocolStack.Peek().Protocols.Add(protocol);
         return (TBuilder)this;
     }
 
-    protected abstract TBuilder BuildTransportLayer();
+    protected abstract IPeerFactoryBuilder BuildTransportLayer();
 
     public IPeerFactory Build()
     {
-        TBuilder appLayer = BuildTransportLayer();
-        foreach (Func<IProtocol> protoFactory in _appLayerProtocols)
+        TBuilder appLayer = (TBuilder)BuildTransportLayer();
+        foreach (IProtocol appLyaerProtocol in _appLayerProtocols)
         {
-            appLayer = appLayer.Or(protoFactory);
+            appLayer = appLayer.Or(appLyaerProtocol);
         }
 
         Layer? prevLayer = null;
         ChannelFactory? prevFactory = null;
-        Layer? topLayer = null;
         ChannelFactory? preselectProtocolFactory = null;
 
-        while (protocolStack.TryPop(out topLayer))
+        while (_protocolStack.TryPop(out Layer? topLayer))
         {
             if (prevLayer is not null)
             {
-                ChannelFactory factory = ActivatorUtilities.CreateInstance<ChannelFactory>(ServiceProvider)
-                    .Connect(topLayer.Protocols.First(), prevFactory, prevLayer.Protocols.ToArray());
+                ChannelFactory factory = ActivatorUtilities.CreateInstance<ChannelFactory>(ServiceProvider);
+                factory.Connect(topLayer.Protocols.First(), prevFactory, prevLayer.Protocols.ToArray());
                 prevFactory = factory;
             }
 
@@ -114,8 +109,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>
         }
 
         TPeerFactory result = ActivatorUtilities.CreateInstance<TPeerFactory>(ServiceProvider);
-        ;
-        result.Connect(prevFactory, preselectProtocolFactory, prevLayer.Protocols.First());
+        result.Connect(prevFactory, preselectProtocolFactory, prevLayer.Protocols.First(), _appLayerProtocols);
         return result;
     }
 

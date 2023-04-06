@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Text;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
@@ -23,30 +22,31 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
     protected override async Task ConnectAsync(IChannel channel, IChannelFactory channelFactory,
         IPeerContext context, bool isListener)
     {
+        _logger?.LogInformation("connect yamux");
         int streamIdCounter = isListener ? 2 : 1;
         Dictionary<int, ChannelState> channels = new()
         {
             [0] = new ChannelState { State = 1 }
         };
-        await WriteHeaderAsync(channel.Writer,
+        await WriteHeaderAsync(channel,
             new YamuxHeader { Flags = YamuxHeaderFlags.Syn, Type = YamuxHeaderType.Ping, StreamID = 0 });
 
-        _ = Task.Run(async () =>
+        await Task.Run(async () =>
         {
-            while (true)
+            while (!channel.IsClosed)
             {
-                YamuxHeader header = await ReadHeaderAsync(channel.Reader);
+                YamuxHeader header = await ReadHeaderAsync(channel);
                 ReadOnlySequence<byte> data = default;
                 if (header is { Type: YamuxHeaderType.Data, Flags: 0 })
                 {
-                    data = await channel.Reader.ReadAsync(header.Length);
+                    data = await channel.ReadAsync(header.Length);
                 }
 
                 if (header.StreamID == 0)
                 {
                     if (header.Flags == YamuxHeaderFlags.Syn)
                     {
-                        await WriteHeaderAsync(channel.Writer,
+                        await WriteHeaderAsync(channel,
                             new YamuxHeader
                                 { Flags = YamuxHeaderFlags.Ack, Type = YamuxHeaderType.Ping, StreamID = 0 });
                     }
@@ -54,16 +54,16 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     if (header.Flags == YamuxHeaderFlags.Ack)
                     {
                         channels[header.StreamID].State = 2;
-
+                        channelFactory.Connected(context.RemotePeer);
                         _ = Task.Run(async () =>
                         {
-                            channelFactory.Connected(context.RemotePeer as IRemotePeer);
+                            
                             foreach (IChannelRequest request in channelFactory.SubDialRequests
                                          .GetConsumingEnumerable())
                             {
                                 streamIdCounter += 2;
                                 channels[streamIdCounter] = new ChannelState { State = 1, Request = request };
-                                _ = WriteHeaderAsync(channel.Writer,
+                                _ = WriteHeaderAsync(channel,
                                     new YamuxHeader
                                     {
                                         Flags = YamuxHeaderFlags.Syn, Type = YamuxHeaderType.WindowUpdate,
@@ -81,7 +81,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                 if (channels[header.StreamID].State == 0 && header.Flags == YamuxHeaderFlags.Syn)
                 {
                     channels[header.StreamID].State = 2;
-                    await WriteHeaderAsync(channel.Writer,
+                    await WriteHeaderAsync(channel,
                         new YamuxHeader
                         {
                             Flags = YamuxHeaderFlags.Ack, Type = YamuxHeaderType.WindowUpdate,
@@ -108,7 +108,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                         {
                             if (!isListenerChannel)
                             {
-                                await WriteHeaderAsync(channel.Writer,
+                                await WriteHeaderAsync(channel,
                                     new YamuxHeader
                                     {
                                         Flags = YamuxHeaderFlags.Fin, Type = YamuxHeaderType.WindowUpdate,
@@ -124,9 +124,9 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                             while (!channel.IsClosed)
                             {
                                 ReadOnlySequence<byte> upData =
-                                    await channels[streamId].Channel!.Reader.ReadAsync(0, ReadBlockingMode.WaitAny,
+                                    await channels[streamId].Channel!.ReadAsync(0, ReadBlockingMode.WaitAny,
                                         channel.Token);
-                                await WriteHeaderAsync(channel.Writer,
+                                await WriteHeaderAsync(channel,
                                     new YamuxHeader
                                     {
                                         Type = YamuxHeaderType.Data, Length = (int)upData.Length, StreamID = streamId
@@ -137,7 +137,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                     if (header.Type == YamuxHeaderType.Data && header.Flags == 0)
                     {
-                        await channels[header.StreamID].Channel!.Writer.WriteAsync(data);
+                        await channels[header.StreamID].Channel!.WriteAsync(data);
                         _logger?.LogDebug("Data, stream-{0}, len={1}", header.StreamID, data.Length);
                     }
 

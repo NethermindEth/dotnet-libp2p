@@ -39,7 +39,7 @@ public interface IChannelFactory
         return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
     }
 
-    void Connected(IRemotePeer peer);
+    void Connected(IPeer peer);
     event RemotePeerConnected OnRemotePeerConnection;
 }
 

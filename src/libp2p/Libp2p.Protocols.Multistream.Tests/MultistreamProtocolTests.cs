@@ -9,8 +9,8 @@ public class MultistreamProtocolTests
     [Test]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
-        TestChannel downChannel = new();
-        IChannel downChannelFromProtocolPov = downChannel.Reverse();
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
 
@@ -23,11 +23,11 @@ public class MultistreamProtocolTests
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.Writer.WriteLineAsync(proto.Id);
-        await downChannel.Writer.WriteLineAsync("proto1");
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync("proto1");
 
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo("proto1"));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
         channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         await downChannel.CloseAsync();
     }
@@ -35,8 +35,8 @@ public class MultistreamProtocolTests
     [Test]
     public async Task Test_ConnectionClosed_ForUnknownProtocol()
     {
-        TestChannel downChannel = new();
-        IChannel downChannelFromProtocolPov = downChannel.Reverse();
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
 
@@ -49,11 +49,11 @@ public class MultistreamProtocolTests
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.Writer.WriteLineAsync(proto.Id);
-        await downChannel.Writer.WriteLineAsync("proto2");
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync("proto2");
 
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo("proto1"));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
         channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         await upChannel.CloseAsync();
     }
@@ -61,8 +61,8 @@ public class MultistreamProtocolTests
     [Test]
     public async Task Test_ConnectionEstablished_ForAnyOfProtocols()
     {
-        TestChannel downChannel = new();
-        IChannel downChannelFromProtocolPov = downChannel.Reverse();
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
 
@@ -77,13 +77,13 @@ public class MultistreamProtocolTests
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.Writer.WriteLineAsync(proto.Id);
-        await downChannel.Writer.WriteLineAsync("na");
-        await downChannel.Writer.WriteLineAsync("proto2");
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync("na");
+        await downChannel.WriteLineAsync("proto2");
 
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto1.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto2.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto2.Id));
         channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto2);
         await upChannel.CloseAsync();
     }
@@ -91,8 +91,8 @@ public class MultistreamProtocolTests
     [Test]
     public async Task Test_ConnectionClosed_ForBadProtocol()
     {
-        TestChannel downChannel = new();
-        IChannel downChannelFromProtocolPov = downChannel.Reverse();
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
 
@@ -107,14 +107,14 @@ public class MultistreamProtocolTests
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.Writer.WriteLineAsync(proto.Id);
-        await downChannel.Writer.WriteLineAsync("na1");
-        await downChannel.Writer.WriteLineAsync("proto2");
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync("na1");
+        await downChannel.WriteLineAsync("proto2");
 
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto1.Id));
-        Assert.That(await downChannel.Reader.ReadLineAsync(), Is.EqualTo(proto2.Id));
-        channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null, null, (IProtocol)null);
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto2.Id));
+        channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IProtocol)null!);
         await upChannel.CloseAsync();
     }
 }

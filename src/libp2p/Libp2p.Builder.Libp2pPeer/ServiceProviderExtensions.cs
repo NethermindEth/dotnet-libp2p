@@ -8,9 +8,10 @@ namespace Nethermind.Libp2p.Builder;
 
 public static class ServiceProviderExtensions
 {
-    public static IServiceCollection AddLibp2pBuilder(this IServiceCollection services)
+    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder> factorySetup)
     {
         return services
-            .AddSingleton<IPeerFactoryBuilder, Libp2pPeerFactoryBuilder>();
+            .AddSingleton<IPeerFactoryBuilder>((sp) =>  factorySetup(new Libp2pPeerFactoryBuilder(sp)))
+            .AddSingleton<IPeerFactory>((sp) => sp.GetService<IPeerFactoryBuilder>()!.Build());
     }
 }

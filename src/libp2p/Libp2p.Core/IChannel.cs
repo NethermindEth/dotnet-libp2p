@@ -5,10 +5,8 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IChannel
+public interface IChannel : IReader, IWriter
 {
-    IReader Reader { get; }
-    IWriter Writer { get; }
     bool IsClosed { get; }
     CancellationToken Token { get; }
     Task CloseAsync(bool graceful = true);

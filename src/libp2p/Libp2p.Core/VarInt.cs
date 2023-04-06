@@ -25,7 +25,42 @@ public static class VarInt
         }
     }
 
+    public static void Encode(ulong number, Span<byte> buf, ref int offset)
+    {
+        for (int i = 0; i < 9; i++)
+        {
+            byte newByte = (byte)(number & 127);
+            number >>= 7;
+
+            if (number != 0)
+            {
+                buf[offset + i] = (byte)(newByte | 128);
+            }
+            else
+            {
+                buf[offset + i] = newByte;
+                offset += i + 1;
+                return;
+            }
+        }
+    }
+
     public static int GetSizeInBytes(int number)
+    {
+        for (int i = 1; i <= 9; i++)
+        {
+            number >>= 7;
+
+            if (number == 0)
+            {
+                return i;
+            }
+        }
+
+        throw new ArgumentException(nameof(number));
+    }
+
+    public static int GetSizeInBytes(ulong number)
     {
         for (int i = 1; i <= 9; i++)
         {

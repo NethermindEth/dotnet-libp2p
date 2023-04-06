@@ -23,7 +23,7 @@ public struct MultiAddr
         public string? Parameter { get; init; }
     }
 
-    private Segment[] _segments = null;
+    private Segment[]? _segments = null;
 
     public MultiAddr()
     {
@@ -65,17 +65,18 @@ public struct MultiAddr
 
     public string? At(Multiaddr section)
     {
-        return _segments.FirstOrDefault(x => x.Type == section).Parameter;
+        return _segments?.FirstOrDefault(x => x.Type == section).Parameter;
     }
 
     public bool Has(Multiaddr section)
     {
-        return _segments.Any(x => x.Type == section);
+        return _segments?.Any(x => x.Type == section) ?? false;
     }
 
     public MultiAddr Append(Multiaddr at, string? value)
     {
-        return new MultiAddr { _segments = _segments.Concat(new Segment[] { new(at, value) }).ToArray() };
+        Segment[] newSegments = { new(at, value) };
+        return new MultiAddr { _segments = _segments is not null ? _segments.Concat(newSegments).ToArray() : newSegments };
     }
 
     public MultiAddr Replace(Multiaddr at, Multiaddr newAt, string? value = null)
