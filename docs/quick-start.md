@@ -2,7 +2,7 @@
 
 Libp2p network stack includes all necessary to bypass typical networking obstacles, find peers, connect to them and exchange data according to the selected protocol. The implementation allows to build your own transport, but standard stack can be used for rapid development.
 
-The current implementation is WIP and is not available via nuget yet. To build an app, you can utilize [chat example](../src/examples/chat/README.md).
+The current implementation is WIP and is not available via nuget yet. To build an app, you can utilize [chat example](../src/samples/chat/README.md).
 
 ## Prerequisites
 
