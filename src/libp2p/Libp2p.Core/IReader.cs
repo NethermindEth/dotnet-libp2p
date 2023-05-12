@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -15,9 +16,9 @@ public interface IReader
         return Encoding.UTF8.GetString((await ReadAsync(size)).ToArray()).TrimEnd('\n');
     }
 
-    Task<int> ReadVarintAsync()
+    Task<int> ReadVarintAsync(CancellationToken token = default)
     {
-        return VarInt.Decode(this);
+        return VarInt.Decode(this, token);
     }
 
     Task<ulong> ReadVarintUlongAsync()
@@ -25,9 +26,13 @@ public interface IReader
         return VarInt.DecodeUlong(this);
     }
 
-    ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-        CancellationToken token = default);
+    async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
+    {
+        int messageLength = await ReadVarintAsync(token);
+        ReadOnlySequence<byte> serializedMessage = await ReadAsync(messageLength, token: token);
 
+        return parser.ParseFrom(serializedMessage);
+    }
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
@@ -36,6 +41,9 @@ public interface IReader
             yield return await ReadAsync(0, ReadBlockingMode.WaitAny, token);
         }
     }
+
+    ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default);
 }
 
 public enum ReadBlockingMode

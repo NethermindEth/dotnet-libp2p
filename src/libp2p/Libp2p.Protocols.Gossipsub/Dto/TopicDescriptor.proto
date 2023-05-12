@@ -1,0 +1,33 @@
+syntax = "proto2";
+
+option csharp_namespace = "Nethermind.Libp2p.Protocols.GossipSub.Dto";
+
+message TopicDescriptor {
+	optional string name = 1;
+	// AuthOpts and EncOpts are unused as of Oct 2018, but
+	// are planned to be used in future.
+	optional AuthOpts auth = 2;
+	optional EncOpts enc = 3;
+
+	message AuthOpts {
+		optional AuthMode mode = 1;
+		repeated bytes keys = 2;
+
+		enum AuthMode {
+			NONE = 0;
+			KEY = 1;
+			WOT = 2;
+		}
+	}
+
+	message EncOpts {
+		optional EncMode mode = 1;
+		repeated bytes keyHashes = 2;
+
+		enum EncMode {
+			NONE = 0;
+			SHAREDKEY = 1;
+			WOT = 2;
+		}
+	}
+}

@@ -12,6 +12,7 @@ using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
+using BouncyCastleCryptography::Org.BouncyCastle.Utilities.Encoders;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -27,7 +28,7 @@ public class NoiseProtocol : IProtocol
 
     public NoiseProtocol(ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+        //_logger = loggerFactory?.CreateLogger<NoiseProtocol>();
         _protocol = new Protocol(
             HandshakePattern.XX,
             CipherFunction.ChaChaPoly,
@@ -56,7 +57,7 @@ public class NoiseProtocol : IProtocol
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
-        PublicKey? msg1KeyDecoded = Core.Dto.PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
+        PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
 
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
@@ -64,7 +65,7 @@ public class NoiseProtocol : IProtocol
             .ToArray();
         byte[] sig = new byte[64];
         Ed25519.Sign(context.LocalPeer.Identity.PrivateKey, 0, msg, 0, msg.Length, sig, 0);
-        NoiseHandshakePayload payload = new NoiseHandshakePayload
+        NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
@@ -98,7 +99,7 @@ public class NoiseProtocol : IProtocol
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
 
                 string str = Encoding.UTF8.GetString(request.ToArray());
-                _logger?.LogTrace($"> {request.Length}");
+                _logger?.LogTrace($"> {buffer.Length}(payload {request.Length})");
 
                 await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
             }
@@ -118,7 +119,7 @@ public class NoiseProtocol : IProtocol
 
                 int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
                 _logger?.LogInformation("READ");
-                _logger?.LogTrace($"< {bytesRead}");
+                _logger?.LogTrace($"< {len + 2}/(payload {bytesRead}) {Hex.ToHexString(buffer)} {Encoding.UTF8.GetString(buffer).ReplaceLineEndings()}");
                 await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
             }
         });
@@ -144,7 +145,7 @@ public class NoiseProtocol : IProtocol
             .ToArray();
         byte[] sig = new byte[64];
         Ed25519.Sign(context.LocalPeer.Identity.PrivateKey, 0, msg, 0, msg.Length, sig, 0);
-        NoiseHandshakePayload payload = new NoiseHandshakePayload
+        NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
@@ -168,7 +169,7 @@ public class NoiseProtocol : IProtocol
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
-        PublicKey? msg2KeyDecoded = Core.Dto.PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
+        PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
         Transport? transport = msg2.Transport;
 
         IChannel upChannel = upChannelFactory.SubListen(context);

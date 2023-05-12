@@ -8,8 +8,13 @@ public class ChannelRequest : IChannelRequest
     public IProtocol? SubProtocol { get; init; }
     public TaskCompletionSource<bool>? CompletionSource { get; init; }
 
+    /// <summary>
+    /// Can read multiple writes at a time
+    /// </summary>
+    public bool IsStream { get; init; } = true;
+
     public override string ToString()
     {
-        return $"Requesst for {SubProtocol?.Id ?? "unknown protocol"}";
+        return $"Request for {SubProtocol?.Id ?? "unknown protocol"}";
     }
 }

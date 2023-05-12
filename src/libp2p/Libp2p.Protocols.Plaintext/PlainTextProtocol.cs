@@ -34,7 +34,7 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         int structSize = await channel.ReadVarintAsync();
         buf = (await channel.ReadAsync(structSize)).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
-        
+
         await (isListener
             ? channelFactory.SubListenAndBind(channel, context)
             : channelFactory.SubDialAndBind(channel, context));

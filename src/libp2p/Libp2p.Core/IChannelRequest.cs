@@ -7,4 +7,5 @@ public interface IChannelRequest
 {
     IProtocol? SubProtocol { get; }
     public TaskCompletionSource<bool>? CompletionSource { get; }
+    bool IsStream { get; }
 }

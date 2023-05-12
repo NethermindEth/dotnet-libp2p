@@ -17,13 +17,15 @@ public class IpTcpProtocol : IProtocol
 
     public IpTcpProtocol(ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+        //_logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
     }
 
     public string Id => "ip-tcp";
 
     public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
     {
+        _logger?.LogInformation($"ListenAsync({context.Id})");
+
         Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         MultiAddr addr = context.LocalPeer.Address;
         Multiaddr ipProtocol = addr.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6;
@@ -53,7 +55,7 @@ public class IpTcpProtocol : IProtocol
                 Multiaddr.Tcp,
                 localIpEndpoint.Port.ToString());
 
-        _ = Task.Run(async () =>
+        await Task.Run(async () =>
         {
             while (!channel.IsClosed)
             {
@@ -77,7 +79,7 @@ public class IpTcpProtocol : IProtocol
                         ? Multiaddr.Ip4
                         : Multiaddr.Ip6, remoteIpEndpoint.Address.ToString())
                     .Append(Multiaddr.Tcp, remoteIpEndpoint.Port.ToString());
-                
+
                 IChannel chan = channelFactory.SubListen(clientContext);
 
                 _ = Task.Run(async () =>
@@ -115,6 +117,7 @@ public class IpTcpProtocol : IProtocol
                     }
                     catch (SocketException)
                     {
+                        _logger?.LogInformation($"Disconnected({context.Id}) due to a socket exception");
                         await chan.CloseAsync(false);
                     }
                 }, chan.Token);
@@ -124,6 +127,8 @@ public class IpTcpProtocol : IProtocol
 
     public async Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
     {
+        _logger?.LogInformation($"DialAsync({context.Id})");
+
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
         MultiAddr addr = context.RemotePeer.Address;
@@ -132,11 +137,11 @@ public class IpTcpProtocol : IProtocol
         int tcpPort = int.Parse(addr.At(Multiaddr.Tcp)!);
         try
         {
-            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
+            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), channel.Token);
         }
         catch (SocketException)
         {
-            _logger?.LogInformation("Failed to connect");
+            _logger?.LogInformation($"Failed({context.Id}) to connect {addr}");
             // TODO: Add proper exception and reconnection handling
             return;
         }
@@ -156,8 +161,8 @@ public class IpTcpProtocol : IProtocol
 
         IChannel upChannel = channelFactory.SubDial(context);
         //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
-        
-        _ = Task.Run(async () =>
+
+        Task receiveTask = Task.Run(async () =>
         {
             byte[] buf = new byte[client.ReceiveBufferSize];
             try
@@ -167,7 +172,7 @@ public class IpTcpProtocol : IProtocol
                     int len = await client.ReceiveAsync(buf, SocketFlags.None);
                     if (len != 0)
                     {
-                        _logger?.LogDebug("Receive data, len={0}", len);
+                        _logger?.LogDebug("Receive {0} data, len={1}", context.Id, len);
                         await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
                     }
                 }
@@ -181,7 +186,7 @@ public class IpTcpProtocol : IProtocol
             }
         });
 
-        _ = Task.Run(async () =>
+        Task sendTask = Task.Run(async () =>
         {
             try
             {
@@ -198,5 +203,7 @@ public class IpTcpProtocol : IProtocol
                 waitForStop.SetCanceled();
             }
         });
+
+        await Task.WhenAll(receiveTask, sendTask);
     }
 }

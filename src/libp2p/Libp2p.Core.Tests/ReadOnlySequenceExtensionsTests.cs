@@ -13,7 +13,7 @@ public class ReadOnlySequenceExtensionsTests
     [Test]
     public void Test_SequenceIsPrepended()
     {
-        ReadOnlySequence<byte> sequence = new ReadOnlySequence<byte>(new byte[] { 1, 2, 3 });
+        ReadOnlySequence<byte> sequence = new(new byte[] { 1, 2, 3 });
         ReadOnlySequence<byte> prepended = sequence.Prepend(new byte[] { 0 });
         Assert.That(sequence.Length, Is.EqualTo(3));
         Assert.That(prepended.Length, Is.EqualTo(4));
@@ -30,7 +30,7 @@ public class ReadOnlySequenceExtensionsTests
     [Test]
     public void Test_SequenceIsAppended()
     {
-        ReadOnlySequence<byte> sequence = new ReadOnlySequence<byte>(new byte[] { 1, 2, 3 });
+        ReadOnlySequence<byte> sequence = new(new byte[] { 1, 2, 3 });
         ReadOnlySequence<byte> prepended = sequence.Append(new byte[] { 0 });
         Assert.That(sequence.Length, Is.EqualTo(3));
         Assert.That(prepended.Length, Is.EqualTo(4));

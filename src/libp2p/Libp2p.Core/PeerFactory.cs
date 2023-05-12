@@ -10,37 +10,32 @@ namespace Nethermind.Libp2p.Core;
 public class PeerFactory : IPeerFactory
 {
     private readonly IServiceProvider _serviceProvider;
-    private IChannelFactory _appFactory;
-    private IProtocol _connectionProtocol;
-    private IChannelFactory _rootFactory;
-    private IEnumerable<IProtocol> _appLayerProtocols;
 
+    private IProtocol _protocol;
+    private IChannelFactory _upChannelFactory;
+    private static int CtxId = 0;
     protected PeerFactory(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }
 
-    public ILocalPeer Create(Identity? identity = default)
+    public virtual ILocalPeer Create(Identity? identity = default, MultiAddr? localAddr = default)
     {
-        return new LocalPeer(this) { Identity = identity ?? new Identity() };
+        identity ??= new Identity();
+        return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/127.0.0.1/tcp/0/p2p/{identity.PeerId}" };
     }
 
-    public void Connect(IChannelFactory rootFactory, IChannelFactory appFactory, IProtocol connectionProtocol, IEnumerable<IProtocol> appLayerProtocols)
+    /// <summary>
+    /// PeerFactory interface ctor
+    /// </summary>
+    /// <param name="upChannelFactory"></param>
+    /// <param name="appFactory"></param>
+    /// <param name="protocol"></param>
+    /// <param name="appLayerProtocols"></param>
+    public void Setup(IProtocol protocol, IChannelFactory upChannelFactory)
     {
-        _rootFactory = rootFactory;
-        _appFactory = appFactory;
-        _connectionProtocol = connectionProtocol;
-        _appLayerProtocols = appLayerProtocols;
-    }
-
-    //public event OnConnection? OnConnection;
-
-    private Task DialAsync<TProtocol>(CancellationToken token) where TProtocol : IProtocol
-    {
-        TaskCompletionSource<bool> cts = new(token);
-        _appFactory.SubDialRequests.Add(new ChannelRequest
-            { SubProtocol = ActivatorUtilities.CreateInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
-        return cts.Task;
+        _protocol = protocol;
+        _upChannelFactory = upChannelFactory;
     }
 
     private async Task<IListener> ListenAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
@@ -59,13 +54,14 @@ public class PeerFactory : IPeerFactory
 
         PeerContext peerCtx = new()
         {
+            Id = $"ctx-{++CtxId}",
             LocalPeer = peer,
-            RemotePeer = new RemotePeer(this, peer),
-            ApplayerProtocols = _appLayerProtocols
         };
+        RemotePeer remotePeer = new RemotePeer(this, peer, peerCtx);
+        peerCtx.RemotePeer = remotePeer;
+
         PeerListener result = new(chan, peer);
-        
-        _appFactory.OnRemotePeerConnection += remotePeer =>
+        peerCtx.OnRemotePeerConnection += remotePeer =>
         {
             if (((RemotePeer)remotePeer).LocalPeer != peer)
             {
@@ -75,7 +71,7 @@ public class PeerFactory : IPeerFactory
             ConnectedTo(remotePeer, false)
                 .ContinueWith(t => { result.RaiseOnConnection(remotePeer); }, token);
         };
-        _ = _connectionProtocol.ListenAsync(chan, _rootFactory, peerCtx);
+        _ = _protocol.ListenAsync(chan, _upChannelFactory, peerCtx);
 
         return result;
     }
@@ -85,32 +81,47 @@ public class PeerFactory : IPeerFactory
         return Task.CompletedTask;
     }
 
-    private async Task<IRemotePeer> DialAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
+    private Task DialAsync<TProtocol>(IPeerContext peerContext, CancellationToken token) where TProtocol : IProtocol
     {
-        RemotePeer result = new(this, peer) { Address = addr };
-        Channel chan = new();
-        _ = _connectionProtocol.DialAsync(chan, _rootFactory,
-            new PeerContext
-            {
-                LocalPeer = peer, 
-                RemotePeer = result,
-                ApplayerProtocols = _appLayerProtocols
-            });
-        result.Channel = chan;
-        TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-        _appFactory.OnRemotePeerConnection += remotePeer =>
+        TaskCompletionSource<bool> cts = new(token);
+        peerContext.SubDialRequests.Add(new ChannelRequest
+        { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
+        return cts.Task;
+    }
+
+    protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
+    {
+        try
         {
-            if (((RemotePeer)remotePeer).LocalPeer != peer)
+            Channel chan = new();
+            PeerContext context = new PeerContext
             {
-                return;
-            }
-            ConnectedTo(remotePeer, true).ContinueWith((t) =>
+                Id = $"ctx-{++CtxId}",
+                LocalPeer = peer,
+            };
+            RemotePeer result = new(this, peer, context) { Address = addr };
+            context.RemotePeer = result;
+
+            _ = _protocol.DialAsync(chan, _upChannelFactory, context);
+            result.Channel = chan;
+            TaskCompletionSource<bool> tcs = new();
+            context.OnRemotePeerConnection += remotePeer =>
             {
-                tcs.SetResult(true);
-            }); 
-        };
-        await tcs.Task;
-        return result;
+                if (((RemotePeer)remotePeer).LocalPeer != peer)
+                {
+                    return;
+                }
+
+                ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
+            };
+            await tcs.Task;
+
+            return result;
+        }
+        catch
+        {
+            throw;
+        }
     }
 
     private class PeerListener : IListener
@@ -144,7 +155,7 @@ public class PeerFactory : IPeerFactory
         }
     }
 
-    private class LocalPeer : ILocalPeer
+    protected class LocalPeer : ILocalPeer
     {
         private readonly PeerFactory _factory;
 
@@ -170,11 +181,13 @@ public class PeerFactory : IPeerFactory
     internal class RemotePeer : IRemotePeer
     {
         private readonly PeerFactory _factory;
+        private readonly IPeerContext peerContext;
 
-        public RemotePeer(PeerFactory factory, ILocalPeer localPeer)
+        public RemotePeer(PeerFactory factory, ILocalPeer localPeer, IPeerContext peerContext)
         {
             _factory = factory;
             LocalPeer = localPeer;
+            this.peerContext = peerContext;
         }
 
         public Channel Channel { get; set; }
@@ -185,7 +198,7 @@ public class PeerFactory : IPeerFactory
 
         public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
         {
-            return _factory.DialAsync<TProtocol>(token);
+            return _factory.DialAsync<TProtocol>(peerContext, token);
         }
 
         public Task DisconnectAsync()

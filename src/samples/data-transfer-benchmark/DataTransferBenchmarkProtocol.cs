@@ -37,7 +37,7 @@ public class DataTransferBenchmarkProtocol : IProtocol
                     break;
                 }
                 rand.NextBytes(bytes.AsSpan(0, bytesToWrite));
-                ReadOnlySequence<byte> bytesToSend = new ReadOnlySequence<byte>(bytes, 0, bytesToWrite);
+                ReadOnlySequence<byte> bytesToSend = new(bytes, 0, bytesToWrite);
                 bytesWritten += bytesToWrite;
                 await downChannel.WriteAsync(bytesToSend);
                 _logger?.LogDebug($"DIAL WRIT {bytesToSend.Length}");

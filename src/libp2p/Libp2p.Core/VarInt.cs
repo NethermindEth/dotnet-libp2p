@@ -114,13 +114,13 @@ public static class VarInt
         return 0;
     }
 
-    public static async Task<int> Decode(IReader buf)
+    public static async Task<int> Decode(IReader buf, CancellationToken token = default)
     {
         int res = 0;
         byte mul = 0;
         for (int i = 0; i < 9; i++)
         {
-            byte @byte = (await buf.ReadAsync(1)).FirstSpan[0];
+            byte @byte = (await buf.ReadAsync(1, token: token)).FirstSpan[0];
             res += (@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)
