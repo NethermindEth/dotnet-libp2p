@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 extern alias BouncyCastleCryptography;
+using BouncyCastleCryptography::Org.BouncyCastle.Asn1.X9;
+using BouncyCastleCryptography::Org.BouncyCastle.Math;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
@@ -15,7 +17,7 @@ namespace Nethermind.Libp2p.Core;
 /// </summary>
 public class Identity
 {
-    public Identity(byte[]? privateKey = null)
+    public Identity(byte[]? privateKey = null, KeyType keyType = KeyType.Ed25519)
     {
         if (privateKey == null)
         {
@@ -24,11 +26,23 @@ public class Identity
             Ed25519.GeneratePrivateKey(rnd, privateKey);
         }
 
-        byte[] publicKey = new byte[32];
-        Ed25519.GeneratePublicKey(privateKey, 0, publicKey, 0);
+        byte[] publicKey = null;
+        switch (keyType)
+        {
+            case KeyType.Ed25519:
+                publicKey = new byte[32];
+                Ed25519.GeneratePublicKey(privateKey, 0, publicKey, 0);
+                break;
 
+            case KeyType.Secp256K1:
+                X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
+                BouncyCastleCryptography::Org.BouncyCastle.Math.EC.ECPoint pointQ
+                    = curve.G.Multiply(new BigInteger(1, privateKey));
+                publicKey = pointQ.GetEncoded(true);
+                break;
+        }
         PrivateKey = privateKey;
-        PublicKey = new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(publicKey) };
+        PublicKey = new PublicKey { Type = keyType, Data = ByteString.CopyFrom(publicKey) };
     }
 
     private Identity(PublicKey publicKey)
@@ -41,6 +55,8 @@ public class Identity
 
     public string PeerId => new RawPeerId(PublicKey).ToString();
     public byte[] PeerIdBytes => new RawPeerId(PublicKey).ToByteArray();
+
+    public object Context { get; init; }
 
     public static Identity FromPrivateKey(byte[] privateKey)
     {

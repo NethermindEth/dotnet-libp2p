@@ -6,14 +6,18 @@
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
         <RootNamespace>Nethermind.Libp2p.Builder</RootNamespace>
+        <EnablePreviewFeatures>true</EnablePreviewFeatures>
     </PropertyGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Gossipsub\Libp2p.Protocols.Gossipsub.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.MultiAddrBasedSelector\Libp2p.Protocols.MultiAddrBasedSelector.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
     </ItemGroup>
 

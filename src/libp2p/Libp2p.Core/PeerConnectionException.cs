@@ -5,5 +5,5 @@ namespace Nethermind.Libp2p.Core;
 
 public class PeerConnectionException : Exception
 {
-    
+
 }

@@ -7,4 +7,10 @@ public interface IPeerFactoryBuilder
 {
     IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol;
     IPeerFactory Build();
+    IEnumerable<IProtocol> AppLayerProtocols { get; }
+}
+
+public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
+{
+    public bool EnforcePlaintext { set; }
 }

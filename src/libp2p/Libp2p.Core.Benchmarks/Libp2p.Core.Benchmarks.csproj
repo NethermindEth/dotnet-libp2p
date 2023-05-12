@@ -7,17 +7,17 @@
         <DebugType>pdbonly</DebugType>
         <DebugSymbols>true</DebugSymbols>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <Optimize>true</Optimize>
-        <Configuration>Release</Configuration>
         <IsPackable>false</IsPackable>
+        <Optimize>true</Optimize>
         <LangVersion>latest</LangVersion>
         <OutputType>Exe</OutputType>
+        <EnablePreviewFeatures>true</EnablePreviewFeatures>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet"/>
+        <PackageReference Include="BenchmarkDotNet" />
         <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Condition="'$(OS)' == 'Windows_NT'" />
     </ItemGroup>
     <ItemGroup>
-        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj"/>
+        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
     </ItemGroup>
 </Project>

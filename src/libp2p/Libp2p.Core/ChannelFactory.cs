@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -9,10 +8,9 @@ namespace Nethermind.Libp2p.Core;
 
 public class ChannelFactory : IChannelFactory
 {
-    private static int id = 1;
     private readonly IServiceProvider _serviceProvider;
     private IProtocol _parent;
-    private IChannelFactory _subchannelsFactory;
+    private IDictionary<IProtocol, IChannelFactory> _factories;
     private readonly ILogger? _logger;
 
     public ChannelFactory(IServiceProvider serviceProvider)
@@ -21,26 +19,22 @@ public class ChannelFactory : IChannelFactory
         _logger = _serviceProvider.GetService<ILoggerFactory>()?.CreateLogger<ChannelFactory>();
     }
 
-    public IEnumerable<IProtocol> SubProtocols { get; private set; }
-    public BlockingCollection<IChannelRequest> SubDialRequests { get; } = new();
-
+    public IEnumerable<IProtocol> SubProtocols => _factories.Keys;
 
     public IChannel SubDial(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
 
         Channel chan = CreateChannel(subProtocol);
-        ChannelFactory? sf = _subchannelsFactory as ChannelFactory;
-        ChannelFactory? s = req is null
-            ? sf
-            : ActivatorUtilities.CreateInstance<ChannelFactory>(_serviceProvider)
-                .Connect(sf._parent, sf._subchannelsFactory, req.SubProtocol);
-        _ = subProtocol.DialAsync(chan.Reverse, s, context).ContinueWith(async t =>
-        {
-            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
-            {
-            }
+        ChannelFactory? sf = _factories[subProtocol] as ChannelFactory;
 
+        _logger?.LogDebug("Dial {chan} {sf}", chan.Id, sf.SubProtocols);
+        _ = subProtocol.DialAsync(chan.Reverse, sf, context).ContinueWith(async t =>
+        {
+            if (!t.IsCompletedSuccessfully)
+            {
+
+            }
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync(t.Exception is null);
@@ -55,17 +49,20 @@ public class ChannelFactory : IChannelFactory
 
     public IChannel SubListen(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         PeerContext peerContext = (PeerContext)context;
 
         Channel chan = CreateChannel(subProtocol);
-        _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
+
+        _logger?.LogDebug("Listen {chan} {sp} {sf}", chan.Id, subProtocol, _factories[subProtocol].SubProtocols);
+
+        _ = subProtocol.ListenAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
         {
-            IEnumerable<IProtocol> dd = _subchannelsFactory.SubProtocols;
-            IProtocol d = subProtocol;
-            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            if (!t.IsCompletedSuccessfully)
             {
+
             }
+            IEnumerable<IProtocol> dd = _factories[subProtocol].SubProtocols;
 
             if (!chan.IsClosed)
             {
@@ -81,16 +78,19 @@ public class ChannelFactory : IChannelFactory
     public IChannel SubDialAndBind(IChannel parent, IPeerContext context,
         IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-        _ = subProtocol.DialAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
+        if (!_factories.ContainsKey(subProtocol))
         {
-            IProtocol d = subProtocol;
-            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
-            {
-            }
 
+        }
+        _ = subProtocol.DialAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
+        {
+            if (!t.IsCompletedSuccessfully)
+            {
+
+            }
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync();
@@ -108,13 +108,12 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-        _ = subProtocol.ListenAsync(chan.Reverse, _subchannelsFactory, context).ContinueWith(async t =>
+        _ = subProtocol.ListenAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
         {
-            IProtocol d = subProtocol;
-            if (subProtocol.Id == "/data-transfer-benchmark/1.0.0")
+            if (!t.IsCompletedSuccessfully)
             {
-            }
 
+            }
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync();
@@ -126,20 +125,10 @@ public class ChannelFactory : IChannelFactory
         return chan;
     }
 
-
-    public void Connected(IPeer peer)
-    {
-        OnRemotePeerConnection?.Invoke((IRemotePeer)peer);
-    }
-
-    public event RemotePeerConnected? OnRemotePeerConnection;
-
-    public ChannelFactory Connect(IProtocol parent, IChannelFactory subchannelsFactory,
-        params IProtocol[] subProtocols)
+    public ChannelFactory Setup(IProtocol parent, IDictionary<IProtocol, IChannelFactory> factories)
     {
         _parent = parent;
-        _subchannelsFactory = subchannelsFactory;
-        SubProtocols = subProtocols;
+        _factories = factories;
         return this;
     }
 

@@ -1,4 +1,4 @@
-﻿// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
@@ -7,25 +7,39 @@ using Nethermind.Libp2p.Protocols;
 namespace Nethermind.Libp2p.Builder;
 
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
-    IPeerFactoryBuilder
+    ILibp2pPeerFactoryBuilder
 {
+    public bool EnforcePlaintext { private get; set; }
+
     public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
     {
     }
 
     public static Libp2pPeerFactoryBuilder Create => new();
 
-    protected override IPeerFactoryBuilder BuildTransportLayer()
+    protected override ProtocolStack BuildStack()
     {
-        return Over<IpTcpProtocol>()
-            .Select<MultistreamProtocol>()
-            .Over<NoiseProtocol>()
-// #if DEBUG
-            .Or<PlainTextProtocol>()
-// #endif
-            .Select<MultistreamProtocol>()
+        ProtocolStack tcpEncryptionStack = EnforcePlaintext ?
+            Over<PlainTextProtocol>() :
+            Over<NoiseProtocol>();
+
+        ProtocolStack tcpStack = 
+            Over<IpTcpProtocol>()
+            .Over<MultistreamProtocol>()
+            .Over(tcpEncryptionStack)
+            .Over<MultistreamProtocol>()
             .Over<YamuxProtocol>()
-            .Select<MultistreamProtocol>()
-            .AddAppLayerProtocol<IpfsIdProtocol>();
+            .Over<MultistreamProtocol>();
+
+        ProtocolStack quicStack =
+            Over<QuicProtocol>();
+
+        return
+            Over<MultiAddrBasedSelectorProtocol>()
+            .Over(quicStack).Or(tcpStack)
+            .AddAppLayerProtocol<IpfsIdProtocol>()
+            //.AddAppLayerProtocol<GossipsubProtocolV11>()
+            //.AddAppLayerProtocol<GossipsubProtocol>()
+            .AddAppLayerProtocol<FloodsubProtocol>();
     }
 }

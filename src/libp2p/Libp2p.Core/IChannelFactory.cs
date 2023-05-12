@@ -1,15 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Collections.Concurrent;
-
 namespace Nethermind.Libp2p.Core;
 
 public interface IChannelFactory
 {
     IEnumerable<IProtocol> SubProtocols { get; }
-    BlockingCollection<IChannelRequest> SubDialRequests { get; }
-
     IChannel SubDial(IPeerContext context, IChannelRequest? request = null);
 
     IChannel SubListen(IPeerContext context, IChannelRequest? request = null);
@@ -38,9 +34,4 @@ public interface IChannelFactory
     {
         return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
     }
-
-    void Connected(IPeer peer);
-    event RemotePeerConnected OnRemotePeerConnection;
 }
-
-public delegate void RemotePeerConnected(IRemotePeer peer);

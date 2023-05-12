@@ -18,7 +18,7 @@ public interface IProtocol
     /// <param name="upChannelFactory">Factory that spawns new channels used to interact with top layer protocols</param>
     /// <param name="context">Holds information about local and remote peers</param>
     /// <returns></returns>
-    Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context);
+    Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context);
 
     /// <summary>
     ///     Opens a channel to listen to a remote peer
@@ -27,5 +27,5 @@ public interface IProtocol
     /// <param name="upChannelFactory">Factory that spawns new channels used to interact with top layer protocols</param>
     /// <param name="context">Holds information about local and remote peers</param>
     /// <returns></returns>
-    Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context);
+    Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context);
 }

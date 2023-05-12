@@ -5,5 +5,5 @@ namespace Nethermind.Libp2p.Core.IntegrationTests;
 
 public class BasicConnectionTests
 {
-    
+
 }

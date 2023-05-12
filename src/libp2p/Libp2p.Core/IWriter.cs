@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using System.Buffers;
 using System.Text;
 
@@ -42,6 +43,14 @@ public interface IWriter
         VarInt.Encode(data.Length, buf, ref offset);
         Array.ConstrainedCopy(data, 0, buf, offset, data.Length);
         return WriteAsync(new ReadOnlySequence<byte>(buf));
+    }
+
+    async ValueTask WritePrefixedProtobufAsync<T>(T grpcMessage) where T : IMessage<T>
+    {
+        byte[] serializedMessage = grpcMessage.ToByteArray();
+
+        await WriteVarintAsync(serializedMessage.Length);
+        await WriteAsync(new ReadOnlySequence<byte>(serializedMessage));
     }
 
     ValueTask WriteAsync(ReadOnlySequence<byte> bytes);
