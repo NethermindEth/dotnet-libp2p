@@ -10,6 +10,10 @@
 
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
+As an application developer, you may consider reading [quick start](./docs/quick-start.md).
+As a stack implementer, you may be interested in [more advanced tutorials](./docs/development/README.md).
+**Contributors are welcomed**, kindly check the issues tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 ## Roadmap
 
 From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms. With high throughput and low memory profile. The modules set to be implemented firstly should cover basic P2P application needs and include:

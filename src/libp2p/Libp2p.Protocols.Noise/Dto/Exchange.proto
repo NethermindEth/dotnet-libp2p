@@ -1,0 +1,31 @@
+syntax = "proto2";
+
+option csharp_namespace = "Nethermind.Libp2p.Protocols.PlainText.Dto";
+
+message Exchange {
+  optional bytes id = 1;
+  optional bytes pubkey = 2;
+}
+
+message NoiseExtensions {
+  repeated bytes webtransport_certhashes = 1;
+  repeated string stream_muxers = 2;
+}
+
+enum KeyType {
+  RSA = 0;
+  Ed25519 = 1;
+  Secp256k1 = 2;
+  ECDSA = 3;
+}
+
+message PublicKey {
+  required KeyType Type = 1;
+  required bytes Data = 2;
+}
+
+message NoiseHandshakePayload {
+  optional bytes identity_key = 1;
+  optional bytes identity_sig = 2;
+  optional NoiseExtensions extensions = 4;
+}
