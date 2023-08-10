@@ -14,7 +14,7 @@ public interface IPeerContext
     MultiAddr RemoteEndpoint { get; set; }
     MultiAddr LocalEndpoint { get; set; }
 
-    // TODO: Get rin of this:
+    // TODO: Get rid of this:
     IPeerContext Fork();
 
     #region Allows muxer to manage session and channels for the app protocols

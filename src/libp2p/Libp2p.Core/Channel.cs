@@ -18,7 +18,7 @@ internal class Channel : IChannel
 
     public Channel(ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<Channel>();
+        _logger = loggerFactory?.CreateLogger<Channel>();
         Id = "unknown";
         Reader = new ReaderWriter(_logger);
         Writer = new ReaderWriter(_logger);
@@ -198,18 +198,6 @@ internal class Channel : IChannel
             await _read.WaitAsync();
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)

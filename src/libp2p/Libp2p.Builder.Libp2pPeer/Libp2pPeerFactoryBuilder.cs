@@ -23,7 +23,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             Over<PlainTextProtocol>() :
             Over<NoiseProtocol>();
 
-        ProtocolStack tcpStack = 
+        ProtocolStack tcpStack =
             Over<IpTcpProtocol>()
             .Over<MultistreamProtocol>()
             .Over(tcpEncryptionStack)

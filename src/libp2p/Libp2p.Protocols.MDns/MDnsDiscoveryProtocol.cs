@@ -18,7 +18,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
     public MDnsDiscoveryProtocol(ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
+        _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
     }
 
     public string Id => "mdns";

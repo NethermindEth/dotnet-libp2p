@@ -16,16 +16,17 @@ public class DataTransferBenchmarkProtocol : IProtocol
     {
         _logger = loggerFactory?.CreateLogger<DataTransferBenchmarkProtocol>();
     }
-    
+
     public const long TotalLoad = 1024L * 1024 * 100;
-    private Random rand = new ();
-    
+    private Random rand = new();
+
     public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
-    {    
+    {
 
         await downChannel.WriteVarintAsync(TotalLoad);
-        
-        _ = Task.Run(async () => {
+
+        _ = Task.Run(async () =>
+        {
             byte[] bytes = new byte[1024 * 1024];
             long bytesWritten = 0;
 
@@ -44,7 +45,7 @@ public class DataTransferBenchmarkProtocol : IProtocol
             }
         });
 
-        
+
         long bytesRead = 0;
         while (!downChannel.Token.IsCancellationRequested)
         {

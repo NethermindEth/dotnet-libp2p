@@ -28,7 +28,7 @@ public class NoiseProtocol : IProtocol
 
     public NoiseProtocol(ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
         _protocol = new Protocol(
             HandshakePattern.XX,
             CipherFunction.ChaChaPoly,

@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core;
 using System.Buffers;
 using System.Text;
-using Nethermind.Libp2p.Core;
-using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -19,9 +19,13 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
     public string Id => "/yamux/1.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory channelFactory,
+    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context, bool isListener)
     {
+        if (channelFactory is null)
+        {
+            throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
+        }
         _logger?.LogInformation("connect yamux");
         int streamIdCounter = isListener ? 2 : 1;
         Dictionary<int, ChannelState> channels = new()
@@ -56,21 +60,21 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     {
                         channels[header.StreamID].State = 2;
                         context.Connected(context.RemotePeer);
-                        _ = Task.Run(async () =>
+                        _ = Task.Run(() =>
                         {
 
                             foreach (IChannelRequest request in context.SubDialRequests
                                          .GetConsumingEnumerable())
                             {
-                                int _streamIdCounter = streamIdCounter += 2;
-                                _logger?.LogCritical("!!!!!!Trying to dial with proto {0} via {streamIdCounter}", request.SubProtocol?.Id, _streamIdCounter);
-                                channels[_streamIdCounter] = new ChannelState { State = 1, Request = request };
+                                int streamId = streamIdCounter += 2;
+                                _logger?.LogDebug("Trying to dial with proto {proto} via stream-{streamId}", request.SubProtocol?.Id, streamId);
+                                channels[streamId] = new ChannelState { State = 1, Request = request };
                                 _ = WriteHeaderAsync(channel,
                                     new YamuxHeader
                                     {
                                         Flags = YamuxHeaderFlags.Syn,
                                         Type = YamuxHeaderType.WindowUpdate,
-                                        StreamID = _streamIdCounter
+                                        StreamID = streamId
                                     });
                             }
                         });
@@ -115,7 +119,6 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                         else
                         {
                             IPeerContext dialContext = context.Fork();
-                            _logger?.LogCritical("! {1}", channels[header.StreamID].Request);
                             dialContext.SpecificProtocolRequest = channels[header.StreamID].Request;
                             upChannel = channelFactory.SubDial(dialContext);
                         }
@@ -129,7 +132,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                                     Type = YamuxHeaderType.Data,
                                     StreamID = streamId
                                 });
-                            channels[header.StreamID].Request?.CompletionSource?.SetResult(true);
+                            channels[header.StreamID].Request?.CompletionSource?.SetResult();
                             _logger?.LogDebug("Close, stream-{0}", streamId);
                         });
                         channels[header.StreamID].Channel = upChannel;

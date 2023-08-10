@@ -24,11 +24,13 @@ public class RawPeerId
 
     public byte[] ToByteArray()
     {
-        byte[] result = Multihash.Encode(_peerId, HashType.ID);
-        if (result.Length > 42)
+        if (_peerId.Length <= 42)
         {
-            result = Multihash.Sum(HashType.SHA3_256, result);
+            return Multihash.Encode(_peerId, HashType.ID);
         }
-        return result;
+        else
+        {
+            return Multihash.Sum(HashType.SHA3_256, _peerId);
+        }
     }
 }

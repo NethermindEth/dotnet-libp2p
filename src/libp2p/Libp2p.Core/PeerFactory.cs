@@ -38,7 +38,7 @@ public class PeerFactory : IPeerFactory
         _upChannelFactory = upChannelFactory;
     }
 
-    private async Task<IListener> ListenAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
+    private Task<IListener> ListenAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
     {
         peer.Address = addr;
         if (!peer.Address.Has(Multiaddr.P2p))
@@ -73,7 +73,7 @@ public class PeerFactory : IPeerFactory
         };
         _ = _protocol.ListenAsync(chan, _upChannelFactory, peerCtx);
 
-        return result;
+        return Task.FromResult((IListener)result);
     }
 
     protected virtual Task ConnectedTo(IRemotePeer peer, bool isDialer)
@@ -83,7 +83,7 @@ public class PeerFactory : IPeerFactory
 
     private Task DialAsync<TProtocol>(IPeerContext peerContext, CancellationToken token) where TProtocol : IProtocol
     {
-        TaskCompletionSource<bool> cts = new(token);
+        TaskCompletionSource cts = new(token);
         peerContext.SubDialRequests.Add(new ChannelRequest
         { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
         return cts.Task;
@@ -164,7 +164,7 @@ public class PeerFactory : IPeerFactory
             _factory = factory;
         }
 
-        public Identity Identity { get; set; }
+        public Identity? Identity { get; set; }
         public MultiAddr Address { get; set; }
 
         public Task<IRemotePeer> DialAsync(MultiAddr addr, CancellationToken token = default)

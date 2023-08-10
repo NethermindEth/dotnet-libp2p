@@ -8,7 +8,6 @@ using System.Buffers;
 using System.Diagnostics;
 
 
-//BenchmarkRunner.Run<ChannelsBenchmark>();
 Channel chan = new Channel();
 IChannel revChan = ((Channel)chan).Reverse;
 
@@ -24,7 +23,6 @@ _ = Task.Run(async () =>
         {
             byte[] array = new byte[PacketSize];
             await chan.WriteAsync(new ReadOnlySequence<byte>(array.AsMemory()));
-            //ArrayPool<byte>.Shared.Return(array);
         }
         catch
         {

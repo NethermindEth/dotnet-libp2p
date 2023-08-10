@@ -15,7 +15,7 @@ TaskScheduler.UnobservedTaskException += (s, e) =>
 await Task.Delay(1000);
 {
     ServiceProvider serviceProvider = new ServiceCollection()
-        .AddLibp2p(builder => builder.AddAppLayerProtocol<DataTransferBenchmarkProtocol>())  
+        .AddLibp2p(builder => builder.AddAppLayerProtocol<DataTransferBenchmarkProtocol>())
         //.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information).AddSimpleConsole(l=>l.SingleLine = true))
         .BuildServiceProvider();
 

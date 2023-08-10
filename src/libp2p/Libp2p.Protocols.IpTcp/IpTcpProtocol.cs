@@ -17,14 +17,14 @@ public class IpTcpProtocol : IProtocol
 
     public IpTcpProtocol(ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+        _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
     }
 
     public string Id => "ip-tcp";
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
-        _logger?.LogInformation($"ListenAsync({context.Id})");
+        _logger?.LogInformation("ListenAsync({contextId})", context.Id);
 
         Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         MultiAddr addr = context.LocalPeer.Address;
@@ -127,7 +127,7 @@ public class IpTcpProtocol : IProtocol
 
     public async Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
     {
-        _logger?.LogInformation($"DialAsync({context.Id})");
+        _logger?.LogInformation("DialAsync({contextId})", context.Id);
 
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
