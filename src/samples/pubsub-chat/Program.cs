@@ -49,7 +49,7 @@ _ = router.StartAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService
 topic.OnMessage += ((byte[] msg) =>
 {
     ChatMessage? chatMessage = JsonSerializer.Deserialize<ChatMessage>(Encoding.UTF8.GetString(msg));
-    if(chatMessage is not null)
+    if (chatMessage is not null)
     {
         Console.WriteLine("{0}: {1}", chatMessage.SenderNick, chatMessage.Message);
     }

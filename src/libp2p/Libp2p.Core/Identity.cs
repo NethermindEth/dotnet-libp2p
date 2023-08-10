@@ -26,7 +26,7 @@ public class Identity
             Ed25519.GeneratePrivateKey(rnd, privateKey);
         }
 
-        byte[] publicKey = null;
+        byte[]? publicKey = null;
         switch (keyType)
         {
             case KeyType.Ed25519:
@@ -55,8 +55,6 @@ public class Identity
 
     public string PeerId => new RawPeerId(PublicKey).ToString();
     public byte[] PeerIdBytes => new RawPeerId(PublicKey).ToByteArray();
-
-    public object Context { get; init; }
 
     public static Identity FromPrivateKey(byte[] privateKey)
     {

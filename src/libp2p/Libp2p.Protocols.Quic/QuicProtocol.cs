@@ -13,13 +13,14 @@ public class QuicProtocol : IProtocol
 
     public QuicProtocol(ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+        _logger = loggerFactory?.CreateLogger<QuicProtocol>();
     }
 
     public string Id => "quic";
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
+    public Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
+        throw new NotImplementedException();
         //MultiAddr addr = context.LocalPeer.Address;
         //Multiaddr ipProtocol = addr.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6;
         //IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
@@ -87,9 +88,6 @@ public class QuicProtocol : IProtocol
         //});
 
         //Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
-
-
-
 
         //_ = Task.Run(async () =>
         //{
@@ -161,9 +159,9 @@ public class QuicProtocol : IProtocol
         //});
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
+    public Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
-
+        throw new NotImplementedException();
         //// First, check if QUIC is supported.
         //if (!QuicConnection.IsSupported)
         //{

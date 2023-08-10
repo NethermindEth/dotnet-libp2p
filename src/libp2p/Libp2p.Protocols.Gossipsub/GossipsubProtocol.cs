@@ -22,8 +22,6 @@
 //    private const string PayloadSigPrefix = "libp2p-pubsub:";
 //    ulong seqNo = 1;
 
-
-
 //    public GossipsubProtocol(ILoggerFactory? loggerFactory = null)
 //    {
 //        _logger = loggerFactory?.CreateLogger<GossipsubProtocol>();

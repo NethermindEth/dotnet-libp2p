@@ -6,12 +6,7 @@ namespace Nethermind.Libp2p.Core;
 public class ChannelRequest : IChannelRequest
 {
     public IProtocol? SubProtocol { get; init; }
-    public TaskCompletionSource<bool>? CompletionSource { get; init; }
-
-    /// <summary>
-    /// Can read multiple writes at a time
-    /// </summary>
-    public bool IsStream { get; init; } = true;
+    public TaskCompletionSource? CompletionSource { get; init; }
 
     public override string ToString()
     {

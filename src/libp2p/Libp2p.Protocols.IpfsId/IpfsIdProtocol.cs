@@ -20,7 +20,7 @@ public class IpfsIdProtocol : IProtocol
 
     public IpfsIdProtocol(PeerRegistry peerRegistry, IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
     {
-        //_logger = loggerFactory?.CreateLogger<IpfsIdProtocol>();
+        _logger = loggerFactory?.CreateLogger<IpfsIdProtocol>();
         this.peerRegistry = peerRegistry;
         this.peerFactoryBuilder = peerFactoryBuilder;
     }

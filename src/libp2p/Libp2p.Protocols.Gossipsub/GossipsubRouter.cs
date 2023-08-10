@@ -33,8 +33,6 @@
 
 //        _ = StartDiscoveryAsync(discoveryProtocol);
 
-
-
 //        logger?.LogInformation("Started");
 //    }
 

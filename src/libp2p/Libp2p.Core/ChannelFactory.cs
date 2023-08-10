@@ -33,14 +33,14 @@ public class ChannelFactory : IChannelFactory
         {
             if (!t.IsCompletedSuccessfully)
             {
-
+                _logger?.LogError("Dial error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
             }
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync(t.Exception is null);
             }
 
-            req?.CompletionSource?.SetResult(true);
+            req?.CompletionSource?.SetResult();
         });
 
 
@@ -60,7 +60,7 @@ public class ChannelFactory : IChannelFactory
         {
             if (!t.IsCompletedSuccessfully)
             {
-
+                _logger?.LogError("Listen error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
             }
             IEnumerable<IProtocol> dd = _factories[subProtocol].SubProtocols;
 
@@ -69,7 +69,7 @@ public class ChannelFactory : IChannelFactory
                 await chan.CloseAsync();
             }
 
-            req?.CompletionSource?.SetResult(true);
+            req?.CompletionSource?.SetResult();
         });
 
         return chan;
@@ -81,22 +81,19 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-        if (!_factories.ContainsKey(subProtocol))
-        {
-
-        }
-        _ = subProtocol.DialAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
+         _ = subProtocol.DialAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
         {
             if (!t.IsCompletedSuccessfully)
             {
-
+                _logger?.LogError("SubDialAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
             }
+
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync();
             }
 
-            req?.CompletionSource?.SetResult(true);
+            req?.CompletionSource?.SetResult();
         });
 
         return chan;
@@ -112,14 +109,14 @@ public class ChannelFactory : IChannelFactory
         {
             if (!t.IsCompletedSuccessfully)
             {
-
+                _logger?.LogError("SubListenAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
             }
             if (!chan.IsClosed)
             {
                 await chan.CloseAsync();
             }
 
-            req?.CompletionSource?.SetResult(true);
+            req?.CompletionSource?.SetResult();
         });
 
         return chan;

@@ -29,7 +29,7 @@ public class ChannelsBenchmark
     IChannel revChan;
 
     [GlobalSetup]
-    public async Task Setup()
+    public void Setup()
     {
         chan = new Channel();
         revChan = ((Channel)chan).Reverse;
@@ -47,7 +47,6 @@ public class ChannelsBenchmark
             {
                 byte[] array = new byte[PacketSize];
                 await chan.WriteAsync(new ReadOnlySequence<byte>(array.AsMemory()));
-                //ArrayPool<byte>.Shared.Return(array);
             }
         });
 

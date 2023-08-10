@@ -34,7 +34,8 @@ public class MultiAddrBasedSelectorProtocol : SymmetricProtocol, IProtocol
             await (isListener
                 ? channelFactory.SubListen(context, protocol)
                 : channelFactory.SubDial(context, protocol));
-        }catch (Exception ex)
+        }
+        catch (Exception ex)
         {
 
         }

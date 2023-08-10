@@ -3,7 +3,6 @@ extern alias BouncyCastleCryptography;
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
-using System;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -13,18 +12,15 @@ public static class PeerFactoryBuilderBase
 
     internal static IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
     {
-        if(instance is not null)
+        if (instance is not null)
         {
-            protocols.Add(instance); 
+            protocols.Add(instance);
         }
-        if(typeof(TProtocol) == typeof(IProtocol))
-        {
 
-        }
         IProtocol? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
         if (existing is null)
         {
-            existing = ActivatorUtilities.CreateInstance<TProtocol>(serviceProvider);
+            existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
             protocols.Add(existing);
         }
         return existing;
@@ -52,8 +48,6 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         return new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
     }
 
-
-
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance));
@@ -77,7 +71,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             this.builder = builder;
             this.serviceProvider = serviceProvider;
             Protocol = protocol;
-            UpChannelsFactory = ActivatorUtilities.CreateInstance<ChannelFactory>(serviceProvider);
+            UpChannelsFactory = ActivatorUtilities.GetServiceOrCreateInstance<ChannelFactory>(serviceProvider);
         }
 
         public ProtocolStack AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
@@ -115,7 +109,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
             rootProto.Root = stack.Root = Root ?? this;
             rootProto.Parent = this;
-                       
+
             return stack;
         }
 
@@ -180,7 +174,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         SetupChannelFactories(root);
 
-        TPeerFactory result = ActivatorUtilities.CreateInstance<TPeerFactory>(ServiceProvider);
+        TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
         result.Setup(root?.Protocol!, root!.UpChannelsFactory);
         return result;
     }
