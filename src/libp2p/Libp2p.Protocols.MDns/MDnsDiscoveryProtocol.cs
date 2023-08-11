@@ -26,7 +26,6 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
     private string ServiceName = "_p2p._udp.local";
 
     private string? ServiceNameOverride = "pubsub-chat-example";
-    private string HostName => $"{PeerName}.p2p.local";
 
     public Func<MultiAddr[], bool>? OnAddPeer { get; set; }
     public Func<MultiAddr[], bool>? OnRemovePeer { get; set; }
@@ -39,8 +38,8 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
         try
         {
-            PeerName = "0000" + RandomString(28);
-            ServiceProfile service = new ServiceProfile(PeerName, ServiceNameOverride ?? ServiceName, 0);
+            PeerName = RandomString(32);
+            ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
             if (localPeerAddr.At(Multiaddr.Ip4) == "0.0.0.0")
             {
@@ -66,7 +65,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
 
-            ServiceDiscovery sd = new ServiceDiscovery();
+            ServiceDiscovery sd = new();
 
             sd.ServiceDiscovered += (s, serviceName) =>
             {
@@ -80,7 +79,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
                 if (records.Any() && !peers.Contains(records.First()) && localPeerAddr.At(Multiaddr.P2p) != records.First().At(Multiaddr.P2p))
                 {
-                    List<string> peerAddresses = new List<string>();
+                    List<string> peerAddresses = new();
                     foreach (MultiAddr peer in records)
                     {
                         peers.Add(peer);
@@ -106,13 +105,14 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
     private static string RandomString(int length)
     {
-        const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        Random random = new Random();
-        return new string(Enumerable.Repeat(chars, length).Select(s => s[random.Next(s.Length)]).ToArray());
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        return string.Create(length, Random.Shared,
+            (chars, rand) =>
+            {
+                for (var i = 0; i < chars.Length; i++)
+                    chars[i] = alphabet[rand.Next(0, alphabet.Length)];
+            });
     }
 
-    public Task BanPeer()
-    {
-        return Task.CompletedTask;
-    }
+    public Task BanPeer() => Task.CompletedTask;
 }

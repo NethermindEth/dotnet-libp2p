@@ -12,16 +12,12 @@ namespace Nethermind.Libp2p.Core;
 public struct MultiAddr
 {
     // override object.Equals
-    public override bool Equals(object obj)
-    {
-        return (obj is MultiAddr dst) && ((dst._segments is null && _segments is null) || (dst._segments is not null && _segments is not null && dst._segments.SequenceEqual(_segments)));
-    }
+    public override bool Equals(object obj) =>
+        (obj is MultiAddr dst) && ((dst._segments is null && _segments is null) || (dst._segments is not null && _segments is not null && dst._segments.SequenceEqual(_segments)));
 
     // override object.GetHashCode
-    public override int GetHashCode()
-    {
-        return this.ToString().GetHashCode();
-    }
+    public override int GetHashCode() => ToString().GetHashCode();
+
     private struct Segment
     {
         public Segment(Multiaddr type, string? parameter)

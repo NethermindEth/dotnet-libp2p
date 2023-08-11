@@ -10,12 +10,10 @@ using System.Text;
 using System.Text.Json;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder =>
-    {
-        //builder.UseQuic = true;
-        builder.EnforcePlaintext = true;
-        return builder.AddAppLayerProtocol<ChatProtocol>();
-    })
+    .AddLibp2p(builder => builder
+        .WithPlaintextEnforced()
+        .AddAppLayerProtocol<ChatProtocol>()
+        )
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Debug)
             .AddSimpleConsole(l =>
@@ -30,7 +28,7 @@ IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Pubsub Chat");
 CancellationTokenSource ts = new();
 
-Random r = new Random();
+Random r = new();
 byte[] buf = new byte[32];
 r.NextBytes(buf);
 Identity optionalFixedIdentity = Identity.FromPrivateKey(buf);
@@ -43,7 +41,7 @@ FloodsubRouter router = serviceProvider.GetService<FloodsubRouter>()!;
 
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
 
-_ = router.StartAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), ts.Token);
+_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), ts.Token);
 
 
 topic.OnMessage += ((byte[] msg) =>
@@ -61,7 +59,7 @@ string nickName = "libp2p-dotnet";
 
 while (true)
 {
-    string msg = Console.ReadLine();
+    string msg = Console.ReadLine()!;
     if (msg == "exit")
     {
         break;

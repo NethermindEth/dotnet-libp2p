@@ -140,21 +140,14 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         foreach (IProtocol appLayerProtocol in _appLayerProtocols)
         {
-            if (appLayer is null)
-            {
-                appLayer = transportLayer.Over(appLayerProtocol);
-            }
-            else
-            {
-                appLayer = appLayer.Or(appLayerProtocol);
-            }
+            appLayer = appLayer is null ? transportLayer.Over(appLayerProtocol) : appLayer.Or(appLayerProtocol);
         }
 
         ProtocolStack? root = transportLayer.Root;
 
         if (root?.Protocol is null || root.UpChannelsFactory is null)
         {
-            throw new Exception("Root proto is properly undefined");
+            throw new ApplicationException("Root protocol is not properly defined");
         }
 
         static void SetupChannelFactories(ProtocolStack root)
