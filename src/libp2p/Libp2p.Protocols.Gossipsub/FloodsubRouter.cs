@@ -8,7 +8,6 @@ using Nethermind.Libp2p.Core.Enums;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using Org.BouncyCastle.Utilities.Encoders;
-using SimpleBase;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
@@ -37,82 +36,6 @@ public class FloodsubRouter
         CancellationTokenSource cts = new CancellationTokenSource();
         cts.Cancel(false);
         Canceled = cts.Token;
-    }
-
-    public class PeerId
-    {
-        public byte[] Bytes { get; private set; }
-
-        public PeerId(string peerId)
-        {
-            Bytes = Base58.Bitcoin.Decode(peerId);
-        }
-
-        public static implicit operator PeerId(string peerId)
-        {
-            return new PeerId(peerId);
-        }
-
-        public PeerId(byte[] bytes)
-        {
-            Bytes = bytes;
-        }
-
-        // override object.Equals
-        public override bool Equals(object? obj)
-        {
-            if (ReferenceEquals(this, obj))
-            {
-                return true;
-            }
-
-            if (obj is not PeerId peerId)
-            {
-                return false;
-            }
-
-            return Bytes.SequenceEqual(peerId.Bytes);
-        }
-
-
-        int? hashCode = null;
-        public override int GetHashCode()
-        {
-            static int ComputeHash(params byte[] data)
-            {
-                unchecked
-                {
-                    const int p = 16777619;
-                    int hash = (int)2166136261;
-
-                    for (int i = 0; i < data.Length; i++)
-                        hash = (hash ^ data[i]) * p;
-
-                    return hash;
-                }
-            }
-
-            return hashCode ??= ComputeHash(Bytes);
-        }
-
-        public static bool operator ==(PeerId lhs, PeerId rhs)
-        {
-            if (lhs is null)
-            {
-                if (rhs is null)
-                {
-                    return true;
-                }
-
-                return false;
-            }
-            return lhs.Equals(rhs);
-        }
-
-        public static bool operator !=(PeerId lhs, PeerId rhs) => !(lhs == rhs);
-
-        public override string ToString() => Convert.ToHexString(Bytes).ToLowerInvariant();
-
     }
 
     class Peer

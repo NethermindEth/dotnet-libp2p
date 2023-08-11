@@ -81,20 +81,20 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel chan = CreateChannel(subProtocol);
         chan.Bind(parent);
-         _ = subProtocol.DialAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
-        {
-            if (!t.IsCompletedSuccessfully)
-            {
-                _logger?.LogError("SubDialAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
-            }
+        _ = subProtocol.DialAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
+       {
+           if (!t.IsCompletedSuccessfully)
+           {
+               _logger?.LogError("SubDialAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
+           }
 
-            if (!chan.IsClosed)
-            {
-                await chan.CloseAsync();
-            }
+           if (!chan.IsClosed)
+           {
+               await chan.CloseAsync();
+           }
 
-            req?.CompletionSource?.SetResult();
-        });
+           req?.CompletionSource?.SetResult();
+       });
 
         return chan;
     }

@@ -53,8 +53,8 @@ public class Identity
     public PublicKey PublicKey { get; }
     public byte[] PrivateKey { get; }
 
-    public string PeerId => new RawPeerId(PublicKey).ToString();
-    public byte[] PeerIdBytes => new RawPeerId(PublicKey).ToByteArray();
+    public string PeerId => new PeerId(PublicKey).ToString();
+    public byte[] PeerIdBytes => new PeerId(PublicKey).Bytes;
 
     public static Identity FromPrivateKey(byte[] privateKey)
     {
