@@ -9,7 +9,13 @@ namespace Nethermind.Libp2p.Builder;
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
 {
-    public bool EnforcePlaintext { private get; set; }
+    private bool enforcePlaintext;
+
+    public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
+    {
+        enforcePlaintext = true;
+        return this;
+    }
 
     public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
     {
@@ -19,7 +25,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
     protected override ProtocolStack BuildStack()
     {
-        ProtocolStack tcpEncryptionStack = EnforcePlaintext ?
+        ProtocolStack tcpEncryptionStack = enforcePlaintext ?
             Over<PlainTextProtocol>() :
             Over<NoiseProtocol>();
 

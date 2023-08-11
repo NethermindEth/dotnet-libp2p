@@ -17,7 +17,7 @@ internal static class RpcExtensions
     public static Rpc WithMessages(this Rpc rpc, string topic, ulong seqNo, byte[] from, byte[] message, byte[] privateKey)
     {
 
-        Message msg = new Message();
+        Message msg = new();
         msg.Topic = topic;
         Span<byte> seqNoBytes = new byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);

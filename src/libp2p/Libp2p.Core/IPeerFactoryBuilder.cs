@@ -9,8 +9,3 @@ public interface IPeerFactoryBuilder
     IPeerFactory Build();
     IEnumerable<IProtocol> AppLayerProtocols { get; }
 }
-
-public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
-{
-    public bool EnforcePlaintext { set; }
-}

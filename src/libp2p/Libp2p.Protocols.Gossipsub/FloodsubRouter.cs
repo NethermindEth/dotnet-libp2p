@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Libp2p.Protocols.Gossipsub;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -11,38 +12,29 @@ using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
-using System.Runtime.Caching;
 using System.Text;
 
 namespace Libp2p.Protocols.Floodsub;
-public class FloodsubRouter
+public partial class FloodsubRouter
 {
-    private ILocalPeer localPeer;
+    private static readonly CancellationToken Canceled;
+
+    public PeerId? LocalPeerId { get; private set; }
+
+    public event Action<string, byte[]>? OnMessage;
+
+    private TtlCache<string, Message> messageCache;
+    private ILocalPeer? localPeer;
     private ILogger? logger;
-
-    ConcurrentDictionary<string, HashSet<PeerId>> Topics = new();
-    ConcurrentDictionary<PeerId, Peer> Peers = new();
-    ulong SeqNo = 1;
-
-    public PeerId LocalPeerId { get; private set; }
-
-    public event Action<string, byte[]> OnMessage;
-
-    public ObjectCache MessageCache = new MemoryCache("{nameof(FloodsubRouter)}MessageCache");
-    private static CancellationToken Canceled;
+    private readonly ConcurrentDictionary<string, HashSet<PeerId>> topics = new();
+    private readonly ConcurrentDictionary<PeerId, PubSubPeer> peers = new();
+    private ulong seqNo = 1;
 
     static FloodsubRouter()
     {
-        CancellationTokenSource cts = new CancellationTokenSource();
+        CancellationTokenSource cts = new();
         cts.Cancel(false);
         Canceled = cts.Token;
-    }
-
-    class Peer
-    {
-        public Action<Rpc> SendRpc { get; internal set; }
-        public CancellationTokenSource TokenSource { get; init; }
-        public PeerId PeerId { get; init; }
     }
 
     public FloodsubRouter(ILoggerFactory? loggerFactory = null)
@@ -50,8 +42,9 @@ public class FloodsubRouter
         logger = loggerFactory?.CreateLogger<FloodsubRouter>();
     }
 
-    public async Task StartAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
+    public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
     {
+        messageCache = new(30_000);
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
@@ -59,13 +52,15 @@ public class FloodsubRouter
         this.localPeer = localPeer;
         LocalPeerId = new PeerId(localPeer.Address.At(Multiaddr.P2p)!);
 
-        IListener listener = await localPeer.ListenAsync(localPeer.Address, token);
-        _ = StartDiscoveryAsync(discoveryProtocol);
-
+        _ = localPeer.ListenAsync(localPeer.Address, token);
+        _ = StartDiscoveryAsync(discoveryProtocol, token);
         logger?.LogInformation("Started");
+
+        await Task.Delay(Timeout.Infinite, token);
+        messageCache.Dispose();
     }
 
-    private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol)
+    private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
     {
         ObservableCollection<MultiAddr> col = new();
         discoveryProtocol.OnAddPeer = (addrs) =>
@@ -73,60 +68,58 @@ public class FloodsubRouter
             Dictionary<MultiAddr, CancellationTokenSource> cancellations = new();
             foreach (MultiAddr addr in addrs)
             {
-                cancellations[addr] = new CancellationTokenSource();
+                cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
             }
 
             _ = Task.Run(async () =>
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
-                    .Where(x => !x.ToString().Contains("192.168"))
                     .Select(addr => localPeer.DialAsync(addr)))).Result;
                 foreach (KeyValuePair<MultiAddr, CancellationTokenSource> c in cancellations)
                 {
                     if (c.Key != firstConnected.Address)
                     {
-                        //logger?.LogDebug("Cancel {0}", c.Key);
                         c.Value.Cancel(false);
                     }
                 }
                 logger?.LogDebug("Dialing {0}", firstConnected.Address);
-                PeerId peerId = firstConnected.Address.At(Multiaddr.P2p);
-                if (!Peers.ContainsKey(peerId))
+                PeerId peerId = firstConnected.Address.At(Multiaddr.P2p)!;
+                if (!peers.ContainsKey(peerId))
                 {
-                    await firstConnected.DialAsync<FloodsubProtocol>();
+                    await firstConnected.DialAsync<FloodsubProtocol>(token);
                 }
             });
 
             return true;
         };
 
-        await discoveryProtocol.DiscoverAsync(localPeer.Address);
+        await discoveryProtocol.DiscoverAsync(localPeer.Address, token);
     }
 
     public ITopic Subscribe(string topicName)
     {
         Topic topic = new(this, topicName);
-        Topics.TryAdd(topicName, new HashSet<PeerId>());
-        HashSet<PeerId> peers = Topics[topicName];
+        topics.TryAdd(topicName, new HashSet<PeerId>());
+        HashSet<PeerId> peers = topics[topicName];
         Rpc topicUpdate = new Rpc().WithTopics(new string[] { topicName }, Enumerable.Empty<string>());
         foreach (PeerId peer in peers)
         {
-            Peers[peer].SendRpc?.Invoke(topicUpdate);
+            this.peers[peer].SendRpc?.Invoke(topicUpdate);
         }
         return topic;
     }
 
     public void Unsubscribe(string topicName)
     {
-        if (Topics.ContainsKey(topicName))
+        if (topics.ContainsKey(topicName))
         {
-            if (!Topics[topicName].Any())
+            if (!topics[topicName].Any())
             {
-                Topics.Remove(topicName, out _);
+                topics.Remove(topicName, out _);
             }
 
-            Rpc topicUpdate = new Rpc().WithTopics(Topics.Keys.Where(tn => tn != topicName), new[] { topicName });
-            foreach (KeyValuePair<PeerId, Peer> peer in Peers!)
+            Rpc topicUpdate = new Rpc().WithTopics(topics.Keys.Where(tn => tn != topicName), new[] { topicName });
+            foreach (KeyValuePair<PeerId, PubSubPeer> peer in peers!)
             {
                 peer.Value.SendRpc?.Invoke(topicUpdate);
             }
@@ -135,25 +128,24 @@ public class FloodsubRouter
 
     public void Publish(string topic, byte[] message)
     {
-        ulong seqNo = SeqNo++;
+        ulong seqNo = this.seqNo++;
         byte[] seqNoBytes = new byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topic, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey);
         string messageId = Encoding.ASCII.GetString(Base64.Encode(LocalPeerId.Bytes.Concat(seqNoBytes).ToArray()));
-        MessageCache.Set(messageId, message, DateTimeOffset.Now.AddMinutes(5));
 
-        foreach (PeerId peer in Topics[topic])
+        foreach (PeerId peer in topics[topic])
         {
-            Peers[peer].SendRpc?.Invoke(rpc);
+            peers[peer].SendRpc?.Invoke(rpc);
         }
     }
 
     internal CancellationToken OutboundConnection(PeerId peerId, Action<Rpc> sendRpc)
     {
-        Peer peer;
-        if (Peers.ContainsKey(peerId))
+        PubSubPeer peer;
+        if (peers.ContainsKey(peerId))
         {
-            peer = Peers[peerId];
+            peer = peers[peerId];
             if (peer.SendRpc is null)
             {
                 peer.SendRpc = sendRpc;
@@ -165,25 +157,25 @@ public class FloodsubRouter
         }
         else
         {
-            peer = new Peer { PeerId = peerId, SendRpc = sendRpc, TokenSource = new CancellationTokenSource() };
-            Peers.TryAdd(peerId, peer);
+            peer = new PubSubPeer { RawPeerId = peerId, SendRpc = sendRpc, TokenSource = new CancellationTokenSource() };
+            peers.TryAdd(peerId, peer);
         }
-        peer.SendRpc.Invoke(new Rpc().WithTopics(Topics.Keys, Enumerable.Empty<string>()));
+        peer.SendRpc.Invoke(new Rpc().WithTopics(topics.Keys, Enumerable.Empty<string>()));
         logger?.LogDebug("Outbound {0}", peerId);
         return peer.TokenSource.Token;
     }
 
     internal CancellationToken InboundConnection(PeerId peerId, Action subDial)
     {
-        Peer? remotePeer;
-        if (Peers.TryGetValue(peerId, out remotePeer) && remotePeer is not null)
+        PubSubPeer? remotePeer;
+        if (peers.TryGetValue(peerId, out remotePeer) && remotePeer is not null)
         {
             return remotePeer.TokenSource.Token;
         }
 
-        remotePeer = new Peer { PeerId = peerId, TokenSource = new CancellationTokenSource() };
+        remotePeer = new PubSubPeer { RawPeerId = peerId, TokenSource = new CancellationTokenSource() };
         logger?.LogDebug("Inbound {0}", peerId);
-        if (Peers.TryAdd(peerId, remotePeer))
+        if (peers.TryAdd(peerId, remotePeer))
         {
             logger?.LogDebug("Inbound, lets dial {0}", peerId);
             subDial();
@@ -191,13 +183,13 @@ public class FloodsubRouter
         }
         else
         {
-            return Peers[peerId].TokenSource.Token;
+            return peers[peerId].TokenSource.Token;
         }
     }
 
     internal void OnRpc(PeerId peerId, Rpc rpc)
     {
-        Dictionary<PeerId, Rpc> peerMessages = new Dictionary<PeerId, Rpc>();
+        Dictionary<PeerId, Rpc> peerMessages = new();
 
         if (rpc.Subscriptions.Any())
         {
@@ -205,25 +197,20 @@ public class FloodsubRouter
             {
                 if (sub.Subscribe)
                 {
-                    if (!Topics.ContainsKey(sub.Topicid))
+                    if (!topics.ContainsKey(sub.Topicid))
                     {
-                        Topics[sub.Topicid] = new HashSet<PeerId>();
+                        topics[sub.Topicid] = new HashSet<PeerId>();
                     }
-                    Topics[sub.Topicid].Add(peerId);
+                    topics[sub.Topicid].Add(peerId);
                 }
                 else
                 {
-                    if (Topics.ContainsKey(sub.Topicid))
+                    if (topics.ContainsKey(sub.Topicid))
                     {
-                        Topics[sub.Topicid].Remove(peerId);
+                        topics[sub.Topicid].Remove(peerId);
                     }
                 }
             }
-
-            string[] topicsToSend = rpc.Subscriptions.Where(s => s.Subscribe).Select(s => s.Topicid).ToArray();
-            IEnumerable<Message?> messages = MessageCache.Select(s => s.Value as Message).Where(m => topicsToSend.Contains(m?.Topic));
-            if (peerMessages.ContainsKey(peerId))
-                peerMessages[peerId].Publish.AddRange(messages);
         }
 
         if (rpc.Publish.Any())
@@ -231,14 +218,14 @@ public class FloodsubRouter
             foreach (Message? message in rpc.Publish)
             {
                 string messageId = Convert.ToHexString(message.From.Concat(message.Seqno).ToArray());
-                if (MessageCache.Contains(messageId))
+                if (messageCache.Contains(messageId))
                 {
                     continue;
                 }
                 OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
-                PeerId author = new PeerId(message.From.ToArray());
-                MessageCache.Set(messageId, message, DateTimeOffset.Now.AddMinutes(5));
-                foreach (PeerId peer in Topics[message.Topic])
+                PeerId author = new (message.From.ToArray());
+                messageCache.Add(messageId, message);
+                foreach (PeerId peer in topics[message.Topic])
                 {
                     if (peer == author || peer == peerId)
                     {
@@ -255,39 +242,7 @@ public class FloodsubRouter
 
         foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
         {
-            Peers[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
+            peers[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
         }
-    }
-}
-
-public interface ITopic
-{
-    event Action<byte[]>? OnMessage;
-    void Publish(byte[] bytes);
-}
-
-class Topic : ITopic
-{
-    private readonly FloodsubRouter router;
-    private string topicName;
-
-    public event Action<byte[]>? OnMessage;
-
-    public Topic(FloodsubRouter router, string topicName)
-    {
-        this.router = router;
-        this.topicName = topicName;
-        router.OnMessage += (topicName, message) =>
-        {
-            if (OnMessage is not null && this.topicName == topicName)
-            {
-                OnMessage(message);
-            }
-        };
-    }
-
-    public void Publish(byte[] value)
-    {
-        router.Publish(topicName, value);
     }
 }

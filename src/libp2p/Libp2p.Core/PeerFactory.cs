@@ -3,7 +3,6 @@
 
 using System.Runtime.CompilerServices;
 using Nethermind.Libp2p.Core.Enums;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -57,7 +56,7 @@ public class PeerFactory : IPeerFactory
             Id = $"ctx-{++CtxId}",
             LocalPeer = peer,
         };
-        RemotePeer remotePeer = new RemotePeer(this, peer, peerCtx);
+        RemotePeer remotePeer = new(this, peer, peerCtx);
         peerCtx.RemotePeer = remotePeer;
 
         PeerListener result = new(chan, peer);
@@ -94,7 +93,7 @@ public class PeerFactory : IPeerFactory
         try
         {
             Channel chan = new();
-            PeerContext context = new PeerContext
+            PeerContext context = new()
             {
                 Id = $"ctx-{++CtxId}",
                 LocalPeer = peer,

@@ -8,7 +8,7 @@ using System.Buffers;
 using System.Diagnostics;
 
 
-Channel chan = new Channel();
+Channel chan = new();
 IChannel revChan = ((Channel)chan).Reverse;
 
 const long GiB = 1024 * 1024 * 1024;
