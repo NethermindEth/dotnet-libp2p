@@ -18,8 +18,15 @@ using System.Text;
 using Multihash = Multiformats.Hash.Multihash;
 
 namespace Libp2p.Protocols.Floodsub;
-public partial class FloodsubRouter
+public class PubsubRouter
 {
+    class PubsubPeer
+    {
+        public Action<Rpc> SendRpc { get; internal set; }
+        public CancellationTokenSource TokenSource { get; init; }
+        public PeerId RawPeerId { get; init; }
+    }
+
     private static readonly CancellationToken Canceled;
 
     public PeerId? LocalPeerId { get; private set; }
@@ -30,19 +37,19 @@ public partial class FloodsubRouter
     private ILocalPeer? localPeer;
     private ILogger? logger;
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> topics = new();
-    private readonly ConcurrentDictionary<PeerId, PubSubPeer> peers = new();
+    private readonly ConcurrentDictionary<PeerId, PubsubPeer> peers = new();
     private ulong seqNo = 1;
 
-    static FloodsubRouter()
+    static PubsubRouter()
     {
         CancellationTokenSource cts = new();
         cts.Cancel(false);
         Canceled = cts.Token;
     }
 
-    public FloodsubRouter(ILoggerFactory? loggerFactory = null)
+    public PubsubRouter(ILoggerFactory? loggerFactory = null)
     {
-        logger = loggerFactory?.CreateLogger<FloodsubRouter>();
+        logger = loggerFactory?.CreateLogger<PubsubRouter>();
     }
 
     public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
@@ -122,7 +129,7 @@ public partial class FloodsubRouter
             }
 
             Rpc topicUpdate = new Rpc().WithTopics(topics.Keys.Where(tn => tn != topicName), new[] { topicName });
-            foreach (KeyValuePair<PeerId, PubSubPeer> peer in peers!)
+            foreach (KeyValuePair<PeerId, PubsubPeer> peer in peers!)
             {
                 peer.Value.SendRpc?.Invoke(topicUpdate);
             }
@@ -143,9 +150,9 @@ public partial class FloodsubRouter
         }
     }
 
-    internal CancellationToken OutboundConnection(PeerId peerId, Action<Rpc> sendRpc)
+    internal CancellationToken OutboundConnection(PeerId peerId, string protocolId, Action<Rpc> sendRpc)
     {
-        PubSubPeer peer;
+        PubsubPeer peer;
         if (peers.ContainsKey(peerId))
         {
             peer = peers[peerId];
@@ -160,7 +167,7 @@ public partial class FloodsubRouter
         }
         else
         {
-            peer = new PubSubPeer { RawPeerId = peerId, SendRpc = sendRpc, TokenSource = new CancellationTokenSource() };
+            peer = new PubsubPeer { RawPeerId = peerId, SendRpc = sendRpc, TokenSource = new CancellationTokenSource() };
             peers.TryAdd(peerId, peer);
         }
         peer.SendRpc.Invoke(new Rpc().WithTopics(topics.Keys, Enumerable.Empty<string>()));
@@ -168,15 +175,15 @@ public partial class FloodsubRouter
         return peer.TokenSource.Token;
     }
 
-    internal CancellationToken InboundConnection(PeerId peerId, Action subDial)
+    internal CancellationToken InboundConnection(PeerId peerId, string protocolId, Action subDial)
     {
-        PubSubPeer? remotePeer;
+        PubsubPeer? remotePeer;
         if (peers.TryGetValue(peerId, out remotePeer) && remotePeer is not null)
         {
             return remotePeer.TokenSource.Token;
         }
 
-        remotePeer = new PubSubPeer { RawPeerId = peerId, TokenSource = new CancellationTokenSource() };
+        remotePeer = new PubsubPeer { RawPeerId = peerId, TokenSource = new CancellationTokenSource() };
         logger?.LogDebug("Inbound {0}", peerId);
         if (peers.TryAdd(peerId, remotePeer))
         {

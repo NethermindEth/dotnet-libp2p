@@ -14,13 +14,13 @@ namespace Nethermind.Libp2p.Protocols;
 public class FloodsubProtocol : IProtocol
 {
     private readonly ILogger? _logger;
-    private readonly FloodsubRouter router;
+    private readonly PubsubRouter router;
 
-    public string Id => "/floodsub/1.0.0";
+    public virtual string Id => "/floodsub/1.0.0";
 
-    public FloodsubProtocol(FloodsubRouter router, ILoggerFactory? loggerFactory = null)
+    public FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<FloodsubProtocol>();
+        _logger = loggerFactory?.CreateLogger(GetType());
         this.router = router;
     }
 
@@ -31,7 +31,7 @@ public class FloodsubProtocol : IProtocol
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
 
-        CancellationToken token = router.OutboundConnection(peerId, (rpc) =>
+        CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
         {
             _ = channel.WritePrefixedProtobufAsync(rpc);
         });
@@ -54,7 +54,7 @@ public class FloodsubProtocol : IProtocol
         string peerId = context.RemotePeer.Address.At(Core.Enums.Multiaddr.P2p)!;
         _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
-        CancellationToken token = router.InboundConnection(peerId, () =>
+        CancellationToken token = router.InboundConnection(peerId, Id, () =>
         {
             context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
         });
