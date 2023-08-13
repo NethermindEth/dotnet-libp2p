@@ -37,7 +37,7 @@ string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{optionalFixedIdentity.PeerId}";
 ILocalPeer peer = peerFactory.Create(optionalFixedIdentity, addr);
 
 
-FloodsubRouter router = serviceProvider.GetService<FloodsubRouter>()!;
+PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
 

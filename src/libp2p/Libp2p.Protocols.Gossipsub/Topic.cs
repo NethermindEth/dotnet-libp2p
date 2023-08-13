@@ -5,10 +5,10 @@ namespace Libp2p.Protocols.Floodsub;
 
 class Topic : ITopic
 {
-    private readonly FloodsubRouter router;
+    private readonly PubsubRouter router;
     private string topicName;
 
-    public Topic(FloodsubRouter router, string topicName)
+    public Topic(PubsubRouter router, string topicName)
     {
         this.router = router;
         this.topicName = topicName;
