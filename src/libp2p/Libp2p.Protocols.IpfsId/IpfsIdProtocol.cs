@@ -15,13 +15,11 @@ public class IpfsIdProtocol : IProtocol
     private const string SubProtocolId = "ipfs/0.1.0";
 
     private readonly ILogger? _logger;
-    private readonly PeerRegistry peerRegistry;
     private readonly IPeerFactoryBuilder peerFactoryBuilder;
 
-    public IpfsIdProtocol(PeerRegistry peerRegistry, IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
+    public IpfsIdProtocol(IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<IpfsIdProtocol>();
-        this.peerRegistry = peerRegistry;
         this.peerFactoryBuilder = peerFactoryBuilder;
     }
 
@@ -43,8 +41,6 @@ public class IpfsIdProtocol : IProtocol
             {
                 throw new PeerConnectionException();
             }
-
-            peerRegistry.Register(identity);
         }
         catch
         {

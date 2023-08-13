@@ -3,8 +3,10 @@
 
 using Libp2p.Protocols.Gossipsub;
 using Microsoft.Extensions.Logging;
+using Multiformats.Hash;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Enums;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
@@ -13,6 +15,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Text;
+using Multihash = Multiformats.Hash.Multihash;
 
 namespace Libp2p.Protocols.Floodsub;
 public partial class FloodsubRouter
@@ -23,7 +26,7 @@ public partial class FloodsubRouter
 
     public event Action<string, byte[]>? OnMessage;
 
-    private TtlCache<string, Message> messageCache;
+    private TtlCache<string, Message>? messageCache;
     private ILocalPeer? localPeer;
     private ILogger? logger;
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> topics = new();
@@ -218,13 +221,17 @@ public partial class FloodsubRouter
             foreach (Message? message in rpc.Publish)
             {
                 string messageId = Convert.ToHexString(message.From.Concat(message.Seqno).ToArray());
-                if (messageCache.Contains(messageId))
+                if (messageCache!.Contains(messageId))
+                {
+                    continue;
+                }
+                messageCache.Add(messageId, message);
+                PeerId author = new(message.From.ToArray());
+                if (!VerifySignature(author, message))
                 {
                     continue;
                 }
                 OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
-                PeerId author = new (message.From.ToArray());
-                messageCache.Add(messageId, message);
                 foreach (PeerId peer in topics[message.Topic])
                 {
                     if (peer == author || peer == peerId)
@@ -244,5 +251,20 @@ public partial class FloodsubRouter
         {
             peers[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
         }
+    }
+
+    private static bool VerifySignature(PeerId author, Message message)
+    {
+        Multihash multihash = Multihash.Decode(author.Bytes);
+        if (multihash.Code != HashType.ID)
+        {
+            return false;
+        }
+        var pubKey = PublicKey.Parser.ParseFrom(multihash.Digest);
+        if (pubKey.Type != KeyType.Ed25519)
+        {
+            return false;
+        }
+        return multihash.Code == HashType.ID && message.IsValid(pubKey.Data.ToByteArray());
     }
 }

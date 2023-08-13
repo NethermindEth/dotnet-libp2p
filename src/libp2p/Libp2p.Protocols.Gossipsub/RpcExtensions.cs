@@ -12,7 +12,7 @@ namespace Libp2p.Protocols;
 
 internal static class RpcExtensions
 {
-    private const string PayloadSigPrefix = "libp2p-pubsub:";
+    private const string SignaturePayloadPrefix = "libp2p-pubsub:";
 
     public static Rpc WithMessages(this Rpc rpc, string topic, ulong seqNo, byte[] from, byte[] message, byte[] privateKey)
     {
@@ -25,7 +25,7 @@ internal static class RpcExtensions
         msg.From = ByteString.CopyFrom(from);
         msg.Data = ByteString.CopyFrom(message);
 
-        byte[] msgToSign = Encoding.UTF8.GetBytes(PayloadSigPrefix)
+        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
             .Concat(msg.ToByteArray())
             .ToArray();
         byte[] sig = new byte[64];
@@ -51,7 +51,7 @@ internal static class RpcExtensions
         Message msgToBeVerified = message.Clone();
         msgToBeVerified.ClearSignature();
 
-        byte[] msgToSign = Encoding.UTF8.GetBytes(PayloadSigPrefix)
+        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
           .Concat(msgToBeVerified.ToByteArray())
           .ToArray();
         return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubkey, 0, msgToSign, 0, msgToSign.Length);

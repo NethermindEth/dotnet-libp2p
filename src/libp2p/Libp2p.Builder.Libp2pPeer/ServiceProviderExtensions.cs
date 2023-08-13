@@ -4,7 +4,6 @@
 using Libp2p.Protocols.Floodsub;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Builder;
 
@@ -16,7 +15,6 @@ public static class ServiceProviderExtensions
             .AddScoped<IPeerFactoryBuilder>((sp) => factorySetup(new Libp2pPeerFactoryBuilder(sp)))
             .AddScoped<ILibp2pPeerFactoryBuilder>((sp) => (ILibp2pPeerFactoryBuilder)factorySetup(new Libp2pPeerFactoryBuilder(sp)))
             .AddScoped<IPeerFactory>((sp) => sp.GetService<IPeerFactoryBuilder>()!.Build())
-            .AddScoped<PeerRegistry>()
             .AddScoped<FloodsubRouter>()
             //.AddScoped<GossipsubRouter>()
             //.AddScoped<GossipsubRouterV11>()
