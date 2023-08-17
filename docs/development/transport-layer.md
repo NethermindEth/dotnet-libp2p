@@ -46,23 +46,22 @@ Otherwise, `upChannelFactory` can be used to start upper layer protocol. If the 
 
 In case you develop for libp2p protocol, you may want to include it in `Libp2pPeerFactoryBuilder`. Otherwise, you can create your own stack.
 
-The stack can be defined by chaining protocols using `Over/Select/Or`:
+The stack can be defined by chaining protocols using `Over/Or/AddAppLayerProtocol`:
 
 ```csharp
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
-public class APeerFactoryBuilder : PeerFactoryBuilderBase<APeerFactoryBuilder, APeerFactory>
+public class APeerFactoryBuilder : PeerFactoryBuilderBase<APeerFactoryBuilder, PeerFactory>
 {
-    public static Libp2pPeerFactoryBuilder Instance => new();
-
-    protected override Libp2pPeerFactoryBuilder BuildTransportLayer()
+    protected override APeerFactoryBuilder BuildTransportLayer()
     {
-        return Over<IpTcpProtocol>()       // use a regular protocol
-            .Select<MultistreamProtocol>() // add a protocol that can select from severals ones on top of it
-            .Over<NoiseProtocol>()         // a protocol to select from
-            .Or<PlainTextProtocol>()       // another one to select from
-            .Select<YamuxProtocol>()       // next one on top of previously selected during negotiation
+        return Over<IpTcpProtocol>()                  // use a regular protocol
+            .Over<MultistreamProtocol>()              // add a protocol that can select from several ones on top of it
+            .Over<NoiseProtocol>()                    // a protocol to select from
+            .Or<PlainTextProtocol>()                  // another one to select from
+            .Over<YamuxProtocol>()                    // next one on top of previously selected during negotiation
+            .AddAppLayerProtocol<MyCustomProtocol>(); // an inbuilt applayer protocol
     }
 }
 ```

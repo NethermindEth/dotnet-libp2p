@@ -16,13 +16,35 @@ As a stack implementer, you may be interested in [more advanced tutorials](./doc
 
 ## Roadmap
 
-From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms. With high throughput and low memory profile. The modules set to be implemented firstly should cover basic P2P application needs and include:
+From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms. With high throughput and low memory profile. The modules to be implemented firstly should cover basic P2P application needs.
 
-- [Identify](https://github.com/libp2p/specs/blob/master/identify/README.md)
-- [Plaintext](https://github.com/libp2p/specs/blob/master/plaintext/README.md)
-- [Discovery](https://github.com/libp2p/specs/blob/master/discovery/mdns.md)
-- [Pubsub](https://github.com/libp2p/specs/tree/master/pubsub)
-- [Mplex](https://github.com/libp2p/specs/blob/master/mplex/README.md)
+| Protocol           | Version            | Status          |
+|--------------------|--------------------|-----------------|
+| **Transports**
+| TCP                | tcp                | ✅             |
+| QUIC               | quic               | ⬜ help wanted |
+|                    | quic-v1            | ⬜ help wanted |
+| **Protocols**
+| multistream-select | /multistream/1.0.0 | ✅             |
+| plaintext          | /plaintext/2.0.0   | ✅             |
+| noise              | /noise             | ✅             |
+| mplex?             | /mplex/6.7.0       | ⬜             |
+| yamux              | /yamux/1.0.0       | ✅             |
+| Identify           | /ipfs/id/1.0.0     | ✅             |
+| ping               | /ipfs/ping/1.0.0   | ⬜ help wanted |
+| pubsub             | /floodsub/1.0.0    | ✅             |
+|                    | /meshsub/1.0.0     | 🚧             |
+|                    | /meshsub/1.1.0     | 🚧             |
+|                    | /meshsub/1.2.0     | ⬜             |
+| Circuit Relay      |                    | ⬜ help wanted |
+| **Discovery**
+| mDns               | basic              | ✅             |
+|                    | DNS-SD             | ⬜             |
+| discv5             | 5.1                | ⬜ help wanted |
+
+⬜ - not yet implemented<br>
+🚧 - work in progress<br>
+✅ - basic support implemented
 
 ## License
 

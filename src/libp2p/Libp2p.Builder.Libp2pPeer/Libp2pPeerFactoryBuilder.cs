@@ -21,8 +21,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     {
     }
 
-    public static Libp2pPeerFactoryBuilder Create => new();
-
     protected override ProtocolStack BuildStack()
     {
         ProtocolStack tcpEncryptionStack = enforcePlaintext ?

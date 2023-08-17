@@ -22,7 +22,7 @@ There is a protobuf generator, that can be used to easily generate C# types in a
   ```
 - Create `Dto` directory in the project;
 - Add `.proto` files for the structures needed;
-- Add `option csharp_namespace = "<namespace>";` if the classes should be in a particular namespace;
+- Add `option csharp_namespace = "<namespace>";` if the classes should belong in a particular namespace;
 - Build the project.
 
 ## Testing 
