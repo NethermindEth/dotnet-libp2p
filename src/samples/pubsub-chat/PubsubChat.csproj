@@ -13,9 +13,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\libp2p\Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj" />
       <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
       <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.MDns\Libp2p.Protocols.MDns.csproj" />
+      <ProjectReference Include="..\..\libp2p\Libp2p.Stack\Libp2p.Stack.csproj" />
     </ItemGroup>
 
 </Project>

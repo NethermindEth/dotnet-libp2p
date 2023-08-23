@@ -5,7 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
-        <RootNamespace>Nethermind.Libp2p.Builder</RootNamespace>
+        <RootNamespace>Nethermind.Libp2p.Stack</RootNamespace>
         <EnablePreviewFeatures>true</EnablePreviewFeatures>
     </PropertyGroup>
 

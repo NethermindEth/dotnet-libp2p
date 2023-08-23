@@ -4,7 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
-namespace Nethermind.Libp2p.Builder;
+namespace Nethermind.Libp2p.Stack;
 
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder

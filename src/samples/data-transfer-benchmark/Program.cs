@@ -4,7 +4,7 @@
 using System.Diagnostics;
 using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
-using Nethermind.Libp2p.Builder;
+using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 
 TaskScheduler.UnobservedTaskException += (s, e) =>
