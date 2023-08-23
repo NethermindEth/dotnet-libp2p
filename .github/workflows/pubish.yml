@@ -1,8 +1,6 @@
 name: Publish
 
 on:
-  push:
-    branches: [feature/nuget-packages]  
   workflow_dispatch:
     inputs:
       feed:
