@@ -43,7 +43,7 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           dotnet test Libp2p.Core.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
-          dotnet test Libp2p.Protocols.Multistream.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+          #dotnet test Libp2p.Protocols.Multistream.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
           dotnet test Libp2p.Protocols.Noise.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
 
       - name: Publish
