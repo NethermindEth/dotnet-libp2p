@@ -1,0 +1,70 @@
+name: Publish
+
+on:
+  push:
+    branches: [feature/nuget-packages]  
+  workflow_dispatch:
+    inputs:
+      feed:
+        description: NuGet feed
+        required: true
+        default: Staging
+        type: choice
+        options:
+          - Production
+          - Staging
+
+jobs:
+  publish:
+    name: Test and publish
+    runs-on: ubuntu-latest
+    env:
+      BUILD_CONFIG: release
+      WORKING_DIR: src/libp2p
+    steps:
+    
+      - name: Check out repository
+        uses: actions/checkout@v3
+    
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 7
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIR }}
+        run: dotnet restore
+
+      - name: Build
+        working-directory: ${{ env.WORKING_DIR }}
+        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:ContinuousIntegrationBuild=true -p:Commit=${{ github.sha }}
+    
+      - name: Test
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          dotnet test Libp2p.Core.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+          dotnet test Libp2p.Protocols.Multistream.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+          dotnet test Libp2p.Protocols.Noise.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+
+      - name: Publish
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+        run: |
+          dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Generators.Protobuf ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Gossipsub ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.IpfsId ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.MultiAddrBasedSelector ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Stack ${{ env.PACK_OPTS }}
+          
+          dotnet nuget push **/*.nupkg \
+            -k ${{ github.event.inputs.feed = 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
+            -s ${{ github.event.inputs.feed = 'Production' && 'https://api.nuget.org/v3/index.json' || 'https://apiint.nugettest.org/v3/index.json' }}

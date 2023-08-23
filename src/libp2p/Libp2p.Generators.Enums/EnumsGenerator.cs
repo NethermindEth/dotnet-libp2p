@@ -3,7 +3,7 @@
 
 using Microsoft.CodeAnalysis;
 
-namespace Nethermind.Libp2p.Generators.EnumsGenerator;
+namespace Nethermind.Libp2p.Generators.Enums;
 
 [Generator]
 public class EnumsGenerator : ISourceGenerator

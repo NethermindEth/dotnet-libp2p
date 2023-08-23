@@ -13,7 +13,7 @@
         <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Gossipsub\Libp2p.Protocols.Gossipsub.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj" />
-        <ProjectReference Include="..\Libp2p.Protocols.MultiAddrBasedSelector\Libp2p.Protocols.MultiAddrBasedSelector.csproj" />
+        <ProjectReference Include="..\Libp2p.Protocols.MultiaddrBasedSelector\Libp2p.Protocols.MultiaddrBasedSelector.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
         <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
@@ -25,6 +25,10 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <PackageReference Include="Microsoft.Extensions.Logging" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+        <PackageReference Include="Microsoft.SourceLink.GitHub">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
     </ItemGroup>
 
 </Project>

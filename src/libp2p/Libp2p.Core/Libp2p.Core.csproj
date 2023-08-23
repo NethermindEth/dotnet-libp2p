@@ -9,13 +9,13 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>Core routines and APIs</Description>
+    <Description>The libp2p core routines and API</Description>
     <PackageTags>libp2p network</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Generators.Enums\Libp2p.Generators.Enums.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

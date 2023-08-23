@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 
-namespace Nethermind.Libp2p.Generators.ProtobufGenerator;
+namespace Nethermind.Libp2p.Generators.Protobuf;
 
 [Generator]
 public class ProtobufGenerator : ISourceGenerator
