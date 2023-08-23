@@ -1,11 +1,11 @@
 // See https://aka.ms/new-console-template for more information
 
-using Libp2p.Protocols.Floodsub;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Floodsub;
 using System.Text;
 using System.Text.Json;
 

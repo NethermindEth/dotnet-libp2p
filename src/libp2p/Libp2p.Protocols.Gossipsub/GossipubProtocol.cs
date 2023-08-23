@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Libp2p.Protocols.Floodsub;
+using Nethermind.Libp2p.Protocols.Floodsub;
 
 namespace Nethermind.Libp2p.Protocols;
 

@@ -8,7 +8,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Enums;
-using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers.Binary;
@@ -17,7 +16,8 @@ using System.Collections.ObjectModel;
 using System.Text;
 using Multihash = Multiformats.Hash.Multihash;
 
-namespace Libp2p.Protocols.Floodsub;
+namespace Nethermind.Libp2p.Protocols.Floodsub;
+
 public class PubsubRouter
 {
     class PubsubPeer
