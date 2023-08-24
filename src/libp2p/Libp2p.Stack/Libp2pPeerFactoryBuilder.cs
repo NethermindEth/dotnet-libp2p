@@ -4,7 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
-namespace Nethermind.Libp2p.Builder;
+namespace Nethermind.Libp2p.Stack;
 
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
@@ -39,9 +39,9 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             Over<QuicProtocol>();
 
         return
-            Over<MultiAddrBasedSelectorProtocol>()
+            Over<MultiaddrBasedSelectorProtocol>()
             .Over(quicStack).Or(tcpStack)
-            .AddAppLayerProtocol<IpfsIdProtocol>()
+            .AddAppLayerProtocol<IdentifyProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV11>()
             //.AddAppLayerProtocol<GossipsubProtocol>()
             .AddAppLayerProtocol<FloodsubProtocol>();

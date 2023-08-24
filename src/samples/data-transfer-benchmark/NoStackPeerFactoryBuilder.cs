@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText:2023 Demerzel Solutions Limited
 // SPDX-License-Identifier:MIT
 
-using Nethermind.Libp2p.Builder;
+using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 

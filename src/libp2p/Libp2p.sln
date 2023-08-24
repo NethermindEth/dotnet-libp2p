@@ -11,8 +11,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "protocols", "protocols", "{
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Core", "Libp2p.Core\Libp2p.Core.csproj", "{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.EnumsGenerator", "Libp2p.Generators.EnumsGenerator\Libp2p.Generators.EnumsGenerator.csproj", "{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux", "Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj", "{5C164A63-988A-4E29-AE32-2E49344889B9}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.IpTcp", "Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj", "{5D75E6A7-F477-4C0F-AB7C-73E5872D4B6D}"
@@ -21,11 +19,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistrea
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Plaintext", "Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj", "{3E391742-9273-43BB-9A94-31E2476977B5}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.IpfsId", "Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.ProtobufGenerator", "Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj", "{A69DCBED-2903-42BC-8DBC-07E94282E7B4}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Builder.Libp2pPeer", "Libp2p.Builder.Libp2pPeer\Libp2p.Builder.Libp2pPeer.csproj", "{65051C4B-62CC-4E30-A77B-6C561400897C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Identify", "Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistream.Tests", "Libp2p.Protocols.Multistream.Tests\Libp2p.Protocols.Multistream.Tests.csproj", "{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}"
 EndProject
@@ -49,7 +43,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MDns", "Li
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Quic", "Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj", "{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MultiAddrBasedSelector", "Libp2p.Protocols.MultiAddrBasedSelector\Libp2p.Protocols.MultiAddrBasedSelector.csproj", "{78FE7885-577F-4CC0-B5BB-8349C376088F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Stack", "Libp2p.Stack\Libp2p.Stack.csproj", "{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.Enums", "Libp2p.Generators.Enums\Libp2p.Generators.Enums.csproj", "{A5C02C17-4F6E-46A5-9178-CF5EC375455B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.Protobuf", "Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj", "{AF9943D8-8074-4407-B315-0E32BB9EA64E}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MultiaddrBasedSelector", "Libp2p.Protocols.MultiaddrBasedSelector\Libp2p.Protocols.MultiaddrBasedSelector.csproj", "{F0598974-E490-47D8-BE83-7099F54D78BF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -65,10 +65,6 @@ Global
 		{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FDFFFE7B-DA06-4326-A65F-A1A0B81C4032}.Release|Any CPU.Build.0 = Release|Any CPU
-		{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{24F5D81F-8EC1-41F7-9ACA-436EAABF2B6D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5C164A63-988A-4E29-AE32-2E49344889B9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5C164A63-988A-4E29-AE32-2E49344889B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5C164A63-988A-4E29-AE32-2E49344889B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -89,14 +85,6 @@ Global
 		{94540284-FC9C-4513-B104-21B922741FF6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{94540284-FC9C-4513-B104-21B922741FF6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{94540284-FC9C-4513-B104-21B922741FF6}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A69DCBED-2903-42BC-8DBC-07E94282E7B4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A69DCBED-2903-42BC-8DBC-07E94282E7B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A69DCBED-2903-42BC-8DBC-07E94282E7B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A69DCBED-2903-42BC-8DBC-07E94282E7B4}.Release|Any CPU.Build.0 = Release|Any CPU
-		{65051C4B-62CC-4E30-A77B-6C561400897C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{65051C4B-62CC-4E30-A77B-6C561400897C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{65051C4B-62CC-4E30-A77B-6C561400897C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{65051C4B-62CC-4E30-A77B-6C561400897C}.Release|Any CPU.Build.0 = Release|Any CPU
 		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -141,10 +129,22 @@ Global
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8}.Release|Any CPU.Build.0 = Release|Any CPU
-		{78FE7885-577F-4CC0-B5BB-8349C376088F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{78FE7885-577F-4CC0-B5BB-8349C376088F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{78FE7885-577F-4CC0-B5BB-8349C376088F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{78FE7885-577F-4CC0-B5BB-8349C376088F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5C02C17-4F6E-46A5-9178-CF5EC375455B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5C02C17-4F6E-46A5-9178-CF5EC375455B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5C02C17-4F6E-46A5-9178-CF5EC375455B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5C02C17-4F6E-46A5-9178-CF5EC375455B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F0598974-E490-47D8-BE83-7099F54D78BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F0598974-E490-47D8-BE83-7099F54D78BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -164,7 +164,7 @@ Global
 		{AD94EE04-D967-4AAE-B378-1FFB4F28A3B6} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
 		{7F623900-2957-437B-BF19-879639FA6D22} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{78FE7885-577F-4CC0-B5BB-8349C376088F} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{F0598974-E490-47D8-BE83-7099F54D78BF} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}

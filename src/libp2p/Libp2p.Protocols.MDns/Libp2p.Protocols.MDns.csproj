@@ -7,6 +7,11 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <Description>The Multicast DNS (mDNS) protocol of libp2p</Description>
+    <PackageTags>libp2p network mdns discovery</PackageTags>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
   </ItemGroup>
@@ -14,6 +19,10 @@
     <ItemGroup>
         <PackageReference Include="Makaretu.Dns.Multicast" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+        <PackageReference Include="Microsoft.SourceLink.GitHub">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
     </ItemGroup>
 
 </Project>

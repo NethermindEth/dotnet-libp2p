@@ -3,8 +3,6 @@
 
 using System.Buffers;
 using System.Net.Sockets;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using Nethermind.Libp2p.Core.Discovery;
@@ -27,28 +25,28 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
     private string? ServiceNameOverride = "pubsub-chat-example";
 
-    public Func<MultiAddr[], bool>? OnAddPeer { get; set; }
-    public Func<MultiAddr[], bool>? OnRemovePeer { get; set; }
+    public Func<Core.Multiaddr[], bool>? OnAddPeer { get; set; }
+    public Func<Core.Multiaddr[], bool>? OnRemovePeer { get; set; }
 
     private string PeerName = null!;
 
-    public async Task DiscoverAsync(MultiAddr localPeerAddr, CancellationToken token = default)
+    public async Task DiscoverAsync(Core.Multiaddr localPeerAddr, CancellationToken token = default)
     {
-        ObservableCollection<MultiAddr> peers = new();
+        ObservableCollection<Core.Multiaddr> peers = new();
 
         try
         {
             PeerName = RandomString(32);
             ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
-            if (localPeerAddr.At(Multiaddr.Ip4) == "0.0.0.0")
+            if (localPeerAddr.At(Core.Enums.Multiaddr.Ip4) == "0.0.0.0")
             {
                 service.Resources.Add(new TXTRecord()
                 {
                     Name = service.FullyQualifiedName,
                     Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
                         .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                        .Select(item => $"dnsaddr={localPeerAddr.Replace(Multiaddr.Ip4, item.ToString())}"))
+                        .Select(item => $"dnsaddr={localPeerAddr.Replace(Core.Enums.Multiaddr.Ip4, item.ToString())}"))
                 });
             }
             else
@@ -73,14 +71,14 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
             };
             sd.ServiceInstanceDiscovered += (s, e) =>
             {
-                MultiAddr[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
+                Core.Multiaddr[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
-                    .SelectMany(x => x).Select(x => new MultiAddr(x.Replace("dnsaddr=", ""))).ToArray();
+                    .SelectMany(x => x).Select(x => new Core.Multiaddr(x.Replace("dnsaddr=", ""))).ToArray();
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
-                if (records.Any() && !peers.Contains(records.First()) && localPeerAddr.At(Multiaddr.P2p) != records.First().At(Multiaddr.P2p))
+                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.At(Core.Enums.Multiaddr.P2p) != Enumerable.First<Core.Multiaddr>(records).At(Core.Enums.Multiaddr.P2p))
                 {
                     List<string> peerAddresses = new();
-                    foreach (MultiAddr peer in records)
+                    foreach (Core.Multiaddr peer in records)
                     {
                         peers.Add(peer);
                     }

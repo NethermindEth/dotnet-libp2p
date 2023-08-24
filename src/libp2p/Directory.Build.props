@@ -18,8 +18,8 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Product>Nethermind libp2p</Product>
     <SourceRevisionId Condition="'$(Commit)' != ''">$(Commit.Substring(0, 8))</SourceRevisionId>
-    <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix></VersionSuffix>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <VersionSuffix>preview.1</VersionSuffix>
   </PropertyGroup>
 
 </Project>

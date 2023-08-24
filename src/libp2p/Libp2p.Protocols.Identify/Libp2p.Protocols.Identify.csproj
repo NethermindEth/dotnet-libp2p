@@ -4,28 +4,28 @@
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
     <RootNamespace>Nethermind.Libp2p.Protocols</RootNamespace>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The Noise protocol of libp2p</Description>
-    <PackageTags>libp2p network noise</PackageTags>
+    <Description>The Identify protocol of libp2p</Description>
+    <PackageTags>libp2p network identify</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
     <ProjectReference Include="..\Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="BouncyCastle.Cryptography" Aliases="BouncyCastleCryptography" />
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Noise.NET" />
   </ItemGroup>
 
 </Project>

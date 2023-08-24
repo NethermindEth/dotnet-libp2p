@@ -7,12 +7,21 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <Description>The TCP/IP transport of libp2p</Description>
+    <PackageTags>libp2p network tcpip</PackageTags>
+  </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj"/>
+    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
   </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"/>
-    </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
 
 </Project>

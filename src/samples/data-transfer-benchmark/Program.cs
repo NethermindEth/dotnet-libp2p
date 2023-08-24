@@ -4,7 +4,7 @@
 using System.Diagnostics;
 using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
-using Nethermind.Libp2p.Builder;
+using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 
 TaskScheduler.UnobservedTaskException += (s, e) =>
@@ -26,7 +26,7 @@ await Task.Delay(1000);
 
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}");
 
-    MultiAddr remoteAddr = listener.Address;
+    Multiaddr remoteAddr = listener.Address;
     ILocalPeer localPeer = peerFactory.Create();
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 
@@ -48,7 +48,7 @@ await Task.Delay(1000);
     ILocalPeer peer = peerFactory.Create();
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0");
 
-    MultiAddr remoteAddr = listener.Address;
+    Multiaddr remoteAddr = listener.Address;
     ILocalPeer localPeer = peerFactory.Create();
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 

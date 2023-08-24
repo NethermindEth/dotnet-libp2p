@@ -8,7 +8,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Enums;
-using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers.Binary;
@@ -17,7 +16,8 @@ using System.Collections.ObjectModel;
 using System.Text;
 using Multihash = Multiformats.Hash.Multihash;
 
-namespace Libp2p.Protocols.Floodsub;
+namespace Nethermind.Libp2p.Protocols.Floodsub;
+
 public class PubsubRouter
 {
     class PubsubPeer
@@ -60,7 +60,7 @@ public class PubsubRouter
             throw new InvalidOperationException("Router has been already started");
         }
         this.localPeer = localPeer;
-        LocalPeerId = new PeerId(localPeer.Address.At(Multiaddr.P2p)!);
+        LocalPeerId = new PeerId(localPeer.Address.At(Core.Enums.Multiaddr.P2p)!);
 
         _ = localPeer.ListenAsync(localPeer.Address, token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);
@@ -72,11 +72,11 @@ public class PubsubRouter
 
     private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
     {
-        ObservableCollection<MultiAddr> col = new();
+        ObservableCollection<Core.Multiaddr> col = new();
         discoveryProtocol.OnAddPeer = (addrs) =>
         {
-            Dictionary<MultiAddr, CancellationTokenSource> cancellations = new();
-            foreach (MultiAddr addr in addrs)
+            Dictionary<Core.Multiaddr, CancellationTokenSource> cancellations = new();
+            foreach (Core.Multiaddr addr in addrs)
             {
                 cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
             }
@@ -85,7 +85,7 @@ public class PubsubRouter
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
                     .Select(addr => localPeer.DialAsync(addr)))).Result;
-                foreach (KeyValuePair<MultiAddr, CancellationTokenSource> c in cancellations)
+                foreach (KeyValuePair<Core.Multiaddr, CancellationTokenSource> c in cancellations)
                 {
                     if (c.Key != firstConnected.Address)
                     {
@@ -93,7 +93,7 @@ public class PubsubRouter
                     }
                 }
                 logger?.LogDebug("Dialing {0}", firstConnected.Address);
-                PeerId peerId = firstConnected.Address.At(Multiaddr.P2p)!;
+                PeerId peerId = firstConnected.Address.At(Core.Enums.Multiaddr.P2p)!;
                 if (!peers.ContainsKey(peerId))
                 {
                     await firstConnected.DialAsync<FloodsubProtocol>(token);

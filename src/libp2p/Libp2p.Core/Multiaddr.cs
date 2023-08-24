@@ -2,46 +2,45 @@
 // SPDX-License-Identifier: MIT
 
 using System.Text;
-using Nethermind.Libp2p.Core.Enums;
 
 namespace Nethermind.Libp2p.Core;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/addressing/README.md
 /// </summary>
-public struct MultiAddr
+public struct Multiaddr
 {
     // override object.Equals
     public override bool Equals(object obj) =>
-        (obj is MultiAddr dst) && ((dst._segments is null && _segments is null) || (dst._segments is not null && _segments is not null && dst._segments.SequenceEqual(_segments)));
+        (obj is Multiaddr dst) && ((dst._segments is null && _segments is null) || (dst._segments is not null && _segments is not null && dst._segments.SequenceEqual(_segments)));
 
     // override object.GetHashCode
     public override int GetHashCode() => ToString().GetHashCode();
 
     private struct Segment
     {
-        public Segment(Multiaddr type, string? parameter)
+        public Segment(Enums.Multiaddr type, string? parameter)
         {
             Type = type;
             Parameter = parameter;
         }
 
-        public Multiaddr Type { get; init; }
+        public Enums.Multiaddr Type { get; init; }
         public string? Parameter { get; init; }
     }
 
     private Segment[]? _segments = null;
 
-    public MultiAddr()
+    public Multiaddr()
     {
     }
 
-    public static bool operator ==(MultiAddr lhs, MultiAddr rhs)
+    public static bool operator ==(Multiaddr lhs, Multiaddr rhs)
     {
         return lhs.Equals(rhs);
     }
 
-    public static bool operator !=(MultiAddr lhs, MultiAddr rhs) => !(lhs == rhs);
+    public static bool operator !=(Multiaddr lhs, Multiaddr rhs) => !(lhs == rhs);
 
     public override string ToString()
     {
@@ -53,12 +52,12 @@ public struct MultiAddr
             .SelectMany(s => s));
     }
 
-    public static MultiAddr From(params object[] segments)
+    public static Multiaddr From(params object[] segments)
     {
         List<Segment> segs = new();
         for (int i = 0; i < segments.Length; i++)
         {
-            if (segments[i] is not Multiaddr addr)
+            if (segments[i] is not Enums.Multiaddr addr)
             {
                 throw new ArgumentException($"{segments[i]} is expceted to be a multiaddress segment id");
             }
@@ -69,35 +68,35 @@ public struct MultiAddr
             }
         }
 
-        return new MultiAddr { _segments = segs.ToArray() };
+        return new Multiaddr { _segments = segs.ToArray() };
     }
 
-    public static implicit operator MultiAddr(string value)
+    public static implicit operator Multiaddr(string value)
     {
         return From(value);
     }
-    public MultiAddr(string value)
+    public Multiaddr(string value)
     {
         this = From(value);
     }
 
-    public string? At(Multiaddr section)
+    public string? At(Enums.Multiaddr section)
     {
         return _segments?.FirstOrDefault(x => x.Type == section).Parameter;
     }
 
-    public bool Has(Multiaddr section)
+    public bool Has(Enums.Multiaddr section)
     {
         return _segments?.Any(x => x.Type == section) ?? false;
     }
 
-    public MultiAddr Append(Multiaddr at, string? value)
+    public Multiaddr Append(Enums.Multiaddr at, string? value)
     {
         Segment[] newSegments = { new(at, value) };
-        return new MultiAddr { _segments = _segments is not null ? _segments.Concat(newSegments).ToArray() : newSegments };
+        return new Multiaddr { _segments = _segments is not null ? _segments.Concat(newSegments).ToArray() : newSegments };
     }
 
-    public MultiAddr Replace(Multiaddr at, Multiaddr newAt, string? value = null)
+    public Multiaddr Replace(Enums.Multiaddr at, Enums.Multiaddr newAt, string? value = null)
     {
         Segment[] newSegments = _segments.ToArray();
         for (int i = 0; i < _segments.Length; i++)
@@ -109,10 +108,10 @@ public struct MultiAddr
             }
         }
 
-        return new MultiAddr { _segments = newSegments };
+        return new Multiaddr { _segments = newSegments };
     }
 
-    public MultiAddr Replace(Multiaddr at, string? value = null)
+    public Multiaddr Replace(Enums.Multiaddr at, string? value = null)
     {
         Segment[] newSegments = _segments.ToArray();
         for (int i = 0; i < _segments.Length; i++)
@@ -124,42 +123,42 @@ public struct MultiAddr
             }
         }
 
-        return new MultiAddr { _segments = newSegments };
+        return new Multiaddr { _segments = newSegments };
     }
 
-    private static MultiAddr From(string multiAddr)
+    private static Multiaddr From(string multiAddr)
     {
         string[] vals = multiAddr.Split('/', StringSplitOptions.RemoveEmptyEntries);
         List<Segment> segments = new();
         for (int i = 0; i < vals.Length; i++)
         {
-            (Multiaddr type, bool isParametrized) segment = ToProto(vals[i]);
+            (Enums.Multiaddr type, bool isParametrized) segment = ToProto(vals[i]);
             segments.Add(new Segment { Type = segment.type, Parameter = segment.isParametrized ? vals[++i] : null });
         }
 
-        return new MultiAddr { _segments = segments.ToArray() };
+        return new Multiaddr { _segments = segments.ToArray() };
     }
 
-    private static (Multiaddr type, bool isParametrized) ToProto(string val)
+    private static (Enums.Multiaddr type, bool isParametrized) ToProto(string val)
     {
         return val.ToLower() switch
         {
-            "ip4" => ToProto(Multiaddr.Ip4),
-            "ip6" => ToProto(Multiaddr.Ip6),
-            "tcp" => ToProto(Multiaddr.Tcp),
-            "udp" => ToProto(Multiaddr.Udp),
-            "p2p" => ToProto(Multiaddr.P2p),
-            "ws" => ToProto(Multiaddr.Ws),
-            _ => ToProto(Multiaddr.Unknown)
+            "ip4" => ToProto(Enums.Multiaddr.Ip4),
+            "ip6" => ToProto(Enums.Multiaddr.Ip6),
+            "tcp" => ToProto(Enums.Multiaddr.Tcp),
+            "udp" => ToProto(Enums.Multiaddr.Udp),
+            "p2p" => ToProto(Enums.Multiaddr.P2p),
+            "ws" => ToProto(Enums.Multiaddr.Ws),
+            _ => ToProto(Enums.Multiaddr.Unknown)
         };
     }
 
-    private static (Multiaddr type, bool isParametrized) ToProto(Multiaddr val)
+    private static (Enums.Multiaddr type, bool isParametrized) ToProto(Enums.Multiaddr val)
     {
         return val switch
         {
-            Multiaddr.Ws => (val, false),
-            Multiaddr.Unknown => (val, false),
+            Enums.Multiaddr.Ws => (val, false),
+            Enums.Multiaddr.Unknown => (val, false),
             _ => (val, true)
         };
     }

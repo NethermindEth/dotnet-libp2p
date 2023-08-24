@@ -7,7 +7,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IListener
 {
-    MultiAddr Address { get; }
+    Multiaddr Address { get; }
 
     event OnConnection OnConnection;
     Task DisconnectAsync();

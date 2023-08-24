@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-namespace Libp2p.Protocols.Gossipsub;
+namespace Nethermind.Libp2p.Protocols.Gossipsub;
+
 internal class Settings
 {
     public const int D = 6; //The desired outbound degree of the network 	6

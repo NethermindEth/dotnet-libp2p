@@ -3,7 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Builder;
+using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
@@ -24,7 +24,7 @@ CancellationTokenSource ts = new();
 
 if (args.Length > 0 && args[0] == "-d")
 {
-    MultiAddr remoteAddr = args[1];
+    Multiaddr remoteAddr = args[1];
     ILocalPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {0}", remoteAddr);

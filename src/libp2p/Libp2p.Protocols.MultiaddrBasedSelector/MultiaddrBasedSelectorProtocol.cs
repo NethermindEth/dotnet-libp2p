@@ -10,13 +10,13 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// Select protocol based on multiaddr
 /// </summary>
-public class MultiAddrBasedSelectorProtocol : SymmetricProtocol, IProtocol
+public class MultiaddrBasedSelectorProtocol : SymmetricProtocol, IProtocol
 {
     private readonly ILogger? _logger;
 
-    public MultiAddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null)
+    public MultiaddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<MultiAddrBasedSelectorProtocol>();
+        _logger = loggerFactory?.CreateLogger<MultiaddrBasedSelectorProtocol>();
     }
 
     public string Id => "multiaddr-select";

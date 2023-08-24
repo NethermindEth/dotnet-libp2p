@@ -18,7 +18,7 @@ public class PeerFactory : IPeerFactory
         _serviceProvider = serviceProvider;
     }
 
-    public virtual ILocalPeer Create(Identity? identity = default, MultiAddr? localAddr = default)
+    public virtual ILocalPeer Create(Identity? identity = default, Multiaddr? localAddr = default)
     {
         identity ??= new Identity();
         return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/127.0.0.1/tcp/0/p2p/{identity.PeerId}" };
@@ -37,12 +37,12 @@ public class PeerFactory : IPeerFactory
         _upChannelFactory = upChannelFactory;
     }
 
-    private Task<IListener> ListenAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
+    private Task<IListener> ListenAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
     {
         peer.Address = addr;
-        if (!peer.Address.Has(Multiaddr.P2p))
+        if (!peer.Address.Has(Enums.Multiaddr.P2p))
         {
-            peer.Address = peer.Address.Append(Multiaddr.P2p, peer.Identity.PeerId);
+            peer.Address = peer.Address.Append(Enums.Multiaddr.P2p, peer.Identity.PeerId);
         }
 
         Channel chan = new();
@@ -88,7 +88,7 @@ public class PeerFactory : IPeerFactory
         return cts.Task;
     }
 
-    protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, MultiAddr addr, CancellationToken token)
+    protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
     {
         try
         {
@@ -135,7 +135,7 @@ public class PeerFactory : IPeerFactory
         }
 
         public event OnConnection? OnConnection;
-        public MultiAddr Address => _localPeer.Address;
+        public Multiaddr Address => _localPeer.Address;
 
         public Task DisconnectAsync()
         {
@@ -164,14 +164,14 @@ public class PeerFactory : IPeerFactory
         }
 
         public Identity? Identity { get; set; }
-        public MultiAddr Address { get; set; }
+        public Multiaddr Address { get; set; }
 
-        public Task<IRemotePeer> DialAsync(MultiAddr addr, CancellationToken token = default)
+        public Task<IRemotePeer> DialAsync(Multiaddr addr, CancellationToken token = default)
         {
             return _factory.DialAsync(this, addr, token);
         }
 
-        public Task<IListener> ListenAsync(MultiAddr addr, CancellationToken token = default)
+        public Task<IListener> ListenAsync(Multiaddr addr, CancellationToken token = default)
         {
             return _factory.ListenAsync(this, addr, token);
         }
@@ -192,7 +192,7 @@ public class PeerFactory : IPeerFactory
         public Channel Channel { get; set; }
 
         public Identity Identity { get; set; }
-        public MultiAddr Address { get; set; }
+        public Multiaddr Address { get; set; }
         internal ILocalPeer LocalPeer { get; }
 
         public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
