@@ -19,7 +19,7 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
-        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpfsId\Libp2p.Protocols.Identify.csproj" />
+        <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
         <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
         <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
         <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
