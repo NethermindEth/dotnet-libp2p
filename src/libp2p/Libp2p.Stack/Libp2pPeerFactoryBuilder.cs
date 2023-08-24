@@ -41,7 +41,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return
             Over<MultiaddrBasedSelectorProtocol>()
             .Over(quicStack).Or(tcpStack)
-            .AddAppLayerProtocol<IpfsIdProtocol>()
+            .AddAppLayerProtocol<IdentifyProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV11>()
             //.AddAppLayerProtocol<GossipsubProtocol>()
             .AddAppLayerProtocol<FloodsubProtocol>();

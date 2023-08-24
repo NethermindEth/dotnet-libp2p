@@ -19,7 +19,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistrea
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Plaintext", "Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj", "{3E391742-9273-43BB-9A94-31E2476977B5}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.IpfsId", "Libp2p.Protocols.IpfsId\Libp2p.Protocols.IpfsId.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Identify", "Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj", "{94540284-FC9C-4513-B104-21B922741FF6}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Multistream.Tests", "Libp2p.Protocols.Multistream.Tests\Libp2p.Protocols.Multistream.Tests.csproj", "{72F8C7B0-D5A5-477D-92FC-090053F9BEE7}"
 EndProject

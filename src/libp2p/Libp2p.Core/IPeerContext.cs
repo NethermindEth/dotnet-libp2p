@@ -11,8 +11,8 @@ public interface IPeerContext
     IPeer LocalPeer { get; }
     IPeer RemotePeer { get; }
 
-    MultiAddr RemoteEndpoint { get; set; }
-    MultiAddr LocalEndpoint { get; set; }
+    Multiaddr RemoteEndpoint { get; set; }
+    Multiaddr LocalEndpoint { get; set; }
 
     // TODO: Get rid of this:
     IPeerContext Fork();

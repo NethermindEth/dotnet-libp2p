@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The multistream protocol of libp2p</Description>
+    <Description>The Multistream protocol of libp2p</Description>
     <PackageTags>libp2p network multistream</PackageTags>
   </PropertyGroup>
 

@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The IPFSID protocol of libp2p</Description>
-    <PackageTags>libp2p ipfsid</PackageTags>
+    <Description>The Identify protocol of libp2p</Description>
+    <PackageTags>libp2p network identify</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -26,7 +26,7 @@ await Task.Delay(1000);
 
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}");
 
-    MultiAddr remoteAddr = listener.Address;
+    Multiaddr remoteAddr = listener.Address;
     ILocalPeer localPeer = peerFactory.Create();
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 
@@ -48,7 +48,7 @@ await Task.Delay(1000);
     ILocalPeer peer = peerFactory.Create();
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0");
 
-    MultiAddr remoteAddr = listener.Address;
+    Multiaddr remoteAddr = listener.Address;
     ILocalPeer localPeer = peerFactory.Create();
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 

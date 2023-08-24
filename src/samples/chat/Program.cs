@@ -24,7 +24,7 @@ CancellationTokenSource ts = new();
 
 if (args.Length > 0 && args[0] == "-d")
 {
-    MultiAddr remoteAddr = args[1];
+    Multiaddr remoteAddr = args[1];
     ILocalPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {0}", remoteAddr);

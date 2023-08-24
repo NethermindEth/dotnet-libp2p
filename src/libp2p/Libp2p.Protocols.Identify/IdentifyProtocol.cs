@@ -10,16 +10,16 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify
 /// </summary>
-public class IpfsIdProtocol : IProtocol
+public class IdentifyProtocol : IProtocol
 {
     private const string SubProtocolId = "ipfs/0.1.0";
 
     private readonly ILogger? _logger;
     private readonly IPeerFactoryBuilder peerFactoryBuilder;
 
-    public IpfsIdProtocol(IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
+    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<IpfsIdProtocol>();
+        _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
         this.peerFactoryBuilder = peerFactoryBuilder;
     }
 

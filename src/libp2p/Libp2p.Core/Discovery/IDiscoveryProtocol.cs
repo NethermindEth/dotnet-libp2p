@@ -5,9 +5,9 @@ namespace Nethermind.Libp2p.Core.Discovery;
 
 public interface IDiscoveryProtocol
 {
-    Task DiscoverAsync(MultiAddr localPeerAddr, CancellationToken token = default);
+    Task DiscoverAsync(Multiaddr localPeerAddr, CancellationToken token = default);
     Task BanPeer();
 
-    Func<MultiAddr[], bool>? OnAddPeer { set; }
-    Func<MultiAddr[], bool>? OnRemovePeer { set; }
+    Func<Multiaddr[], bool>? OnAddPeer { set; }
+    Func<Multiaddr[], bool>? OnRemovePeer { set; }
 }

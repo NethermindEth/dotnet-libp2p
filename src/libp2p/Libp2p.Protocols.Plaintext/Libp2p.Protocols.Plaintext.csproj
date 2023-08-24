@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The plaintext protocol of libp2p</Description>
+    <Description>The Plaintext protocol of libp2p</Description>
     <PackageTags>libp2p network plaintext</PackageTags>
   </PropertyGroup>
 

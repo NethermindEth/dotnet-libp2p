@@ -52,7 +52,7 @@ jobs:
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Generators.Protobuf ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Gossipsub ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.IpfsId ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.MultiAddrBasedSelector ${{ env.PACK_OPTS }}

@@ -14,6 +14,6 @@ public class Libp2pPeerFactory : PeerFactory
 
     protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
     {
-        await peer.DialAsync<IpfsIdProtocol>();
+        await peer.DialAsync<IdentifyProtocol>();
     }
 }
