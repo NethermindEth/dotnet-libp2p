@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      BUILD_CONFIG: release
+      WORKING_DIR: src/libp2p
+    steps:
+    
+      - name: Check out repository
+        uses: actions/checkout@v3
+    
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 7
+
+      - name: Build
+        working-directory: ${{ env.WORKING_DIR }}
+        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:ContinuousIntegrationBuild=true -p:Commit=${{ github.sha }}
+    
+      - name: Test
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          dotnet test Libp2p.Core.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+          #dotnet test Libp2p.Protocols.Multistream.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
+          dotnet test Libp2p.Protocols.Noise.Tests -c ${{ env.BUILD_CONFIG }} --no-restore
