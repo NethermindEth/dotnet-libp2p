@@ -10,6 +10,8 @@
   <PropertyGroup>
     <Description>The Yamux protocol of libp2p</Description>
     <PackageTags>libp2p network yamux</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

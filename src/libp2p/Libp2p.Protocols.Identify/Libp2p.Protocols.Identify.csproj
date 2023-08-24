@@ -11,6 +11,7 @@
   <PropertyGroup>
     <Description>The Identify protocol of libp2p</Description>
     <PackageTags>libp2p network identify</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

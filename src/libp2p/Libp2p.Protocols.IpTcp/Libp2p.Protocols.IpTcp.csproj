@@ -10,6 +10,8 @@
   <PropertyGroup>
     <Description>The TCP/IP transport of libp2p</Description>
     <PackageTags>libp2p network tcpip</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

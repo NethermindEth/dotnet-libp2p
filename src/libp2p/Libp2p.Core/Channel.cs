@@ -5,9 +5,9 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 
-[assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
-[assembly: InternalsVisibleTo("Libp2p.Core.Tests")]
-[assembly: InternalsVisibleTo("Libp2p.Core.Benchmarks")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
 
 namespace Nethermind.Libp2p.Core;
 

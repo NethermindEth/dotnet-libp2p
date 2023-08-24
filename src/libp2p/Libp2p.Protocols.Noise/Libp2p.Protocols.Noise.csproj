@@ -11,6 +11,7 @@
   <PropertyGroup>
     <Description>The Noise protocol of libp2p</Description>
     <PackageTags>libp2p network noise</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

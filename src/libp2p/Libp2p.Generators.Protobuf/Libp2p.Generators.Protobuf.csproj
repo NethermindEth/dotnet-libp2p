@@ -25,6 +25,8 @@
     <protoc_macosx86>tools\macosx_x86\protoc</protoc_macosx86>
     <protoc_windows64>tools\windows_x64\protoc.exe</protoc_windows64>
     <protoc_windows86>tools\windows_x86\protoc.exe</protoc_windows86>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(MSBuildRuntimeType)' == 'Core' or ('$(MSBuildVersion)' != '' and $([System.Version]::Parse($(MSBuildVersion))) &gt;= $([System.Version]::Parse(15.3))) ">
     <protoc Condition="'$([MSBuild]::IsOsPlatform(Linux))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X64'">$(protoc_linux64)</protoc>

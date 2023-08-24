@@ -10,6 +10,8 @@
   <PropertyGroup>
     <Description>The Multicast DNS (mDNS) protocol of libp2p</Description>
     <PackageTags>libp2p network mdns discovery</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

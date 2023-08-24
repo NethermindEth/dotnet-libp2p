@@ -11,6 +11,8 @@
   <PropertyGroup>
     <Description>The QUIC transport of libp2p</Description>
     <PackageTags>libp2p network quic</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
