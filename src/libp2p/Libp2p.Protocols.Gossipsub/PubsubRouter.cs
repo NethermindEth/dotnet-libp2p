@@ -6,18 +6,13 @@ using Libp2p.Protocols.Gossipsub;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Core.Enums;
 using Nethermind.Libp2p.Protocols.Gossipsub;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
-using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks.Dataflow;
+using Multiaddr = Nethermind.Libp2p.Core.Multiaddr;
+using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 
 namespace Nethermind.Libp2p.Protocols.Floodsub;
 
@@ -30,14 +25,31 @@ public class PubsubRouter
 
     class PubsubPeer
     {
-        public Action<Rpc> SendRpc { get; internal set; }
-        public CancellationTokenSource TokenSource { get; init; }
-        public PeerId RawPeerId { get; init; }
+        public PubsubPeer(PeerId peerId, string protocolId)
+        {
+            PeerId = peerId;
+            Protocol = protocolId switch
+            {
+                FloodsubProtocolVersion => PubsubProtocol.Floodsub,
+                _ => PubsubProtocol.Gossipsub,
+            };
+            TokenSource = new CancellationTokenSource();
+        }
 
-        // replace with enum?
-        public string Protocol { get; internal set; }
-        public bool IsGossipSub => Protocol.StartsWith("/meshsub/");
-        public bool IsFloodSub => Protocol.StartsWith("/floodsub/");
+        private enum PubsubProtocol
+        {
+            Unknown,
+            Floodsub,
+            Gossipsub,
+        }
+
+        public Action<Rpc>? SendRpc { get; internal set; }
+        public CancellationTokenSource TokenSource { get; init; }
+        public PeerId PeerId { get; set; }
+
+        private PubsubProtocol Protocol { get; set; }
+        public bool IsGossipSub => Protocol >= PubsubProtocol.Gossipsub;
+        public bool IsFloodSub => Protocol >= PubsubProtocol.Floodsub;
     }
 
     private static readonly CancellationToken Canceled;
@@ -97,11 +109,11 @@ public class PubsubRouter
         {
             throw new ArgumentNullException(nameof(localPeer));
         }
-        ObservableCollection<Core.Multiaddr> col = new();
+        ObservableCollection<Multiaddr> col = new();
         discoveryProtocol.OnAddPeer = (addrs) =>
         {
-            Dictionary<Core.Multiaddr, CancellationTokenSource> cancellations = new();
-            foreach (Core.Multiaddr addr in addrs)
+            Dictionary<Multiaddr, CancellationTokenSource> cancellations = new();
+            foreach (Multiaddr addr in addrs)
             {
                 cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
             }
@@ -110,7 +122,7 @@ public class PubsubRouter
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
                     .Select(addr => localPeer.DialAsync(addr)))).Result;
-                foreach (KeyValuePair<Core.Multiaddr, CancellationTokenSource> c in cancellations)
+                foreach (KeyValuePair<Multiaddr, CancellationTokenSource> c in cancellations)
                 {
                     if (c.Key != firstConnected.Address)
                     {
@@ -118,7 +130,7 @@ public class PubsubRouter
                     }
                 }
                 logger?.LogDebug("Dialing {0}", firstConnected.Address);
-                PeerId peerId = firstConnected.Address.At(Core.Enums.Multiaddr.P2p)!;
+                PeerId peerId = firstConnected.Address.At(MultiaddrEnum.P2p)!;
                 if (!peerState.ContainsKey(peerId))
                 {
                     await firstConnected.DialAsync<FloodsubProtocol>(token);
@@ -296,7 +308,7 @@ public class PubsubRouter
             IGrouping<string, Message>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
             if (msgsInTopic is not null)
             {
-                ControlIHave ihave = new ControlIHave { TopicID = topic };
+                ControlIHave ihave = new() { TopicID = topic };
                 ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.GetId().Bytes)));
 
                 foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(settings.LazyDegree))
@@ -350,13 +362,13 @@ public class PubsubRouter
         }
         else
         {
-            peer = new PubsubPeer { RawPeerId = peerId, Protocol = protocolId, SendRpc = sendRpc, TokenSource = new CancellationTokenSource() };
+            peer = new PubsubPeer(peerId, protocolId) { SendRpc = sendRpc };
             peerState.TryAdd(peerId, peer);
         }
 
         Rpc helloMessage = new Rpc().WithTopics(fPeers.Keys, Enumerable.Empty<string>());
         peer.SendRpc.Invoke(helloMessage);
-        logger?.LogDebug("Outbound {0}", peerId);
+        logger?.LogDebug("Outbound {peerId}", peerId);
         return peer.TokenSource.Token;
     }
 
@@ -368,11 +380,11 @@ public class PubsubRouter
             return remotePeer.TokenSource.Token;
         }
 
-        remotePeer = new PubsubPeer { RawPeerId = peerId, Protocol = protocolId, TokenSource = new CancellationTokenSource() };
-        logger?.LogDebug("Inbound {0}", peerId);
+        remotePeer = new PubsubPeer(peerId, protocolId);
+        logger?.LogDebug("Inbound {peerId}", peerId);
         if (peerState.TryAdd(peerId, remotePeer))
         {
-            logger?.LogDebug("Inbound, lets dial {0}", peerId);
+            logger?.LogDebug("Inbound, lets dial {peerId}", peerId);
             subDial();
             return remotePeer.TokenSource.Token;
         }
@@ -498,7 +510,7 @@ public class PubsubRouter
 
             if (rpc.Control.Ihave.Any())
             {
-                List<MessageId> messageIds = new List<MessageId>();
+                List<MessageId> messageIds = new();
 
                 foreach (ControlIHave? ihave in rpc.Control.Ihave
                     .Where(iw => topicState.ContainsKey(iw.TopicID)))
@@ -508,7 +520,7 @@ public class PubsubRouter
                 }
                 if (messageIds.Any())
                 {
-                    ControlIWant ciw = new ControlIWant();
+                    ControlIWant ciw = new();
                     foreach (MessageId mId in messageIds)
                     {
                         ciw.MessageIDs.Add(ByteString.CopyFrom(mId.Bytes));
@@ -521,7 +533,7 @@ public class PubsubRouter
             if (rpc.Control.Iwant.Any())
             {
                 IEnumerable<MessageId> messageIds = rpc.Control.Iwant.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray()));
-                List<Message> messages = new List<Message>();
+                List<Message> messages = new();
                 foreach (MessageId? mId in messageIds)
                 {
                     Message message = messageCache.Get(mId);
