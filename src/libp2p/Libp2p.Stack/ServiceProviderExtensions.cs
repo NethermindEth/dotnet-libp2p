@@ -16,8 +16,6 @@ public static class ServiceProviderExtensions
             .AddScoped(sp => (ILibp2pPeerFactoryBuilder)factorySetup(new Libp2pPeerFactoryBuilder(sp)))
             .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
             .AddScoped<PubsubRouter>()
-            //.AddScoped<GossipsubRouter>()
-            //.AddScoped<GossipsubRouterV11>()
             ;
     }
 }

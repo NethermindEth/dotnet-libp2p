@@ -41,7 +41,7 @@ PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
 
-_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), ts.Token);
+_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
 
 
 topic.OnMessage += ((byte[] msg) =>

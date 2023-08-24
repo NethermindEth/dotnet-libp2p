@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
+
 namespace Nethermind.Libp2p.Protocols.Floodsub;
 
 class Topic : ITopic
@@ -20,6 +22,9 @@ class Topic : ITopic
             }
         };
     }
+
+    public HashSet<PeerId> GraftingPeers { get; set; }
+    public DateTime LastPublished { get; set; }
 
     public event Action<byte[]>? OnMessage;
 

@@ -11,20 +11,21 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
-public class FloodsubProtocol : IProtocol
+public abstract class PubsubProtocol : IProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
 
-    public virtual string Id => "/floodsub/1.0.0";
+    public string Id { get; }
 
-    public FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null)
+    public PubsubProtocol(string protocolId, PubsubRouter router, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger(GetType());
+        Id = protocolId;
         this.router = router;
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         string peerId = context.RemotePeer.Address.At(Core.Enums.Multiaddr.P2p)!;
@@ -48,7 +49,7 @@ public class FloodsubProtocol : IProtocol
 
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         string peerId = context.RemotePeer.Address.At(Core.Enums.Multiaddr.P2p)!;
@@ -64,5 +65,33 @@ public class FloodsubProtocol : IProtocol
             router.OnRpc(peerId, rpc);
         }
         _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
+    }
+}
+
+public class FloodsubProtocol : PubsubProtocol
+{
+    public FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.FloodsubProtocolVersion, router, loggerFactory)
+    {
+    }
+}
+
+public class GossipsubProtocol : PubsubProtocol
+{
+    public GossipsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV10, router, loggerFactory)
+    {
+    }
+}
+
+public class GossipsubProtocolV11 : PubsubProtocol
+{
+    public GossipsubProtocolV11(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV11, router, loggerFactory)
+    {
+    }
+}
+
+public class GossipsubProtocolV12 : PubsubProtocol
+{
+    public GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory)
+    {
     }
 }

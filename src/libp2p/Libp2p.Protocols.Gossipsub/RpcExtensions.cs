@@ -7,6 +7,9 @@ using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
+using Multiformats.Hash;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -45,15 +48,31 @@ internal static class RpcExtensions
         return rpc;
     }
 
-    public static bool IsValid(this Message message, byte[] pubkey)
+    public static bool VerifySignature(this Message message)
     {
-        string msgStr = Encoding.UTF8.GetString(message.Data.ToByteArray());
+        Multihash multihash = Multihash.Decode(message.From.ToArray());
+        if (multihash.Code != HashType.ID)
+        {
+            return false;
+        }
+        var pubKey = PublicKey.Parser.ParseFrom(multihash.Digest);
+        if (pubKey.Type != KeyType.Ed25519 || multihash.Code != HashType.ID)
+        {
+            return false;
+        }
+
         Message msgToBeVerified = message.Clone();
         msgToBeVerified.ClearSignature();
 
         byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
           .Concat(msgToBeVerified.ToByteArray())
           .ToArray();
-        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubkey, 0, msgToSign, 0, msgToSign.Length);
+
+        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
+    }
+
+    public static MessageId GetId(this Message message)
+    {
+        return new(message.From.Concat(message.Seqno).ToArray());
     }
 }
