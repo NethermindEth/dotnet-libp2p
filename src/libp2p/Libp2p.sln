@@ -35,7 +35,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Noise.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataTransferBenchmark", "..\samples\data-transfer-benchmark\DataTransferBenchmark.csproj", "{D9A6BF91-6F91-4ACF-8EB2-47EDA9E420D5}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Gossipsub", "Libp2p.Protocols.Gossipsub\Libp2p.Protocols.Gossipsub.csproj", "{36B0C419-856F-4EF0-9D0F-69D5FD9B0A15}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub", "Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj", "{36B0C419-856F-4EF0-9D0F-69D5FD9B0A15}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PubsubChat", "..\samples\pubsub-chat\PubsubChat.csproj", "{AD94EE04-D967-4AAE-B378-1FFB4F28A3B6}"
 EndProject

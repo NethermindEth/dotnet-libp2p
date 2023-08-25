@@ -3,7 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols.Floodsub;
+using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Nethermind.Libp2p.Stack;
 

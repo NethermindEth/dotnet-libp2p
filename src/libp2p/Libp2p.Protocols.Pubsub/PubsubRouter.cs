@@ -1,22 +1,20 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Libp2p.Protocols.Gossipsub;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Multiformats.Hash;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
-using Nethermind.Libp2p.Core.Enums;
 using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using Org.BouncyCastle.Utilities.Encoders;
-using System.Buffers.Binary;
-using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
-using System.Text;
 using Multihash = Multiformats.Hash.Multihash;
 
-namespace Nethermind.Libp2p.Protocols.Floodsub;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class PubsubRouter
 {

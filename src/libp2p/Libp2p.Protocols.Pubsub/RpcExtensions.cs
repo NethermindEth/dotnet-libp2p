@@ -8,7 +8,7 @@ using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
 
-namespace Nethermind.Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 internal static class RpcExtensions
 {
