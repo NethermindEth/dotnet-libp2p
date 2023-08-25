@@ -180,9 +180,10 @@ public class PubsubRouter
 
         Rpc topicUpdate = new Rpc().WithTopics(new string[] { topicId }, Enumerable.Empty<string>());
         Rpc topicUpdateAndGraft = topicUpdate.Clone();
+        topicUpdateAndGraft.Control = new();
         topicUpdateAndGraft.Control.Graft.Add(new ControlGraft { TopicID = topicId });
 
-        foreach (string gPeer in gPeers.Keys)
+        foreach (PeerId gPeer in gPeers[topicId])
         {
             if (peersToGraft.Contains(gPeer))
             {
@@ -332,15 +333,37 @@ public class PubsubRouter
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey);
 
-        foreach (PeerId peer in fPeers[topicId])
+        foreach (PeerId peerId in fPeers[topicId])
         {
-            peerState[peer].SendRpc?.Invoke(rpc);
+            peerState[peerId].SendRpc?.Invoke(rpc);
         }
         if (mesh.ContainsKey(topicId))
         {
-            foreach (PeerId peer in mesh[topicId])
+            foreach (PeerId peerId in mesh[topicId])
             {
-                peerState[peer].SendRpc?.Invoke(rpc);
+                peerState[peerId].SendRpc?.Invoke(rpc);
+            }
+        }
+        else
+        {
+            fanoutLastPublished[topicId] = DateTime.Now;
+            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => new HashSet<PeerId>());
+
+            if (topicFanout.Count == 0)
+            {
+                HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
+                if (topicPeers is { Count: > 0 })
+                {
+                    foreach (PeerId peer in topicPeers.Take(settings.Degree))
+                    {
+                        topicFanout.Add(peer);
+                    }
+                }
+            }
+
+            foreach (PeerId peerId in topicFanout)
+            {
+                peerState[peerId].SendRpc?.Invoke(rpc);
             }
         }
     }
