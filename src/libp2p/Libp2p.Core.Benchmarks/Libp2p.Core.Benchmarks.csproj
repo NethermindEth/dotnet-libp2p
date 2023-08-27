@@ -1,25 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
-    </PropertyGroup>
-    <PropertyGroup>
-        <PlatformTarget>AnyCPU</PlatformTarget>
-        <DebugType>pdbonly</DebugType>
-        <DebugSymbols>true</DebugSymbols>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <IsPackable>false</IsPackable>
-        <Optimize>true</Optimize>
-        <LangVersion>latest</LangVersion>
-        <OutputType>Exe</OutputType>
-        <EnablePreviewFeatures>true</EnablePreviewFeatures>
-        <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
-        <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
-    </PropertyGroup>
-    <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet" />
-        <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Condition="'$(OS)' == 'Windows_NT'" />
-    </ItemGroup>
-    <ItemGroup>
-        <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
-    </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <Optimize>true</Optimize>
+    <LangVersion>latest</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Condition="'$(OS)' == 'Windows_NT'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+  </ItemGroup>
+
 </Project>

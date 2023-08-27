@@ -1,5 +1,5 @@
 # Noise protocol
 
-Libp2p Noise guide: https://github.com/libp2p/specs/blob/master/noise/README.md <br>
-Specification: http://www.noiseprotocol.org/noise.html <br>
-Handshake and encryption library used: https://github.com/Metalnem/noise
+- [libp2p spec](https://github.com/libp2p/specs/blob/master/noise)
+- [The Noise Protocol Framework](https://www.noiseprotocol.org/noise.html)
+- Handshake and encryption [library](https://github.com/Metalnem/noise) used under the hood

@@ -5,13 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>A pseudo-protocol that selects protocol stack based on Multiaddr</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>libp2p network multiaddr</PackageTags>
-    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
-    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,5 +27,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="System.Runtime.Caching" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
