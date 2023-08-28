@@ -2,19 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
-using Libp2p.Protocols.Gossipsub;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Protocols.Gossipsub;
-using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
-using Multiaddr = Nethermind.Libp2p.Core.Multiaddr;
-using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 
-namespace Nethermind.Libp2p.Protocols.Floodsub;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class PubsubRouter
 {
@@ -57,9 +52,11 @@ public class PubsubRouter
     public PeerId? LocalPeerId { get; private set; }
 
     public event Action<string, byte[]>? OnMessage;
+    public Func<Message, MessageValidity>? VerifyMessage = null;
 
     private Settings settings;
     private TtlCache<MessageId, Message> messageCache;
+    private TtlCache<MessageId, Message> limboMessageCache;
     private ILocalPeer? localPeer;
     private ILogger? logger;
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();
@@ -88,6 +85,7 @@ public class PubsubRouter
     {
         this.settings = settings ?? Settings.Default;
         messageCache = new(this.settings.MessageCacheTtl);
+        limboMessageCache = new(this.settings.MessageCacheTtl);
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
@@ -101,6 +99,7 @@ public class PubsubRouter
 
         await Task.Delay(Timeout.Infinite, token);
         messageCache.Dispose();
+        limboMessageCache.Dispose();
     }
 
     private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
@@ -463,16 +462,30 @@ public class PubsubRouter
             foreach (Message? message in rpc.Publish)
             {
                 MessageId messageId = message.GetId();
-                if (messageCache!.Contains(messageId))
+                if (limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))
                 {
                     continue;
                 }
-                messageCache.Add(messageId, message);
-                PeerId author = new(message.From.ToArray());
+
+                switch (VerifyMessage?.Invoke(message))
+                {
+                    case MessageValidity.Rejected:
+                    case MessageValidity.Ignored:
+                        limboMessageCache.Add(messageId, message);
+                        continue;
+                    case MessageValidity.Trottled:
+                        continue;
+                }
+
                 if (!message.VerifySignature())
                 {
+                    limboMessageCache!.Add(messageId, message);
                     continue;
                 }
+
+                messageCache.Add(messageId, message);
+
+                PeerId author = new(message.From.ToArray());
                 OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
 
                 if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))

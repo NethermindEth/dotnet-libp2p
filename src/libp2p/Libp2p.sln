@@ -35,7 +35,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Noise.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataTransferBenchmark", "..\samples\data-transfer-benchmark\DataTransferBenchmark.csproj", "{D9A6BF91-6F91-4ACF-8EB2-47EDA9E420D5}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Gossipsub", "Libp2p.Protocols.Gossipsub\Libp2p.Protocols.Gossipsub.csproj", "{36B0C419-856F-4EF0-9D0F-69D5FD9B0A15}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub", "Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj", "{36B0C419-856F-4EF0-9D0F-69D5FD9B0A15}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PubsubChat", "..\samples\pubsub-chat\PubsubChat.csproj", "{AD94EE04-D967-4AAE-B378-1FFB4F28A3B6}"
 EndProject
@@ -50,6 +50,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.Protobuf", "Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj", "{AF9943D8-8074-4407-B315-0E32BB9EA64E}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MultiaddrBasedSelector", "Libp2p.Protocols.MultiaddrBasedSelector\Libp2p.Protocols.MultiaddrBasedSelector.csproj", "{F0598974-E490-47D8-BE83-7099F54D78BF}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Tests", "Libp2p.Protocols.Pubsub.Tests\Libp2p.Protocols.Pubsub.Tests.csproj", "{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -145,6 +147,10 @@ Global
 		{F0598974-E490-47D8-BE83-7099F54D78BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -165,6 +171,7 @@ Global
 		{7F623900-2957-437B-BF19-879639FA6D22} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{F0598974-E490-47D8-BE83-7099F54D78BF} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}

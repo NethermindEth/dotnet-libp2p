@@ -3,10 +3,8 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols.Floodsub;
-using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 
-namespace Nethermind.Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub

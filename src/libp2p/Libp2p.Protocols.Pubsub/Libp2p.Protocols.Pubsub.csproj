@@ -5,12 +5,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <RootNamespace>Nethermind.Libp2p.Protocols.Pubsub</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
     <Description>The Gossipsub protocol of libp2p</Description>
     <PackageTags>libp2p gossipsub floodsub pubsub</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Dto\Rpc.proto" />
+    <AdditionalFiles Include="Dto\TopicDescriptor.proto" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />

@@ -5,7 +5,6 @@ using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Protocols;

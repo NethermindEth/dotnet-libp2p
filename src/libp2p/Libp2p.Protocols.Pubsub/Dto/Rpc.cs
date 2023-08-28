@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
+namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   /// <summary>Holder for reflection information generated from Rpc.proto</summary>
   public static partial class RpcReflection {
@@ -36,18 +36,18 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
             "MwoMQ29udHJvbElIYXZlEg8KB3RvcGljSUQYASABKAkSEgoKbWVzc2FnZUlE",
             "cxgCIAMoDCIiCgxDb250cm9sSVdhbnQSEgoKbWVzc2FnZUlEcxgBIAMoDCIf",
             "CgxDb250cm9sR3JhZnQSDwoHdG9waWNJRBgBIAEoCSIfCgxDb250cm9sUHJ1",
-            "bmUSDwoHdG9waWNJRBgBIAEoCUIsqgIpTmV0aGVybWluZC5MaWJwMnAuUHJv",
-            "dG9jb2xzLkdvc3NpcFN1Yi5EdG8="));
+            "bmUSDwoHdG9waWNJRBgBIAEoCUIpqgImTmV0aGVybWluZC5MaWJwMnAuUHJv",
+            "dG9jb2xzLlB1YnN1Yi5EdG8="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Parser, new[]{ "Subscriptions", "Publish", "Control" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts.Parser, new[]{ "Subscribe", "Topicid" }, null, null, null, null)}),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message.Parser, new[]{ "From", "Data", "Seqno", "Topic", "Signature", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave.Parser, new[]{ "TopicID", "MessageIDs" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft.Parser, new[]{ "TopicID" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune.Parser, new[]{ "TopicID" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Parser, new[]{ "Subscriptions", "Publish", "Control" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts.Parser, new[]{ "Subscribe", "Topicid" }, null, null, null, null)}),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message.Parser, new[]{ "From", "Data", "Seqno", "Topic", "Signature", "Key" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave.Parser, new[]{ "TopicID", "MessageIDs" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft.Parser, new[]{ "TopicID" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser, new[]{ "TopicID" }, null, null, null, null)
           }));
     }
     #endregion
@@ -68,7 +68,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -102,32 +102,32 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
     /// <summary>Field number for the "subscriptions" field.</summary>
     public const int SubscriptionsFieldNumber = 1;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts> _repeated_subscriptions_codec
-        = pb::FieldCodec.ForMessage(10, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts> subscriptions_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts> _repeated_subscriptions_codec
+        = pb::FieldCodec.ForMessage(10, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts> subscriptions_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Types.SubOpts> Subscriptions {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts> Subscriptions {
       get { return subscriptions_; }
     }
 
     /// <summary>Field number for the "publish" field.</summary>
     public const int PublishFieldNumber = 2;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message> _repeated_publish_codec
-        = pb::FieldCodec.ForMessage(18, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message> publish_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message> _repeated_publish_codec
+        = pb::FieldCodec.ForMessage(18, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message> publish_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Message> Publish {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message> Publish {
       get { return publish_; }
     }
 
     /// <summary>Field number for the "control" field.</summary>
     public const int ControlFieldNumber = 3;
-    private global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage control_;
+    private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage control_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage Control {
+    public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage Control {
       get { return control_; }
       set {
         control_ = value;
@@ -233,7 +233,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
       publish_.Add(other.publish_);
       if (other.control_ != null) {
         if (control_ == null) {
-          Control = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage();
+          Control = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage();
         }
         Control.MergeFrom(other.Control);
       }
@@ -262,7 +262,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
           }
           case 26: {
             if (control_ == null) {
-              Control = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage();
+              Control = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage();
             }
             input.ReadMessage(Control);
             break;
@@ -292,7 +292,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
           }
           case 26: {
             if (control_ == null) {
-              Control = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlMessage();
+              Control = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage();
             }
             input.ReadMessage(Control);
             break;
@@ -322,7 +322,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
         public static pbr::MessageDescriptor Descriptor {
-          get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.Rpc.Descriptor.NestedTypes[0]; }
+          get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Descriptor.NestedTypes[0]; }
         }
 
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -583,7 +583,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[1]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[1]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1041,7 +1041,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[2]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[2]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1076,45 +1076,45 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
     /// <summary>Field number for the "ihave" field.</summary>
     public const int IhaveFieldNumber = 1;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave> _repeated_ihave_codec
-        = pb::FieldCodec.ForMessage(10, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave> ihave_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave> _repeated_ihave_codec
+        = pb::FieldCodec.ForMessage(10, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave> ihave_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIHave> Ihave {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave> Ihave {
       get { return ihave_; }
     }
 
     /// <summary>Field number for the "iwant" field.</summary>
     public const int IwantFieldNumber = 2;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant> _repeated_iwant_codec
-        = pb::FieldCodec.ForMessage(18, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant> iwant_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant> _repeated_iwant_codec
+        = pb::FieldCodec.ForMessage(18, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant> iwant_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlIWant> Iwant {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant> Iwant {
       get { return iwant_; }
     }
 
     /// <summary>Field number for the "graft" field.</summary>
     public const int GraftFieldNumber = 3;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft> _repeated_graft_codec
-        = pb::FieldCodec.ForMessage(26, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft> graft_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft> _repeated_graft_codec
+        = pb::FieldCodec.ForMessage(26, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft> graft_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlGraft> Graft {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft> Graft {
       get { return graft_; }
     }
 
     /// <summary>Field number for the "prune" field.</summary>
     public const int PruneFieldNumber = 4;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune> _repeated_prune_codec
-        = pb::FieldCodec.ForMessage(34, global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune> prune_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune> _repeated_prune_codec
+        = pb::FieldCodec.ForMessage(34, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune> prune_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.GossipSub.Dto.ControlPrune> Prune {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune> Prune {
       get { return prune_; }
     }
 
@@ -1297,7 +1297,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[3]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[3]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1526,7 +1526,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[4]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[4]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1704,7 +1704,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[5]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[5]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1907,7 +1907,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.RpcReflection.Descriptor.MessageTypes[6]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[6]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]

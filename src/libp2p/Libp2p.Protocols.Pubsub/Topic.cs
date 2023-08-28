@@ -3,7 +3,7 @@
 
 using Nethermind.Libp2p.Core;
 
-namespace Nethermind.Libp2p.Protocols.Floodsub;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 class Topic : ITopic
 {

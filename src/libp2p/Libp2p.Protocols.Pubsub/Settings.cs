@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Protocols.GossipSub.Dto;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
-namespace Nethermind.Libp2p.Protocols.Gossipsub;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class Settings
 {

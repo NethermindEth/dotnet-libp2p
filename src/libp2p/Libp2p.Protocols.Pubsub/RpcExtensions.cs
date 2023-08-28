@@ -3,15 +3,15 @@
 
 extern alias BouncyCastleCryptography;
 using Google.Protobuf;
-using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
 using Multiformats.Hash;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
-namespace Nethermind.Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 internal static class RpcExtensions
 {
