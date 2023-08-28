@@ -20,8 +20,7 @@ There is a protobuf generator, that can be used to easily generate C# types in a
       <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" 
           OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
   ```
-- Create `Dto` directory in the project;
-- Add `.proto` files for the structures needed;
+- Add `.proto` files for the structures needed and set "Build action" = "C# analyzer additional file" for each;
 - Add `option csharp_namespace = "<namespace>";` if the classes should belong in a particular namespace;
 - Build the project.
 

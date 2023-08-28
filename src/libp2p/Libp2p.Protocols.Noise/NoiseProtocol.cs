@@ -10,7 +10,7 @@ using Noise;
 using System.Text;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Protocols.PlainText.Dto;
+using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 using BouncyCastleCryptography::Org.BouncyCastle.Utilities.Encoders;
 

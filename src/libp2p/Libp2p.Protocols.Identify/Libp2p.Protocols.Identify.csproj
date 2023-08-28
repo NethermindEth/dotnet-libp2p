@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
@@ -13,6 +13,10 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>libp2p network identify</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Dto\Identify.proto" CopyToOutputDirectory="Never" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />

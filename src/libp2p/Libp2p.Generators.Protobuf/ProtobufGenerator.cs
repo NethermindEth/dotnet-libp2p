@@ -16,34 +16,24 @@ public class ProtobufGenerator : ISourceGenerator
     {
         try
         {
-            context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.projectdir",
-                out string? projectDirectory);
-            if (projectDirectory is null)
+            foreach (var file in context.AdditionalFiles)
             {
-                return;
+                Process cmd = new();
+                cmd.StartInfo.RedirectStandardError = true;
+                cmd.StartInfo.FileName = _protocLocation;
+                cmd.StartInfo.UseShellExecute = false;
+                cmd.StartInfo.CreateNoWindow = true;
+                cmd.StartInfo.WorkingDirectory = Path.GetDirectoryName(file.Path);
+                cmd.StartInfo.Arguments = $"-I=. --csharp_out=. \"{Path.GetFileName(file.Path)}\"";
+                cmd.Start();
+                cmd.WaitForExit();
+                if (cmd.ExitCode != 0)
+                {
+                    string errorLogs = cmd.StandardError.ReadToEnd();
+                    throw new ApplicationException(errorLogs);
+                }
+                var output = cmd.StandardOutput.ReadToEnd();
             }
-
-            string dtoDirectory = Path.Combine(projectDirectory, "Dto");
-            IEnumerable<string> files = Directory.GetFiles(dtoDirectory, "*.proto")
-                .Select(fname => Path.GetRelativePath(dtoDirectory, fname));
-            context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.RootNamespace",
-                out string? rootNamespace);
-            Process cmd = new();
-            cmd.StartInfo.RedirectStandardError = true;
-            cmd.StartInfo.FileName = _protocLocation;
-            cmd.StartInfo.CreateNoWindow = true;
-            cmd.StartInfo.WorkingDirectory = dtoDirectory;
-            cmd.StartInfo.Arguments =
-                "-I=. --csharp_out=. " + String.Join(" ", files);
-            cmd.Start();
-            cmd.WaitForExit();
-            if (cmd.ExitCode == 0)
-            {
-                return;
-            }
-
-            string errorLogs = cmd.StandardError.ReadToEnd();
-            context.AddSource("ErrorLog.txt", $"//An error appeared during protobuf generation\n//{errorLogs}");
         }
         catch (Exception e)
         {

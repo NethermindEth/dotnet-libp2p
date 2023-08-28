@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using System.Runtime.CompilerServices;
-using Nethermind.Libp2p.Core.Enums;
 
 namespace Nethermind.Libp2p.Core;
 

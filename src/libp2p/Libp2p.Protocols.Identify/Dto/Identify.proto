@@ -1,4 +1,7 @@
 syntax = "proto2";
+
+option csharp_namespace = "Nethermind.Libp2p.Protocols.Identify.Dto";
+
 message Identify {
   optional string protocolVersion = 5;
   optional string agentVersion = 6;
