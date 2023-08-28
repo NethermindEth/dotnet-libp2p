@@ -8,6 +8,9 @@
 
 # dotnet-libp2p
 
+[![Test](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml/badge.svg)](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml)
+[![Nethermind.Libp2p.Stack](https://img.shields.io/nuget/v/Nethermind.Libp2p.Stack)](https://www.nuget.org/packages/Nethermind.Libp2p.Stack)
+
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
 As an application developer, you may consider reading [quick start](./docs/quick-start.md).
