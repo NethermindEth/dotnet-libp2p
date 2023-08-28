@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Protocols.Floodsub;
 
-namespace Nethermind.Libp2p.Protocols;
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class GossipsubProtocol : FloodsubProtocol
 {

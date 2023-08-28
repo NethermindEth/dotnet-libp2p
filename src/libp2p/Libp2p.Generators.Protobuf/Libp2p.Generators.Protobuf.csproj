@@ -6,6 +6,13 @@
     <Nullable>enable</Nullable>
     <PackageCopyToOutput>true</PackageCopyToOutput>
     <LangVersion>latest</LangVersion>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>libp2p network protobuf</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,7 +24,6 @@
     </PackageReference>
   </ItemGroup>
 
-
   <PropertyGroup>
     <protoc_linux64>tools\linux_x64\protoc</protoc_linux64>
     <protoc_linux86>tools\linux_x86\protoc</protoc_linux86>
@@ -26,6 +32,7 @@
     <protoc_windows64>tools\windows_x64\protoc.exe</protoc_windows64>
     <protoc_windows86>tools\windows_x86\protoc.exe</protoc_windows86>
   </PropertyGroup>
+  
   <PropertyGroup Condition=" '$(MSBuildRuntimeType)' == 'Core' or ('$(MSBuildVersion)' != '' and $([System.Version]::Parse($(MSBuildVersion))) &gt;= $([System.Version]::Parse(15.3))) ">
     <protoc Condition="'$([MSBuild]::IsOsPlatform(Linux))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X64'">$(protoc_linux64)</protoc>
     <protoc Condition="'$([MSBuild]::IsOsPlatform(Linux))' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)'=='X86'">$(protoc_linux86)</protoc>
@@ -39,6 +46,10 @@
     <AssemblyAttribute Include="Nethermind.Libp2p.Generators.Protobuf.ProtocLocation">
       <_Parameter1>$(NuGetPackageRoot)google.protobuf.tools\3.22.0\$(protoc)</_Parameter1>
     </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
 </Project>

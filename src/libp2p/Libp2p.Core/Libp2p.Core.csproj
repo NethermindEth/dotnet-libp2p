@@ -5,11 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <RootNamespace>Nethermind.Libp2p.Core</RootNamespace>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The libp2p core routines and API</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>libp2p network</PackageTags>
   </PropertyGroup>
 
@@ -33,7 +34,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Enums\" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
 </Project>

@@ -5,11 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <Description>A pseudo-protocol that selects protocol stack based on Multiaddr</Description>
-    <PackageTags>libp2p network multiaddr</PackageTags>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,4 +23,5 @@
     </PackageReference>
     <PackageReference Include="System.Runtime.Caching" />
   </ItemGroup>
+
 </Project>
