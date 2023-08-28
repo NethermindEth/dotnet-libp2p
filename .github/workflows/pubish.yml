@@ -54,7 +54,6 @@ jobs:
           dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.MultiaddrBasedSelector ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
