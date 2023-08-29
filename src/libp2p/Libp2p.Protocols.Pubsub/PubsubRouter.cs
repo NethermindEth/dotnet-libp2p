@@ -5,13 +5,23 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-public class PubsubRouter
+internal interface IRoutingStateContainer
+{
+    ConcurrentDictionary<string, HashSet<PeerId>> FloodsubPeers { get; }
+    ConcurrentDictionary<string, HashSet<PeerId>> GossipsubPeers { get; }
+    ConcurrentDictionary<string, HashSet<PeerId>> Mesh { get; }
+    ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
+    ConcurrentDictionary<string, DateTime> FanoutLastPublished { get; }
+}
+
+public class PubsubRouter : IRoutingStateContainer
 {
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
@@ -49,6 +59,14 @@ public class PubsubRouter
 
     private static readonly CancellationToken Canceled;
 
+    #region IRoutingStateContainer
+    ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.FloodsubPeers => fPeers;
+    ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.GossipsubPeers => gPeers;
+    ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Mesh => mesh;
+    ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Fanout => fanout;
+    ConcurrentDictionary<string, DateTime> IRoutingStateContainer.FanoutLastPublished => fanoutLastPublished;
+    #endregion
+
     public PeerId? LocalPeerId { get; private set; }
 
     public event Action<string, byte[]>? OnMessage;
@@ -59,6 +77,7 @@ public class PubsubRouter
     private TtlCache<MessageId, Message> limboMessageCache;
     private ILocalPeer? localPeer;
     private ILogger? logger;
+
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> gPeers = new();
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> mesh = new();
@@ -91,7 +110,7 @@ public class PubsubRouter
             throw new InvalidOperationException("Router has been already started");
         }
         this.localPeer = localPeer;
-        LocalPeerId = new PeerId(localPeer.Address.At(Core.Enums.Multiaddr.P2p)!);
+        LocalPeerId = new PeerId(localPeer.Address.At(MultiaddrEnum.P2p)!);
 
         _ = localPeer.ListenAsync(localPeer.Address, token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);

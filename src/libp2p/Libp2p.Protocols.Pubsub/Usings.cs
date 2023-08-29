@@ -6,4 +6,4 @@ global using Multiaddr = Nethermind.Libp2p.Core.Multiaddr;
 global using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("Libp2p.Core.TestsBase")]
+[assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]

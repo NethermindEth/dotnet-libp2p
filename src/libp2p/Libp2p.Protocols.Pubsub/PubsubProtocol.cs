@@ -26,7 +26,7 @@ public abstract class PubsubProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        string peerId = context.RemotePeer.Address.At(Core.Enums.Multiaddr.P2p)!;
+        string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
 
@@ -50,7 +50,7 @@ public abstract class PubsubProtocol : IProtocol
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        string peerId = context.RemotePeer.Address.At(Core.Enums.Multiaddr.P2p)!;
+        string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
         _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
         CancellationToken token = router.InboundConnection(peerId, Id, () =>
