@@ -15,6 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AdditionalFiles Include="Dto\Rpc.proto" CopyToOutputDirectory="Never" />
+    <AdditionalFiles Include="Dto\TopicDescriptor.proto" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
     <ProjectReference Include="..\Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
@@ -27,9 +32,4 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="/" />
-  </ItemGroup>
-  
 </Project>

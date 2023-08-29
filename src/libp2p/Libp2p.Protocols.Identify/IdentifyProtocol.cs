@@ -32,9 +32,9 @@ public class IdentifyProtocol : IProtocol
 
         try
         {
-            Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Parser);
+            Identify.Dto.Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
 
-            _logger?.LogInformation("Received peer info: {0}", identity);
+            _logger?.LogInformation("Received peer info: {identify}", identity);
             context.RemotePeer.Identity = Identity.FromPublicKey(identity.PublicKey.ToByteArray());
 
             if (context.RemotePeer.Identity.PublicKey.ToByteString() != identity.PublicKey)
@@ -55,7 +55,7 @@ public class IdentifyProtocol : IProtocol
 
         try
         {
-            Identify identify = new()
+            Identify.Dto.Identify identify = new()
             {
                 AgentVersion = "github.com/Nethermind/dotnet-libp2p/samples@1.0.0",
                 ProtocolVersion = SubProtocolId,
