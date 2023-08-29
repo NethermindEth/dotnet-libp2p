@@ -60,6 +60,7 @@ jobs:
           dotnet pack Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Stack ${{ env.PACK_OPTS }}
           
           dotnet nuget push **/*.nupkg \

@@ -36,7 +36,7 @@ public class IpTcpProtocol : IProtocol
         IPEndPoint localIpEndpoint = (IPEndPoint)srv.LocalEndPoint!;
         channel.OnClose(() =>
         {
-            srv.Disconnect(false);
+            srv.Close();
             return Task.CompletedTask;
         });
         Core.Enums.Multiaddr newIpProtocol = localIpEndpoint.AddressFamily == AddressFamily.InterNetwork

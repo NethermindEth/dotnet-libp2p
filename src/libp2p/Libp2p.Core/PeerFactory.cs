@@ -12,7 +12,7 @@ public class PeerFactory : IPeerFactory
     private IProtocol _protocol;
     private IChannelFactory _upChannelFactory;
     private static int CtxId = 0;
-    protected PeerFactory(IServiceProvider serviceProvider)
+    public PeerFactory(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }
