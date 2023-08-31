@@ -34,7 +34,7 @@ From the beginning, the target is to provide a performant well-tested implementa
 | mplex?             | /mplex/6.7.0       | ⬜             |
 | yamux              | /yamux/1.0.0       | ✅             |
 | Identify           | /ipfs/id/1.0.0     | ✅             |
-| ping               | /ipfs/ping/1.0.0   | ⬜ help wanted |
+| ping               | /ipfs/ping/1.0.0   | 🚧             |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | 🚧             |
 |                    | /meshsub/1.1.0     | 🚧             |
