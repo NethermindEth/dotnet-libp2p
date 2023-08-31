@@ -19,6 +19,7 @@ internal interface IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> Mesh { get; }
     ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
     ConcurrentDictionary<string, DateTime> FanoutLastPublished { get; }
+    ICollection<PeerId> ConnectedPeers { get; }
 }
 
 public class PubsubRouter : IRoutingStateContainer
@@ -65,6 +66,7 @@ public class PubsubRouter : IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Mesh => mesh;
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Fanout => fanout;
     ConcurrentDictionary<string, DateTime> IRoutingStateContainer.FanoutLastPublished => fanoutLastPublished;
+    ICollection<PeerId> IRoutingStateContainer.ConnectedPeers => peerState.Keys;
     #endregion
 
     public PeerId? LocalPeerId { get; private set; }
@@ -280,8 +282,8 @@ public class PubsubRouter : IRoutingStateContainer
         {
             if (mesh.Value.Count < settings.LowestDegree)
             {
-                string[] peersToGraft = gPeers.Keys.Where(p => !mesh.Value.Contains(p)).Take(settings.LowestDegree - mesh.Value.Count).ToArray();
-                foreach (string? peerId in peersToGraft)
+                PeerId[] peersToGraft = gPeers[mesh.Key].Where(p => !mesh.Value.Contains(p)).Take(settings.LowestDegree - mesh.Value.Count).ToArray();
+                foreach (PeerId peerId in peersToGraft)
                 {
                     mesh.Value.Add(peerId);
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())

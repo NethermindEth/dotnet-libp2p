@@ -1,68 +1,43 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using Org.BouncyCastle.Crypto.Paddings;
-using System.Buffers.Binary;
-using System.Collections.Concurrent;
-using System.Linq;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
-
-class TestDiscoveryProtocol : IDiscoveryProtocol
-{
-    public Func<Multiaddr[], bool>? OnAddPeer { get; set; }
-    public Func<Multiaddr[], bool>? OnRemovePeer { get; set; }
-
-    public Task DiscoverAsync(Multiaddr localPeerAddr, CancellationToken token = default)
-    {
-        var task = new TaskCompletionSource();
-        token.Register(task.SetResult);
-        return task.Task;
-    }
-}
-
-class TestLocalPeer : ILocalPeer
-{
-    public Identity Identity { get; set; }
-    public Multiaddr Address { get; set; }
-
-    public Task<IRemotePeer> DialAsync(Multiaddr addr, CancellationToken token = default)
-    {
-        return Task.FromResult<IRemotePeer>(null);
-    }
-
-    public Task<IListener> ListenAsync(Multiaddr addr, CancellationToken token = default)
-    {
-        return Task.FromResult<IListener>(null);
-    }
-}
 
 [TestFixture]
 public class FloodsubProtocolTests
 {
-    private static ConcurrentDictionary<int, string> testPeers = new();
-    private static string MakePeer(int i) => testPeers.GetOrAdd(i, i =>
-        {
-            var key = new byte[32];
-            BinaryPrimitives.WriteInt32LittleEndian(key.AsSpan(32 - 4, 4), i);
-            return new Identity(key).PeerId;
-        });
-
-
     [Test]
-    public async Task Test()
+    public async Task Test_Peer_is_in_fpeers()
     {
-        var router = new PubsubRouter();
-        var state = router as IRoutingStateContainer;
+        PubsubRouter router = new();
+        IRoutingStateContainer state = router;
+        Multiaddr discoveredPeer = TestPeers.Multiaddr(1);
+        PeerId peerId = TestPeers.PeerId(1);
+        const string commonTopic = "topic1";
 
-        ILocalPeer peer = new TestLocalPeer();
-        TestDiscoveryProtocol discovery = new TestDiscoveryProtocol();
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
+        TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
+        List<Rpc> sentRpcs = new();
+
         _ = router.RunAsync(peer, discovery, token: token);
-        Assert.IsNotNull(discovery.OnAddPeer);
-        discovery.OnAddPeer(new Multiaddr[] { $"/p2p/{MakePeer(1)}" });
-        state.FloodsubPeers.Keys.Contains(MakePeer(1));
+        router.Subscribe(commonTopic);
+        Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
+
+        discovery.OnAddPeer!(new[] { discoveredPeer });
+        await peer.Received().DialAsync(discoveredPeer);
+
+        router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, sentRpcs.Add);
+        router.InboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, () => { });
+        router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.FloodsubPeers[commonTopic], Has.Member(peerId));
+            Assert.That(sentRpcs.Any(rpc => rpc.Subscriptions.Any(s => s.Subscribe && s.Topicid == commonTopic)), Is.True);
+        });
     }
 }
