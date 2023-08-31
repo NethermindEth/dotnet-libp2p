@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
+namespace Nethermind.Libp2p.Protocols.Noise.Dto {
 
   /// <summary>Holder for reflection information generated from Exchange.proto</summary>
   public static partial class ExchangeReflection {
@@ -31,15 +31,15 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
             "KAwiaQoVTm9pc2VIYW5kc2hha2VQYXlsb2FkEhQKDGlkZW50aXR5X2tleRgB",
             "IAEoDBIUCgxpZGVudGl0eV9zaWcYAiABKAwSJAoKZXh0ZW5zaW9ucxgEIAEo",
             "CzIQLk5vaXNlRXh0ZW5zaW9ucyo5CgdLZXlUeXBlEgcKA1JTQRAAEgsKB0Vk",
-            "MjU1MTkQARINCglTZWNwMjU2azEQAhIJCgVFQ0RTQRADQiyqAilOZXRoZXJt",
-            "aW5kLkxpYnAycC5Qcm90b2NvbHMuUGxhaW5UZXh0LkR0bw=="));
+            "MjU1MTkQARINCglTZWNwMjU2azEQAhIJCgVFQ0RTQRADQiiqAiVOZXRoZXJt",
+            "aW5kLkxpYnAycC5Qcm90b2NvbHMuTm9pc2UuRHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
-          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType), }, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.Exchange), global::Nethermind.Libp2p.Protocols.PlainText.Dto.Exchange.Parser, new[]{ "Id", "Pubkey" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions), global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions.Parser, new[]{ "WebtransportCerthashes", "StreamMuxers" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.PublicKey), global::Nethermind.Libp2p.Protocols.PlainText.Dto.PublicKey.Parser, new[]{ "Type", "Data" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseHandshakePayload), global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseHandshakePayload.Parser, new[]{ "IdentityKey", "IdentitySig", "Extensions" }, null, null, null, null)
+          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType), }, null, new pbr::GeneratedClrTypeInfo[] {
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Noise.Dto.Exchange), global::Nethermind.Libp2p.Protocols.Noise.Dto.Exchange.Parser, new[]{ "Id", "Pubkey" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions), global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions.Parser, new[]{ "WebtransportCerthashes", "StreamMuxers" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Noise.Dto.PublicKey), global::Nethermind.Libp2p.Protocols.Noise.Dto.PublicKey.Parser, new[]{ "Type", "Data" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseHandshakePayload), global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseHandshakePayload.Parser, new[]{ "IdentityKey", "IdentitySig", "Extensions" }, null, null, null, null)
           }));
     }
     #endregion
@@ -70,7 +70,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Protocols.Noise.Dto.ExchangeReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -324,7 +324,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[1]; }
+      get { return global::Nethermind.Libp2p.Protocols.Noise.Dto.ExchangeReflection.Descriptor.MessageTypes[1]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -529,7 +529,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[2]; }
+      get { return global::Nethermind.Libp2p.Protocols.Noise.Dto.ExchangeReflection.Descriptor.MessageTypes[2]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -563,12 +563,12 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
 
     /// <summary>Field number for the "Type" field.</summary>
     public const int TypeFieldNumber = 1;
-    private readonly static global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType TypeDefaultValue = global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType.Rsa;
+    private readonly static global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType TypeDefaultValue = global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType.Rsa;
 
-    private global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType type_;
+    private global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType type_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType Type {
+    public global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType Type {
       get { if ((_hasBits0 & 1) != 0) { return type_; } else { return TypeDefaultValue; } }
       set {
         _hasBits0 |= 1;
@@ -734,7 +734,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 8: {
-            Type = (global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {
@@ -757,7 +757,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 8: {
-            Type = (global::Nethermind.Libp2p.Protocols.PlainText.Dto.KeyType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Protocols.Noise.Dto.KeyType) input.ReadEnum();
             break;
           }
           case 18: {
@@ -785,7 +785,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.PlainText.Dto.ExchangeReflection.Descriptor.MessageTypes[3]; }
+      get { return global::Nethermind.Libp2p.Protocols.Noise.Dto.ExchangeReflection.Descriptor.MessageTypes[3]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -871,10 +871,10 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
 
     /// <summary>Field number for the "extensions" field.</summary>
     public const int ExtensionsFieldNumber = 4;
-    private global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions extensions_;
+    private global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions extensions_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions Extensions {
+    public global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions Extensions {
       get { return extensions_; }
       set {
         extensions_ = value;
@@ -1000,7 +1000,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
       }
       if (other.extensions_ != null) {
         if (extensions_ == null) {
-          Extensions = new global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions();
+          Extensions = new global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions();
         }
         Extensions.MergeFrom(other.Extensions);
       }
@@ -1029,7 +1029,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
           }
           case 34: {
             if (extensions_ == null) {
-              Extensions = new global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions();
+              Extensions = new global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions();
             }
             input.ReadMessage(Extensions);
             break;
@@ -1059,7 +1059,7 @@ namespace Nethermind.Libp2p.Protocols.PlainText.Dto {
           }
           case 34: {
             if (extensions_ == null) {
-              Extensions = new global::Nethermind.Libp2p.Protocols.PlainText.Dto.NoiseExtensions();
+              Extensions = new global::Nethermind.Libp2p.Protocols.Noise.Dto.NoiseExtensions();
             }
             input.ReadMessage(Extensions);
             break;

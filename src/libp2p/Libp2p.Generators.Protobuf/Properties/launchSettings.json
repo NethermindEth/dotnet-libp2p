@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Generate for Pubsub": {
+      "commandName": "DebugRoslynComponent",
+      "targetProject": "..\\Libp2p.Protocols.Pubsub\\Libp2p.Protocols.Pubsub.csproj"
+    }
+  }
+}

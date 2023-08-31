@@ -6,10 +6,12 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>The QUIC transport of libp2p</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>libp2p network quic</PackageTags>
   </PropertyGroup>
 
@@ -17,12 +19,16 @@
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
   </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-        <PackageReference Include="Microsoft.SourceLink.GitHub">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-    </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
 </Project>

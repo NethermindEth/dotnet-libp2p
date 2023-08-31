@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 

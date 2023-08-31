@@ -1,0 +1,24 @@
+name: Format
+
+on:
+  pull_request:
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    env:
+      WORKING_DIR: src/libp2p
+    steps:
+    
+      - name: Check out repository
+        uses: actions/checkout@v3
+    
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 7
+
+      - name: Format whitespace
+        working-directory: ${{ env.WORKING_DIR }}
+        run: dotnet format whitespace . --folder --verify-no-changes

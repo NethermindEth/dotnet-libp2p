@@ -53,6 +53,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MultiaddrB
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Tests", "Libp2p.Protocols.Pubsub.Tests\Libp2p.Protocols.Pubsub.Tests.csproj", "{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Ping", "Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj", "{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -151,6 +153,10 @@ Global
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -172,6 +178,7 @@ Global
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{F0598974-E490-47D8-BE83-7099F54D78BF} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}
