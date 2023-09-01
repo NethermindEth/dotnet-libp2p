@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using System.Buffers;
 
-namespace Nethermind.Libp2p.Protocols.Ping;
+namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/ping/ping.md
