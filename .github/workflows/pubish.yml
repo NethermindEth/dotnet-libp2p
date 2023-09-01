@@ -61,7 +61,7 @@ jobs:
           dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Stack ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p ${{ env.PACK_OPTS }}
           
           dotnet nuget push **/*.nupkg \
             -k ${{ github.event.inputs.feed == 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
