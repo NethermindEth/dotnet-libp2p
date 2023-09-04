@@ -18,9 +18,23 @@ public class MultiaddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null
 
     protected override async Task ConnectAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context, bool isListener)
     {
-        IProtocol protocol = context.LocalPeer.Address.Has(Core.Enums.Multiaddr.Quic) ?
-                channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUIC is not supported") :
-                channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("tcp")) ?? throw new ApplicationException("TCP is not supported");
+        IProtocol protocol = null!;
+        if (context.LocalPeer.Address.Has(Core.Enums.Multiaddr.QuicV1))
+        {
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUIC is not supported");
+        }
+        else if (context.LocalPeer.Address.Has(Core.Enums.Multiaddr.Quic))
+        {
+            throw new ApplicationException("QUIC version draft-29 is not supported.");
+        }
+        else if (context.LocalPeer.Address.Has(Core.Enums.Multiaddr.Tcp))
+        {
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("tcp")) ?? throw new ApplicationException("TCP is not supported");
+        }
+        else
+        {
+            throw new NotImplementedException($"No transport protocol found for the given address: {context.LocalPeer.Address}");
+        }
 
         _logger?.LogPickedProtocol(protocol.Id, isListener ? "listen" : "dial");
 

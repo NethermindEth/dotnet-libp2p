@@ -10,6 +10,10 @@ using Org.BouncyCastle.Security;
 using System.Security.Cryptography;
 using System.Buffers;
 using Org.BouncyCastle.Crypto.Parameters;
+using ECPoint = Org.BouncyCastle.Math.EC.ECPoint;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.EC;
+using Org.BouncyCastle.Crypto.Generators;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -18,28 +22,79 @@ namespace Nethermind.Libp2p.Core;
 /// </summary>
 public class Identity
 {
+    private const KeyType DefaultKeyType = KeyType.Ed25519;
+
     public PublicKey PublicKey { get; }
     public PrivateKey? PrivateKey { get; }
 
-    public Identity(byte[]? privateKey = default, KeyType keyType = KeyType.Ed25519)
-        : this(privateKey is null ? null : new PrivateKey { Data = ByteString.CopyFrom(privateKey), Type = keyType })
-    {
-    }
-
-    public Identity(PrivateKey? privateKey)
+    public Identity(byte[]? privateKey = default, KeyType keyType = DefaultKeyType)
     {
         if (privateKey is null)
         {
-            byte[] rented = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
-            Span<byte> privateKeyBytesSpan = rented.AsSpan(0, Ed25519.SecretKeySize);
-            SecureRandom rnd = new();
-            Ed25519.GeneratePrivateKey(rnd, privateKeyBytesSpan);
-            ArrayPool<byte>.Shared.Return(rented, true);
-            privateKey = new PrivateKey { Data = ByteString.CopyFrom(privateKeyBytesSpan), Type = KeyType.Ed25519 };
+            (PrivateKey, PublicKey) = GeneratePrivateKeyPair(keyType);
         }
-        PrivateKey = privateKey;
-        PublicKey = GetPublicKey(privateKey);
+        else
+        {
+            PrivateKey = new PrivateKey { Data = ByteString.CopyFrom(privateKey), Type = keyType };
+            PublicKey = GetPublicKey(PrivateKey);
+        }
+    }
 
+    public Identity(PrivateKey privateKey)
+    {
+        PrivateKey = privateKey;
+        PublicKey = GetPublicKey(PrivateKey);
+    }
+
+    private (PrivateKey, PublicKey) GeneratePrivateKeyPair(KeyType type)
+    {
+        ByteString privateKeyData;
+        ByteString? publicKeyData = null;
+        switch (type)
+        {
+            case KeyType.Ed25519:
+                {
+                    Span<byte> privateKeyBytes = stackalloc byte[Ed25519.SecretKeySize];
+                    SecureRandom rnd = new();
+                    Ed25519.GeneratePrivateKey(rnd, privateKeyBytes);
+                    privateKeyData = ByteString.CopyFrom(privateKeyBytes);
+                }
+                break;
+            case KeyType.Rsa:
+                {
+                    using RSA rsa = RSA.Create(1024);
+                    privateKeyData = ByteString.CopyFrom(rsa.ExportRSAPrivateKey());
+                }
+                break;
+            case KeyType.Secp256K1:
+                {
+                    X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
+                    ECDomainParameters domainParams = new(curve);
+
+                    SecureRandom secureRandom = new();
+                    ECKeyGenerationParameters keyParams = new(domainParams, secureRandom);
+
+                    ECKeyPairGenerator generator = new("ECDSA");
+                    generator.Init(keyParams);
+                    AsymmetricCipherKeyPair keyPair = generator.GenerateKeyPair();
+                    Span<byte> privateKeySpan = stackalloc byte[32];
+                    ((ECPrivateKeyParameters)keyPair.Private).D.ToByteArrayUnsigned(privateKeySpan);
+                    privateKeyData = ByteString.CopyFrom(privateKeySpan);
+                    publicKeyData = ByteString.CopyFrom(((ECPublicKeyParameters)keyPair.Public).Q.GetEncoded(true));
+                }
+                break;
+            case KeyType.Ecdsa:
+                {
+                    using ECDsa rsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    privateKeyData = ByteString.CopyFrom(rsa.ExportECPrivateKey());
+                }
+                break;
+            default:
+                throw new NotImplementedException($"{type} generation is not supported");
+        }
+
+        PrivateKey privateKey = new() { Type = type, Data = privateKeyData };
+        return (privateKey, publicKeyData is not null ? new PublicKey { Type = type, Data = publicKeyData } : GetPublicKey(privateKey));
     }
 
     public Identity(PublicKey publicKey)
@@ -64,7 +119,7 @@ public class Identity
 
             case KeyType.Rsa:
                 {
-                    RSA rsa = RSA.Create();
+                    using RSA rsa = RSA.Create();
                     rsa.ImportRSAPrivateKey(privateKey.Data.Span, out int bytesRead);
                     publicKeyData = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
                 }
@@ -72,18 +127,17 @@ public class Identity
 
             case KeyType.Secp256K1:
                 {
-                    X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
-                    Org.BouncyCastle.Math.EC.ECPoint pointQ
-                        = curve.G.Multiply(new BigInteger(1, privateKey.Data.Span));
+                    X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
+                    ECPoint pointQ = curve.G.Multiply(new BigInteger(privateKey.Data.ToArray()));
                     publicKeyData = ByteString.CopyFrom(pointQ.GetEncoded(true));
                 }
                 break;
 
             case KeyType.Ecdsa:
                 {
-                    ECDsa rsa = ECDsa.Create();
-                    rsa.ImportECPrivateKey(privateKey.Data.Span, out int _);
-                    publicKeyData = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
+                    using ECDsa ecdsa = ECDsa.Create();
+                    ecdsa.ImportECPrivateKey(privateKey.Data.Span, out int _);
+                    publicKeyData = ByteString.CopyFrom(ecdsa.ExportSubjectPublicKeyInfo());
                 }
                 break;
             default:
@@ -91,6 +145,100 @@ public class Identity
         }
 
         return new() { Type = privateKey.Type, Data = publicKeyData };
+    }
+
+    public bool VerifySignature(byte[] message, byte[] signature)
+    {
+        if (PublicKey is null)
+        {
+            throw new ArgumentNullException(nameof(PublicKey));
+        }
+
+        switch (PublicKey.Type)
+        {
+            case KeyType.Ed25519:
+                {
+                    return Ed25519.Verify(signature, 0, PublicKey.Data.ToByteArray(), 0, message, 0, message.Length);
+                }
+            case KeyType.Rsa:
+                {
+                    using RSA rsa = RSA.Create();
+                    rsa.ImportSubjectPublicKeyInfo(PublicKey.Data.Span, out _);
+                    return rsa.VerifyData(message, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
+            case KeyType.Secp256K1:
+                {
+                    X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
+                    ISigner signer = SignerUtilities.GetSigner("SHA-256withECDSA");
+
+                    ECPublicKeyParameters publicKeyParamters = new(
+                            "ECDSA",
+                            curve.Curve.DecodePoint(PublicKey.Data.ToArray()),
+                            new ECDomainParameters(curve)
+                            );
+
+                    signer.Init(false, publicKeyParamters);
+                    signer.BlockUpdate(message, 0, message.Length);
+                    return signer.VerifySignature(signature);
+                }
+            case KeyType.Ecdsa:
+                {
+                    using ECDsa ecdsa = ECDsa.Create();
+                    ecdsa.ImportSubjectPublicKeyInfo(PublicKey.Data.Span, out _);
+                    return ecdsa.VerifyData(message, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+                }
+            default:
+                throw new NotImplementedException($"{PublicKey.Type} is not supported");
+        }
+    }
+
+    public byte[] Sign(byte[] message)
+    {
+        if (PrivateKey is null)
+        {
+            throw new ArgumentException(nameof(PrivateKey));
+        }
+
+        switch (PublicKey.Type)
+        {
+            case KeyType.Ed25519:
+                {
+                    byte[] sig = new byte[Ed25519.SignatureSize];
+                    Ed25519.Sign(PrivateKey.Data.ToByteArray(), 0, PublicKey.Data.ToByteArray(), 0,
+                        message, 0, message.Length, sig, 0);
+                    return sig;
+                }
+            case KeyType.Ecdsa:
+                {
+                    ECDsa e = ECDsa.Create();
+                    e.ImportECPrivateKey(PrivateKey.Data.Span, out _);
+                    return e.SignData(message, HashAlgorithmName.SHA256,
+                        DSASignatureFormat.Rfc3279DerSequence);
+                }
+            case KeyType.Rsa:
+                {
+                    using RSA rsa = RSA.Create();
+                    rsa.ImportRSAPrivateKey(PrivateKey.Data.Span, out _);
+                    return rsa.SignData(message, 0, message.Length, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
+            case KeyType.Secp256K1:
+                {
+                    X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
+                    ISigner signer = SignerUtilities.GetSigner("SHA-256withECDSA");
+
+                    ECPrivateKeyParameters privateKeyParams = new(
+                        "ECDSA",
+                        new BigInteger(1, PrivateKey.Data.ToArray()),
+                        new ECDomainParameters(curve)
+                        );
+
+                    signer.Init(true, privateKeyParams);
+                    signer.BlockUpdate(message, 0, message.Length);
+                    return signer.GenerateSignature();
+                }
+            default:
+                throw new NotImplementedException($"{PublicKey.Type} is not supported");
+        }
     }
 
     public PeerId PeerId => new(PublicKey);

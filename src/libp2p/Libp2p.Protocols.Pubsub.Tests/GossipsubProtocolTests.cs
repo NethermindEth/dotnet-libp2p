@@ -28,7 +28,7 @@ public class GossipsubProtocolTests
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
         Assert.That(state.GossipsubPeers.Keys, Has.Member(commonTopic));
 
-        foreach (var index in Enumerable.Range(1, peerCount))
+        foreach (int index in Enumerable.Range(1, peerCount))
         {
             Multiaddr discoveredPeer = TestPeers.Multiaddr(index);
             PeerId peerId = TestPeers.PeerId(index);

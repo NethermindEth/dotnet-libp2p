@@ -69,7 +69,7 @@ public class IpTcpProtocol : IProtocol
                     remoteIpEndpoint.Port);
                 clientContext.LocalPeer.Address = context.LocalPeer.Address.Replace(
                         context.LocalEndpoint.Has(Core.Enums.Multiaddr.Ip4) ? Core.Enums.Multiaddr.Ip4 : Core.Enums.Multiaddr.Ip6, newIpProtocol,
-                        remoteIpEndpoint.Address.ToString())
+                        localIpEndpoint.Address.ToString())
                     .Replace(
                         Core.Enums.Multiaddr.Tcp,
                         remoteIpEndpoint.Port.ToString());

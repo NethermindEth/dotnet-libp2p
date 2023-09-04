@@ -44,7 +44,6 @@ public class EnumsGenerator : ISourceGenerator
 
         IEnumerable<IGrouping<string, MultiCodeCode>> grouped =
             vals.GroupBy(x => x.Tag);
-        Console.WriteLine();
 
         foreach (IGrouping<string, MultiCodeCode> g in grouped)
         {

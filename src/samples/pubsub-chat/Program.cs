@@ -27,13 +27,10 @@ IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Pubsub Chat");
 CancellationTokenSource ts = new();
 
-Random r = new();
-byte[] buf = new byte[32];
-r.NextBytes(buf);
-Identity optionalFixedIdentity = new(buf);
-string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{optionalFixedIdentity.PeerId}";
+Identity localPeerIdentity = new();
+string addr = $"/ip4/0.0.0.0/udp/0/quic-v1/p2p/{localPeerIdentity.PeerId}";
 
-ILocalPeer peer = peerFactory.Create(optionalFixedIdentity, addr);
+ILocalPeer peer = peerFactory.Create(localPeerIdentity, addr);
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");

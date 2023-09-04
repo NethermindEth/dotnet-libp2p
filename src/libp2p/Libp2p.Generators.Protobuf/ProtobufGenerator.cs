@@ -16,7 +16,7 @@ public class ProtobufGenerator : ISourceGenerator
     {
         try
         {
-            foreach (var file in context.AdditionalFiles)
+            foreach (AdditionalText file in context.AdditionalFiles)
             {
                 Process cmd = new();
                 cmd.StartInfo.RedirectStandardError = true;
@@ -32,7 +32,7 @@ public class ProtobufGenerator : ISourceGenerator
                     string errorLogs = cmd.StandardError.ReadToEnd();
                     throw new ApplicationException(errorLogs);
                 }
-                var output = cmd.StandardOutput.ReadToEnd();
+                string output = cmd.StandardOutput.ReadToEnd();
             }
         }
         catch (Exception e)

@@ -21,7 +21,7 @@ Each protocol should implement `IProtocol` interface, which enforces the `Listen
 ```csharp
 namespace Nethermind.Libp2p.Core;
 
-public abstract class MyCustomProtocol
+public class MyCustomProtocol : IProtocol
 {
     public Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
     {

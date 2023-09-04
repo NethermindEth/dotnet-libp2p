@@ -100,11 +100,9 @@ public class PeerFactory : IPeerFactory
                 Id = $"ctx-{++CtxId}",
                 LocalPeer = peer,
             };
-            RemotePeer result = new(this, peer, context) { Address = addr };
+            RemotePeer result = new(this, peer, context) { Address = addr, Channel = chan };
             context.RemotePeer = result;
 
-            _ = _protocol.DialAsync(chan, _upChannelFactory, context);
-            result.Channel = chan;
             TaskCompletionSource<bool> tcs = new();
             context.OnRemotePeerConnection += remotePeer =>
             {
@@ -115,8 +113,10 @@ public class PeerFactory : IPeerFactory
 
                 ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
             };
-            await tcs.Task;
 
+            _ = _protocol.DialAsync(chan, _upChannelFactory, context);
+
+            await tcs.Task;
             return result;
         }
         catch

@@ -5,7 +5,6 @@ using Google.Protobuf;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
-using Multiformats.Hash;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
@@ -17,9 +16,8 @@ internal static class RpcExtensions
 {
     private const string SignaturePayloadPrefix = "libp2p-pubsub:";
 
-    public static Rpc WithMessages(this Rpc rpc, string topic, ulong seqNo, byte[] from, byte[] message, byte[] privateKey)
+    public static Rpc WithMessages(this Rpc rpc, string topic, ulong seqNo, byte[] from, byte[] message, Identity identity)
     {
-
         Message msg = new();
         msg.Topic = topic;
         Span<byte> seqNoBytes = new byte[8];
@@ -28,13 +26,11 @@ internal static class RpcExtensions
         msg.From = ByteString.CopyFrom(from);
         msg.Data = ByteString.CopyFrom(message);
 
-        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
+        byte[] signingContent = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
             .Concat(msg.ToByteArray())
             .ToArray();
-        byte[] sig = new byte[64];
-        Ed25519.Sign(privateKey, 0, msgToSign, 0, msgToSign.Length, sig, 0);
 
-        msg.Signature = ByteString.CopyFrom(sig);
+        msg.Signature = ByteString.CopyFrom(identity.Sign(signingContent));
         rpc.Publish.Add(msg);
         return rpc;
     }

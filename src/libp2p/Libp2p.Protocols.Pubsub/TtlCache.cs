@@ -26,7 +26,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
                 await Task.Delay(5_000);
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 TKey[] keys = items.TakeWhile(i => i.Value.ValidTill < now).Select(i => i.Key).ToArray();
-                foreach (var keyToRemove in keys)
+                foreach (TKey keyToRemove in keys)
                 {
                     items.Remove(keyToRemove);
                 }
