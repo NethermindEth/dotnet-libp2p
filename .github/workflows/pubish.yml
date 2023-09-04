@@ -39,7 +39,7 @@ jobs:
           dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
             -p:ContinuousIntegrationBuild=true \
             -p:Commit=${{ github.sha }} \
-            -p:PreviewNumber=${{ github.run_number }}
+            -p:VersionSuffix=preview.${{ github.run_number }}
     
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
@@ -51,7 +51,7 @@ jobs:
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:VersionSuffix=preview.${{ github.run_number }}
         run: |
           dotnet pack Libp2p ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
