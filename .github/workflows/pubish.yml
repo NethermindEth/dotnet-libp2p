@@ -35,7 +35,11 @@ jobs:
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:ContinuousIntegrationBuild=true -p:Commit=${{ github.sha }}
+        run: |
+          dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
+            -p:ContinuousIntegrationBuild=true \
+            -p:Commit=${{ github.sha }} \
+            -p:VersionSuffix=preview.${{ github.run_number }}
     
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
@@ -49,6 +53,7 @@ jobs:
         env:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
+          dotnet pack Libp2p ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Generators.Protobuf ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
@@ -61,7 +66,6 @@ jobs:
           dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p ${{ env.PACK_OPTS }}
           
           dotnet nuget push **/*.nupkg \
             -k ${{ github.event.inputs.feed == 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
