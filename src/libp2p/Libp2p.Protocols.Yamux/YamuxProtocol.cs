@@ -97,7 +97,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
             {
-                data = await channel.ReadAsync(header.Length);
+                data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length)).ToArray());
                 _logger?.LogDebug("Recv data, stream-{0}, len={1}, data: {data}",
                     header.StreamID, data.Length,
                     Encoding.ASCII.GetString(data.ToArray().Select(c => c == 0x1b || c == 0x07 ? (byte)0x2e : c).ToArray()));
