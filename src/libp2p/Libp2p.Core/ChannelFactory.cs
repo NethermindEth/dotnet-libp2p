@@ -33,7 +33,7 @@ public class ChannelFactory : IChannelFactory
         {
             if (!t.IsCompletedSuccessfully)
             {
-                _logger?.LogError("Dial error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
+                _logger?.LogError("Dial error {proto} via {chan}: {error}", chan.Id, subProtocol.Id, t.Exception?.Message ?? "unknown");
             }
             if (!chan.IsClosed)
             {
@@ -54,13 +54,13 @@ public class ChannelFactory : IChannelFactory
 
         Channel chan = CreateChannel(subProtocol);
 
-        _logger?.LogDebug("Listen {chan} {sp} {sf}", chan.Id, subProtocol, _factories[subProtocol].SubProtocols);
+        _logger?.LogDebug("Listen {chan} on protocol {sp} with sub-protocols {sf}", chan.Id, subProtocol.Id, _factories[subProtocol].SubProtocols.Select(s => s.Id));
 
         _ = subProtocol.ListenAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
         {
             if (!t.IsCompletedSuccessfully)
             {
-                _logger?.LogError("Listen error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
+                _logger?.LogError("Listen error {proto} via {chan}: {error}", subProtocol.Id, chan.Id, t.Exception?.Message ?? "unknown");
             }
             IEnumerable<IProtocol> dd = _factories[subProtocol].SubProtocols;
 
@@ -85,7 +85,7 @@ public class ChannelFactory : IChannelFactory
        {
            if (!t.IsCompletedSuccessfully)
            {
-               _logger?.LogError("SubDialAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
+               _logger?.LogError("SubDialAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol.Id, t.Exception?.Message ?? "unknown");
            }
 
            if (!chan.IsClosed)
@@ -109,7 +109,7 @@ public class ChannelFactory : IChannelFactory
         {
             if (!t.IsCompletedSuccessfully)
             {
-                _logger?.LogError("SubListenAndBind error {proto} via {chan}: {error}", chan.Id, subProtocol, t.Exception?.Message ?? "unknown");
+                _logger?.LogError("SubListenAndBind error {proto} via {chan}: {error}", subProtocol.Id, chan.Id, t.Exception?.Message ?? "unknown");
             }
             if (!chan.IsClosed)
             {
