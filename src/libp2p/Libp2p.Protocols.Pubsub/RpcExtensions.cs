@@ -50,13 +50,8 @@ internal static class RpcExtensions
 
     public static bool VerifySignature(this Message message)
     {
-        Multihash multihash = Multihash.Decode(message.From.ToArray());
-        if (multihash.Code != HashType.ID)
-        {
-            return false;
-        }
-        var pubKey = PublicKey.Parser.ParseFrom(multihash.Digest);
-        if (pubKey.Type != KeyType.Ed25519 || multihash.Code != HashType.ID)
+        PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+        if (pubKey is null)
         {
             return false;
         }

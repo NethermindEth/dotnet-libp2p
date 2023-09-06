@@ -27,6 +27,22 @@ public class PeerId
         }
     }
 
+    public static PublicKey? ExtractPublicKey(byte[] peerId)
+    {
+        Multihash multihash = Multihash.Decode(peerId);
+        if (multihash.Code != HashType.ID)
+        {
+            return null;
+        }
+        PublicKey? pubKey = PublicKey.Parser.ParseFrom(multihash.Digest);
+        if (pubKey is null || pubKey.Type != KeyType.Ed25519 || multihash.Code != HashType.ID)
+        {
+            return null;
+        }
+
+        return pubKey;
+    }
+
     public PeerId(string peerId)
     {
         Bytes = Base58.Bitcoin.Decode(peerId);

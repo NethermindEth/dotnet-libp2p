@@ -20,6 +20,7 @@ internal interface IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
     ConcurrentDictionary<string, DateTime> FanoutLastPublished { get; }
     ICollection<PeerId> ConnectedPeers { get; }
+    Task Heartbeat();
 }
 
 public class PubsubRouter : IRoutingStateContainer
@@ -67,6 +68,7 @@ public class PubsubRouter : IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Fanout => fanout;
     ConcurrentDictionary<string, DateTime> IRoutingStateContainer.FanoutLastPublished => fanoutLastPublished;
     ICollection<PeerId> IRoutingStateContainer.ConnectedPeers => peerState.Keys;
+    Task IRoutingStateContainer.Heartbeat() => Heartbeat();
     #endregion
 
     public PeerId? LocalPeerId { get; private set; }
@@ -97,7 +99,7 @@ public class PubsubRouter : IRoutingStateContainer
         Canceled = cts.Token;
     }
 
-    public PubsubRouter(ILoggerFactory? loggerFactory = null)
+    public PubsubRouter(ILoggerFactory? loggerFactory = default)
     {
         logger = loggerFactory?.CreateLogger<PubsubRouter>();
     }
@@ -163,8 +165,8 @@ public class PubsubRouter : IRoutingStateContainer
         {
             while (!token.IsCancellationRequested)
             {
-                _ = HeartBeat();
                 await Task.Delay(settings.HeartbeatInterval);
+                await Heartbeat();
             }
         }, token);
 
@@ -236,7 +238,7 @@ public class PubsubRouter : IRoutingStateContainer
 
             if (mesh.TryGetValue(topicId, out HashSet<PeerId>? topicMesh) && topicMesh.Contains(peerId))
             {
-                msg.Control.Prune.Add(new ControlPrune { TopicID = topicId });
+                msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
             }
             peerState[peerId].SendRpc?.Invoke(msg);
         }
@@ -264,7 +266,8 @@ public class PubsubRouter : IRoutingStateContainer
             foreach (PeerId peerId in topicMesh.Value)
             {
                 peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                    .Control.Prune.Add(new ControlPrune { TopicID = topicMesh.Key });
+                    .Ensure(r => r.Control.Prune)
+                    .Add(new ControlPrune { TopicID = topicMesh.Key });
             }
         }
 
@@ -274,7 +277,7 @@ public class PubsubRouter : IRoutingStateContainer
         }
     }
 
-    public async Task HeartBeat()
+    public async Task Heartbeat()
     {
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
 
@@ -282,12 +285,13 @@ public class PubsubRouter : IRoutingStateContainer
         {
             if (mesh.Value.Count < settings.LowestDegree)
             {
-                PeerId[] peersToGraft = gPeers[mesh.Key].Where(p => !mesh.Value.Contains(p)).Take(settings.LowestDegree - mesh.Value.Count).ToArray();
+                PeerId[] peersToGraft = gPeers[mesh.Key].Where(p => !mesh.Value.Contains(p)).Take(settings.Degree - mesh.Value.Count).ToArray();
                 foreach (PeerId peerId in peersToGraft)
                 {
                     mesh.Value.Add(peerId);
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                        .Control.Graft.Add(new ControlGraft { TopicID = mesh.Key });
+                        .Ensure(r => r.Control.Graft)
+                        .Add(new ControlGraft { TopicID = mesh.Key });
                 }
             }
             else if (mesh.Value.Count > settings.HighestDegree)
@@ -297,7 +301,8 @@ public class PubsubRouter : IRoutingStateContainer
                 {
                     mesh.Value.Remove(peerId);
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                        .Control.Prune.Add(new ControlPrune { TopicID = mesh.Key });
+                         .Ensure(r => r.Control.Prune)
+                         .Add(new ControlPrune { TopicID = mesh.Key });
                 }
             }
         }
@@ -335,7 +340,7 @@ public class PubsubRouter : IRoutingStateContainer
                 foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(settings.LazyDegree))
                 {
                     peerMessages.GetOrAdd(peer, _ => new Rpc())
-                       .Control.Ihave.Add(ihave);
+                        .Ensure(r => r.Control.Ihave).Add(ihave);
                 }
             }
         }
@@ -543,7 +548,8 @@ public class PubsubRouter : IRoutingStateContainer
                     if (!topicState.ContainsKey(graft.TopicID))
                     {
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                            .Control.Prune.Add(new ControlPrune { TopicID = graft.TopicID });
+                            .Ensure(r => r.Control.Prune)
+                            .Add(new ControlPrune { TopicID = graft.TopicID });
                     }
                     else
                     {
@@ -560,7 +566,8 @@ public class PubsubRouter : IRoutingStateContainer
                     {
                         mesh[prune.TopicID].Remove(peerId);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                            .Control.Prune.Add(new ControlPrune { TopicID = prune.TopicID });
+                            .Ensure(r => r.Control.Prune)
+                            .Add(new ControlPrune { TopicID = prune.TopicID });
                     }
                 }
             }
@@ -583,7 +590,8 @@ public class PubsubRouter : IRoutingStateContainer
                         ciw.MessageIDs.Add(ByteString.CopyFrom(mId.Bytes));
                     }
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                        .Control.Iwant.Add(ciw);
+                        .Ensure(r => r.Control.Iwant)
+                        .Add(ciw);
                 }
             }
 

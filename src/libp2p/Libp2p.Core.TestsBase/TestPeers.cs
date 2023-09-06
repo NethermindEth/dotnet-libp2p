@@ -19,4 +19,9 @@ public class TestPeers
     });
 
     public static PeerId PeerId(int i) => testPeerIds.GetOrAdd(i, i => new PeerId(testPeerAddrs[i].At(Enums.Multiaddr.P2p)!));
+
+    public static PeerId PeerId(Multiaddr addr) => new(addr.At(Enums.Multiaddr.P2p)!);
+
+    public static Identity Identity(Multiaddr addr) => new Identity(Core.PeerId.ExtractPublicKey(PeerId(addr).Bytes));
+
 }

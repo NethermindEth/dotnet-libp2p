@@ -45,7 +45,7 @@ public class Identity
         PublicKey = new PublicKey { Type = keyType, Data = ByteString.CopyFrom(publicKey) };
     }
 
-    private Identity(PublicKey publicKey)
+    public Identity(PublicKey publicKey)
     {
         PublicKey = publicKey;
     }

@@ -14,7 +14,7 @@ public class GossipsubProtocolTests
     public async Task Test_New_messages_are_sent_to_mesh_only()
     {
         PubsubRouter router = new();
-        //var settings = new Settings() { HeartbeatInterval = int.MaxValue };
+        Settings settings = new() { HeartbeatInterval = int.MaxValue };
         IRoutingStateContainer state = router;
         int peerCount = Settings.Default.Degree * 2;
         const string commonTopic = "topic1";
@@ -35,18 +35,17 @@ public class GossipsubProtocolTests
             PeerId peerId = TestPeers.PeerId(index);
 
             discovery.OnAddPeer!(new[] { discoveredPeer });
-            router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, sentRpcs.Add);
-            router.InboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, () => { });
+            router.OutboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, sentRpcs.Add);
+            router.InboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, () => { });
             router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
         }
 
-        router.Publish(commonTopic, Array.Empty<byte>());
+        await router.Heartbeat();
 
         Assert.Multiple(() =>
         {
-            Assert.That(state.GossipsubPeers[commonTopic].Count, Is.EqualTo(peerCount));
-            Assert.That(state.Mesh[commonTopic].Count, Is.EqualTo(Settings.Default.Degree));
-            //Assert.That(sentRpcs.Any(rpc => rpc.Subscriptions.Any(s => s.Subscribe && s.Topicid == commonTopic)), Is.True);
+            Assert.That(state.GossipsubPeers[commonTopic], Has.Count.EqualTo(peerCount));
+            Assert.That(state.Mesh[commonTopic], Has.Count.EqualTo(Settings.Default.Degree));
         });
     }
 }

@@ -16,7 +16,7 @@ public class TestLocalPeer : ILocalPeer
 
     public Task<IRemotePeer> DialAsync(Multiaddr addr, CancellationToken token = default)
     {
-        return Task.FromResult<IRemotePeer>(null);
+        return Task.FromResult<IRemotePeer>(new TestRemotePeer(addr));
     }
 
     public Task<IListener> ListenAsync(Multiaddr addr, CancellationToken token = default)
@@ -27,10 +27,10 @@ public class TestLocalPeer : ILocalPeer
 
 public class TestRemotePeer : IRemotePeer
 {
-    public TestRemotePeer()
+    public TestRemotePeer(Multiaddr addr)
     {
-        Identity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-        Address = $"/p2p/{Identity.PeerId}";
+        Identity = TestPeers.Identity(addr);
+        Address = addr;
     }
 
     public Identity Identity { get; set; }
