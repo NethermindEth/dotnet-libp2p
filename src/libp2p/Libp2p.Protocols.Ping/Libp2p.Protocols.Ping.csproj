@@ -25,4 +25,8 @@
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
 </Project>

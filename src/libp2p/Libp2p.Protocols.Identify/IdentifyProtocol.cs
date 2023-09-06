@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -35,7 +36,7 @@ public class IdentifyProtocol : IProtocol
             Identify.Dto.Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
 
             _logger?.LogInformation("Received peer info: {identify}", identity);
-            context.RemotePeer.Identity = Identity.FromPublicKey(identity.PublicKey.ToByteArray());
+            context.RemotePeer.Identity = new Identity(PublicKey.Parser.ParseFrom(identity.PublicKey));
 
             if (context.RemotePeer.Identity.PublicKey.ToByteString() != identity.PublicKey)
             {

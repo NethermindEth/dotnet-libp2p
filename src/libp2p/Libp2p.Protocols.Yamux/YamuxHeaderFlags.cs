@@ -4,7 +4,7 @@
 namespace Nethermind.Libp2p.Protocols;
 
 [Flags]
-public enum YamuxHeaderFlags : short
+internal enum YamuxHeaderFlags : short
 {
     Syn = 1,
     Ack = 2,

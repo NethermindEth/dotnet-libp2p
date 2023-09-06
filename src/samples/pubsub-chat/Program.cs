@@ -31,7 +31,7 @@ CancellationTokenSource ts = new();
 Random r = new();
 byte[] buf = new byte[32];
 r.NextBytes(buf);
-Identity optionalFixedIdentity = Identity.FromPrivateKey(buf);
+Identity optionalFixedIdentity = new(buf);
 string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{optionalFixedIdentity.PeerId}";
 
 ILocalPeer peer = peerFactory.Create(optionalFixedIdentity, addr);

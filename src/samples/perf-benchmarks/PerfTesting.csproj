@@ -6,7 +6,6 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <RootNamespace>Chat</RootNamespace>
         <EnablePreviewFeatures>true</EnablePreviewFeatures>
     </PropertyGroup>
 

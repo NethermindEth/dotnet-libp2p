@@ -8,41 +8,38 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using BouncyCastleCryptography::Org.BouncyCastle.Security;
+using System.Security.Cryptography;
+using System.Buffers;
 
 namespace Nethermind.Libp2p.Core;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/peer-ids/peer-ids.md
-///     Ed25519 > RSA > Secp256k1,ECDSA
 /// </summary>
 public class Identity
 {
-    public Identity(byte[]? privateKey = null, KeyType keyType = KeyType.Ed25519)
+    public PublicKey PublicKey { get; }
+    public PrivateKey? PrivateKey { get; }
+
+    public Identity(byte[]? privateKey = default, KeyType keyType = KeyType.Ed25519)
+        : this(privateKey is null ? null : new PrivateKey { Data = ByteString.CopyFrom(privateKey), Type = keyType })
     {
-        if (privateKey == null)
+    }
+
+    public Identity(PrivateKey? privateKey)
+    {
+        if (privateKey is null)
         {
-            privateKey = new byte[32];
+            byte[] privateKeyBytes = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
+            Span<byte> privateKeyBytesSpan = privateKeyBytes.AsSpan(0, Ed25519.SecretKeySize);
             SecureRandom rnd = new();
-            Ed25519.GeneratePrivateKey(rnd, privateKey);
-        }
-
-        byte[]? publicKey = null;
-        switch (keyType)
-        {
-            case KeyType.Ed25519:
-                publicKey = new byte[32];
-                Ed25519.GeneratePublicKey(privateKey, 0, publicKey, 0);
-                break;
-
-            case KeyType.Secp256K1:
-                X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
-                BouncyCastleCryptography::Org.BouncyCastle.Math.EC.ECPoint pointQ
-                    = curve.G.Multiply(new BigInteger(1, privateKey));
-                publicKey = pointQ.GetEncoded(true);
-                break;
+            Ed25519.GeneratePrivateKey(rnd, privateKeyBytesSpan);
+            ArrayPool<byte>.Shared.Return(privateKeyBytes, true);
+            privateKey = new PrivateKey { Data = ByteString.CopyFrom(privateKeyBytes), Type = KeyType.Ed25519 };
         }
         PrivateKey = privateKey;
-        PublicKey = new PublicKey { Type = keyType, Data = ByteString.CopyFrom(publicKey) };
+        PublicKey = GetPublicKey(privateKey);
+
     }
 
     public Identity(PublicKey publicKey)
@@ -50,20 +47,51 @@ public class Identity
         PublicKey = publicKey;
     }
 
-    public PublicKey PublicKey { get; }
-    public byte[] PrivateKey { get; }
-
-    public string PeerId => new PeerId(PublicKey).ToString();
-    public byte[] PeerIdBytes => new PeerId(PublicKey).Bytes;
-
-    public static Identity FromPrivateKey(byte[] privateKey)
+    private static PublicKey GetPublicKey(PrivateKey privateKey)
     {
-        return new Identity(privateKey);
+        ByteString publicKeyData;
+        switch (privateKey.Type)
+        {
+            case KeyType.Ed25519:
+                {
+                    byte[] publicKeyBytes = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
+                    Span<byte> publicKeyBytesSpan = publicKeyBytes.AsSpan(0, Ed25519.SecretKeySize);
+                    Ed25519.GeneratePublicKey(privateKey.Data.Span, publicKeyBytesSpan);
+                    publicKeyData = ByteString.CopyFrom(publicKeyBytesSpan);
+                    ArrayPool<byte>.Shared.Return(publicKeyBytes, true);
+                }
+                break;
+
+            case KeyType.Rsa:
+                {
+                    RSA rsa = RSA.Create();
+                    rsa.ImportRSAPrivateKey(privateKey.Data.Span, out int bytesRead);
+                    publicKeyData = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
+                }
+                break;
+
+            case KeyType.Secp256K1:
+                {
+                    X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
+                    BouncyCastleCryptography::Org.BouncyCastle.Math.EC.ECPoint pointQ
+                        = curve.G.Multiply(new BigInteger(1, privateKey.Data.Span));
+                    publicKeyData = ByteString.CopyFrom(pointQ.GetEncoded(true));
+                }
+                break;
+
+            case KeyType.Ecdsa:
+                {
+                    ECDsa rsa = ECDsa.Create();
+                    rsa.ImportECPrivateKey(privateKey.Data.Span, out int _);
+                    publicKeyData = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
+                }
+                break;
+            default:
+                throw new NotImplementedException($"{privateKey.Type} is not supported");
+        }
+
+        return new() { Type = privateKey.Type, Data = publicKeyData };
     }
 
-    public static Identity FromPublicKey(byte[] publicKey)
-    {
-        PublicKey? pubKey = PublicKey.Parser.ParseFrom(publicKey);
-        return new Identity(pubKey);
-    }
+    public PeerId PeerId => new(PublicKey);
 }

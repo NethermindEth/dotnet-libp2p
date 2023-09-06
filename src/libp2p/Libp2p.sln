@@ -33,7 +33,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Noise", "L
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Noise.Tests", "Libp2p.Protocols.Noise.Tests\Libp2p.Protocols.Noise.Tests.csproj", "{6870A003-4BD2-4394-AE09-CE738B383A9A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataTransferBenchmark", "..\samples\data-transfer-benchmark\DataTransferBenchmark.csproj", "{D9A6BF91-6F91-4ACF-8EB2-47EDA9E420D5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PerfBenchmarks", "..\samples\perf-benchmarks\PerfBenchmarks.csproj", "{D9A6BF91-6F91-4ACF-8EB2-47EDA9E420D5}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub", "Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj", "{36B0C419-856F-4EF0-9D0F-69D5FD9B0A15}"
 EndProject
@@ -43,13 +43,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MDns", "Li
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Quic", "Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj", "{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Stack", "Libp2p.Stack\Libp2p.Stack.csproj", "{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p", "Libp2p\Libp2p.csproj", "{AEAA7328-A61E-46F6-BC45-F6F9E9412D7F}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.Enums", "Libp2p.Generators.Enums\Libp2p.Generators.Enums.csproj", "{A5C02C17-4F6E-46A5-9178-CF5EC375455B}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Generators.Protobuf", "Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj", "{AF9943D8-8074-4407-B315-0E32BB9EA64E}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.MultiaddrBasedSelector", "Libp2p.Protocols.MultiaddrBasedSelector\Libp2p.Protocols.MultiaddrBasedSelector.csproj", "{F0598974-E490-47D8-BE83-7099F54D78BF}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Tests", "Libp2p.Protocols.Pubsub.Tests\Libp2p.Protocols.Pubsub.Tests.csproj", "{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}"
 EndProject
@@ -145,18 +143,12 @@ Global
 		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AF9943D8-8074-4407-B315-0E32BB9EA64E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{F0598974-E490-47D8-BE83-7099F54D78BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F0598974-E490-47D8-BE83-7099F54D78BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F0598974-E490-47D8-BE83-7099F54D78BF}.Release|Any CPU.Build.0 = Release|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -176,7 +168,6 @@ Global
 		{AD94EE04-D967-4AAE-B378-1FFB4F28A3B6} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
 		{7F623900-2957-437B-BF19-879639FA6D22} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{F4546A3C-A37C-4E4E-BD8C-BE8A70C2A4A8} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{F0598974-E490-47D8-BE83-7099F54D78BF} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection

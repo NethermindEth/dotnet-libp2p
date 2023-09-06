@@ -14,12 +14,12 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
 {
     public string Id => "/plaintext/2.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory channelFactory,
+    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context, bool isListener)
     {
         Exchange src = new()
         {
-            Id = ByteString.CopyFrom(context.LocalPeer.Identity.PeerIdBytes),
+            Id = ByteString.CopyFrom(context.LocalPeer.Identity.PeerId.Bytes),
             Pubkey = context.LocalPeer.Identity.PublicKey.ToByteString()
         };
         int size = src.CalculateSize();

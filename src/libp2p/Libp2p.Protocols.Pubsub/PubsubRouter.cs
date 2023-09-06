@@ -356,7 +356,7 @@ public class PubsubRouter : IRoutingStateContainer
         ulong seqNo = this.seqNo++;
         byte[] seqNoBytes = new byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey);
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey.Data.ToArray());
 
         foreach (PeerId peerId in fPeers[topicId])
         {
