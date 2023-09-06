@@ -7,15 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 
-TaskScheduler.UnobservedTaskException += (s, e) =>
-{
-
-};
-
 await Task.Delay(1000);
 {
     ServiceProvider serviceProvider = new ServiceCollection()
-        .AddLibp2p(builder => builder.AddAppLayerProtocol<DataTransferBenchmarkProtocol>())
+        .AddLibp2p(builder => builder.AddAppLayerProtocol<PerfProtocol>())
         //.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information).AddSimpleConsole(l=>l.SingleLine = true))
         .BuildServiceProvider();
 
@@ -31,18 +26,18 @@ await Task.Delay(1000);
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
-    await remotePeer.DialAsync<DataTransferBenchmarkProtocol>();
+    await remotePeer.DialAsync<PerfProtocol>();
     TimeSpan elapsed = timeSpent.Elapsed;
     Console.WriteLine("Libp2p");
     Console.WriteLine("Elapsed {0}", timeSpent.Elapsed);
-    Console.WriteLine("Speed {0:0.00} MiB/s", DataTransferBenchmarkProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);
+    Console.WriteLine("Speed {0:0.00} MiB/s", PerfProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);
     await remotePeer.DisconnectAsync();
 }
 await Task.Delay(1000);
 
 {
     IPeerFactory peerFactory = NoStackPeerFactoryBuilder.Create
-        .AddAppLayerProtocol<DataTransferBenchmarkProtocol>()
+        .AddAppLayerProtocol<PerfProtocol>()
         .Build();
 
     ILocalPeer peer = peerFactory.Create();
@@ -53,10 +48,10 @@ await Task.Delay(1000);
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
-    await remotePeer.DialAsync<DataTransferBenchmarkProtocol>();
+    await remotePeer.DialAsync<PerfProtocol>();
     TimeSpan elapsed = timeSpent.Elapsed;
     Console.WriteLine("NoStack");
     Console.WriteLine("Elapsed {0}", timeSpent.Elapsed);
-    Console.WriteLine("Speed {0:0.00} MiB/s", DataTransferBenchmarkProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);
+    Console.WriteLine("Speed {0:0.00} MiB/s", PerfProtocol.TotalLoad / timeSpent.Elapsed.TotalMilliseconds * 1000 / 1024 / 1024);
     await remotePeer.DisconnectAsync();
 }

@@ -35,7 +35,7 @@ if (args.Length > 0 && args[0] == "-d")
 }
 else
 {
-    Identity optionalFixedIdentity = new (Enumerable.Repeat((byte)42, 32).ToArray());
+    Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     IListener listener = await peer.ListenAsync(
