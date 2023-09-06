@@ -69,9 +69,7 @@ public class PeerId
         encodedPeerIdBytes[0] = (byte)Cid.Cidv1;
         encodedPeerIdBytes[1] = (byte)Ipld.Libp2pKey;
         Array.Copy(Bytes, 0, encodedPeerIdBytes, 2, Bytes.Length);
-        string cidV1String = Multibase.Encode(MultibaseEncoding.Base32Lower, encodedPeerIdBytes);
-        ArrayPool<byte>.Shared.Return(encodedPeerIdBytes);
-        return cidV1String;
+        return Multibase.Encode(MultibaseEncoding.Base32Lower, encodedPeerIdBytes);
     }
 
     public static implicit operator PeerId(string peerId)
