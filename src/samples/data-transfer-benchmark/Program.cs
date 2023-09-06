@@ -21,7 +21,7 @@ await Task.Delay(1000);
 
     IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
-    Identity optionalFixedIdentity = Identity.FromPrivateKey(Enumerable.Repeat((byte)42, 32).ToArray());
+    Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}");

@@ -5,6 +5,10 @@ using Nethermind.Libp2p.Core.Dto;
 using Multiformats.Hash;
 using SimpleBase;
 using Google.Protobuf;
+using Multiformats.Base;
+using System.Buffers;
+using Nethermind.Libp2p.Core.Enums;
+using Multihash = Multiformats.Hash.Multihash;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -23,13 +27,33 @@ public class PeerId
         }
         else
         {
-            Bytes = Multihash.Sum(HashType.SHA3_256, serializedPublicKey);
+            Bytes = Multihash.Sum(HashType.SHA2_256, serializedPublicKey);
         }
     }
 
     public PeerId(string peerId)
     {
-        Bytes = Base58.Bitcoin.Decode(peerId);
+        if (peerId.StartsWith("bafz"))
+        {
+            byte[] peerIdBytes = Multibase.Decode(peerId, out MultibaseEncoding encoding);
+            byte cidVersion = peerIdBytes[0];
+            if ((Cid)cidVersion != Cid.Cidv1)
+            {
+                throw new NotImplementedException($"CIDs of version {cidVersion} are not supported");
+            }
+            int offset = 1 * sizeof(byte);
+
+            Ipld multicodec = (Ipld)VarInt.Decode(peerIdBytes.AsSpan(), ref offset);
+            if (multicodec != Ipld.Libp2pKey)
+            {
+                throw new Exception("Invalid encoding of peerId");
+            }
+            Bytes = peerIdBytes[offset..];
+        }
+        else
+        {
+            Bytes = Base58.Bitcoin.Decode(peerId);
+        }
     }
 
     public PeerId(byte[] bytes)
@@ -37,9 +61,17 @@ public class PeerId
         Bytes = bytes;
     }
 
-    public override string ToString()
+    public override string ToString() => Base58.Bitcoin.Encode(Bytes);
+
+    public string ToCidString()
     {
-        return Base58.Bitcoin.Encode(Bytes);
+        byte[] encodedPeerIdBytes = new byte[Bytes.Length + 2];
+        encodedPeerIdBytes[0] = (byte)Cid.Cidv1;
+        encodedPeerIdBytes[1] = (byte)Ipld.Libp2pKey;
+        Array.Copy(Bytes, 0, encodedPeerIdBytes, 2, Bytes.Length);
+        string cidV1String = Multibase.Encode(MultibaseEncoding.Base32Lower, encodedPeerIdBytes);
+        ArrayPool<byte>.Shared.Return(encodedPeerIdBytes);
+        return cidV1String;
     }
 
     public static implicit operator PeerId(string peerId)
@@ -47,6 +79,7 @@ public class PeerId
         return new PeerId(peerId);
     }
 
+    #region Equality
     public override bool Equals(object? obj)
     {
         if (ReferenceEquals(this, obj))
@@ -96,4 +129,5 @@ public class PeerId
     }
 
     public static bool operator !=(PeerId left, PeerId right) => !(left == right);
+    #endregion
 }

@@ -156,7 +156,7 @@ public class IpTcpProtocol : IProtocol
             ipProtocol,
             ipProtocol == Core.Enums.Multiaddr.Ip4 ? localEndpoint.Address.MapToIPv4() : localEndpoint.Address.MapToIPv6(),
             Core.Enums.Multiaddr.Tcp, localEndpoint.Port);
-        context.LocalPeer.Address = context.LocalEndpoint.Append(Core.Enums.Multiaddr.P2p, context.LocalPeer.Identity.PeerId);
+        context.LocalPeer.Address = context.LocalEndpoint.Append(Core.Enums.Multiaddr.P2p, context.LocalPeer.Identity.PeerId.ToString());
 
         IChannel upChannel = channelFactory.SubDial(context);
         //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
