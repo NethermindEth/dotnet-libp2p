@@ -13,37 +13,38 @@
 
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
-As an application developer, you may consider reading [quick start](./docs/quick-start.md).
+As an application developer, you may consider reading [quick start](./docs/README.md).
 As a stack implementer, you may be interested in [more advanced tutorials](./docs/development/README.md).
-**Contributors are welcomed**, kindly check the issues tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+**Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Roadmap
 
-From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms. With high throughput and low memory profile. The modules to be implemented firstly should cover basic P2P application needs.
+From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms, with high throughput and low memory profile.
+See the [milestones](https://github.com/NethermindEth/dotnet-libp2p/milestones).
 
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
 | **Transports**
 | TCP                | tcp                | ✅             |
-| QUIC               | quic               | ⬜ help wanted |
-|                    | quic-v1            | ⬜ help wanted |
+| QUIC               | quic               | 🚧             |
+|                    | quic-v1            | 🚧             |
 | **Protocols**
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
-| mplex?             | /mplex/6.7.0       | ⬜             |
 | yamux              | /yamux/1.0.0       | ✅             |
 | Identify           | /ipfs/id/1.0.0     | ✅             |
-| ping               | /ipfs/ping/1.0.0   | 🚧             |
+| ping               | /ipfs/ping/1.0.0   | ✅             |
 | pubsub             | /floodsub/1.0.0    | ✅             |
-|                    | /meshsub/1.0.0     | 🚧             |
+|                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
 |                    | /meshsub/1.2.0     | ⬜             |
-| Circuit Relay      |                    | ⬜ help wanted |
+| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |
 | **Discovery**
 | mDns               | basic              | ✅             |
-|                    | DNS-SD             | ⬜             |
-| discv5             | 5.1                | ⬜ help wanted |
+|                    | DNS-SD             | 🚧             |
+| [discv5](https://github.com/Pier-Two/Lantern.Discv5) | 5.1 | ⬜ help wanted |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
