@@ -12,6 +12,7 @@ public class PeerFactory : IPeerFactory
     private IProtocol _protocol;
     private IChannelFactory _upChannelFactory;
     private static int CtxId = 0;
+
     public PeerFactory(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
@@ -41,7 +42,7 @@ public class PeerFactory : IPeerFactory
         peer.Address = addr;
         if (!peer.Address.Has(Enums.Multiaddr.P2p))
         {
-            peer.Address = peer.Address.Append(Enums.Multiaddr.P2p, peer.Identity.PeerId);
+            peer.Address = peer.Address.Append(Enums.Multiaddr.P2p, peer.Identity.PeerId.ToString());
         }
 
         Channel chan = new();

@@ -64,7 +64,7 @@ public class NoiseProtocol : IProtocol
             .Concat(ByteString.CopyFrom(clientStatic.PublicKey))
             .ToArray();
         byte[] sig = new byte[64];
-        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey, 0, msg, 0, msg.Length, sig, 0);
+        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
@@ -144,7 +144,7 @@ public class NoiseProtocol : IProtocol
             .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
             .ToArray();
         byte[] sig = new byte[64];
-        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey, 0, msg, 0, msg.Length, sig, 0);
+        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),

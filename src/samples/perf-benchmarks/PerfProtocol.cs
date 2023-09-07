@@ -7,14 +7,16 @@ using Nethermind.Libp2p.Core;
 
 namespace DataTransferBenchmark;
 
-public class DataTransferBenchmarkProtocol : IProtocol
+
+// TODO: Align with perf protocol
+public class PerfProtocol : IProtocol
 {
     private readonly ILogger? _logger;
-    public string Id => "/data-transfer-benchmark/1.0.0";
+    public string Id => "/perf/1.0.0";
 
-    public DataTransferBenchmarkProtocol(ILoggerFactory? loggerFactory = null)
+    public PerfProtocol(ILoggerFactory? loggerFactory = null)
     {
-        _logger = loggerFactory?.CreateLogger<DataTransferBenchmarkProtocol>();
+        _logger = loggerFactory?.CreateLogger<PerfProtocol>();
     }
 
     public const long TotalLoad = 1024L * 1024 * 100;
