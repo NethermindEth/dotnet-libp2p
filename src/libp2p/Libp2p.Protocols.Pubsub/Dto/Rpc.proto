@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-option csharp_namespace = "Nethermind.Libp2p.Protocols.GossipSub.Dto";
+option csharp_namespace = "Nethermind.Libp2p.Protocols.Pubsub.Dto";
 
 message Rpc {
   repeated SubOpts subscriptions = 1;

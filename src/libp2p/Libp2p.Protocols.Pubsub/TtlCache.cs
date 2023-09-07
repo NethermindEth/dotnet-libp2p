@@ -36,6 +36,8 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 
     public bool Contains(TKey key) => items.ContainsKey(key);
 
+    public TItem Get(TKey key) => items.GetValueOrDefault(key).Item;
+
     public void Add(TKey key, TItem item)
     {
         items.TryAdd(key, new CachedItem
@@ -49,4 +51,6 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         isDisposed = true;
     }
+
+    internal IList<TItem> ToList() => items.Values.Select(i => i.Item).ToList();
 }

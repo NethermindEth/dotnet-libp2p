@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
+namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   /// <summary>Holder for reflection information generated from TopicDescriptor.proto</summary>
   public static partial class TopicDescriptorReflection {
@@ -32,13 +32,13 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
             "EggKBE5PTkUQABIHCgNLRVkQARIHCgNXT1QQAhp5CgdFbmNPcHRzEi4KBG1v",
             "ZGUYASABKA4yIC5Ub3BpY0Rlc2NyaXB0b3IuRW5jT3B0cy5FbmNNb2RlEhEK",
             "CWtleUhhc2hlcxgCIAMoDCIrCgdFbmNNb2RlEggKBE5PTkUQABINCglTSEFS",
-            "RURLRVkQARIHCgNXT1QQAkIsqgIpTmV0aGVybWluZC5MaWJwMnAuUHJvdG9j",
-            "b2xzLkdvc3NpcFN1Yi5EdG8="));
+            "RURLRVkQARIHCgNXT1QQAkIpqgImTmV0aGVybWluZC5MaWJwMnAuUHJvdG9j",
+            "b2xzLlB1YnN1Yi5EdG8="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Parser, new[]{ "Name", "Auth", "Enc" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Parser, new[]{ "Mode", "Keys" }, null, new[]{ typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) }, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts), global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Parser, new[]{ "Mode", "KeyHashes" }, null, new[]{ typeof(global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) }, null, null)})
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Parser, new[]{ "Name", "Auth", "Enc" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Parser, new[]{ "Mode", "Keys" }, null, new[]{ typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) }, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Parser, new[]{ "Mode", "KeyHashes" }, null, new[]{ typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) }, null, null)})
           }));
     }
     #endregion
@@ -59,7 +59,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptorReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptorReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -119,14 +119,14 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
     /// <summary>Field number for the "auth" field.</summary>
     public const int AuthFieldNumber = 2;
-    private global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts auth_;
+    private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts auth_;
     /// <summary>
     /// AuthOpts and EncOpts are unused as of Oct 2018, but
     /// are planned to be used in future.
     /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts Auth {
+    public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts Auth {
       get { return auth_; }
       set {
         auth_ = value;
@@ -135,10 +135,10 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
     /// <summary>Field number for the "enc" field.</summary>
     public const int EncFieldNumber = 3;
-    private global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts enc_;
+    private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts enc_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts Enc {
+    public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts Enc {
       get { return enc_; }
       set {
         enc_ = value;
@@ -261,13 +261,13 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
       }
       if (other.auth_ != null) {
         if (auth_ == null) {
-          Auth = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts();
+          Auth = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts();
         }
         Auth.MergeFrom(other.Auth);
       }
       if (other.enc_ != null) {
         if (enc_ == null) {
-          Enc = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts();
+          Enc = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts();
         }
         Enc.MergeFrom(other.Enc);
       }
@@ -292,14 +292,14 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
           }
           case 18: {
             if (auth_ == null) {
-              Auth = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts();
+              Auth = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts();
             }
             input.ReadMessage(Auth);
             break;
           }
           case 26: {
             if (enc_ == null) {
-              Enc = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts();
+              Enc = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts();
             }
             input.ReadMessage(Enc);
             break;
@@ -325,14 +325,14 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
           }
           case 18: {
             if (auth_ == null) {
-              Auth = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts();
+              Auth = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts();
             }
             input.ReadMessage(Auth);
             break;
           }
           case 26: {
             if (enc_ == null) {
-              Enc = new global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts();
+              Enc = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts();
             }
             input.ReadMessage(Enc);
             break;
@@ -362,7 +362,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
         public static pbr::MessageDescriptor Descriptor {
-          get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Descriptor.NestedTypes[0]; }
+          get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Descriptor.NestedTypes[0]; }
         }
 
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -396,12 +396,12 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
         /// <summary>Field number for the "mode" field.</summary>
         public const int ModeFieldNumber = 1;
-        private readonly static global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode ModeDefaultValue = global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode.None;
+        private readonly static global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode ModeDefaultValue = global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode.None;
 
-        private global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode mode_;
+        private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode mode_;
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-        public global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode Mode {
+        public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode Mode {
           get { if ((_hasBits0 & 1) != 0) { return mode_; } else { return ModeDefaultValue; } }
           set {
             _hasBits0 |= 1;
@@ -542,7 +542,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
                 _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
                 break;
               case 8: {
-                Mode = (global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) input.ReadEnum();
+                Mode = (global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) input.ReadEnum();
                 break;
               }
               case 18: {
@@ -565,7 +565,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
                 _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
                 break;
               case 8: {
-                Mode = (global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) input.ReadEnum();
+                Mode = (global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.AuthOpts.Types.AuthMode) input.ReadEnum();
                 break;
               }
               case 18: {
@@ -608,7 +608,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
         public static pbr::MessageDescriptor Descriptor {
-          get { return global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Descriptor.NestedTypes[1]; }
+          get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Descriptor.NestedTypes[1]; }
         }
 
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -642,12 +642,12 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
 
         /// <summary>Field number for the "mode" field.</summary>
         public const int ModeFieldNumber = 1;
-        private readonly static global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode ModeDefaultValue = global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode.None;
+        private readonly static global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode ModeDefaultValue = global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode.None;
 
-        private global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode mode_;
+        private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode mode_;
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-        public global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode Mode {
+        public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode Mode {
           get { if ((_hasBits0 & 1) != 0) { return mode_; } else { return ModeDefaultValue; } }
           set {
             _hasBits0 |= 1;
@@ -788,7 +788,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
                 _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
                 break;
               case 8: {
-                Mode = (global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) input.ReadEnum();
+                Mode = (global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) input.ReadEnum();
                 break;
               }
               case 18: {
@@ -811,7 +811,7 @@ namespace Nethermind.Libp2p.Protocols.GossipSub.Dto {
                 _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
                 break;
               case 8: {
-                Mode = (global::Nethermind.Libp2p.Protocols.GossipSub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) input.ReadEnum();
+                Mode = (global::Nethermind.Libp2p.Protocols.Pubsub.Dto.TopicDescriptor.Types.EncOpts.Types.EncMode) input.ReadEnum();
                 break;
               }
               case 18: {

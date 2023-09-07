@@ -159,6 +159,7 @@ public class IpTcpProtocol : IProtocol
         context.LocalPeer.Address = context.LocalEndpoint.Append(Core.Enums.Multiaddr.P2p, context.LocalPeer.Identity.PeerId.ToString());
 
         IChannel upChannel = channelFactory.SubDial(context);
+        channel.Token.Register(() => upChannel.CloseAsync());
         //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
 
         Task receiveTask = Task.Run(async () =>

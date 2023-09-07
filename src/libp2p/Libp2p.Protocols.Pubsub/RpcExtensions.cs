@@ -3,10 +3,14 @@
 
 extern alias BouncyCastleCryptography;
 using Google.Protobuf;
-using Nethermind.Libp2p.Protocols.GossipSub.Dto;
 using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
+using Multiformats.Hash;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Google.Protobuf.Collections;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -45,15 +49,42 @@ internal static class RpcExtensions
         return rpc;
     }
 
-    public static bool IsValid(this Message message, byte[] pubkey)
+    public static bool VerifySignature(this Message message)
     {
-        string msgStr = Encoding.UTF8.GetString(message.Data.ToByteArray());
+        PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+        if (pubKey is null)
+        {
+            return false;
+        }
+
         Message msgToBeVerified = message.Clone();
         msgToBeVerified.ClearSignature();
 
         byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
           .Concat(msgToBeVerified.ToByteArray())
           .ToArray();
-        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubkey, 0, msgToSign, 0, msgToSign.Length);
+
+        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
+    }
+
+    public static MessageId GetId(this Message message)
+    {
+        return new(message.From.Concat(message.Seqno).ToArray());
+    }
+    public static T Ensure<T>(this Rpc self, Func<Rpc, T> accessor)
+    {
+        switch (accessor)
+        {
+            case Func<Rpc, ControlMessage> _:
+            case Func<Rpc, RepeatedField<ControlPrune>> _:
+            case Func<Rpc, RepeatedField<ControlGraft>> _:
+            case Func<Rpc, RepeatedField<ControlIHave>> _:
+            case Func<Rpc, RepeatedField<ControlIWant>> _:
+                self.Control ??= new ControlMessage();
+                break;
+            default:
+                throw new NotImplementedException($"No {nameof(Ensure)} for {nameof(T)}");
+        }
+        return accessor(self);
     }
 }

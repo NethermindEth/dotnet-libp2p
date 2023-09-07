@@ -5,13 +5,12 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
-using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
 using System.Text.Json;
+using Nethermind.Libp2p.Protocols.Pubsub;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder
-        .WithPlaintextEnforced()
         .AddAppLayerProtocol<ChatProtocol>()
         )
     .AddLogging(builder =>
@@ -41,7 +40,7 @@ PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
 
-_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), ts.Token);
+_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
 
 
 topic.OnMessage += ((byte[] msg) =>

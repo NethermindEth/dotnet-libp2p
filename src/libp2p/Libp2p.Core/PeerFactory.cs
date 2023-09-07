@@ -93,6 +93,8 @@ public class PeerFactory : IPeerFactory
         try
         {
             Channel chan = new();
+            token.Register(() => chan.CloseAsync());
+
             PeerContext context = new()
             {
                 Id = $"ctx-{++CtxId}",

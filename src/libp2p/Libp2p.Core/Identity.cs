@@ -30,12 +30,12 @@ public class Identity
     {
         if (privateKey is null)
         {
-            byte[] privateKeyBytes = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
-            Span<byte> privateKeyBytesSpan = privateKeyBytes.AsSpan(0, Ed25519.SecretKeySize);
+            byte[] rented = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
+            Span<byte> privateKeyBytesSpan = rented.AsSpan(0, Ed25519.SecretKeySize);
             SecureRandom rnd = new();
             Ed25519.GeneratePrivateKey(rnd, privateKeyBytesSpan);
-            ArrayPool<byte>.Shared.Return(privateKeyBytes, true);
-            privateKey = new PrivateKey { Data = ByteString.CopyFrom(privateKeyBytes), Type = KeyType.Ed25519 };
+            ArrayPool<byte>.Shared.Return(rented, true);
+            privateKey = new PrivateKey { Data = ByteString.CopyFrom(privateKeyBytesSpan), Type = KeyType.Ed25519 };
         }
         PrivateKey = privateKey;
         PublicKey = GetPublicKey(privateKey);
@@ -54,11 +54,11 @@ public class Identity
         {
             case KeyType.Ed25519:
                 {
-                    byte[] publicKeyBytes = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
-                    Span<byte> publicKeyBytesSpan = publicKeyBytes.AsSpan(0, Ed25519.SecretKeySize);
+                    byte[] rented = ArrayPool<byte>.Shared.Rent(Ed25519.SecretKeySize);
+                    Span<byte> publicKeyBytesSpan = rented.AsSpan(0, Ed25519.SecretKeySize);
                     Ed25519.GeneratePublicKey(privateKey.Data.Span, publicKeyBytesSpan);
                     publicKeyData = ByteString.CopyFrom(publicKeyBytesSpan);
-                    ArrayPool<byte>.Shared.Return(publicKeyBytes, true);
+                    ArrayPool<byte>.Shared.Return(rented, true);
                 }
                 break;
 

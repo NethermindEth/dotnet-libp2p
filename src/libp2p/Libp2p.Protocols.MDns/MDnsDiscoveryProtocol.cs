@@ -111,6 +111,4 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
                     chars[i] = alphabet[rand.Next(0, alphabet.Length)];
             });
     }
-
-    public Task BanPeer() => Task.CompletedTask;
 }
