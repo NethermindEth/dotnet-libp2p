@@ -24,7 +24,7 @@ public class PingProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        byte[] bytes = ArrayPool<byte>.Shared.Rent(32);
+        byte[] bytes = new byte[32];
         _random.NextBytes(bytes.AsSpan(0, 32));
         _logger?.LogDebug("Ping {remotePeer}", context.RemotePeer.Address);
         await channel.WriteAsync(new ReadOnlySequence<byte>(bytes));
@@ -36,7 +36,6 @@ public class PingProtocol : IProtocol
             _logger?.LogWarning("Wrong response to ping from {from}", context.RemotePeer);
             throw new ApplicationException();
         }
-        ArrayPool<byte>.Shared.Return(bytes);
         _logger?.LogDebug("Pinged");
     }
 

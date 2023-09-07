@@ -146,7 +146,7 @@ public class PeerId
     #endregion
 }
 
-public class MessageId
+public class MessageId : IComparable<MessageId>
 {
     public readonly byte[] Bytes;
     int? hashCode = null;
@@ -155,6 +155,8 @@ public class MessageId
     {
         Bytes = bytes;
     }
+
+    public int CompareTo(MessageId? other) => Equals(other) ? 0 : (other is not null ? GetHashCode().CompareTo(other.GetHashCode()) : 1);
 
     public override bool Equals(object? obj)
     {

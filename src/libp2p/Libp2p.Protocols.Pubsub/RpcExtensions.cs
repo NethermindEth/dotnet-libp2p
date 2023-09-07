@@ -10,6 +10,7 @@ using Multiformats.Hash;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Google.Protobuf.Collections;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -69,5 +70,21 @@ internal static class RpcExtensions
     public static MessageId GetId(this Message message)
     {
         return new(message.From.Concat(message.Seqno).ToArray());
+    }
+    public static T Ensure<T>(this Rpc self, Func<Rpc, T> accessor)
+    {
+        switch (accessor)
+        {
+            case Func<Rpc, ControlMessage> _:
+            case Func<Rpc, RepeatedField<ControlPrune>> _:
+            case Func<Rpc, RepeatedField<ControlGraft>> _:
+            case Func<Rpc, RepeatedField<ControlIHave>> _:
+            case Func<Rpc, RepeatedField<ControlIWant>> _:
+                self.Control ??= new ControlMessage();
+                break;
+            default:
+                throw new NotImplementedException($"No {nameof(Ensure)} for {nameof(T)}");
+        }
+        return accessor(self);
     }
 }

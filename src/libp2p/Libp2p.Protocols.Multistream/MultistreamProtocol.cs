@@ -80,14 +80,7 @@ public class MultistreamProtocol : IProtocol
             return;
         }
         _logger?.LogDebug($"DIAL NEG SUCCEED {string.Join(", ", channelFactory.SubProtocols)} -> {selected}");
-        try
-        {
-            await channelFactory.SubDialAndBind(channel, context, selected);
-        }
-        catch
-        {
-
-        }
+        await channelFactory.SubDialAndBind(channel, context, selected);
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory,

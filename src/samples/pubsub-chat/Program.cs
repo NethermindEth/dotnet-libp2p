@@ -11,7 +11,6 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder
-        .WithPlaintextEnforced()
         .AddAppLayerProtocol<ChatProtocol>()
         )
     .AddLogging(builder =>

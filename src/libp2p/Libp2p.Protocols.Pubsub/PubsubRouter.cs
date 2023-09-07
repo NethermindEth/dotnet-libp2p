@@ -55,8 +55,8 @@ public class PubsubRouter : IRoutingStateContainer
         public PeerId PeerId { get; set; }
 
         private PubsubProtocol Protocol { get; set; }
-        public bool IsGossipSub => Protocol >= PubsubProtocol.Gossipsub;
-        public bool IsFloodSub => Protocol >= PubsubProtocol.Floodsub;
+        public bool IsGossipSub => Protocol == PubsubProtocol.Gossipsub;
+        public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
     }
 
     private static readonly CancellationToken Canceled;
@@ -143,7 +143,8 @@ public class PubsubRouter : IRoutingStateContainer
             _ = Task.Run(async () =>
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
-                    .Select(addr => localPeer.DialAsync(addr)))).Result;
+                    .Where(x => x.ToString().Contains("127.0.0.1"))
+                    .Select(addr => localPeer.DialAsync(addr, cancellations[addr].Token)))).Result;
                 foreach (KeyValuePair<Multiaddr, CancellationTokenSource> c in cancellations)
                 {
                     if (c.Key != firstConnected.Address)
@@ -155,7 +156,7 @@ public class PubsubRouter : IRoutingStateContainer
                 PeerId peerId = firstConnected.Address.At(MultiaddrEnum.P2p)!;
                 if (!peerState.ContainsKey(peerId))
                 {
-                    await firstConnected.DialAsync<FloodsubProtocol>(token);
+                    await firstConnected.DialAsync<GossipsubProtocol>(token);
                 }
             });
             return true;

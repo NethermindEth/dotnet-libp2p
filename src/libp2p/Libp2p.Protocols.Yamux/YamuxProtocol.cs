@@ -62,7 +62,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
         while (!channel.IsClosed)
         {
-            YamuxHeader header = await ReadHeaderAsync(channel);
+            YamuxHeader header = await ReadHeaderAsync(channel, token: channel.Token);
             ReadOnlySequence<byte> data = default;
 
             if (header.StreamID is 0)

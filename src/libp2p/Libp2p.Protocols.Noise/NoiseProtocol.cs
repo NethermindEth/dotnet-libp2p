@@ -86,6 +86,7 @@ public class NoiseProtocol : IProtocol
         Transport? transport = msg2.Transport;
 
         IChannel upChannel = upChannelFactory.SubDial(context);
+        downChannel.OnClose(() => upChannel.CloseAsync());
         // UP -> DOWN
         Task t = Task.Run(async () =>
         {
@@ -115,10 +116,10 @@ public class NoiseProtocol : IProtocol
                     await downChannel.ReadAsync(len);
                 byte[] buffer = new byte[len - 16];
 
-                _logger?.LogInformation("start READ");
+                _logger?.LogTrace("start READ");
 
                 int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
-                _logger?.LogInformation("READ");
+                _logger?.LogTrace("READ");
                 _logger?.LogTrace($"< {len + 2}/(payload {bytesRead}) {Hex.ToHexString(buffer)} {Encoding.UTF8.GetString(buffer).ReplaceLineEndings()}");
                 await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
             }
