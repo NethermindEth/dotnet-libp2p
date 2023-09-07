@@ -143,7 +143,6 @@ public class PubsubRouter : IRoutingStateContainer
             _ = Task.Run(async () =>
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
-                    .Where(x => x.ToString().Contains("127.0.0.1"))
                     .Select(addr => localPeer.DialAsync(addr, cancellations[addr].Token)))).Result;
                 foreach (KeyValuePair<Multiaddr, CancellationTokenSource> c in cancellations)
                 {

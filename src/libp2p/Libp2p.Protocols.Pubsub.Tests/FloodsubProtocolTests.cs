@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -16,9 +17,13 @@ public class FloodsubProtocolTests
         IRoutingStateContainer state = router;
         Multiaddr discoveredPeer = TestPeers.Multiaddr(1);
         PeerId peerId = TestPeers.PeerId(1);
+        Multiaddr localPeerAddr = TestPeers.Multiaddr(2);
         const string commonTopic = "topic1";
 
         ILocalPeer peer = Substitute.For<ILocalPeer>();
+        peer.Address.Returns(localPeerAddr);
+        peer.DialAsync(discoveredPeer, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeer));
+
         TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
         List<Rpc> sentRpcs = new();
@@ -28,7 +33,8 @@ public class FloodsubProtocolTests
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
 
         discovery.OnAddPeer!(new[] { discoveredPeer });
-        await peer.Received().DialAsync(discoveredPeer);
+        await Task.Delay(100);
+        _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());
 
         router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, sentRpcs.Add);
         router.InboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, () => { });
