@@ -21,7 +21,7 @@ As a stack implementer, you may be interested in [more advanced tutorials](./doc
 ## Roadmap
 
 From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms, with high throughput and low memory profile.
-See the [milestones](https://github.com/NethermindEth/dotnet-libp2p/milestones).
+See the [milestones](https://github.com/NethermindEth/dotnet-libp2p/milestones?direction=asc&sort=due_date&state=open).
 
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
