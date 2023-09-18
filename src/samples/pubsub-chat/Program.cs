@@ -35,22 +35,20 @@ string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{optionalFixedIdentity.PeerId}";
 
 ILocalPeer peer = peerFactory.Create(optionalFixedIdentity, addr);
 
-
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
-
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
-
-_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
-
-
-topic.OnMessage += ((byte[] msg) =>
+topic.OnMessage += (byte[] msg) =>
 {
     ChatMessage? chatMessage = JsonSerializer.Deserialize<ChatMessage>(Encoding.UTF8.GetString(msg));
     if (chatMessage is not null)
     {
         Console.WriteLine("{0}: {1}", chatMessage.SenderNick, chatMessage.Message);
     }
-});
+};
+
+_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
+
+
 
 string peerId = peer.Address.At(Nethermind.Libp2p.Core.Enums.Multiaddr.P2p)!;
 

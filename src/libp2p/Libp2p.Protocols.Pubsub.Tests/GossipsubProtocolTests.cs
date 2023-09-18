@@ -6,7 +6,6 @@ using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
 
-
 [TestFixture]
 public class GossipsubProtocolTests
 {

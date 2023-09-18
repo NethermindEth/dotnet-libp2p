@@ -7,7 +7,6 @@ using Nethermind.Libp2p.Core;
 
 namespace DataTransferBenchmark;
 
-
 // TODO: Align with perf protocol
 public class PerfProtocol : IProtocol
 {
@@ -46,7 +45,6 @@ public class PerfProtocol : IProtocol
                 _logger?.LogDebug($"DIAL WRIT {bytesToSend.Length}");
             }
         });
-
 
         long bytesRead = 0;
         while (!downChannel.Token.IsCancellationRequested)

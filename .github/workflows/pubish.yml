@@ -20,10 +20,12 @@ jobs:
       BUILD_CONFIG: Release
       WORKING_DIR: src/libp2p
     steps:
-    
+
       - name: Check out repository
         uses: actions/checkout@v3
-    
+        with:
+          submodules: true
+
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
         with:
@@ -40,7 +42,7 @@ jobs:
             -p:ContinuousIntegrationBuild=true \
             -p:Commit=${{ github.sha }} \
             -p:VersionSuffix=preview.${{ github.run_number }}
-    
+
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         run: |

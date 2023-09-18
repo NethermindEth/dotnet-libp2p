@@ -7,7 +7,6 @@ using Nethermind.Libp2p.Core;
 using System.Buffers;
 using System.Diagnostics;
 
-
 Channel chan = new();
 IChannel revChan = ((Channel)chan).Reverse;
 

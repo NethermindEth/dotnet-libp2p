@@ -57,7 +57,6 @@ public class EnumsGenerator : ISourceGenerator
                 $"namespace Nethermind.Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
         }
 
-
         string? Cap(string? s)
         {
             return string.IsNullOrEmpty(s)

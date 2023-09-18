@@ -43,7 +43,6 @@ public class ChannelFactory : IChannelFactory
             req?.CompletionSource?.SetResult();
         });
 
-
         return chan;
     }
 

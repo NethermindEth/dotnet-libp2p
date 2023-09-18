@@ -30,7 +30,6 @@ public abstract class PubsubProtocol : IProtocol
         string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
-
         CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
         {
             _ = channel.WritePrefixedProtobufAsync(rpc);
