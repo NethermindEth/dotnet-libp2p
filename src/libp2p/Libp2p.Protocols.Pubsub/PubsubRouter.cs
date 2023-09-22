@@ -38,16 +38,23 @@ public class PubsubRouter : IRoutingStateContainer
             Protocol = protocolId switch
             {
                 FloodsubProtocolVersion => PubsubProtocol.Floodsub,
-                _ => PubsubProtocol.Gossipsub,
+                GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
+                GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
+                GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+                _ => throw new ArgumentException(protocolId)
             };
             TokenSource = new CancellationTokenSource();
         }
 
+        [Flags]
         private enum PubsubProtocol
         {
-            Unknown,
-            Floodsub,
-            Gossipsub,
+            Unknown      = 0x00,
+            Floodsub     = 0x01,
+            GossipsubV10 = 0x02,
+            GossipsubV11 = 0x04,
+            GossipsubV12 = 0x08,
+            AGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
         }
 
         public Action<Rpc>? SendRpc { get; internal set; }
@@ -55,8 +62,8 @@ public class PubsubRouter : IRoutingStateContainer
         public PeerId PeerId { get; set; }
 
         private PubsubProtocol Protocol { get; set; }
-        public bool IsGossipSub => Protocol == PubsubProtocol.Gossipsub;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
+        public bool IsGossipSub => (Protocol & PubsubProtocol.AGossipsub) != 0;
     }
 
     private static readonly CancellationToken Canceled;
@@ -80,7 +87,7 @@ public class PubsubRouter : IRoutingStateContainer
     private TtlCache<MessageId, Message> messageCache;
     private TtlCache<MessageId, Message> limboMessageCache;
     private ILocalPeer? localPeer;
-    private ILogger? logger;
+    private readonly ILogger? logger;
 
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> gPeers = new();
@@ -90,7 +97,7 @@ public class PubsubRouter : IRoutingStateContainer
 
     private readonly ConcurrentDictionary<PeerId, PubsubPeer> peerState = new();
     private readonly ConcurrentDictionary<string, Topic> topicState = new();
-    private ulong seqNo = 1;
+    private ulong SeqCounter = 1;
 
     static PubsubRouter()
     {
@@ -107,8 +114,8 @@ public class PubsubRouter : IRoutingStateContainer
     public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
     {
         this.settings = settings ?? Settings.Default;
-        messageCache = new(this.settings.MessageCacheTtl);
-        limboMessageCache = new(this.settings.MessageCacheTtl);
+        messageCache = new(this.settings.MessageCacheTtlMs);
+        limboMessageCache = new(this.settings.MessageCacheTtlMs);
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
@@ -165,7 +172,7 @@ public class PubsubRouter : IRoutingStateContainer
         {
             while (!token.IsCancellationRequested)
             {
-                await Task.Delay(settings.HeartbeatInterval);
+                await Task.Delay(settings.HeartbeatIntervalMs);
                 await Heartbeat();
             }
         }, token);
@@ -309,7 +316,7 @@ public class PubsubRouter : IRoutingStateContainer
 
         foreach (string? fanoutTopic in fanout.Keys.ToArray())
         {
-            if (fanoutLastPublished.GetOrAdd(fanoutTopic, _ => DateTime.Now).AddMilliseconds(settings.FanoutTtl) < DateTime.Now)
+            if (fanoutLastPublished.GetOrAdd(fanoutTopic, _ => DateTime.Now).AddMilliseconds(settings.FanoutTtlMs) < DateTime.Now)
             {
                 fanout.Remove(fanoutTopic, out _);
                 fanoutLastPublished.Remove(fanoutTopic, out _);
@@ -335,7 +342,7 @@ public class PubsubRouter : IRoutingStateContainer
             if (msgsInTopic is not null)
             {
                 ControlIHave ihave = new() { TopicID = topic };
-                ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.GetId().Bytes)));
+                ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(settings.GetMessageId(m).Bytes)));
 
                 foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(settings.LazyDegree))
                 {
@@ -353,7 +360,7 @@ public class PubsubRouter : IRoutingStateContainer
 
     public void Publish(string topicId, byte[] message)
     {
-        ulong seqNo = this.seqNo++;
+        ulong seqNo = Interlocked.Increment(ref SeqCounter);
         byte[] seqNoBytes = new byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey.Data.ToArray());
@@ -487,7 +494,7 @@ public class PubsubRouter : IRoutingStateContainer
         {
             foreach (Message? message in rpc.Publish)
             {
-                MessageId messageId = message.GetId();
+                MessageId messageId = settings.GetMessageId(message);
                 if (limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))
                 {
                     continue;

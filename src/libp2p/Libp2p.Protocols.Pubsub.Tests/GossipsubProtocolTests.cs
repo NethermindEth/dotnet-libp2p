@@ -14,7 +14,7 @@ public class GossipsubProtocolTests
     public async Task Test_New_messages_are_sent_to_mesh_only()
     {
         PubsubRouter router = new();
-        Settings settings = new() { HeartbeatInterval = int.MaxValue };
+        Settings settings = new() { HeartbeatIntervalMs = int.MaxValue };
         IRoutingStateContainer state = router;
         int peerCount = Settings.Default.Degree * 2;
         const string commonTopic = "topic1";
