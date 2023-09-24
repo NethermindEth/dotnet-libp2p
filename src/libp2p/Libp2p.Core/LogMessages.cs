@@ -29,7 +29,7 @@ internal static partial class LogMessages
         long bytes);
 
     [LoggerMessage(
-        Message = "{method} {chan} on protocol {protocols} with sub-protocols {subProtocols}",
+        Message = "{method} {chan} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
     internal static partial void LogAction(
         this ILogger logger,
