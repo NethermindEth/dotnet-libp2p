@@ -29,7 +29,11 @@ public class PubsubRouter : IRoutingStateContainer
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
     public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
-
+    private static readonly Type[] DialingProtocols = new[] {
+        typeof(GossipsubProtocolV11),
+        typeof(GossipsubProtocol),
+        typeof(FloodsubProtocol)
+    };
     class PubsubPeer
     {
         public PubsubPeer(PeerId peerId, string protocolId)
@@ -49,8 +53,8 @@ public class PubsubRouter : IRoutingStateContainer
         [Flags]
         private enum PubsubProtocol
         {
-            Unknown      = 0x00,
-            Floodsub     = 0x01,
+            Unknown = 0x00,
+            Floodsub = 0x01,
             GossipsubV10 = 0x02,
             GossipsubV11 = 0x04,
             GossipsubV12 = 0x08,
@@ -97,6 +101,7 @@ public class PubsubRouter : IRoutingStateContainer
 
     private readonly ConcurrentDictionary<PeerId, PubsubPeer> peerState = new();
     private readonly ConcurrentDictionary<string, Topic> topicState = new();
+
     private ulong SeqCounter = 1;
 
     static PubsubRouter()
@@ -160,9 +165,10 @@ public class PubsubRouter : IRoutingStateContainer
                 }
                 logger?.LogDebug("Dialing {0}", firstConnected.Address);
                 PeerId peerId = firstConnected.Address.At(MultiaddrEnum.P2p)!;
+
                 if (!peerState.ContainsKey(peerId))
                 {
-                    await firstConnected.DialAsync<GossipsubProtocol>(token);
+                    await firstConnected.DialAsync(DialingProtocols);
                 }
             });
             return true;

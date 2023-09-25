@@ -15,7 +15,7 @@ public class GossipsubV11ProtocolTests
     public async Task Test_ExplicitPeers_Setup()
     {
         PubsubRouter router = new();
-        Settings settings = new() { HeartbeatIntervalMs = int.MaxValue,  };
+        Settings settings = new() { HeartbeatIntervalMs = int.MaxValue, };
         IRoutingStateContainer state = router;
         int peerCount = Settings.Default.Degree * 2;
         const string commonTopic = "topic1";

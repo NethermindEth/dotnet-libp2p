@@ -6,12 +6,9 @@ using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactory : PeerFactory
+public class Libp2pPeerFactory(IServiceProvider serviceProvider, IProtocol protocol, IChannelFactory upChannelFactory)
+    : PeerFactory(serviceProvider, protocol, upChannelFactory)
 {
-    public Libp2pPeerFactory(IServiceProvider serviceProvider) : base(serviceProvider)
-    {
-    }
-
     protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
     {
         await peer.DialAsync<IdentifyProtocol>();

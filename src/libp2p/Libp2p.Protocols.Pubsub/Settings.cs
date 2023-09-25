@@ -28,7 +28,7 @@ public class Settings
     /// <summary>
     /// (Optional) the outbound degree for gossip emission, ueqaul to <see cref="Degree"/> by default
     /// </summary>
-    public int LazyDegree { get => lazyDegree ?? Degree;  set => lazyDegree = value;  }
+    public int LazyDegree { get => lazyDegree ?? Degree; set => lazyDegree = value; }
 
     private int? lazyDegree = null;
 

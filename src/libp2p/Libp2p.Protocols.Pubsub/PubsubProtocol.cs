@@ -14,6 +14,7 @@ public abstract class PubsubProtocol : IProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
+    private readonly IProtocol[] justThisProtocol;
 
     public string Id { get; }
 
@@ -22,6 +23,7 @@ public abstract class PubsubProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger(GetType());
         Id = protocolId;
         this.router = router;
+        justThisProtocol = new IProtocol[] { this };
     }
 
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -56,7 +58,7 @@ public abstract class PubsubProtocol : IProtocol
 
         CancellationToken token = router.InboundConnection(peerId, Id, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            context.DialRequests.Add(new ChannelNegotiationRequest(justThisProtocol));
         });
         while (!token.IsCancellationRequested)
         {

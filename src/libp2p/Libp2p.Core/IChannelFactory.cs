@@ -17,21 +17,21 @@ public interface IChannelFactory
 
     IChannel SubDial(IPeerContext context, IProtocol protocol)
     {
-        return SubDial(context, new ChannelRequest { SubProtocol = protocol });
+        return SubDial(context, new ChannelRequest(protocol));
     }
 
     IChannel SubListen(IPeerContext context, IProtocol protocol)
     {
-        return SubListen(context, new ChannelRequest { SubProtocol = protocol });
+        return SubListen(context, new ChannelRequest(protocol));
     }
 
     IChannel SubDialAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
     {
-        return SubDialAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
+        return SubDialAndBind(parentChannel, context, new ChannelRequest(protocol));
     }
 
     IChannel SubListenAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
     {
-        return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
+        return SubListenAndBind(parentChannel, context, new ChannelRequest(protocol));
     }
 }

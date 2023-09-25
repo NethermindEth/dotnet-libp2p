@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Nethermind.Libp2p.Core;
 
+// TODO: Refactor this IProtocol "singleton" implementation
 public static class PeerFactoryBuilderBase
 {
     private static HashSet<IProtocol> protocols = new();
@@ -24,6 +25,11 @@ public static class PeerFactoryBuilderBase
             protocols.Add(existing);
         }
         return existing;
+    }
+
+    internal static IProtocol[] CreateProtocolInstance(IServiceProvider serviceProvider, Type[] protocols)
+    {
+        return protocols.Select(t => ActivatorUtilities.GetServiceOrCreateInstance(serviceProvider, t)).Cast<IProtocol>().ToArray();
     }
 }
 
@@ -64,14 +70,13 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         public ProtocolStack? PrevSwitch { get; private set; }
         public IProtocol Protocol { get; }
         public HashSet<ProtocolStack> TopProtocols { get; } = new();
-        public ChannelFactory UpChannelsFactory { get; }
+        public ChannelFactory? UpChannelsFactory { get; set; }
 
         public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
         {
             this.builder = builder;
             this.serviceProvider = serviceProvider;
             Protocol = protocol;
-            UpChannelsFactory = ActivatorUtilities.GetServiceOrCreateInstance<ChannelFactory>(serviceProvider);
         }
 
         public ProtocolStack AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
@@ -102,10 +107,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             var rootProto = stack.Root ?? stack;
             TopProtocols.Add(rootProto);
 
-            if (PrevSwitch != null)
-            {
-                PrevSwitch.Over(stack);
-            }
+            PrevSwitch?.Over(stack);
 
             rootProto.Root = stack.Root = Root ?? this;
             rootProto.Parent = this;
@@ -145,16 +147,20 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         ProtocolStack? root = transportLayer.Root;
 
-        if (root?.Protocol is null || root.UpChannelsFactory is null)
+        if (root?.Protocol is null)
         {
             throw new ApplicationException("Root protocol is not properly defined");
         }
 
-        static void SetupChannelFactories(ProtocolStack root)
+        void SetupChannelFactories(ProtocolStack root)
         {
-            root.UpChannelsFactory.Setup(root.Protocol,
-             new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
-                     .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
+            root.UpChannelsFactory =
+                ActivatorUtilities.CreateInstance<ChannelFactory>(ServiceProvider,
+                    ServiceProvider,
+                    root.Protocol,
+                    new Dictionary<IProtocol, IChannelFactory?>(root.TopProtocols
+                         .Select(p => new KeyValuePair<IProtocol, IChannelFactory?>(p.Protocol, p.UpChannelsFactory)))
+                );
             foreach (ProtocolStack topProto in root.TopProtocols)
             {
                 if (!root.TopProtocols.Any())
@@ -167,8 +173,10 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         SetupChannelFactories(root);
 
-        TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
-        result.Setup(root?.Protocol!, root!.UpChannelsFactory);
+        TPeerFactory result = ActivatorUtilities.CreateInstance<TPeerFactory>(ServiceProvider,
+            ServiceProvider,
+            root.Protocol,
+            root.UpChannelsFactory!);
         return result;
     }
 

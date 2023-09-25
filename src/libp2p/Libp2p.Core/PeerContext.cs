@@ -12,10 +12,10 @@ public class PeerContext : IPeerContext
     public IPeer RemotePeer { get; set; }
     public Multiaddr RemoteEndpoint { get; set; }
     public Multiaddr LocalEndpoint { get; set; }
-    public BlockingCollection<IChannelRequest> SubDialRequests { get; set; } = new();
+    public BlockingCollection<IChannelNegotiationRequest> DialRequests { get; set; } = new();
 
     public event RemotePeerConnected? OnRemotePeerConnection;
-    public IChannelRequest? SpecificProtocolRequest { get; set; }
+    public IChannelNegotiationRequest? SpecificProtocolRequest { get; set; }
 
     public IPeerContext Fork()
     {

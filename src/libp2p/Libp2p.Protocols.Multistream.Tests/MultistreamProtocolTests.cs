@@ -14,7 +14,7 @@ public class MultistreamProtocolTests
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        peerContext.SpecificProtocolRequest.Returns((IChannelNegotiationRequest?)null);
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
@@ -44,12 +44,12 @@ public class MultistreamProtocolTests
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
-        IChannelRequest channelRequest = Substitute.For<IChannelRequest>();
+        IChannelNegotiationRequest channelRequest = Substitute.For<IChannelNegotiationRequest>();
         peerContext.SpecificProtocolRequest.Returns(channelRequest);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("proto1");
-        channelRequest.SubProtocol.Returns(proto1);
+        IProtocol[] proto1 = Substitute.For<IProtocol[]>();
+        proto1[0].Id.Returns("proto1");
+        channelRequest.Protocols.Returns(proto1);
         IChannel upChannel = new TestChannel();
 
         channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
@@ -65,7 +65,7 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1[0]);
         await downChannel.CloseAsync();
     }
 
@@ -76,7 +76,7 @@ public class MultistreamProtocolTests
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        peerContext.SpecificProtocolRequest.Returns((IChannelNegotiationRequest?)null);
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
@@ -104,7 +104,7 @@ public class MultistreamProtocolTests
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        peerContext.SpecificProtocolRequest.Returns((IChannelNegotiationRequest?)null);
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
@@ -138,7 +138,7 @@ public class MultistreamProtocolTests
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        peerContext.SpecificProtocolRequest.Returns((IChannelNegotiationRequest?)null);
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
