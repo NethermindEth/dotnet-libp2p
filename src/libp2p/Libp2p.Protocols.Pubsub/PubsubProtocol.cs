@@ -32,22 +32,12 @@ public abstract class PubsubProtocol : IProtocol
         string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
-
         CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
         {
             _ = channel.WritePrefixedProtobufAsync(rpc);
         });
-
-        try
-        {
-            await Task.Delay(-1, token);
-        }
-        catch
-        {
-
-        }
+        await Task.Delay(-1, token);
         _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
-
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -96,3 +86,4 @@ public class GossipsubProtocolV12 : PubsubProtocol
     {
     }
 }
+

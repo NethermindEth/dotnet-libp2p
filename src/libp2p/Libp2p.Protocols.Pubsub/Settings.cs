@@ -45,17 +45,17 @@ public class Settings
     /// <summary>
     /// Number of history windows in message cache
     /// </summary>
-    public int McacheLen { get; set; } = 5;
+    public int MessageCacheLen { get; set; } = 5;
 
     /// <summary>
     /// Number of history windows to use when emitting gossip
     /// </summary>
-    public int McacheGossip { get; set; } = 3;
+    public int MessageCacheGossip { get; set; } = 3;
 
     /// <summary>
     /// Expiry time for cache of seen message ids
     /// </summary>
-    public int MessageCacheTtlMs { get; set; } = 2 * 60 * 1000;
+    public int SeenTtlMs { get; set; } = 2 * 60 * 1000;
 
     /// <summary>
     /// Message id generator, uses From and SeqNo contacatenation by default
