@@ -31,7 +31,7 @@ public static class PeerFactoryBuilderBase
     {
         return protocols.Select(t =>
         {
-            IProtocol? existing = protocols.FirstOrDefault(p => Type.Equals(p, t)) as IProtocol;
+            IProtocol? existing = protocolCache.FirstOrDefault(p => p.GetType() == t) as IProtocol;
             if (existing is null)
             {
                 existing = ActivatorUtilities.GetServiceOrCreateInstance(serviceProvider, t) as IProtocol;
