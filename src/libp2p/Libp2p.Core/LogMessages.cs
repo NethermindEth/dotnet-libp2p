@@ -29,30 +29,88 @@ internal static partial class LogMessages
         long bytes);
 
     [LoggerMessage(
-        Message = "{method} {chan} on protocol {protocol} with sub-protocols {subProtocols}",
+        Message = "Dial {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
-    internal static partial void LogAction(
+    internal static partial void DialStarted(
         this ILogger logger,
-        string method,
-        string chan,
+        string channel,
         string protocol,
         IEnumerable<string> subProtocols);
 
     [LoggerMessage(
-        Message = "Create chan {chan}",
+        Message = "Listen {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
-    internal static partial void ChanCreated(
+    internal static partial void ListenStarted(
+        this ILogger logger,
+        string channel,
+        string protocol,
+        IEnumerable<string> subProtocols);
+
+    [LoggerMessage(
+        Message = "Dial and bind {channel} on protocol {protocol} with sub-protocols {subProtocols}",
+        Level = LogLevel.Debug)]
+    internal static partial void DialAndBindStarted(
+        this ILogger logger,
+        string channel,
+        string protocol,
+        IEnumerable<string> subProtocols);
+
+    [LoggerMessage(
+        Message = "Listen and bind {channel} on protocol {protocol} with sub-protocols {subProtocols}",
+        Level = LogLevel.Debug)]
+    internal static partial void ListenAndBindStarted(
+        this ILogger logger,
+        string channel,
+        string protocol,
+        IEnumerable<string> subProtocols);
+
+    [LoggerMessage(
+        Message = "Create channel {chan}",
+        Level = LogLevel.Debug)]
+    internal static partial void ChannelCreated(
         this ILogger logger,
         string chan);
 
     [LoggerMessage(
-        Message = "{method} error {protocol} via {chan}: {errorMessage}",
+        Message = "Dial error {protocol} via {channel}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
-    internal static partial void LogCompletedUnsuccessfully(
+    internal static partial void DialFailed(
         this ILogger logger,
-        string method,
-        string chan,
+        string channel,
+        string protocol,
+        Exception? exception,
+        string errorMessage);
+
+    [LoggerMessage(
+        Message = "Listen error {protocol} via {channel}: {errorMessage}",
+        Level = LogLevel.Error,
+        SkipEnabledCheck = true)]
+    internal static partial void ListenFailed(
+        this ILogger logger,
+        string channel,
+        string protocol,
+        Exception? exception,
+        string errorMessage);
+
+    [LoggerMessage(
+        Message = "Dial and bind error {protocol} via {channel}: {errorMessage}",
+        Level = LogLevel.Error,
+        SkipEnabledCheck = true)]
+    internal static partial void DialAndBindFailed(
+        this ILogger logger,
+        string channel,
+        string protocol,
+        Exception? exception,
+        string errorMessage);
+
+    [LoggerMessage(
+        Message = "Listen and bind error {protocol} via {channel}: {errorMessage}",
+        Level = LogLevel.Error,
+        SkipEnabledCheck = true)]
+    internal static partial void ListenAndBindFailed(
+        this ILogger logger,
+        string channel,
         string protocol,
         Exception? exception,
         string errorMessage);

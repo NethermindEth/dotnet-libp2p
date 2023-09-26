@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core.Extensions;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -24,106 +25,109 @@ public class ChannelFactory : IChannelFactory
     public IChannel SubDial(IPeerContext context, IChannelRequest? req = null)
     {
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
-        Channel chan = CreateChannel(subProtocol);
-        ChannelFactory? sf = _factories[subProtocol] as ChannelFactory;
+        Channel channel = CreateChannel(subProtocol);
+        ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        _logger?.LogAction(nameof(SubDial), chan.Id, subProtocol.Id, sf?.SubProtocols.Select(protocol => protocol.Id) ?? Enumerable.Empty<string>());
+        _logger?.DialStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 
-        _ = subProtocol.DialAsync(chan.Reverse, sf, context).ContinueWith(async t =>
-        {
-            if (!t.IsCompletedSuccessfully)
+        _ = subProtocol.DialAsync(channel.Reverse, channelFactory, context)
+            .ContinueWith(async task =>
             {
-                _logger?.LogCompletedUnsuccessfully(nameof(SubDial), chan.Id, subProtocol.Id, t.Exception, t.Exception?.Message ?? "unknown");
-            }
-            if (!chan.IsClosed)
-            {
-                await chan.CloseAsync(t.Exception is null);
-            }
+                if (!task.IsCompletedSuccessfully)
+                {
+                    _logger?.DialFailed(channel.Id, subProtocol.Id, task.Exception, task.Exception.GetErrorMessage());
+                }
+                if (!channel.IsClosed)
+                {
+                    await channel.CloseAsync(task.Exception is null);
+                }
 
-            req?.CompletionSource?.SetResult();
-        });
+                req?.CompletionSource?.SetResult();
+            });
 
-
-        return chan;
+        return channel;
     }
 
     public IChannel SubListen(IPeerContext context, IChannelRequest? req = null)
     {
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
-        Channel chan = CreateChannel(subProtocol);
-        ChannelFactory? sf = _factories[subProtocol] as ChannelFactory;
+        Channel channel = CreateChannel(subProtocol);
+        ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        _logger?.LogAction(nameof(SubListen), chan.Id, subProtocol.Id, sf?.SubProtocols.Select(s => s.Id) ?? Enumerable.Empty<string>());
+        _logger?.ListenStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 
-        _ = subProtocol.ListenAsync(chan.Reverse, sf, context).ContinueWith(async t =>
-        {
-            if (!t.IsCompletedSuccessfully)
+        _ = subProtocol.ListenAsync(channel.Reverse, channelFactory, context)
+            .ContinueWith(async task =>
             {
-                _logger?.LogCompletedUnsuccessfully(nameof(SubListen), chan.Id, subProtocol.Id, t.Exception, t.Exception?.Message ?? "unknown");
-            }
-            if (!chan.IsClosed)
-            {
-                await chan.CloseAsync();
-            }
+                if (!task.IsCompletedSuccessfully)
+                {
+                    _logger?.ListenFailed(channel.Id, subProtocol.Id, task.Exception, task.Exception.GetErrorMessage());
+                }
+                if (!channel.IsClosed)
+                {
+                    await channel.CloseAsync();
+                }
 
-            req?.CompletionSource?.SetResult();
-        });
+                req?.CompletionSource?.SetResult();
+            });
 
-        return chan;
+        return channel;
     }
 
     public IChannel SubDialAndBind(IChannel parent, IPeerContext context,
         IChannelRequest? req = null)
     {
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
-        Channel chan = CreateChannel(subProtocol);
-        ChannelFactory? sf = _factories[subProtocol] as ChannelFactory;
+        Channel channel = CreateChannel(subProtocol);
+        ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        _logger?.LogAction(nameof(SubDialAndBind), chan.Id, subProtocol.Id, sf?.SubProtocols.Select(s => s.Id) ?? Enumerable.Empty<string>());
+        _logger?.DialAndBindStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 
-        chan.Bind(parent);
-        _ = subProtocol.DialAsync(chan.Reverse, sf, context).ContinueWith(async t =>
-       {
-           if (!t.IsCompletedSuccessfully)
-           {
-               _logger?.LogCompletedUnsuccessfully(nameof(SubDialAndBind), chan.Id, subProtocol.Id, t.Exception, t.Exception?.Message ?? "unknown");
-           }
-           if (!chan.IsClosed)
-           {
-               await chan.CloseAsync();
-           }
+        channel.Bind(parent);
+        _ = subProtocol.DialAsync(channel.Reverse, channelFactory, context)
+            .ContinueWith(async task =>
+            {
+                if (!task.IsCompletedSuccessfully)
+                {
+                    _logger?.DialAndBindFailed(channel.Id, subProtocol.Id, task.Exception, task.Exception.GetErrorMessage());
+                }
+                if (!channel.IsClosed)
+                {
+                    await channel.CloseAsync();
+                }
 
-           req?.CompletionSource?.SetResult();
-       });
+                req?.CompletionSource?.SetResult();
+            });
 
-        return chan;
+        return channel;
     }
 
     public IChannel SubListenAndBind(IChannel parent, IPeerContext context,
         IChannelRequest? req = null)
     {
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
-        Channel chan = CreateChannel(subProtocol);
-        ChannelFactory? sf = _factories[subProtocol] as ChannelFactory;
+        Channel channel = CreateChannel(subProtocol);
+        ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        _logger?.LogAction(nameof(SubListenAndBind), chan.Id, subProtocol.Id, sf?.SubProtocols.Select(s => s.Id) ?? Enumerable.Empty<string>());
+        _logger?.ListenAndBindStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 
-        chan.Bind(parent);
-        _ = subProtocol.ListenAsync(chan.Reverse, _factories[subProtocol], context).ContinueWith(async t =>
-        {
-            if (!t.IsCompletedSuccessfully)
+        channel.Bind(parent);
+        _ = subProtocol.ListenAsync(channel.Reverse, channelFactory, context)
+            .ContinueWith(async task =>
             {
-                _logger?.LogCompletedUnsuccessfully(nameof(SubListenAndBind), chan.Id, subProtocol.Id, t.Exception, t.Exception?.Message ?? "unknown");
-            }
-            if (!chan.IsClosed)
-            {
-                await chan.CloseAsync();
-            }
+                if (!task.IsCompletedSuccessfully)
+                {
+                    _logger?.ListenAndBindFailed(channel.Id, subProtocol.Id, task.Exception, task.Exception.GetErrorMessage());
+                }
+                if (!channel.IsClosed)
+                {
+                    await channel.CloseAsync();
+                }
 
-            req?.CompletionSource?.SetResult();
-        });
+                req?.CompletionSource?.SetResult();
+            });
 
-        return chan;
+        return channel;
     }
 
     public ChannelFactory Setup(IProtocol parent, IDictionary<IProtocol, IChannelFactory> factories)
@@ -135,9 +139,9 @@ public class ChannelFactory : IChannelFactory
 
     private Channel CreateChannel(IProtocol? subProtocol)
     {
-        Channel chan = ActivatorUtilities.CreateInstance<Channel>(_serviceProvider);
-        chan.Id = $"{_parent.Id} <> {subProtocol?.Id}";
-        _logger?.ChanCreated(chan.Id);
-        return chan;
+        Channel channel = ActivatorUtilities.CreateInstance<Channel>(_serviceProvider);
+        channel.Id = $"{_parent.Id} <> {subProtocol?.Id}";
+        _logger?.ChannelCreated(channel.Id);
+        return channel;
     }
 }
