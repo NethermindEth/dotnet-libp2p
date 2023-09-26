@@ -3,9 +3,8 @@
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IChannelRequest
+public interface IChannelNegotiationRequest
 {
-    IProtocol Protocol { get; }
+    IEnumerable<IProtocol> Protocols { get; }
     public TaskCompletionSource? CompletionSource { get; }
 }
-

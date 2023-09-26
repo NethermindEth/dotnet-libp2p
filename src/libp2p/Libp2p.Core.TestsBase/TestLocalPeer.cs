@@ -41,6 +41,11 @@ public class TestRemotePeer : IRemotePeer
         return Task.CompletedTask;
     }
 
+    public Task DialAsync(Type[] protocols, CancellationToken token = default)
+    {
+        return Task.CompletedTask;
+    }
+
     public Task DisconnectAsync()
     {
         return Task.CompletedTask;

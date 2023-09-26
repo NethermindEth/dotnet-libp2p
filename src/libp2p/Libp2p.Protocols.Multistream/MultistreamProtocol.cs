@@ -19,6 +19,7 @@ public class MultistreamProtocol : IProtocol
     {
         _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     }
+
     public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
         IPeerContext context)
     {
@@ -48,29 +49,17 @@ public class MultistreamProtocol : IProtocol
 
         IProtocol? selected = null;
 
-        if (context.SpecificProtocolRequest?.SubProtocol is not null)
+        foreach (IProtocol selector in context.SpecificProtocolRequest?.Protocols ?? channelFactory.SubProtocols)
         {
-            _logger?.LogDebug($"DIAL FOR SPECIFIC PROTOCOL {context.SpecificProtocolRequest.SubProtocol}");
-            if (await DialProtocol(context.SpecificProtocolRequest.SubProtocol) == true)
+            bool? dialResult = await DialProtocol(selector);
+            if (dialResult == true)
             {
-                selected = context.SpecificProtocolRequest.SubProtocol;
+                selected = selector;
+                break;
             }
-            context.SpecificProtocolRequest = null;
-        }
-        else
-        {
-            foreach (IProtocol selector in channelFactory.SubProtocols)
+            else if (dialResult == false)
             {
-                bool? dialResult = await DialProtocol(selector);
-                if (dialResult == true)
-                {
-                    selected = selector;
-                    break;
-                }
-                else if (dialResult == false)
-                {
-                    break;
-                }
+                break;
             }
         }
 

@@ -5,11 +5,18 @@ namespace Nethermind.Libp2p.Core;
 
 public class ChannelRequest : IChannelRequest
 {
-    public IProtocol? SubProtocol { get; init; }
+    public ChannelRequest(IProtocol protocol, TaskCompletionSource? completionSource = default)
+    {
+        Protocol = protocol;
+        CompletionSource = completionSource;
+    }
+
+    public IProtocol Protocol { get; }
+
     public TaskCompletionSource? CompletionSource { get; init; }
 
     public override string ToString()
     {
-        return $"Request for {SubProtocol?.Id ?? "unknown protocol"}";
+        return $"Request for {Protocol.Id}";
     }
 }

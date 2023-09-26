@@ -43,11 +43,11 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            foreach (IChannelNegotiationRequest request in context.DialRequests.GetConsumingEnumerable())
             {
                 int streamId = streamIdCounter;
                 streamIdCounter += 2;
-                _logger?.LogDebug("Trying to dial with protocol {proto} via stream-{streamId}", request.SubProtocol?.Id, streamId);
+                _logger?.LogDebug("Trying to dial with protocols: {proto} via stream-{streamId}", string.Join(", ", request.Protocols.Select(p => p.Id)), streamId);
                 channels[streamId] = new ChannelState { Request = request };
                 await WriteHeaderAsync(channel,
                     new YamuxHeader
@@ -140,7 +140,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
             }
         }
 
-        void ActivateUpchannel(int streamId, IChannelRequest? channelRequest)
+        void ActivateUpchannel(int streamId, IChannelNegotiationRequest? channelRequest)
         {
             if (channels[streamId].Channel is not null)
             {
@@ -221,13 +221,13 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
     private struct ChannelState
     {
-        public ChannelState(IChannel? channel, IChannelRequest? request = default)
+        public ChannelState(IChannel? channel, IChannelNegotiationRequest? request = default)
         {
             Channel = channel;
             Request = request;
         }
 
         public IChannel? Channel { get; set; }
-        public IChannelRequest? Request { get; set; }
+        public IChannelNegotiationRequest? Request { get; set; }
     }
 }

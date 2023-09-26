@@ -35,9 +35,11 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             "DS5Db250cm9sR3JhZnQSHAoFcHJ1bmUYBCADKAsyDS5Db250cm9sUHJ1bmUi",
             "MwoMQ29udHJvbElIYXZlEg8KB3RvcGljSUQYASABKAkSEgoKbWVzc2FnZUlE",
             "cxgCIAMoDCIiCgxDb250cm9sSVdhbnQSEgoKbWVzc2FnZUlEcxgBIAMoDCIf",
-            "CgxDb250cm9sR3JhZnQSDwoHdG9waWNJRBgBIAEoCSIfCgxDb250cm9sUHJ1",
-            "bmUSDwoHdG9waWNJRBgBIAEoCUIpqgImTmV0aGVybWluZC5MaWJwMnAuUHJv",
-            "dG9jb2xzLlB1YnN1Yi5EdG8="));
+            "CgxDb250cm9sR3JhZnQSDwoHdG9waWNJRBgBIAEoCSJKCgxDb250cm9sUHJ1",
+            "bmUSDwoHdG9waWNJRBgBIAEoCRIYCgVwZWVycxgCIAMoCzIJLlBlZXJJbmZv",
+            "Eg8KB2JhY2tvZmYYAyABKAQiNAoIUGVlckluZm8SDgoGcGVlcklEGAEgASgM",
+            "EhgKEHNpZ25lZFBlZXJSZWNvcmQYAiABKAxCKaoCJk5ldGhlcm1pbmQuTGli",
+            "cDJwLlByb3RvY29scy5QdWJzdWIuRHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
@@ -47,7 +49,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave.Parser, new[]{ "TopicID", "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft.Parser, new[]{ "TopicID" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser, new[]{ "TopicID" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser, new[]{ "TopicID", "Peers", "Backoff" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo.Parser, new[]{ "PeerID", "SignedPeerRecord" }, null, null, null, null)
           }));
     }
     #endregion
@@ -1900,6 +1903,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
   {
     private static readonly pb::MessageParser<ControlPrune> _parser = new pb::MessageParser<ControlPrune>(() => new ControlPrune());
     private pb::UnknownFieldSet _unknownFields;
+    private int _hasBits0;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pb::MessageParser<ControlPrune> Parser { get { return _parser; } }
@@ -1927,7 +1931,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public ControlPrune(ControlPrune other) : this() {
+      _hasBits0 = other._hasBits0;
       topicID_ = other.topicID_;
+      peers_ = other.peers_.Clone();
+      backoff_ = other.backoff_;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -1963,6 +1970,50 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       topicID_ = null;
     }
 
+    /// <summary>Field number for the "peers" field.</summary>
+    public const int PeersFieldNumber = 2;
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo> _repeated_peers_codec
+        = pb::FieldCodec.ForMessage(18, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo> peers_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo>();
+    /// <summary>
+    /// gossipsub v1.1 PX
+    /// </summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo> Peers {
+      get { return peers_; }
+    }
+
+    /// <summary>Field number for the "backoff" field.</summary>
+    public const int BackoffFieldNumber = 3;
+    private readonly static ulong BackoffDefaultValue = 0UL;
+
+    private ulong backoff_;
+    /// <summary>
+    /// gossipsub v1.1 backoff time (in seconds)
+    /// </summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ulong Backoff {
+      get { if ((_hasBits0 & 1) != 0) { return backoff_; } else { return BackoffDefaultValue; } }
+      set {
+        _hasBits0 |= 1;
+        backoff_ = value;
+      }
+    }
+    /// <summary>Gets whether the "backoff" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasBackoff {
+      get { return (_hasBits0 & 1) != 0; }
+    }
+    /// <summary>Clears the value of the "backoff" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearBackoff() {
+      _hasBits0 &= ~1;
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -1979,6 +2030,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
         return true;
       }
       if (TopicID != other.TopicID) return false;
+      if(!peers_.Equals(other.peers_)) return false;
+      if (Backoff != other.Backoff) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -1987,6 +2040,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     public override int GetHashCode() {
       int hash = 1;
       if (HasTopicID) hash ^= TopicID.GetHashCode();
+      hash ^= peers_.GetHashCode();
+      if (HasBackoff) hash ^= Backoff.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -2009,6 +2064,11 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
         output.WriteRawTag(10);
         output.WriteString(TopicID);
       }
+      peers_.WriteTo(output, _repeated_peers_codec);
+      if (HasBackoff) {
+        output.WriteRawTag(24);
+        output.WriteUInt64(Backoff);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -2023,6 +2083,11 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
         output.WriteRawTag(10);
         output.WriteString(TopicID);
       }
+      peers_.WriteTo(ref output, _repeated_peers_codec);
+      if (HasBackoff) {
+        output.WriteRawTag(24);
+        output.WriteUInt64(Backoff);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -2035,6 +2100,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       int size = 0;
       if (HasTopicID) {
         size += 1 + pb::CodedOutputStream.ComputeStringSize(TopicID);
+      }
+      size += peers_.CalculateSize(_repeated_peers_codec);
+      if (HasBackoff) {
+        size += 1 + pb::CodedOutputStream.ComputeUInt64Size(Backoff);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -2050,6 +2119,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       }
       if (other.HasTopicID) {
         TopicID = other.TopicID;
+      }
+      peers_.Add(other.peers_);
+      if (other.HasBackoff) {
+        Backoff = other.Backoff;
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -2070,6 +2143,14 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             TopicID = input.ReadString();
             break;
           }
+          case 18: {
+            peers_.AddEntriesFrom(input, _repeated_peers_codec);
+            break;
+          }
+          case 24: {
+            Backoff = input.ReadUInt64();
+            break;
+          }
         }
       }
     #endif
@@ -2087,6 +2168,268 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             break;
           case 10: {
             TopicID = input.ReadString();
+            break;
+          }
+          case 18: {
+            peers_.AddEntriesFrom(ref input, _repeated_peers_codec);
+            break;
+          }
+          case 24: {
+            Backoff = input.ReadUInt64();
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  public sealed partial class PeerInfo : pb::IMessage<PeerInfo>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<PeerInfo> _parser = new pb::MessageParser<PeerInfo>(() => new PeerInfo());
+    private pb::UnknownFieldSet _unknownFields;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<PeerInfo> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[7]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PeerInfo() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PeerInfo(PeerInfo other) : this() {
+      peerID_ = other.peerID_;
+      signedPeerRecord_ = other.signedPeerRecord_;
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PeerInfo Clone() {
+      return new PeerInfo(this);
+    }
+
+    /// <summary>Field number for the "peerID" field.</summary>
+    public const int PeerIDFieldNumber = 1;
+    private readonly static pb::ByteString PeerIDDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString peerID_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString PeerID {
+      get { return peerID_ ?? PeerIDDefaultValue; }
+      set {
+        peerID_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "peerID" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasPeerID {
+      get { return peerID_ != null; }
+    }
+    /// <summary>Clears the value of the "peerID" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearPeerID() {
+      peerID_ = null;
+    }
+
+    /// <summary>Field number for the "signedPeerRecord" field.</summary>
+    public const int SignedPeerRecordFieldNumber = 2;
+    private readonly static pb::ByteString SignedPeerRecordDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString signedPeerRecord_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString SignedPeerRecord {
+      get { return signedPeerRecord_ ?? SignedPeerRecordDefaultValue; }
+      set {
+        signedPeerRecord_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "signedPeerRecord" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasSignedPeerRecord {
+      get { return signedPeerRecord_ != null; }
+    }
+    /// <summary>Clears the value of the "signedPeerRecord" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearSignedPeerRecord() {
+      signedPeerRecord_ = null;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as PeerInfo);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(PeerInfo other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if (PeerID != other.PeerID) return false;
+      if (SignedPeerRecord != other.SignedPeerRecord) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      if (HasPeerID) hash ^= PeerID.GetHashCode();
+      if (HasSignedPeerRecord) hash ^= SignedPeerRecord.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      if (HasPeerID) {
+        output.WriteRawTag(10);
+        output.WriteBytes(PeerID);
+      }
+      if (HasSignedPeerRecord) {
+        output.WriteRawTag(18);
+        output.WriteBytes(SignedPeerRecord);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      if (HasPeerID) {
+        output.WriteRawTag(10);
+        output.WriteBytes(PeerID);
+      }
+      if (HasSignedPeerRecord) {
+        output.WriteRawTag(18);
+        output.WriteBytes(SignedPeerRecord);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      if (HasPeerID) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(PeerID);
+      }
+      if (HasSignedPeerRecord) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(SignedPeerRecord);
+      }
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(PeerInfo other) {
+      if (other == null) {
+        return;
+      }
+      if (other.HasPeerID) {
+        PeerID = other.PeerID;
+      }
+      if (other.HasSignedPeerRecord) {
+        SignedPeerRecord = other.SignedPeerRecord;
+      }
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+        switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 10: {
+            PeerID = input.ReadBytes();
+            break;
+          }
+          case 18: {
+            SignedPeerRecord = input.ReadBytes();
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+        switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 10: {
+            PeerID = input.ReadBytes();
+            break;
+          }
+          case 18: {
+            SignedPeerRecord = input.ReadBytes();
             break;
           }
         }

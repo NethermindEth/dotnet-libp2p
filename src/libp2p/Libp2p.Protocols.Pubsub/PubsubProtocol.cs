@@ -14,6 +14,7 @@ public abstract class PubsubProtocol : IProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
+    private readonly IProtocol[] justThisProtocol;
 
     public string Id { get; }
 
@@ -22,6 +23,7 @@ public abstract class PubsubProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger(GetType());
         Id = protocolId;
         this.router = router;
+        justThisProtocol = new IProtocol[] { this };
     }
 
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -30,22 +32,12 @@ public abstract class PubsubProtocol : IProtocol
         string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
-
         CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
         {
             _ = channel.WritePrefixedProtobufAsync(rpc);
         });
-
-        try
-        {
-            await Task.Delay(-1, token);
-        }
-        catch
-        {
-
-        }
+        await Task.Delay(-1, token);
         _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
-
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -56,7 +48,7 @@ public abstract class PubsubProtocol : IProtocol
 
         CancellationToken token = router.InboundConnection(peerId, Id, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            context.DialRequests.Add(new ChannelNegotiationRequest(justThisProtocol));
         });
         while (!token.IsCancellationRequested)
         {
@@ -94,3 +86,4 @@ public class GossipsubProtocolV12 : PubsubProtocol
     {
     }
 }
+

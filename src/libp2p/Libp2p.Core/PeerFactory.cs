@@ -9,32 +9,21 @@ public class PeerFactory : IPeerFactory
 {
     private readonly IServiceProvider _serviceProvider;
 
-    private IProtocol _protocol;
-    private IChannelFactory _upChannelFactory;
+    private readonly IProtocol _protocol;
+    private readonly IChannelFactory _upChannelFactory;
     private static int CtxId = 0;
 
-    public PeerFactory(IServiceProvider serviceProvider)
+    public PeerFactory(IServiceProvider serviceProvider, IProtocol protocol, IChannelFactory upChannelFactory)
     {
         _serviceProvider = serviceProvider;
+        _protocol = protocol;
+        _upChannelFactory = upChannelFactory;
     }
 
     public virtual ILocalPeer Create(Identity? identity = default, Multiaddr? localAddr = default)
     {
         identity ??= new Identity();
         return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/127.0.0.1/tcp/0/p2p/{identity.PeerId}" };
-    }
-
-    /// <summary>
-    /// PeerFactory interface ctor
-    /// </summary>
-    /// <param name="upChannelFactory"></param>
-    /// <param name="appFactory"></param>
-    /// <param name="protocol"></param>
-    /// <param name="appLayerProtocols"></param>
-    public void Setup(IProtocol protocol, IChannelFactory upChannelFactory)
-    {
-        _protocol = protocol;
-        _upChannelFactory = upChannelFactory;
     }
 
     private Task<IListener> ListenAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
@@ -83,8 +72,17 @@ public class PeerFactory : IPeerFactory
     private Task DialAsync<TProtocol>(IPeerContext peerContext, CancellationToken token) where TProtocol : IProtocol
     {
         TaskCompletionSource cts = new(token);
-        peerContext.SubDialRequests.Add(new ChannelRequest
-        { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
+        peerContext.DialRequests.Add(new ChannelNegotiationRequest(
+            PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            cts), token);
+        return cts.Task;
+    }
+
+    private Task DialAsync(Type[] protocols, IPeerContext peerContext, CancellationToken token)
+    {
+        TaskCompletionSource cts = new(token);
+        peerContext.DialRequests.Add(new ChannelNegotiationRequest(
+            PeerFactoryBuilderBase.CreateProtocolInstance(_serviceProvider, protocols), cts), token);
         return cts.Task;
     }
 
@@ -200,6 +198,11 @@ public class PeerFactory : IPeerFactory
         public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
         {
             return _factory.DialAsync<TProtocol>(peerContext, token);
+        }
+
+        public Task DialAsync(Type[] protocols, CancellationToken token = default)
+        {
+            return _factory.DialAsync(protocols, peerContext, token);
         }
 
         public Task DisconnectAsync()
