@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -21,7 +22,7 @@ public class MultiaddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null
                 channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUIC is not supported") :
                 channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("tcp")) ?? throw new ApplicationException("TCP is not supported");
 
-        _logger?.LogDebug("{protocol} has been picked to {action}", protocol.Id, isListener ? "listen" : "dial");
+        _logger?.LogPickedProtocol(protocol.Id, isListener ? "listen" : "dial");
 
         await (isListener
             ? channelFactory.SubListen(context, protocol)
