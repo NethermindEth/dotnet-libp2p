@@ -1,4 +1,4 @@
-extern alias BouncyCastleCryptography;
+
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
@@ -113,7 +113,6 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             return stack;
         }
 
-
         public ProtocolStack Or(ProtocolStack stack)
         {
             if (Parent is null)
@@ -129,7 +128,6 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             return $"{Protocol.Id}({TopProtocols.Count}): {string.Join(" or ", TopProtocols.Select(p => p.Protocol.Id))}";
         }
     }
-
 
     protected abstract ProtocolStack BuildStack();
 

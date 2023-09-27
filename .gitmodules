@@ -1,3 +1,6 @@
 [submodule "src/multicodec"]
 	path = src/multicodec
 	url = https://github.com/multiformats/multicodec.git
+[submodule "src/cs-multihash"]
+	path = src/cs-multihash
+	url = https://github.com/flcl42/cs-multihash.git

@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-extern alias BouncyCastleCryptography;
-using BouncyCastleCryptography::Org.BouncyCastle.Asn1.X9;
-using BouncyCastleCryptography::Org.BouncyCastle.Math;
+using Org.BouncyCastle.Asn1.X9;
+using Org.BouncyCastle.Math;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
-using BouncyCastleCryptography::Org.BouncyCastle.Math.EC.Rfc8032;
-using BouncyCastleCryptography::Org.BouncyCastle.Security;
+using Org.BouncyCastle.Math.EC.Rfc8032;
+using Org.BouncyCastle.Security;
 using System.Security.Cryptography;
 using System.Buffers;
+using Org.BouncyCastle.Crypto.Parameters;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -73,7 +73,7 @@ public class Identity
             case KeyType.Secp256K1:
                 {
                     X9ECParameters curve = ECNamedCurveTable.GetByName("secp256k1");
-                    BouncyCastleCryptography::Org.BouncyCastle.Math.EC.ECPoint pointQ
+                    Org.BouncyCastle.Math.EC.ECPoint pointQ
                         = curve.G.Multiply(new BigInteger(1, privateKey.Data.Span));
                     publicKeyData = ByteString.CopyFrom(pointQ.GetEncoded(true));
                 }

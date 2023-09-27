@@ -75,7 +75,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
                     .SelectMany(x => x).Select(x => new Core.Multiaddr(x.Replace("dnsaddr=", ""))).ToArray();
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
-                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.At(Core.Enums.Multiaddr.P2p) != Enumerable.First<Core.Multiaddr>(records).At(Core.Enums.Multiaddr.P2p))
+                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.At(Core.Enums.Multiaddr.P2p) != Enumerable.First(records).At(Core.Enums.Multiaddr.P2p))
                 {
                     List<string> peerAddresses = new();
                     foreach (Core.Multiaddr peer in records)

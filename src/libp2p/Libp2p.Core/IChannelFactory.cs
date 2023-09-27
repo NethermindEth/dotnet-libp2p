@@ -14,7 +14,6 @@ public interface IChannelFactory
 
     IChannel SubListenAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
 
-
     IChannel SubDial(IPeerContext context, IProtocol protocol)
     {
         return SubDial(context, new ChannelRequest { SubProtocol = protocol });

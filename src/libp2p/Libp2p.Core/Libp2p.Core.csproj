@@ -19,12 +19,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\cs-multihash\src\Multiformats.Hash\Multiformats.Hash.csproj" />
     <ProjectReference Include="..\Libp2p.Generators.Enums\Libp2p.Generators.Enums.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="BouncyCastle.Cryptography" Aliases="BouncyCastleCryptography" />
+    <PackageReference Include="BouncyCastle.Cryptography" />
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
@@ -33,7 +34,6 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Multiformats.Hash" />
     <PackageReference Include="SimpleBase" />
   </ItemGroup>
 

@@ -53,6 +53,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Tes
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Ping", "Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj", "{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Hash", "..\cs-multihash\src\Multiformats.Hash\Multiformats.Hash.csproj", "{064158B8-C0A0-4CE5-8D6A-77FE657788FE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -151,6 +153,10 @@ Global
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

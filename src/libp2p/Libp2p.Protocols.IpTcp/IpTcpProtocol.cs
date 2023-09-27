@@ -26,7 +26,7 @@ public class IpTcpProtocol : IProtocol
         _logger?.LogInformation("ListenAsync({contextId})", context.Id);
 
         Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
-        Core.Multiaddr addr = context.LocalPeer.Address;
+        Multiaddr addr = context.LocalPeer.Address;
         Core.Enums.Multiaddr ipProtocol = addr.Has(Core.Enums.Multiaddr.Ip4) ? Core.Enums.Multiaddr.Ip4 : Core.Enums.Multiaddr.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(Core.Enums.Multiaddr.Tcp)!);
@@ -73,7 +73,7 @@ public class IpTcpProtocol : IProtocol
                     .Replace(
                         Core.Enums.Multiaddr.Tcp,
                         remoteIpEndpoint.Port.ToString());
-                clientContext.RemotePeer.Address = new Core.Multiaddr()
+                clientContext.RemotePeer.Address = new Multiaddr()
                     .Append(remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
                         ? Core.Enums.Multiaddr.Ip4
                         : Core.Enums.Multiaddr.Ip6, remoteIpEndpoint.Address.ToString())
@@ -130,7 +130,7 @@ public class IpTcpProtocol : IProtocol
 
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        Core.Multiaddr addr = context.RemotePeer.Address;
+        Multiaddr addr = context.RemotePeer.Address;
         Core.Enums.Multiaddr ipProtocol = addr.Has(Core.Enums.Multiaddr.Ip4) ? Core.Enums.Multiaddr.Ip4 : Core.Enums.Multiaddr.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(Core.Enums.Multiaddr.Tcp)!);

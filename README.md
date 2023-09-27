@@ -18,6 +18,17 @@ As a stack implementer, you may be interested in [more advanced tutorials](./doc
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+## Building the solution
+
+The solution depends on external repositories.
+
+```sh
+git clone https://github.com/NethermindEth/dotnet-libp2p.git --recursive
+cd ./src/libp2p/
+dotnet build
+dotnet test
+```
+
 ## Roadmap
 
 From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms, with high throughput and low memory profile.
