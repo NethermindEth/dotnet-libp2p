@@ -107,7 +107,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
         return string.Create(length, Random.Shared,
             (chars, rand) =>
             {
-                for (var i = 0; i < chars.Length; i++)
+                for (int i = 0; i < chars.Length; i++)
                     chars[i] = alphabet[rand.Next(0, alphabet.Length)];
             });
     }

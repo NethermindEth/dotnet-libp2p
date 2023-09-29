@@ -134,6 +134,7 @@ public class PubsubRouter : IRoutingStateContainer
         ObservableCollection<Multiaddr> col = new();
         discoveryProtocol.OnAddPeer = (addrs) =>
         {
+            //addrs = addrs.Where(x => x.ToString().Contains("127.0.0.1")).ToArray();
             Dictionary<Multiaddr, CancellationTokenSource> cancellations = new();
             foreach (Multiaddr addr in addrs)
             {
@@ -356,7 +357,7 @@ public class PubsubRouter : IRoutingStateContainer
         ulong seqNo = this.seqNo++;
         byte[] seqNoBytes = new byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity.PrivateKey.Data.ToArray());
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity);
 
         foreach (PeerId peerId in fPeers[topicId])
         {

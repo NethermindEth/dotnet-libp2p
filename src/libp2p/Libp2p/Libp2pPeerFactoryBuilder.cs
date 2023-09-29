@@ -33,15 +33,12 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             .Over<MultistreamProtocol>()
             .Over(tcpEncryptionStack)
             .Over<MultistreamProtocol>()
-            .Over<YamuxProtocol>()
-            .Over<MultistreamProtocol>();
-
-        ProtocolStack quicStack =
-            Over<QuicProtocol>();
+            .Over<YamuxProtocol>();
 
         return
             Over<MultiaddrBasedSelectorProtocol>()
-            .Over(quicStack).Or(tcpStack)
+            .Over<QuicProtocol>().Or(tcpStack)
+            .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV12>()
             //.AddAppLayerProtocol<GossipsubProtocolV11>()

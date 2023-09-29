@@ -39,7 +39,7 @@ else
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     IListener listener = await peer.ListenAsync(
-        $"/ip4/0.0.0.0/tcp/{(args.Length > 0 && args[0] == "-sp" ? args[1] : "0")}/p2p/{peer.Identity.PeerId}",
+        $"/ip4/0.0.0.0/udp/{(args.Length > 0 && args[0] == "-sp" ? args[1] : "0")}/quic-v1/p2p/{peer.Identity.PeerId}",
         ts.Token);
     logger.LogInformation($"Listener started at {listener.Address}");
     listener.OnConnection += async remotePeer => logger.LogInformation($"A peer connected {remotePeer.Address}");

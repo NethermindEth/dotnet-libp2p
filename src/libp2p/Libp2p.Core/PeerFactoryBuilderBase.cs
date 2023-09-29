@@ -99,7 +99,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         public ProtocolStack Over(ProtocolStack stack)
         {
-            var rootProto = stack.Root ?? stack;
+            PeerFactoryBuilderBase<TBuilder, TPeerFactory>.ProtocolStack rootProto = stack.Root ?? stack;
             TopProtocols.Add(rootProto);
 
             if (PrevSwitch != null)

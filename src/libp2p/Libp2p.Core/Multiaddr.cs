@@ -47,8 +47,8 @@ public struct Multiaddr
         return string.Join("", _segments
             .Select(s =>
                 s.Parameter is null
-                    ? new object[] { $"/{s.Type.ToString().ToLower()}" }
-                    : new object[] { $"/{s.Type.ToString().ToLower()}", $"/{s.Parameter}" })
+                    ? new object[] { $"/{ToString(s.Type)}" }
+                    : new object[] { $"/{ToString(s.Type)}", $"/{s.Parameter}" })
             .SelectMany(s => s));
     }
 
@@ -59,7 +59,7 @@ public struct Multiaddr
         {
             if (segments[i] is not Enums.Multiaddr addr)
             {
-                throw new ArgumentException($"{segments[i]} is expceted to be a multiaddress segment id");
+                throw new ArgumentException($"{segments[i]} is expected to be a multiaddress segment id");
             }
 
             if (ToProto(addr).isParametrized)
@@ -149,6 +149,8 @@ public struct Multiaddr
             "udp" => ToProto(Enums.Multiaddr.Udp),
             "p2p" => ToProto(Enums.Multiaddr.P2p),
             "ws" => ToProto(Enums.Multiaddr.Ws),
+            "quic" => ToProto(Enums.Multiaddr.Quic),
+            "quic-v1" => ToProto(Enums.Multiaddr.QuicV1),
             _ => ToProto(Enums.Multiaddr.Unknown)
         };
     }
@@ -157,9 +159,20 @@ public struct Multiaddr
     {
         return val switch
         {
+            Enums.Multiaddr.Quic => (val, false),
+            Enums.Multiaddr.QuicV1 => (val, false),
             Enums.Multiaddr.Ws => (val, false),
             Enums.Multiaddr.Unknown => (val, false),
             _ => (val, true)
+        };
+    }
+
+    private static string ToString(Enums.Multiaddr type)
+    {
+        return type switch
+        {
+            Enums.Multiaddr.QuicV1 => "quic-v1",
+            _ => type.ToString().ToLower(),
         };
     }
 

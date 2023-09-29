@@ -3,297 +3,244 @@
 
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
+using System.Buffers;
+using System.Net.Sockets;
+using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
+using System.Net;
+using System.Net.Quic;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using Nethermind.Libp2p.Protocols.Quic;
+using System.Security.Cryptography;
 
 namespace Nethermind.Libp2p.Protocols;
 
-// TODO: Rewrite with SocketAsyncEventArgs
+#pragma warning disable CA1416 // Do not inform about platform compatibility
+#pragma warning disable CA2252 // EnablePreviewFeatures is set in the project, but build still fails
 public class QuicProtocol : IProtocol
 {
     private readonly ILogger? _logger;
+    private readonly ECDsa _sessionKey;
 
     public QuicProtocol(ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<QuicProtocol>();
+        _sessionKey = ECDsa.Create();
     }
+
+    private static readonly List<SslApplicationProtocol> protocols = new()
+    {
+        new SslApplicationProtocol("libp2p"),
+        // SslApplicationProtocol.Http3, // webtransport
+    };
 
     public string Id => "quic";
 
-    public Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
-        throw new NotImplementedException();
-        //MultiAddr addr = context.LocalPeer.Address;
-        //Multiaddr ipProtocol = addr.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6;
-        //IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        //int tcpPort = int.Parse(addr.At(Multiaddr.Udp)!);
+        if (channelFactory is null)
+        {
+            throw new ArgumentException($"The protocol requires {nameof(channelFactory)}");
+        }
 
-        //// First, check if QUIC is supported.
-        //if (!QuicConnection.IsSupported)
-        //{
-        //    Console.WriteLine("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        //    return;
-        //}
+        if (!QuicListener.IsSupported)
+        {
+            throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
+        }
 
-        //var localEndpoint = new IPEndPoint(ipAddress, tcpPort);
-        //// This represents the minimal configuration necessary to open a connection.
-        //var clientConnectionOptions = new QuicClientConnectionOptions
-        //{
-        //    // End point of the server to connect to.
-        //    LocalEndPoint = new IPEndPoint(ipAddress, tcpPort),
+        Multiaddr addr = context.LocalPeer.Address;
+        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
+        int udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
 
-        //    // Used to abort stream if it's not properly closed by the user.
-        //    // See https://www.rfc-editor.org/rfc/rfc9000#section-20.2
-        //    DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+        IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
-        //    // Used to close the connection if it's not done by the user.
-        //    // See https://www.rfc-editor.org/rfc/rfc9000#section-20.2
-        //    DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+        QuicServerConnectionOptions serverConnectionOptions = new()
+        {
+            DefaultStreamErrorCode = 0, // Protocol-dependent error code.
+            DefaultCloseErrorCode = 1, // Protocol-dependent error code.
 
-        //    // Optionally set limits for inbound streams.
-        //    MaxInboundUnidirectionalStreams = 10,
-        //    MaxInboundBidirectionalStreams = 100,
+            ServerAuthenticationOptions = new SslServerAuthenticationOptions
+            {
+                ApplicationProtocols = protocols,
+                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
+                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity)
+            },
+        };
 
-        //    // Same options as for client side SslStream.
-        //    ClientAuthenticationOptions = new SslClientAuthenticationOptions
-        //    {
-        //        // List of supported application protocols.
-        //        ApplicationProtocols = channelFactory.SubProtocols.Select(proto => new SslApplicationProtocol(proto.Id)).ToList()
+        QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
+        {
+            ListenEndPoint = localEndpoint,
+            ApplicationProtocols = protocols,
+            ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
+        });
 
-        //    }
-        //};
+        channel.OnClose(async () =>
+        {
+            await listener.DisposeAsync();
+        });
 
-
-        //Multiaddr newIpProtocol = localEndpoint.AddressFamily == AddressFamily.InterNetwork
-        //    ? Multiaddr.Ip4
-        //    : Multiaddr.Ip6;
-
-        //context.LocalEndpoint = MultiAddr.From(newIpProtocol, localEndpoint.Address.ToString(),
-        //    Multiaddr.Udp,
-        //    localEndpoint.Port);
-
-        //context.LocalPeer.Address = context.LocalPeer.Address.Replace(
-        //        context.LocalEndpoint.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6, newIpProtocol,
-        //        localEndpoint.Address.ToString())
-        //    .Replace(
-        //        Multiaddr.Udp,
-        //        localEndpoint.Port.ToString());
-
-
-        //// Initialize, configure and connect to the server.
-        //var connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
-
-        //channel.OnClose(async () =>
-        //{
-        //    await connection.CloseAsync(0);
-        //    await connection.DisposeAsync();
-        //});
-
-        //Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
-
-        //_ = Task.Run(async () =>
-        //{
-        //    while (!channel.IsClosed)
-        //    {
-        //        var incomingStream = await connection.AcceptInboundStreamAsync();
-        //        IPeerContext clientContext = context.Fork();
-        //        IPEndPoint remoteIpEndpoint = (IPEndPoint)client.RemoteEndPoint!;
-
-        //        clientContext.RemoteEndpoint = MultiAddr.From(
-        //            remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
-        //                ? Multiaddr.Ip4
-        //                : Multiaddr.Ip6, remoteIpEndpoint.Address.ToString(), Multiaddr.Tcp,
-        //            remoteIpEndpoint.Port);
-        //        clientContext.LocalPeer.Address = context.LocalPeer.Address.Replace(
-        //                context.LocalEndpoint.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6, newIpProtocol,
-        //                remoteIpEndpoint.Address.ToString())
-        //            .Replace(
-        //                Multiaddr.Tcp,
-        //                remoteIpEndpoint.Port.ToString());
-        //        clientContext.RemotePeer.Address = new MultiAddr()
-        //            .Append(remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
-        //                ? Multiaddr.Ip4
-        //                : Multiaddr.Ip6, remoteIpEndpoint.Address.ToString())
-        //            .Append(Multiaddr.Tcp, remoteIpEndpoint.Port.ToString());
-
-        //        IChannel chan = channelFactory.SubListen(clientContext);
-
-        //        _ = Task.Run(async () =>
-        //        {
-        //            try
-        //            {
-        //                while (!chan.IsClosed)
-        //                {
-        //                    if (client.Available == 0)
-        //                    {
-        //                        await Task.Yield();
-        //                    }
-
-        //                    byte[] buf = new byte[client.Available];
-        //                    int len = await client.ReceiveAsync(buf, SocketFlags.None);
-        //                    if (len != 0)
-        //                    {
-        //                        await chan.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
-        //                    }
-        //                }
-        //            }
-        //            catch (SocketException)
-        //            {
-        //                await chan.CloseAsync(false);
-        //            }
-        //        }, chan.Token);
-        //        _ = Task.Run(async () =>
-        //        {
-        //            try
-        //            {
-        //                await foreach (ReadOnlySequence<byte> data in chan.ReadAllAsync())
-        //                {
-        //                    await client.SendAsync(data.ToArray(), SocketFlags.None);
-        //                }
-        //            }
-        //            catch (SocketException)
-        //            {
-        //                _logger?.LogInformation("Disconnected due to a socket exception");
-        //                await chan.CloseAsync(false);
-        //            }
-        //        }, chan.Token);
-        //    }
-        //});
+        while (!channel.IsClosed)
+        {
+            QuicConnection connection = await listener.AcceptConnectionAsync(channel.Token);
+            _ = ProcessStreams(connection, context.Fork(), channelFactory, channel.Token);
+        }
     }
 
-    public Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
-        throw new NotImplementedException();
-        //// First, check if QUIC is supported.
-        //if (!QuicConnection.IsSupported)
-        //{
-        //    Console.WriteLine("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        //    return;
-        //}
+        if (channelFactory is null)
+        {
+            throw new ArgumentException($"The protocol requires {nameof(channelFactory)}");
+        }
 
-        //// This represents the minimal configuration necessary to open a connection.
-        //var clientConnectionOptions = new QuicClientConnectionOptions
-        //{
-        //    // End point of the server to connect to.
-        //    RemoteEndPoint = listener.LocalEndPoint,
+        if (!QuicConnection.IsSupported)
+        {
+            throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
+        }
 
-        //    // Used to abort stream if it's not properly closed by the user.
-        //    // See https://www.rfc-editor.org/rfc/rfc9000#section-20.2
-        //    DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+        Multiaddr addr = context.LocalPeer.Address;
+        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
+        int udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
 
-        //    // Used to close the connection if it's not done by the user.
-        //    // See https://www.rfc-editor.org/rfc/rfc9000#section-20.2
-        //    DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
-
-        //    // Optionally set limits for inbound streams.
-        //    MaxInboundUnidirectionalStreams = 10,
-        //    MaxInboundBidirectionalStreams = 100,
-
-        //    // Same options as for client side SslStream.
-        //    ClientAuthenticationOptions = new SslClientAuthenticationOptions
-        //    {
-        //        // List of supported application protocols.
-        //        ApplicationProtocols = channelFactory.SubProtocols.Select(proto => new SslApplicationProtocol(proto.Id)).ToList()
-        //    }
-        //};
-
-        //// Initialize, configure and connect to the server.
-        //var connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
-
-        //Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
-
-        //// Open a bidirectional (can both read and write) outbound stream.
-        //var outgoingStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-
-        //// Work with the outgoing stream ...
-
-        //// To accept any stream on a client connection, at least one of MaxInboundBidirectionalStreams or MaxInboundUnidirectionalStreams of QuicConnectionOptions must be set.
-        //while (isRunning)
-        //{
-        //    // Accept an inbound stream.
-        //    var incomingStream = await connection.AcceptInboundStreamAsync();
-
-        //    // Work with the incoming stream ...
-        //}
-
-        //// Close the connection with the custom code.
-        //await connection.CloseAsync(0x0C);
-
-        //// Dispose the connection.
-        //await connection.DisposeAsync();
+        IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
 
-        //TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        //Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        //MultiAddr addr = context.RemotePeer.Address;
-        //Multiaddr ipProtocol = addr.Has(Multiaddr.Ip4) ? Multiaddr.Ip4 : Multiaddr.Ip6;
-        //IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        //int tcpPort = int.Parse(addr.At(Multiaddr.Tcp)!);
-        //try
-        //{
-        //    await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
-        //}
-        //catch (SocketException)
-        //{
-        //    _logger?.LogInformation("Failed to connect");
-        //    // TODO: Add proper exception and reconnection handling
-        //    return;
-        //}
+        addr = context.RemotePeer.Address;
+        ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
+        udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
 
-        //IPEndPoint localEndpoint = (IPEndPoint)client.LocalEndPoint!;
-        //IPEndPoint remoteEndpoint = (IPEndPoint)client.RemoteEndPoint!;
+        IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
-        //context.RemoteEndpoint = MultiAddr.From(
-        //    ipProtocol,
-        //    ipProtocol == Multiaddr.Ip4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6(),
-        //    Multiaddr.Tcp, remoteEndpoint.Port);
-        //context.LocalEndpoint = MultiAddr.From(
-        //    ipProtocol,
-        //    ipProtocol == Multiaddr.Ip4 ? localEndpoint.Address.MapToIPv4() : localEndpoint.Address.MapToIPv6(),
-        //    Multiaddr.Tcp, localEndpoint.Port);
-        //context.LocalPeer.Address = context.LocalEndpoint.Append(Multiaddr.P2p, context.LocalPeer.Identity.PeerId);
+        QuicClientConnectionOptions clientConnectionOptions = new()
+        {
+            LocalEndPoint = localEndpoint,
+            DefaultStreamErrorCode = 0, // Protocol-dependent error code.
+            DefaultCloseErrorCode = 1, // Protocol-dependent error code.
+            MaxInboundUnidirectionalStreams = 100,
+            MaxInboundBidirectionalStreams = 100,
+            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            {
+                ApplicationProtocols = protocols,
+                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
+                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
+            },
+            RemoteEndPoint = remoteEndpoint,
+        };
 
-        //IChannel upChannel = channelFactory.SubDial(context);
-        ////upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
+        QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
 
-        //_ = Task.Run(async () =>
-        //{
-        //    byte[] buf = new byte[client.ReceiveBufferSize];
-        //    try
-        //    {
-        //        while (!upChannel.IsClosed)
-        //        {
-        //            int len = await client.ReceiveAsync(buf, SocketFlags.None);
-        //            if (len != 0)
-        //            {
-        //                _logger?.LogDebug("Receive data, len={0}", len);
-        //                await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
-        //            }
-        //        }
+        channel.OnClose(async () =>
+        {
+            await connection.CloseAsync(0);
+            await connection.DisposeAsync();
+        });
 
-        //        waitForStop.SetCanceled();
-        //    }
-        //    catch (SocketException)
-        //    {
-        //        await upChannel.CloseAsync();
-        //        waitForStop.SetCanceled();
-        //    }
-        //});
+        _logger?.LogDebug($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
 
-        //_ = Task.Run(async () =>
-        //{
-        //    try
-        //    {
-        //        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
-        //        {
-        //            await client.SendAsync(data.ToArray(), SocketFlags.None);
-        //        }
+        await ProcessStreams(connection, context, channelFactory, channel.Token);
+    }
 
-        //        waitForStop.SetCanceled();
-        //    }
-        //    catch (SocketException)
-        //    {
-        //        await upChannel.CloseAsync(false);
-        //        waitForStop.SetCanceled();
-        //    }
-        //});
+    private static bool VerifyRemoteCertificate(IPeer? remotePeer, X509Certificate certificate) =>
+         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.At(MultiaddrEnum.P2p));
+
+    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token)
+    {
+        MultiaddrEnum newIpProtocol = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork
+           ? MultiaddrEnum.Ip4
+           : MultiaddrEnum.Ip6;
+
+        context.LocalEndpoint = Multiaddr.From(
+            newIpProtocol,
+            connection.LocalEndPoint.Address.ToString(),
+            MultiaddrEnum.Udp,
+            connection.LocalEndPoint.Port);
+
+        context.LocalPeer.Address = context.LocalPeer.Address.Replace(
+                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6, newIpProtocol,
+                connection.LocalEndPoint.Address.ToString())
+            .Replace(
+                MultiaddrEnum.Udp,
+                connection.LocalEndPoint.Port.ToString());
+
+        IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
+        newIpProtocol = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
+           ? MultiaddrEnum.Ip4
+           : MultiaddrEnum.Ip6;
+
+        context.RemoteEndpoint = Multiaddr.From(
+            newIpProtocol,
+            remoteIpEndpoint.Address.ToString(),
+            MultiaddrEnum.Udp,
+            remoteIpEndpoint.Port);
+
+        context.Connected(context.RemotePeer);
+
+        _ = Task.Run(async () =>
+        {
+            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            {
+                QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+                IPeerContext dialContext = context.Fork();
+                dialContext.SpecificProtocolRequest = request;
+                IChannel upChannel = channelFactory.SubDial(dialContext);
+                ExchangeData(stream, upChannel, request.CompletionSource);
+            }
+        }, token);
+
+        while (!token.IsCancellationRequested)
+        {
+            QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
+            IChannel upChannel = channelFactory.SubListen(context);
+            ExchangeData(inboundStream, upChannel, null);
+        }
+    }
+
+    private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
+    {
+        upChannel.OnClose(async () =>
+        {
+            tcs?.SetResult();
+            stream.Close();
+        });
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                {
+                    await stream.WriteAsync(data.ToArray(), upChannel.Token);
+                }
+            }
+            catch (SocketException)
+            {
+                _logger?.LogInformation("Disconnected due to a socket exception");
+                await upChannel.CloseAsync(false);
+            }
+        }, upChannel.Token);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!upChannel.IsClosed)
+                {
+                    byte[] buf = new byte[1024];
+                    int len = await stream.ReadAtLeastAsync(buf, 1, false, upChannel.Token);
+                    if (len != 0)
+                    {
+                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                    }
+                }
+            }
+            catch (SocketException)
+            {
+                _logger?.LogInformation("Disconnected due to a socket exception");
+                await upChannel.CloseAsync(false);
+            }
+        });
     }
 }

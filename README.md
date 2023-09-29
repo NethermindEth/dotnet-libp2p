@@ -31,35 +31,40 @@ dotnet test
 
 ## Roadmap
 
-From the beginning, the target is to provide a performant well-tested implementation that works on multiple platforms, with high throughput and low memory profile.
-See the [milestones](https://github.com/NethermindEth/dotnet-libp2p/milestones?direction=asc&sort=due_date&state=open).
+🚧 The library is not stable and under heavy development. Consider the [beta](https://github.com/NethermindEth/dotnet-libp2p/milestone/5) milestone as a reflection of readiness for production 🚧
+
+The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
+
 
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
-| **Transports**
 | TCP                | tcp                | ✅             |
-| QUIC               | quic               | 🚧             |
-|                    | quic-v1            | 🚧             |
-| **Protocols**
+| QUIC               | quic-v1            | ✅             |
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
+| tls                | /tls/1.0.0         | ⬜ help wanted |
+| WebTransport       |                    | ⬜ help wanted |
 | yamux              | /yamux/1.0.0       | ✅             |
+| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |
+| hole punching      |                    | ⬜ help wanted |
+| **Application layer**
 | Identify           | /ipfs/id/1.0.0     | ✅             |
 | ping               | /ipfs/ping/1.0.0   | ✅             |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
 |                    | /meshsub/1.2.0     | ⬜             |
-| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |
 | **Discovery**
 | mDns               | basic              | ✅             |
 |                    | DNS-SD             | 🚧             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) | 5.1 | ⬜ help wanted |
+| [discv5](https://github.com/Pier-Two/Lantern.Discv5) | 5.1 | 🚧 help wanted |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
 ✅ - basic support implemented
+
+No plans for: mplex, quic(draft-29)
 
 ## License
 

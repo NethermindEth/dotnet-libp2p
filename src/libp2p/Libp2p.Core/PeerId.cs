@@ -6,7 +6,6 @@ using Multiformats.Hash;
 using SimpleBase;
 using Google.Protobuf;
 using Multiformats.Base;
-using System.Buffers;
 using Nethermind.Libp2p.Core.Enums;
 using Multihash = Multiformats.Hash.Multihash;
 

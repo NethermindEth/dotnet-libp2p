@@ -65,6 +65,7 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
+        await Task.Delay(30);
         _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         await downChannel.CloseAsync();
     }
@@ -127,6 +128,8 @@ public class MultistreamProtocolTests
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto2.Id));
+
+        await Task.Delay(30);
         _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto2);
         await upChannel.CloseAsync();
     }
