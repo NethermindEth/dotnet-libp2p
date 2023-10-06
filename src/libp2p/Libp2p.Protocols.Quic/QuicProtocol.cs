@@ -75,6 +75,14 @@ public class QuicProtocol : IProtocol
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
         });
 
+        context.LocalEndpoint = Multiaddr.From(
+            ipProtocol, listener.LocalEndPoint.Address.ToString(),
+            MultiaddrEnum.Udp, listener.LocalEndPoint.Port);
+
+        context.LocalPeer.Address = context.LocalPeer.Address
+            .Replace(ipProtocol, listener.LocalEndPoint.Address.ToString())
+            .Replace(MultiaddrEnum.Udp, listener.LocalEndPoint.Port.ToString());
+
         channel.OnClose(async () =>
         {
             await listener.DisposeAsync();
