@@ -6,18 +6,12 @@ using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols.Ping;
 
-/// <summary>
-/// 200_000..201_099 Trace
-/// 200_100..201_199 Debug
-/// 200_100..202_299 Information
-/// 200_100..203_399 Warning
-/// 200_100..204_499 Error
-/// 200_100..205_599 Critical
-/// </summary>
 internal static partial class LogMessages
 {
+    private const int EventId = 200_000;
+
     [LoggerMessage(
-        EventId = 200001,
+        EventId = EventId + 1,
         EventName = nameof(ReadingPong),
         Message = "Reading pong",
         Level = LogLevel.Trace)]
@@ -25,7 +19,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200002,
+        EventId = EventId + 2,
         EventName = nameof(VerifyingPong),
         Message = "Verifying pong",
         Level = LogLevel.Trace)]
@@ -33,7 +27,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200003,
+        EventId = EventId + 3,
         EventName = nameof(ReadingPing),
         Message = "Reading ping",
         Level = LogLevel.Trace)]
@@ -41,7 +35,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200004,
+        EventId = EventId + 4,
         EventName = nameof(ReturningPong),
         Message = "Returning pong",
         Level = LogLevel.Trace)]
@@ -49,7 +43,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200101,
+        EventId = EventId + 5,
         EventName = nameof(LogPing),
         Message = "Ping {remotePeer}",
         Level = LogLevel.Debug)]
@@ -58,7 +52,7 @@ internal static partial class LogMessages
         Multiaddr remotePeer);
 
     [LoggerMessage(
-        EventId = 200102,
+        EventId = EventId + 6,
         EventName = nameof(LogPinged),
         Message = "Pinged",
         Level = LogLevel.Debug)]
@@ -66,7 +60,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200103,
+        EventId = EventId + 7,
         EventName = nameof(PingListenStarted),
         Message = "Ping listen started from {remotePeer}",
         Level = LogLevel.Debug)]
@@ -75,7 +69,7 @@ internal static partial class LogMessages
         Multiaddr remotePeer);
 
     [LoggerMessage(
-        EventId = 200104,
+        EventId = EventId + 8,
         EventName = nameof(PingFinished),
         Message = "Ping finished",
         Level = LogLevel.Debug)]
@@ -83,7 +77,7 @@ internal static partial class LogMessages
         this ILogger logger);
 
     [LoggerMessage(
-        EventId = 200301,
+        EventId = EventId + 9,
         EventName = nameof(PingFailed),
         Message = "Wrong response to ping from {remotePeer}",
         Level = LogLevel.Warning)]
