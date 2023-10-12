@@ -37,7 +37,7 @@ public class PeerFactory : IPeerFactory
         _upChannelFactory = upChannelFactory;
     }
 
-    private Task<IListener> ListenAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
+    private async Task<IListener> ListenAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
     {
         peer.Address = addr;
         if (!peer.Address.Has(Enums.Multiaddr.P2p))
@@ -51,16 +51,28 @@ public class PeerFactory : IPeerFactory
             token.Register(() => chan.CloseAsync());
         }
 
-        PeerContext peerCtx = new()
+        TaskCompletionSource ts = new();
+
+       
+        PeerContext peerContext = new()
         {
             Id = $"ctx-{++CtxId}",
             LocalPeer = peer,
         };
-        RemotePeer remotePeer = new(this, peer, peerCtx);
-        peerCtx.RemotePeer = remotePeer;
+
+        peerContext.OnListenerReady += OnListenerReady;
+
+        void OnListenerReady()
+        {
+            ts.SetResult();
+            peerContext.OnListenerReady -= OnListenerReady;
+        }
+
+        RemotePeer remotePeer = new(this, peer, peerContext);
+        peerContext.RemotePeer = remotePeer;
 
         PeerListener result = new(chan, peer);
-        peerCtx.OnRemotePeerConnection += remotePeer =>
+        peerContext.OnRemotePeerConnection += remotePeer =>
         {
             if (((RemotePeer)remotePeer).LocalPeer != peer)
             {
@@ -70,9 +82,10 @@ public class PeerFactory : IPeerFactory
             ConnectedTo(remotePeer, false)
                 .ContinueWith(t => { result.RaiseOnConnection(remotePeer); }, token);
         };
-        _ = _protocol.ListenAsync(chan, _upChannelFactory, peerCtx);
+        _ = _protocol.ListenAsync(chan, _upChannelFactory, peerContext);
 
-        return Task.FromResult((IListener)result);
+        await ts.Task;
+        return result;
     }
 
     protected virtual Task ConnectedTo(IRemotePeer peer, bool isDialer)

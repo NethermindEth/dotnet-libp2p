@@ -23,9 +23,12 @@ public interface IPeerContext
     IChannelRequest? SpecificProtocolRequest { get; set; }
 
     event RemotePeerConnected OnRemotePeerConnection;
+    event ListenerReady OnListenerReady;
 
     void Connected(IPeer peer);
+    void ListenerReady();
     #endregion
 }
 
 public delegate void RemotePeerConnected(IRemotePeer peer);
+public delegate void ListenerReady();

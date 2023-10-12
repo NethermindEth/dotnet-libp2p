@@ -88,6 +88,9 @@ public class QuicProtocol : IProtocol
             await listener.DisposeAsync();
         });
 
+        _logger?.LogDebug("Ready to handle connections");
+        context.ListenerReady();
+
         while (!channel.IsClosed)
         {
             QuicConnection connection = await listener.AcceptConnectionAsync(channel.Token);
@@ -131,6 +134,7 @@ public class QuicProtocol : IProtocol
             MaxInboundBidirectionalStreams = 100,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
+                TargetHost = null,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
                 ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
@@ -139,7 +143,7 @@ public class QuicProtocol : IProtocol
         };
 
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
-
+       
         channel.OnClose(async () =>
         {
             await connection.CloseAsync(0);

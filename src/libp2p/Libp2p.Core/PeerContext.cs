@@ -13,8 +13,6 @@ public class PeerContext : IPeerContext
     public Multiaddr RemoteEndpoint { get; set; }
     public Multiaddr LocalEndpoint { get; set; }
     public BlockingCollection<IChannelRequest> SubDialRequests { get; set; } = new();
-
-    public event RemotePeerConnected? OnRemotePeerConnection;
     public IChannelRequest? SpecificProtocolRequest { get; set; }
 
     public IPeerContext Fork()
@@ -24,8 +22,17 @@ public class PeerContext : IPeerContext
         return result;
     }
 
+
+
+    public event RemotePeerConnected? OnRemotePeerConnection;
     public void Connected(IPeer peer)
     {
         OnRemotePeerConnection?.Invoke((IRemotePeer)peer);
+    }
+
+    public event ListenerReady? OnListenerReady;
+    public void ListenerReady()
+    {
+        OnListenerReady?.Invoke();
     }
 }

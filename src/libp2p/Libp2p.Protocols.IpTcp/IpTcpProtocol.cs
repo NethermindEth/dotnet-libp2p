@@ -34,6 +34,9 @@ public class IpTcpProtocol : IProtocol
         srv.Bind(new IPEndPoint(ipAddress, tcpPort));
         srv.Listen(tcpPort);
 
+        _logger?.LogDebug("Ready to handle connections");
+        context.ListenerReady();
+
         IPEndPoint localIpEndpoint = (IPEndPoint)srv.LocalEndPoint!;
         channel.OnClose(() =>
         {
