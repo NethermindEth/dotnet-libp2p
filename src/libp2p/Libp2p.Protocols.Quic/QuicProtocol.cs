@@ -79,9 +79,11 @@ public class QuicProtocol : IProtocol
             ipProtocol, listener.LocalEndPoint.Address.ToString(),
             MultiaddrEnum.Udp, listener.LocalEndPoint.Port);
 
-        context.LocalPeer.Address = context.LocalPeer.Address
-            .Replace(ipProtocol, listener.LocalEndPoint.Address.ToString())
-            .Replace(MultiaddrEnum.Udp, listener.LocalEndPoint.Port.ToString());
+        if (udpPort == 0)
+        {
+            context.LocalPeer.Address = context.LocalPeer.Address
+                .Replace(MultiaddrEnum.Udp, listener.LocalEndPoint.Port.ToString());
+        }
 
         channel.OnClose(async () =>
         {
@@ -171,11 +173,11 @@ public class QuicProtocol : IProtocol
             connection.LocalEndPoint.Port);
 
         context.LocalPeer.Address = context.LocalPeer.Address.Replace(
-                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6, newIpProtocol,
-                connection.LocalEndPoint.Address.ToString())
-            .Replace(
-                MultiaddrEnum.Udp,
-                connection.LocalEndPoint.Port.ToString());
+                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ?
+                    MultiaddrEnum.Ip4 :
+                    MultiaddrEnum.Ip6,
+                newIpProtocol,
+                connection.LocalEndPoint.Address.ToString());
 
         IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
         newIpProtocol = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork

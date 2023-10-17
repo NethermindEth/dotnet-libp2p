@@ -26,17 +26,15 @@ public class IpTcpProtocol : IProtocol
     {
         _logger?.LogInformation("ListenAsync({contextId})", context.Id);
 
-        Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         Multiaddr addr = context.LocalPeer.Address;
         MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(MultiaddrEnum.Tcp)!);
+
+        Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         srv.Bind(new IPEndPoint(ipAddress, tcpPort));
         srv.Listen(tcpPort);
-
-        _logger?.LogDebug("Ready to handle connections");
-        context.ListenerReady();
-
+        
         IPEndPoint localIpEndpoint = (IPEndPoint)srv.LocalEndPoint!;
         channel.OnClose(() =>
         {
@@ -45,12 +43,19 @@ public class IpTcpProtocol : IProtocol
         });
 
         context.LocalEndpoint = Multiaddr.From(
-              ipProtocol, localIpEndpoint.Address.ToString(),
+              ipProtocol, ipProtocol == MultiaddrEnum.Ip4 ?
+                localIpEndpoint.Address.MapToIPv4().ToString() :
+                localIpEndpoint.Address.MapToIPv6().ToString(),
               MultiaddrEnum.Tcp, localIpEndpoint.Port);
 
-        context.LocalPeer.Address = context.LocalPeer.Address
-            .Replace(ipProtocol, localIpEndpoint.Address.ToString())
-            .Replace(MultiaddrEnum.Tcp, localIpEndpoint.Port.ToString());
+        if (tcpPort == 0)
+        {
+            context.LocalPeer.Address = context.LocalPeer.Address
+                .Replace(MultiaddrEnum.Tcp, localIpEndpoint.Port.ToString());
+        }
+
+        _logger?.LogDebug("Ready to handle connections");
+        context.ListenerReady();
 
         await Task.Run(async () =>
         {
@@ -116,7 +121,7 @@ public class IpTcpProtocol : IProtocol
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
         Multiaddr addr = context.RemotePeer.Address;
-        Core.Enums.Multiaddr ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(MultiaddrEnum.Tcp)!);
         try
