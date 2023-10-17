@@ -145,7 +145,7 @@ public class QuicProtocol : IProtocol
         };
 
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
-       
+
         channel.OnClose(async () =>
         {
             await connection.CloseAsync(0);
