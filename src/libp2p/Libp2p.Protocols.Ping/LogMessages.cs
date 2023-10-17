@@ -13,34 +13,38 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 1,
         EventName = nameof(ReadingPong),
-        Message = "Reading pong",
+        Message = "Reading pong {remotePeer}",
         Level = LogLevel.Trace)]
     internal static partial void ReadingPong(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 2,
         EventName = nameof(VerifyingPong),
-        Message = "Verifying pong",
+        Message = "Verifying pong {remotePeer}",
         Level = LogLevel.Trace)]
     internal static partial void VerifyingPong(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 3,
         EventName = nameof(ReadingPing),
-        Message = "Reading ping",
+        Message = "Reading ping {remotePeer}",
         Level = LogLevel.Trace)]
     internal static partial void ReadingPing(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 4,
         EventName = nameof(ReturningPong),
-        Message = "Returning pong",
+        Message = "Returning pong {remotePeer}",
         Level = LogLevel.Trace)]
     internal static partial void ReturningPong(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 5,
@@ -54,10 +58,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 6,
         EventName = nameof(LogPinged),
-        Message = "Pinged",
+        Message = "Pinged {remotePeer}",
         Level = LogLevel.Debug)]
     internal static partial void LogPinged(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 7,
@@ -71,10 +76,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 8,
         EventName = nameof(PingFinished),
-        Message = "Ping finished",
+        Message = "Ping finished {remotePeer}",
         Level = LogLevel.Debug)]
     internal static partial void PingFinished(
-        this ILogger logger);
+        this ILogger logger,
+        Multiaddr remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 9,
