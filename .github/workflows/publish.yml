@@ -28,8 +28,6 @@ jobs:
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: 7
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -39,7 +37,6 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
-            -p:ContinuousIntegrationBuild=true \
             -p:Commit=${{ github.sha }} \
             -p:VersionSuffix=preview.${{ github.run_number }}
 

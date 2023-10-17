@@ -2,6 +2,8 @@ name: Test
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   test:
@@ -19,8 +21,6 @@ jobs:
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: 7
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -28,7 +28,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:ContinuousIntegrationBuild=true -p:Commit=${{ github.sha }}
+        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Commit=${{ github.sha }}
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
