@@ -75,10 +75,23 @@ public class QuicProtocol : IProtocol
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
         });
 
+        context.LocalEndpoint = Multiaddr.From(
+            ipProtocol, listener.LocalEndPoint.Address.ToString(),
+            MultiaddrEnum.Udp, listener.LocalEndPoint.Port);
+
+        if (udpPort == 0)
+        {
+            context.LocalPeer.Address = context.LocalPeer.Address
+                .Replace(MultiaddrEnum.Udp, listener.LocalEndPoint.Port.ToString());
+        }
+
         channel.OnClose(async () =>
         {
             await listener.DisposeAsync();
         });
+
+        _logger?.LogDebug("Ready to handle connections");
+        context.ListenerReady();
 
         while (!channel.IsClosed)
         {
@@ -123,6 +136,7 @@ public class QuicProtocol : IProtocol
             MaxInboundBidirectionalStreams = 100,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
+                TargetHost = null,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
                 ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
@@ -159,11 +173,11 @@ public class QuicProtocol : IProtocol
             connection.LocalEndPoint.Port);
 
         context.LocalPeer.Address = context.LocalPeer.Address.Replace(
-                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6, newIpProtocol,
-                connection.LocalEndPoint.Address.ToString())
-            .Replace(
-                MultiaddrEnum.Udp,
-                connection.LocalEndPoint.Port.ToString());
+                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ?
+                    MultiaddrEnum.Ip4 :
+                    MultiaddrEnum.Ip6,
+                newIpProtocol,
+                connection.LocalEndPoint.Address.ToString());
 
         IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
         newIpProtocol = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
