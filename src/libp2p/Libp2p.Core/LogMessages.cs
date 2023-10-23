@@ -7,7 +7,11 @@ namespace Nethermind.Libp2p.Core;
 
 internal static partial class LogMessages
 {
+    private const int EventId = 101_000;
+
     [LoggerMessage(
+        EventId = EventId + 1,
+        EventName = nameof(ReadChunk),
         Message = "Read chunk {bytes} bytes",
         Level = LogLevel.Trace)]
     internal static partial void ReadChunk(
@@ -15,6 +19,8 @@ internal static partial class LogMessages
         long bytes);
 
     [LoggerMessage(
+        EventId = EventId + 2,
+        EventName = nameof(ReadEnough),
         Message = "Read enough {bytes} bytes",
         Level = LogLevel.Trace)]
     internal static partial void ReadEnough(
@@ -22,6 +28,8 @@ internal static partial class LogMessages
         long bytes);
 
     [LoggerMessage(
+        EventId = EventId + 3,
+        EventName = nameof(WriteBytes),
         Message = "Write {bytes} bytes",
         Level = LogLevel.Trace)]
     internal static partial void WriteBytes(
@@ -29,6 +37,8 @@ internal static partial class LogMessages
         long bytes);
 
     [LoggerMessage(
+        EventId = EventId + 4,
+        EventName = nameof(DialStarted),
         Message = "Dial {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
     internal static partial void DialStarted(
@@ -38,6 +48,8 @@ internal static partial class LogMessages
         IEnumerable<string> subProtocols);
 
     [LoggerMessage(
+        EventId = EventId + 5,
+        EventName = nameof(ListenStarted),
         Message = "Listen {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
     internal static partial void ListenStarted(
@@ -47,6 +59,8 @@ internal static partial class LogMessages
         IEnumerable<string> subProtocols);
 
     [LoggerMessage(
+        EventId = EventId + 6,
+        EventName = nameof(DialAndBindStarted),
         Message = "Dial and bind {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
     internal static partial void DialAndBindStarted(
@@ -56,6 +70,8 @@ internal static partial class LogMessages
         IEnumerable<string> subProtocols);
 
     [LoggerMessage(
+        EventId = EventId + 7,
+        EventName = nameof(ListenAndBindStarted),
         Message = "Listen and bind {channel} on protocol {protocol} with sub-protocols {subProtocols}",
         Level = LogLevel.Debug)]
     internal static partial void ListenAndBindStarted(
@@ -65,6 +81,8 @@ internal static partial class LogMessages
         IEnumerable<string> subProtocols);
 
     [LoggerMessage(
+        EventId = EventId + 8,
+        EventName = nameof(ChannelCreated),
         Message = "Create channel {chan}",
         Level = LogLevel.Debug)]
     internal static partial void ChannelCreated(
@@ -72,6 +90,8 @@ internal static partial class LogMessages
         string chan);
 
     [LoggerMessage(
+        EventId = EventId + 9,
+        EventName = nameof(DialFailed),
         Message = "Dial error {protocol} via {channel}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
@@ -83,6 +103,8 @@ internal static partial class LogMessages
         string errorMessage);
 
     [LoggerMessage(
+        EventId = EventId + 10,
+        EventName = nameof(ListenFailed),
         Message = "Listen error {protocol} via {channel}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
@@ -94,6 +116,8 @@ internal static partial class LogMessages
         string errorMessage);
 
     [LoggerMessage(
+        EventId = EventId + 11,
+        EventName = nameof(DialAndBindFailed),
         Message = "Dial and bind error {protocol} via {channel}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
@@ -105,6 +129,8 @@ internal static partial class LogMessages
         string errorMessage);
 
     [LoggerMessage(
+        EventId = EventId + 12,
+        EventName = nameof(ListenAndBindFailed),
         Message = "Listen and bind error {protocol} via {channel}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
