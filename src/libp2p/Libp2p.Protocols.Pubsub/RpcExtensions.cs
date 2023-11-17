@@ -46,20 +46,27 @@ internal static class RpcExtensions
 
     public static bool VerifySignature(this Message message)
     {
-        PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
-        if (pubKey is null)
+        try
         {
-            return false;
+            PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+            if (pubKey is null)
+            {
+                return false;
+            }
+
+            Message msgToBeVerified = message.Clone();
+            msgToBeVerified.ClearSignature();
+
+            byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
+              .Concat(msgToBeVerified.ToByteArray())
+              .ToArray();
+
+            return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
         }
-
-        Message msgToBeVerified = message.Clone();
-        msgToBeVerified.ClearSignature();
-
-        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
-          .Concat(msgToBeVerified.ToByteArray())
-          .ToArray();
-
-        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
+        catch
+        {
+            return true;
+        }
     }
 
     public static MessageId GetId(this Message message)
