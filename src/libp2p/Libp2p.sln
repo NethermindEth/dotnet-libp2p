@@ -63,8 +63,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Directory.Packages.props = Directory.Packages.props
 	EndProjectSection
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BcQuery", "..\samples\bc-query\BcQuery.csproj", "{4C030931-1F81-487B-BB35-59C1325B11AE}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -171,10 +169,6 @@ Global
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Release|Any CPU.Build.0 = Release|Any CPU
-		{4C030931-1F81-487B-BB35-59C1325B11AE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4C030931-1F81-487B-BB35-59C1325B11AE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4C030931-1F81-487B-BB35-59C1325B11AE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4C030931-1F81-487B-BB35-59C1325B11AE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -197,7 +191,6 @@ Global
 		{E4103D59-03EB-488A-8392-0D2FBE3FBCC3} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
-		{4C030931-1F81-487B-BB35-59C1325B11AE} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}
