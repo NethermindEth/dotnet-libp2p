@@ -7,6 +7,8 @@ using System.Net.Sockets;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -26,8 +28,8 @@ public class IpTcpProtocol : IProtocol
     {
         _logger?.LogInformation("ListenAsync({contextId})", context.Id);
 
-        Multiaddr addr = context.LocalPeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        Multiaddress addr = context.LocalPeer.Address;
+        MultiaddrEnum ipProtocol = addr.Has<IP4>() ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
         IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
         int tcpPort = int.Parse(addr.At(MultiaddrEnum.Tcp)!);
 
@@ -42,7 +44,7 @@ public class IpTcpProtocol : IProtocol
             return Task.CompletedTask;
         });
 
-        context.LocalEndpoint = Multiaddr.From(
+        context.LocalEndpoint = Multiaddress.From(
               ipProtocol, ipProtocol == MultiaddrEnum.Ip4 ?
                 localIpEndpoint.Address.MapToIPv4().ToString() :
                 localIpEndpoint.Address.MapToIPv6().ToString(),
@@ -65,7 +67,7 @@ public class IpTcpProtocol : IProtocol
                 IPeerContext clientContext = context.Fork();
                 IPEndPoint remoteIpEndpoint = (IPEndPoint)client.RemoteEndPoint!;
 
-                clientContext.RemoteEndpoint = clientContext.RemotePeer.Address = Multiaddr.From(
+                clientContext.RemoteEndpoint = clientContext.RemotePeer.Address = Multiaddress.From(
                     ipProtocol, remoteIpEndpoint.Address.ToString(),
                     MultiaddrEnum.Tcp, remoteIpEndpoint.Port);
 
@@ -120,10 +122,10 @@ public class IpTcpProtocol : IProtocol
 
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        Multiaddr addr = context.RemotePeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        int tcpPort = int.Parse(addr.At(MultiaddrEnum.Tcp)!);
+        Multiaddress addr = context.RemotePeer.Address;
+        MultiaddrEnum ipProtocol = addr.Has<IP4>() ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
+        IPAddress ipAddress = IPAddress.Parse(addr.Get(ipProtocol)!);
+        int tcpPort = addr.Get<TCP>().Port;
         try
         {
             await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), channel.Token);
@@ -138,7 +140,7 @@ public class IpTcpProtocol : IProtocol
         IPEndPoint localEndpoint = (IPEndPoint)client.LocalEndPoint!;
         IPEndPoint remoteEndpoint = (IPEndPoint)client.RemoteEndPoint!;
 
-        context.RemoteEndpoint = Multiaddr.From(
+        context.RemoteEndpoint = Multiaddress.From(
             ipProtocol,
             ipProtocol == MultiaddrEnum.Ip4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6(),
             MultiaddrEnum.Tcp, remoteEndpoint.Port);
