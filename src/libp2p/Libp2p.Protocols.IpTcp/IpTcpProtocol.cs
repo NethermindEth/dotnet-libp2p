@@ -29,9 +29,10 @@ public class IpTcpProtocol : IProtocol
         _logger?.LogInformation("ListenAsync({contextId})", context.Id);
 
         Multiaddress addr = context.LocalPeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has<IP4>() ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        int tcpPort = int.Parse(addr.At(MultiaddrEnum.Tcp)!);
+        bool isIP4 = addr.Has<IP4>();
+        MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
+        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
+        int tcpPort = int.Parse(addr.Get<TCP>().ToString());
 
         Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         srv.Bind(new IPEndPoint(ipAddress, tcpPort));
@@ -44,16 +45,15 @@ public class IpTcpProtocol : IProtocol
             return Task.CompletedTask;
         });
 
-        context.LocalEndpoint = Multiaddress.From(
-              ipProtocol, ipProtocol == MultiaddrEnum.Ip4 ?
-                localIpEndpoint.Address.MapToIPv4().ToString() :
-                localIpEndpoint.Address.MapToIPv6().ToString(),
-              MultiaddrEnum.Tcp, localIpEndpoint.Port);
+        Multiaddress localMultiaddress = new();
+        localMultiaddress = isIP4 ? localMultiaddress.Add<IP4>(localIpEndpoint.Address.MapToIPv4()) : localMultiaddress.Add<IP6>(localIpEndpoint.Address.MapToIPv6());
+        localMultiaddress = localMultiaddress.Add<TCP>(localIpEndpoint.Port);
+        context.LocalEndpoint = localMultiaddress;
 
         if (tcpPort == 0)
         {
             context.LocalPeer.Address = context.LocalPeer.Address
-                .Replace(MultiaddrEnum.Tcp, localIpEndpoint.Port.ToString());
+                .Replace<TCP>(localIpEndpoint.Port);
         }
 
         _logger?.LogDebug("Ready to handle connections");
@@ -67,9 +67,11 @@ public class IpTcpProtocol : IProtocol
                 IPeerContext clientContext = context.Fork();
                 IPEndPoint remoteIpEndpoint = (IPEndPoint)client.RemoteEndPoint!;
 
-                clientContext.RemoteEndpoint = clientContext.RemotePeer.Address = Multiaddress.From(
-                    ipProtocol, remoteIpEndpoint.Address.ToString(),
-                    MultiaddrEnum.Tcp, remoteIpEndpoint.Port);
+                Multiaddress remoteMultiaddress = new();
+                remoteMultiaddress = isIP4 ? remoteMultiaddress.Add<IP4>(remoteIpEndpoint.Address.MapToIPv4()) : remoteMultiaddress.Add<IP6>(remoteIpEndpoint.Address.MapToIPv6());
+                remoteMultiaddress = remoteMultiaddress.Add<TCP>(remoteIpEndpoint.Port);
+
+                clientContext.RemoteEndpoint = clientContext.RemotePeer.Address = remoteMultiaddress;
 
                 IChannel chan = channelFactory.SubListen(clientContext);
 
@@ -123,8 +125,8 @@ public class IpTcpProtocol : IProtocol
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
         Multiaddress addr = context.RemotePeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has<IP4>() ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        IPAddress ipAddress = IPAddress.Parse(addr.Get(ipProtocol)!);
+        MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
+        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
         int tcpPort = addr.Get<TCP>().Port;
         try
         {
@@ -140,15 +142,20 @@ public class IpTcpProtocol : IProtocol
         IPEndPoint localEndpoint = (IPEndPoint)client.LocalEndPoint!;
         IPEndPoint remoteEndpoint = (IPEndPoint)client.RemoteEndPoint!;
 
-        context.RemoteEndpoint = Multiaddress.From(
-            ipProtocol,
-            ipProtocol == MultiaddrEnum.Ip4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6(),
-            MultiaddrEnum.Tcp, remoteEndpoint.Port);
-        context.LocalEndpoint = Multiaddr.From(
-            ipProtocol,
-            ipProtocol == MultiaddrEnum.Ip4 ? localEndpoint.Address.MapToIPv4() : localEndpoint.Address.MapToIPv6(),
-            MultiaddrEnum.Tcp, localEndpoint.Port);
-        context.LocalPeer.Address = context.LocalEndpoint.Append(MultiaddrEnum.P2p, context.LocalPeer.Identity.PeerId.ToString());
+        var isIP4 = addr.Has<IP4>();
+
+        var remoteMultiaddress = new Multiaddress();
+        var remoteIpAddress = isIP4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6();
+        remoteMultiaddress = isIP4? remoteMultiaddress.Add<IP4>(remoteIpAddress) : remoteMultiaddress.Add<IP6>(remoteIpAddress);
+        context.RemoteEndpoint = remoteMultiaddress.Add<TCP>(remoteEndpoint.Port);
+
+
+        var localMultiaddress = new Multiaddress();
+        var localIpAddress = isIP4 ? localEndpoint.Address.MapToIPv4() : localEndpoint.Address.MapToIPv6();
+        localMultiaddress = isIP4 ? localMultiaddress.Add<IP4>(localIpAddress) : localMultiaddress.Add<IP6>(localIpAddress);
+        context.LocalEndpoint = localMultiaddress.Add<TCP>(localEndpoint.Port);
+
+        context.LocalPeer.Address = context.LocalEndpoint.Add<P2P>(context.LocalPeer.Identity.PeerId.ToString());
 
         IChannel upChannel = channelFactory.SubDial(context);
         channel.Token.Register(() => upChannel.CloseAsync());

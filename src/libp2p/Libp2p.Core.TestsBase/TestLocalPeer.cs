@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
+
 namespace Nethermind.Libp2p.Core.TestsBase;
 
 public class TestLocalPeer : ILocalPeer
@@ -12,14 +14,14 @@ public class TestLocalPeer : ILocalPeer
     }
 
     public Identity Identity { get; set; }
-    public Multiaddr Address { get; set; }
+    public Multiaddress Address { get; set; }
 
-    public Task<IRemotePeer> DialAsync(Multiaddr addr, CancellationToken token = default)
+    public Task<IRemotePeer> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
         return Task.FromResult<IRemotePeer>(new TestRemotePeer(addr));
     }
 
-    public Task<IListener> ListenAsync(Multiaddr addr, CancellationToken token = default)
+    public Task<IListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
     {
         return Task.FromResult<IListener>(null);
     }
@@ -27,14 +29,14 @@ public class TestLocalPeer : ILocalPeer
 
 public class TestRemotePeer : IRemotePeer
 {
-    public TestRemotePeer(Multiaddr addr)
+    public TestRemotePeer(Multiaddress addr)
     {
         Identity = TestPeers.Identity(addr);
         Address = addr;
     }
 
     public Identity Identity { get; set; }
-    public Multiaddr Address { get; set; }
+    public Multiaddress Address { get; set; }
 
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
     {

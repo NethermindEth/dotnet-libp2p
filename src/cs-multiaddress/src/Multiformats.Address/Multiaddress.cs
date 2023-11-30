@@ -14,8 +14,8 @@ namespace Multiformats.Address
         {
             Setup<IP4>("ip4", 4, 32, false, ip => ip != null ? new IP4((IPAddress)ip) : new IP4());
             Setup<IP6>("ip6", 41, 128, false, ip => ip != null ? new IP6((IPAddress)ip) : new IP6());
-            Setup<TCP>("tcp", 6, 16, false, port => port != null ? new TCP((ushort)port) : new TCP());
-            Setup<UDP>("udp", 17, 16, false, port => port != null ? new UDP((ushort)port) : new UDP());
+            Setup<TCP>("tcp", 6, 16, false, port => port != null ? new TCP((int)port) : new TCP());
+            Setup<UDP>("udp", 17, 16, false, port => port != null ? new UDP((int)port) : new UDP());
             Setup<P2P>("p2p", 420, -1, false, address => address != null ? address is Multihash ? new P2P((Multihash)address) : new P2P((string)address) : new P2P());
             Setup<IPFS>("ipfs", 421, -1, false, address => address != null ? address is Multihash ? new IPFS((Multihash)address) : new IPFS((string)address) : new IPFS());
             Setup<WebSocket>("ws", 477, 0, false, _ => new WebSocket());
@@ -90,6 +90,7 @@ namespace Multiformats.Address
         }
 
         public TProtocol Get<TProtocol>() where TProtocol : MultiaddressProtocol => Protocols.OfType<TProtocol>().SingleOrDefault();
+        public MultiaddressProtocol Get(Type multiprotocolType) => Protocols.Where(p => p.GetType() == multiprotocolType).SingleOrDefault();
 
         public void Remove<TProtocol>() where TProtocol : MultiaddressProtocol
         {
@@ -252,5 +253,12 @@ namespace Multiformats.Address
 
         public bool Has<T>() where T : MultiaddressProtocol
             => Protocols.OfType<T>().Any();
+
+        public Multiaddress Replace<T>(object v) where T : MultiaddressProtocol
+        {
+            Remove<T>();
+            var protocolDef = _protocols.SingleOrDefault(p => p.Type == typeof(T));
+            return Add(protocolDef.Factory(v));
+        }
     }
 }

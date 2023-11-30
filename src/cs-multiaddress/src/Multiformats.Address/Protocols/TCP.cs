@@ -7,6 +7,24 @@ namespace Multiformats.Address.Protocols
         {
         }
 
+        public TCP(int port)
+            : this()
+        {
+            Value = port;
+        }
+
+        public TCP(uint port)
+            : this()
+        {
+            Value = port;
+        }
+
+        public TCP(short port)
+            : this()
+        {
+            Value = port;
+        }
+
         public TCP(ushort port)
             : this()
         {

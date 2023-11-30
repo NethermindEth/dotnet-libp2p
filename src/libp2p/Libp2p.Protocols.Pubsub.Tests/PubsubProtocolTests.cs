@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
+
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
@@ -11,9 +13,9 @@ public class PubsubProtocolTests
     {
         PubsubRouter router = new();
         IRoutingStateContainer state = router;
-        Multiaddr discoveredPeer = TestPeers.Multiaddr(1);
+        Multiaddress discoveredPeer = TestPeers.Multiaddr(1);
         PeerId peerId = TestPeers.PeerId(1);
-        Multiaddr localPeer = TestPeers.Multiaddr(2);
+        Multiaddress localPeer = TestPeers.Multiaddr(2);
 
         ILocalPeer peer = Substitute.For<ILocalPeer>();
         peer.Address.Returns(localPeer);

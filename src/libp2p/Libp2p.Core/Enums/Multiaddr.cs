@@ -1,4 +1,5 @@
 namespace Nethermind.Libp2p.Core.Enums;
+[Obsolete("Use Multiaddress library")]
 public enum Multiaddr
 {
     Ip4 = 0x04,

@@ -8,6 +8,8 @@ using Nethermind.Libp2p.Protocols;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using Multiformats.Address.Protocols;
+using Multiformats.Address;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder
@@ -30,7 +32,7 @@ CancellationTokenSource ts = new();
 Identity localPeerIdentity = new();
 string addr = $"/ip4/0.0.0.0/udp/0/quic-v1/p2p/{localPeerIdentity.PeerId}";
 
-ILocalPeer peer = peerFactory.Create(localPeerIdentity, addr);
+ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
@@ -47,7 +49,7 @@ _ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<I
 
 
 
-string peerId = peer.Address.At(Nethermind.Libp2p.Core.Enums.Multiaddr.P2p)!;
+string peerId = peer.Address.Get<P2P>().ToString();
 
 string nickName = "libp2p-dotnet";
 
