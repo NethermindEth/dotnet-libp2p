@@ -34,7 +34,7 @@ if (args.Length > 0 && args[0] == "-d")
 
     ILocalPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
 
-    logger.LogInformation("Dialing {0}", remoteAddr);`
+    logger.LogInformation("Dialing {0}", remoteAddr);
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
