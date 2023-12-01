@@ -11,9 +11,9 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// Select protocol based on multiaddr
 /// </summary>
-public class MultiaddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProtocol, IProtocol
+public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProtocol, IProtocol
 {
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultiaddrBasedSelectorProtocol>();
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultiaddressBasedSelectorProtocol>();
 
     public string Id => "multiaddr-select";
 
@@ -24,9 +24,9 @@ public class MultiaddrBasedSelectorProtocol(ILoggerFactory? loggerFactory = null
         {
             protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUIC is not supported");
         }
-        else if (context.LocalPeer.Address.Has<QUIC>())
+        else if (context.LocalPeer.Address.Has<QUICv1>())
         {
-            throw new ApplicationException("QUIC version draft-29 is not supported.");
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic-v1")) ?? throw new ApplicationException("QUIC-v1 is not supported");
         }
         else if (context.LocalPeer.Address.Has<TCP>())
         {

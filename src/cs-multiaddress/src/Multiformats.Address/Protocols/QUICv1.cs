@@ -1,12 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Multiformats.Address.Protocols
 {
-    [Obsolete("Use QUICv1 instead")]
-    public class QUIC : MultiaddressProtocol
+     public class QUICv1 : MultiaddressProtocol
     {
-        public QUIC()
-            : base("quic", 460, 0)
+        public QUICv1()
+            : base("quic-v1", 0x91, 0)
         {
         }
 

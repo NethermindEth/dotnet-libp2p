@@ -25,6 +25,7 @@ namespace Multiformats.Address
             Setup<Unix>("unix", 400, -1, true, address => address != null ? new Unix((string)address) : new Unix());
             Setup<Onion>("onion", 444, 96, false, address => address != null ? new Onion((string)address) : new Onion());
             Setup<QUIC>("quic", 460, 0, false, _ => new QUIC());
+            Setup<QUICv1>("quic-v1", 145, 0, false, _ => new QUICv1());
             Setup<HTTP>("http", 480, 0, false, _ => new HTTP());
             Setup<HTTPS>("https", 443, 0, false, _ => new HTTPS());
             Setup<UTP>("utp", 301, 0, false, _ => new UTP());

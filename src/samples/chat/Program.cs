@@ -28,13 +28,13 @@ if (args.Length > 0 && args[0] == "-d")
 {
     Multiaddress remoteAddr = args[1];
 
-    string addrTemplate = remoteAddr.Has<QUIC>() ?
+    string addrTemplate = remoteAddr.Has<QUICv1>() ?
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 
     ILocalPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
 
-    logger.LogInformation("Dialing {0}", remoteAddr);
+    logger.LogInformation("Dialing {0}", remoteAddr);`
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
