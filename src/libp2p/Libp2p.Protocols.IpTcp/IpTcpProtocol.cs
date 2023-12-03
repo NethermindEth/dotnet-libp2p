@@ -146,7 +146,7 @@ public class IpTcpProtocol : IProtocol
 
         var remoteMultiaddress = new Multiaddress();
         var remoteIpAddress = isIP4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6();
-        remoteMultiaddress = isIP4? remoteMultiaddress.Add<IP4>(remoteIpAddress) : remoteMultiaddress.Add<IP6>(remoteIpAddress);
+        remoteMultiaddress = isIP4 ? remoteMultiaddress.Add<IP4>(remoteIpAddress) : remoteMultiaddress.Add<IP6>(remoteIpAddress);
         context.RemoteEndpoint = remoteMultiaddress.Add<TCP>(remoteEndpoint.Port);
 
 
