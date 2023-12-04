@@ -1,25 +1,28 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Core;
-using Microsoft.Extensions.Logging;
 using System.Buffers;
 using System.Net.Sockets;
-using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
-using Nethermind.Libp2p.Protocols.Quic;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Quic;
+using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 
 namespace Nethermind.Libp2p.Protocols;
 
 #pragma warning disable CA1416 // Do not inform about platform compatibility
 #pragma warning disable CA2252 // EnablePreviewFeatures is set in the project, but build still fails
+/// <summary>
+/// https://github.com/libp2p/specs/blob/master/quic/README.md
+/// </summary>
 public class QuicProtocol : IProtocol
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger<QuicProtocol>? _logger;
     private readonly ECDsa _sessionKey;
 
     public QuicProtocol(ILoggerFactory? loggerFactory = null)
@@ -90,7 +93,7 @@ public class QuicProtocol : IProtocol
             await listener.DisposeAsync();
         });
 
-        _logger?.LogDebug("Ready to handle connections");
+        _logger?.ReadyToHandleConnections();
         context.ListenerReady();
 
         while (!channel.IsClosed)
@@ -118,7 +121,6 @@ public class QuicProtocol : IProtocol
         int udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
-
 
         addr = context.RemotePeer.Address;
         ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
@@ -152,7 +154,7 @@ public class QuicProtocol : IProtocol
             await connection.DisposeAsync();
         });
 
-        _logger?.LogDebug($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
+        _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
         await ProcessStreams(connection, context, channelFactory, channel.Token);
     }
@@ -229,9 +231,9 @@ public class QuicProtocol : IProtocol
                     await stream.WriteAsync(data.ToArray(), upChannel.Token);
                 }
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                _logger?.LogInformation("Disconnected due to a socket exception");
+                _logger?.SocketException(ex, ex.Message);
                 await upChannel.CloseAsync(false);
             }
         }, upChannel.Token);
@@ -250,9 +252,9 @@ public class QuicProtocol : IProtocol
                     }
                 }
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                _logger?.LogInformation("Disconnected due to a socket exception");
+                _logger?.SocketException(ex, ex.Message);
                 await upChannel.CloseAsync(false);
             }
         });
