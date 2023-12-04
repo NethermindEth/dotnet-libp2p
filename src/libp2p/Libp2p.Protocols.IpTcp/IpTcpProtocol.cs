@@ -6,7 +6,6 @@ using System.Net;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
-using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 
