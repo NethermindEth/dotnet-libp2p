@@ -44,29 +44,27 @@ internal static class RpcExtensions
         return rpc;
     }
 
-    public static bool VerifySignature(this Message message)
+    public static bool VerifySignature(this Message message, Settings.SignaturePolicy signaturePolicy)
     {
-        try
+        if(signaturePolicy is Settings.SignaturePolicy.StrictNoSign)
         {
-            PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
-            if (pubKey is null)
-            {
-                return false;
-            }
-
-            Message msgToBeVerified = message.Clone();
-            msgToBeVerified.ClearSignature();
-
-            byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
-              .Concat(msgToBeVerified.ToByteArray())
-              .ToArray();
-
-            return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
+            return message.Signature.IsEmpty;
         }
-        catch
+
+        PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+        if (pubKey is null)
         {
-            return true;
+            return false;
         }
+
+        Message msgToBeVerified = message.Clone();
+        msgToBeVerified.ClearSignature();
+
+        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
+            .Concat(msgToBeVerified.ToByteArray())
+            .ToArray();
+
+        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
     }
 
     public static MessageId GetId(this Message message)

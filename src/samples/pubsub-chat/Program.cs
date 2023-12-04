@@ -10,9 +10,7 @@ using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder
-        .AddAppLayerProtocol<ChatProtocol>()
-        )
+    .AddLibp2p(builder => builder)
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Debug)
             .AddSimpleConsole(l =>
@@ -44,7 +42,6 @@ topic.OnMessage += (byte[] msg) =>
 };
 
 _ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
-
 
 
 string peerId = peer.Address.At(Nethermind.Libp2p.Core.Enums.Multiaddr.P2p)!;
