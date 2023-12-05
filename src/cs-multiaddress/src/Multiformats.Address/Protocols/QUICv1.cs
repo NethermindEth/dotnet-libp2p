@@ -7,7 +7,7 @@ namespace Multiformats.Address.Protocols
      public class QUICv1 : MultiaddressProtocol
     {
         public QUICv1()
-            : base("quic-v1", 0x91, 0)
+            : base("quic-v1", 461, 0)
         {
         }
 
