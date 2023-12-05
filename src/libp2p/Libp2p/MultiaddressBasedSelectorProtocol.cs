@@ -20,10 +20,14 @@ public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = n
     protected override async Task ConnectAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context, bool isListener)
     {
         IProtocol protocol = null!;
-        // TODO: Validate support for BOTH or just quicv1 and deprecate quic
-        if (context.LocalPeer.Address.Has<QUIC>()|| context.LocalPeer.Address.Has<QUICv1>())
+        // TODO: deprecate quic
+        if (context.LocalPeer.Address.Has<QUIC>())
         {
             protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUIC is not supported");
+        }
+        else if (context.LocalPeer.Address.Has<QUICv1>())
+        {
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic-v1")) ?? throw new ApplicationException("QUICv1 is not supported");
         }
         else if (context.LocalPeer.Address.Has<TCP>())
         {
