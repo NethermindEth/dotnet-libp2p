@@ -5,6 +5,7 @@ using System.Net;
 using BinaryEncoding;
 using Multiformats.Address.Protocols;
 using Multiformats.Hash;
+using Org.BouncyCastle.Bcpg;
 
 namespace Multiformats.Address
 {
@@ -12,7 +13,19 @@ namespace Multiformats.Address
     {
         static Multiaddress()
         {
-            Setup<IP4>("ip4", 4, 32, false, ip => ip != null ? new IP4((IPAddress)ip) : new IP4());
+            Setup<IP4>("ip4", 4, 32, false, ip => {
+                if (ip != null)
+                {
+                        if (ip is IPAddress)
+                            return new IP4((IPAddress)ip);
+                        else if (ip is string)
+                            return new IP4((string)ip);
+                        else
+                            throw new Exception($"Invalid IP4 address {ip}");
+                }
+
+                return new IP4();
+            });
             Setup<IP6>("ip6", 41, 128, false, ip => ip != null ? new IP6((IPAddress)ip) : new IP6());
             Setup<TCP>("tcp", 6, 16, false, port => port != null ? new TCP((int)port) : new TCP());
             Setup<UDP>("udp", 17, 16, false, port => port != null ? new UDP((int)port) : new UDP());

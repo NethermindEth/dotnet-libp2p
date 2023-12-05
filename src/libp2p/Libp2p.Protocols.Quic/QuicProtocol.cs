@@ -1,18 +1,18 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Quic;
 using System.Buffers;
-using System.Net.Sockets;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography;
-using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols.Quic;
 //using Nethermind.Libp2p.Protocols.Quic;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -94,7 +94,7 @@ public class QuicProtocol : IProtocol
         if (udpPort == 0)
         {
             context.LocalPeer.Address = context.LocalPeer.Address
-                .Replace<UDP>(listener.LocalEndPoint.Port.ToString());
+                .Replace<UDP>(listener.LocalEndPoint.Port);
         }
 
         channel.OnClose(async () =>

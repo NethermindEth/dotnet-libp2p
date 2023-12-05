@@ -20,6 +20,9 @@ namespace Multiformats.Address.Protocols
             Value = address;
         }
 
+        public IP4(string address)
+            : this(IPAddress.Parse(address)) { }
+
         public override void Decode(string value)
         {
             base.Decode(value);
