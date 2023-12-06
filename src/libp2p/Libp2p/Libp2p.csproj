@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />

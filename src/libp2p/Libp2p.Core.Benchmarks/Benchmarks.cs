@@ -10,7 +10,7 @@ namespace Libp2p.Core.Benchmarks;
 [MemoryDiagnoser]
 public class ChannelsBenchmark
 {
-    //class TestProtocol : IProtocol
+    //class TestProtocol : IDuplexProtocol
     //{
     //    public string Id => "";
 

@@ -12,7 +12,7 @@ using Multiformats.Address.Protocols;
 namespace Nethermind.Libp2p.Protocols;
 
 // TODO: Rewrite with SocketAsyncEventArgs
-public class IpTcpProtocol : IProtocol
+public class IpTcpProtocol : IDuplexProtocol
 {
     private readonly ILogger? _logger;
 

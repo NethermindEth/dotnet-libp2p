@@ -5,7 +5,7 @@ using System.Buffers;
 using System.Text;
 using Nethermind.Libp2p.Core;
 
-internal class ChatProtocol : SymmetricProtocol, IProtocol
+internal class ChatProtocol : SymmetricProtocol, IDuplexProtocol
 {
     private static readonly ConsoleReader Reader = new();
     public string Id => "/chat/1.0.0";

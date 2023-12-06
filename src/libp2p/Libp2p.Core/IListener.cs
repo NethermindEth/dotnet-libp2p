@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IListener
+public interface ILocalListener
 {
     Multiaddress Address { get; }
 

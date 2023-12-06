@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class PlainTextProtocol : SymmetricProtocol, IProtocol
+public class PlainTextProtocol : SymmetricProtocol, IDuplexProtocol
 {
     public string Id => "/plaintext/2.0.0";
 

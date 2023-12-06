@@ -11,7 +11,7 @@ public class PeerFactory : IPeerFactory
 {
     private readonly IServiceProvider _serviceProvider;
 
-    private IProtocol _protocol;
+    private IId _protocol;
     private IChannelFactory _upChannelFactory;
     private static int CtxId = 0;
 
@@ -33,13 +33,13 @@ public class PeerFactory : IPeerFactory
     /// <param name="appFactory"></param>
     /// <param name="protocol"></param>
     /// <param name="appLayerProtocols"></param>
-    public void Setup(IProtocol protocol, IChannelFactory upChannelFactory)
+    public void Setup(IId protocol, IChannelFactory upChannelFactory)
     {
         _protocol = protocol;
         _upChannelFactory = upChannelFactory;
     }
 
-    private async Task<IListener> ListenAsync(LocalPeer peer, Multiaddress addr, CancellationToken token)
+    private async Task<ILocalListener> ListenAsync(LocalPeer peer, Multiaddress addr, CancellationToken token)
     {
         peer.Address = addr;
         if (!peer.Address.Has<P2P>())
@@ -80,11 +80,17 @@ public class PeerFactory : IPeerFactory
             {
                 return;
             }
+            try
+            {
+                ConnectedTo(remotePeer, false)
+                    .ContinueWith(t => { result.RaiseOnConnection(remotePeer); }, token);
+            }
+            catch
+            {
 
-            ConnectedTo(remotePeer, false)
-                .ContinueWith(t => { result.RaiseOnConnection(remotePeer); }, token);
+            }
         };
-        _ = _protocol.ListenAsync(chan, _upChannelFactory, peerContext);
+        _ = ((IListener)_protocol).ListenAsync(chan, _upChannelFactory, peerContext);
 
         await ts.Task;
         return result;
@@ -95,11 +101,42 @@ public class PeerFactory : IPeerFactory
         return Task.CompletedTask;
     }
 
-    private Task DialAsync<TProtocol>(IPeerContext peerContext, CancellationToken token) where TProtocol : IProtocol
+    private Task DialAsync<TProtocol>(IPeerContext peerContext, CancellationToken token) where TProtocol : IId
     {
         TaskCompletionSource cts = new(token);
-        peerContext.SubDialRequests.Add(new ChannelRequest
-        { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
+        ((PeerContext)peerContext).SubDialRequests.Add(new ChannelRequest
+        {
+            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            SetResult = (result) => cts.SetResult(),
+        });
+        return cts.Task;
+    }
+
+    private Task<TResult> DialAsync<TProtocol, TResult>(IPeerContext peerContext, CancellationToken token)
+        where TProtocol : IId, IDialer<TResult>
+    {
+        TaskCompletionSource<TResult> cts = new(token);
+        ((PeerContext)peerContext).SubDialRequests.Add(new ChannelRequest
+        {
+            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            Call = (subProtocol, downChannel, channelFactory, context)
+                => ((IDialer<TResult>)subProtocol).DialAsync(downChannel, channelFactory, context),
+            SetResult = (result) => cts.SetResult(((Task<TResult>)result).Result),
+        });
+        return cts.Task;
+    }
+
+    private Task<TResult> DialAsync<TProtocol, TResult, TParams>(TParams @params, IPeerContext peerContext, CancellationToken token)
+        where TProtocol : IId, IDialer<TResult, TParams>
+    {
+        TaskCompletionSource<TResult> cts = new(token);
+        ((PeerContext)peerContext).SubDialRequests.Add(new ChannelRequest
+        {
+            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            Call = (subProtocol, downChannel, channelFactory, context)
+                => ((IDialer<TResult, TParams>)subProtocol).DialAsync(downChannel, channelFactory, context, @params),
+            SetResult = (result) => cts.SetResult(((Task<TResult>)result).Result),
+        }); ;
         return cts.Task;
     }
 
@@ -129,7 +166,7 @@ public class PeerFactory : IPeerFactory
                 ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
             };
 
-            _ = _protocol.DialAsync(chan, _upChannelFactory, context);
+            _ = ((IDialer)_protocol).DialAsync(chan, _upChannelFactory, context);
 
             await tcs.Task;
             return result;
@@ -140,7 +177,7 @@ public class PeerFactory : IPeerFactory
         }
     }
 
-    private class PeerListener : IListener
+    private class PeerListener : ILocalListener
     {
         private readonly Channel _chan;
         private readonly LocalPeer _localPeer;
@@ -188,7 +225,7 @@ public class PeerFactory : IPeerFactory
             return _factory.DialAsync(this, addr, token);
         }
 
-        public Task<IListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
+        public Task<ILocalListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
         {
             return _factory.ListenAsync(this, addr, token);
         }
@@ -212,9 +249,21 @@ public class PeerFactory : IPeerFactory
         public Multiaddress Address { get; set; }
         internal ILocalPeer LocalPeer { get; }
 
-        public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
+        public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IId, IDialer
         {
             return _factory.DialAsync<TProtocol>(peerContext, token);
+        }
+
+        public Task<TResult> DialAsync<TProtocol, TResult>(CancellationToken token = default)
+            where TProtocol : IId, IDialer<TResult>
+        {
+            return _factory.DialAsync<TProtocol, TResult>(peerContext, token);
+        }
+
+        public Task<TResult> DialAsync<TProtocol, TResult, TParams>(TParams @params, CancellationToken token = default)
+            where TProtocol : IId, IDialer<TResult, TParams>
+        {
+            return _factory.DialAsync<TProtocol, TResult, TParams>(@params, peerContext, token);
         }
 
         public Task DisconnectAsync()

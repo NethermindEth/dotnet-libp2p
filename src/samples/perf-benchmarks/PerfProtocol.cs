@@ -8,7 +8,7 @@ using Nethermind.Libp2p.Core;
 namespace DataTransferBenchmark;
 
 // TODO: Align with perf protocol
-public class PerfProtocol : IProtocol
+public class PerfProtocol : IDuplexProtocol
 {
     private readonly ILogger? _logger;
     public string Id => "/perf/1.0.0";

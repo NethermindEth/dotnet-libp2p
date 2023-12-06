@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol : IProtocol
+public class NoiseProtocol : IDuplexProtocol
 {
     private readonly Protocol _protocol;
     private readonly byte[][] _psks;
