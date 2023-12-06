@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -14,9 +15,9 @@ public class FloodsubProtocolTests
     {
         PubsubRouter router = new();
         IRoutingStateContainer state = router;
-        Multiaddr discoveredPeer = TestPeers.Multiaddr(1);
+        Multiaddress discoveredPeer = TestPeers.Multiaddr(1);
         PeerId peerId = TestPeers.PeerId(1);
-        Multiaddr localPeerAddr = TestPeers.Multiaddr(2);
+        Multiaddress localPeerAddr = TestPeers.Multiaddr(2);
         const string commonTopic = "topic1";
 
         ILocalPeer peer = Substitute.For<ILocalPeer>();

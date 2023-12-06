@@ -60,8 +60,8 @@ public class IdentifyProtocol : IProtocol
             {
                 AgentVersion = "github.com/Nethermind/dotnet-libp2p/samples@1.0.0",
                 ProtocolVersion = SubProtocolId,
-                ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToByteArray()) },
-                ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToByteArray()),
+                ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToBytes()) },
+                ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToBytes()),
                 PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
                 Protocols = { peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
             };

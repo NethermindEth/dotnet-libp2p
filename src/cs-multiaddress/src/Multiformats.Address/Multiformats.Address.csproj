@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net70</TargetFramework>
+    <RuntimeIdentifiers>win10-x64;osx-x64;ubuntu-x64</RuntimeIdentifiers>
+    <Description>Multiformat addresses</Description>
+    <Copyright>Copyright © tabrath 2017</Copyright>
+    <AssemblyTitle>Multiformats.Address</AssemblyTitle>
+    <VersionPrefix>1.1.1</VersionPrefix>
+    <Authors>tabrath</Authors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Multiformats.Address</AssemblyName>
+    <PackageId>Multiformats.Address</PackageId>
+    <PackageTags>multiaddress</PackageTags>
+    <PackageIconUrl>https://cdn.rawgit.com/multiformats/website/116894f6/favicon.png</PackageIconUrl>
+    <PackageLicenseUrl>https://github.com/multiformats/cs-multiaddress/blob/master/LICENSE</PackageLicenseUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/multiformats/cs-multiaddress</RepositoryUrl>
+    <PackageTargetFallback Condition=" '$(TargetFramework)' == 'net461' ">$(PackageTargetFallback);netstandard;portable-net461+win8</PackageTargetFallback>
+    <NetStandardImplicitPackageVersion Condition=" '$(TargetFramework)' == 'netstandard1.6' ">1.6.1</NetStandardImplicitPackageVersion>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <OutputType>Library</OutputType>
+    <PackageProjectUrl>https://github.com/multiformats/cs-multiaddress</PackageProjectUrl>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <DefineConstants>$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard1.6'">
+    <PackageReference Include="System.Net.NetworkInformation" Version="4.3.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BinaryEncoding" Version="1.3.4" />
+    <PackageReference Include="Multiformats.Base" Version="2.0.1" />
+    <PackageReference Include="Multiformats.Hash" Version="1.3.0" />
+  </ItemGroup>
+</Project>

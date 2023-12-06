@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
@@ -24,9 +26,9 @@ CancellationTokenSource ts = new();
 
 if (args.Length > 0 && args[0] == "-d")
 {
-    Multiaddr remoteAddr = args[1];
+    Multiaddress remoteAddr = args[1];
 
-    string addrTemplate = remoteAddr.Has(Nethermind.Libp2p.Core.Enums.Multiaddr.QuicV1) ?
+    string addrTemplate = remoteAddr.Has<QUICv1>() ?
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 

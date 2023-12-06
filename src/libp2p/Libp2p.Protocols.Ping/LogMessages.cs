@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols.Ping;
@@ -17,7 +18,7 @@ internal static partial class LogMessages
         Level = LogLevel.Trace)]
     internal static partial void ReadingPong(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 2,
@@ -26,7 +27,7 @@ internal static partial class LogMessages
         Level = LogLevel.Trace)]
     internal static partial void VerifyingPong(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 3,
@@ -35,7 +36,7 @@ internal static partial class LogMessages
         Level = LogLevel.Trace)]
     internal static partial void ReadingPing(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 4,
@@ -44,7 +45,7 @@ internal static partial class LogMessages
         Level = LogLevel.Trace)]
     internal static partial void ReturningPong(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 5,
@@ -53,7 +54,7 @@ internal static partial class LogMessages
         Level = LogLevel.Debug)]
     internal static partial void LogPing(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 6,
@@ -62,7 +63,7 @@ internal static partial class LogMessages
         Level = LogLevel.Debug)]
     internal static partial void LogPinged(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 7,
@@ -71,7 +72,7 @@ internal static partial class LogMessages
         Level = LogLevel.Debug)]
     internal static partial void PingListenStarted(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 8,
@@ -80,7 +81,7 @@ internal static partial class LogMessages
         Level = LogLevel.Debug)]
     internal static partial void PingFinished(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 
     [LoggerMessage(
         EventId = EventId + 9,
@@ -89,5 +90,5 @@ internal static partial class LogMessages
         Level = LogLevel.Warning)]
     internal static partial void PingFailed(
         this ILogger logger,
-        Multiaddr remotePeer);
+        Multiaddress remotePeer);
 }

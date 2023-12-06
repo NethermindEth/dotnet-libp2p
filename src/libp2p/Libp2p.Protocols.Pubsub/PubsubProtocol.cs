@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -27,7 +28,7 @@ public abstract class PubsubProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
+        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
         CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
@@ -50,7 +51,7 @@ public abstract class PubsubProtocol : IProtocol
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        string peerId = context.RemotePeer.Address.At(MultiaddrEnum.P2p)!;
+        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
         CancellationToken token = router.InboundConnection(peerId, Id, () =>

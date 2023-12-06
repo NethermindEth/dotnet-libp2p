@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
 using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
 public interface IListener
 {
-    Multiaddr Address { get; }
+    Multiaddress Address { get; }
 
     event OnConnection OnConnection;
     Task DisconnectAsync();

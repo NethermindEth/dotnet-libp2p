@@ -7,6 +7,8 @@ using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using Nethermind.Libp2p.Core.Discovery;
 using Makaretu.Dns;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -25,28 +27,28 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
     private string? ServiceNameOverride = "pubsub-chat-example";
 
-    public Func<Core.Multiaddr[], bool>? OnAddPeer { get; set; }
-    public Func<Core.Multiaddr[], bool>? OnRemovePeer { get; set; }
+    public Func<Multiaddress[], bool>? OnAddPeer { get; set; }
+    public Func<Multiaddress[], bool>? OnRemovePeer { get; set; }
 
     private string PeerName = null!;
 
-    public async Task DiscoverAsync(Core.Multiaddr localPeerAddr, CancellationToken token = default)
+    public async Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
     {
-        ObservableCollection<Core.Multiaddr> peers = new();
+        ObservableCollection<Multiaddress> peers = new();
 
         try
         {
             PeerName = RandomString(32);
             ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
-            if (localPeerAddr.At(Core.Enums.Multiaddr.Ip4) == "0.0.0.0")
+            if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
             {
                 service.Resources.Add(new TXTRecord()
                 {
                     Name = service.FullyQualifiedName,
                     Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
                         .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                        .Select(item => $"dnsaddr={localPeerAddr.Replace(Core.Enums.Multiaddr.Ip4, item.ToString())}"))
+                        .Select(item => $"dnsaddr={localPeerAddr.Replace<IP4>(item.ToString())}"))
                 });
             }
             else
@@ -71,14 +73,14 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
             };
             sd.ServiceInstanceDiscovered += (s, e) =>
             {
-                Core.Multiaddr[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
+                Multiaddress[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
-                    .SelectMany(x => x).Select(x => new Core.Multiaddr(x.Replace("dnsaddr=", ""))).ToArray();
+                    .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
-                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.At(Core.Enums.Multiaddr.P2p) != Enumerable.First(records).At(Core.Enums.Multiaddr.P2p))
+                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.Get<P2P>().ToString() != Enumerable.First(records).Get<P2P>().ToString())
                 {
                     List<string> peerAddresses = new();
-                    foreach (Core.Multiaddr peer in records)
+                    foreach (Multiaddress peer in records)
                     {
                         peers.Add(peer);
                     }
