@@ -3,6 +3,8 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
@@ -114,7 +116,7 @@ public class PubsubRouter : IRoutingStateContainer
             throw new InvalidOperationException("Router has been already started");
         }
         this.localPeer = localPeer;
-        LocalPeerId = new PeerId(localPeer.Address.At(MultiaddrEnum.P2p)!);
+        LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
 
         _ = localPeer.ListenAsync(localPeer.Address, token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);
@@ -131,12 +133,12 @@ public class PubsubRouter : IRoutingStateContainer
         {
             throw new ArgumentNullException(nameof(localPeer));
         }
-        ObservableCollection<Multiaddr> col = new();
+        ObservableCollection<Multiaddress> col = new();
         discoveryProtocol.OnAddPeer = (addrs) =>
         {
             //addrs = addrs.Where(x => x.ToString().Contains("127.0.0.1")).ToArray();
-            Dictionary<Multiaddr, CancellationTokenSource> cancellations = new();
-            foreach (Multiaddr addr in addrs)
+            Dictionary<Multiaddress, CancellationTokenSource> cancellations = new();
+            foreach (Multiaddress addr in addrs)
             {
                 cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
             }
@@ -145,7 +147,7 @@ public class PubsubRouter : IRoutingStateContainer
             {
                 IRemotePeer firstConnected = (await Task.WhenAny(addrs
                     .Select(addr => localPeer.DialAsync(addr, cancellations[addr].Token)))).Result;
-                foreach (KeyValuePair<Multiaddr, CancellationTokenSource> c in cancellations)
+                foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
                 {
                     if (c.Key != firstConnected.Address)
                     {
@@ -153,7 +155,7 @@ public class PubsubRouter : IRoutingStateContainer
                     }
                 }
                 logger?.LogDebug("Dialing {0}", firstConnected.Address);
-                PeerId peerId = firstConnected.Address.At(MultiaddrEnum.P2p)!;
+                PeerId peerId = firstConnected.Address.Get<P2P>().ToString()!;
                 if (!peerState.ContainsKey(peerId))
                 {
                     await firstConnected.DialAsync<GossipsubProtocol>(token);

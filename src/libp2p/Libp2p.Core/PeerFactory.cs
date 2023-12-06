@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
@@ -18,7 +20,7 @@ public class PeerFactory : IPeerFactory
         _serviceProvider = serviceProvider;
     }
 
-    public virtual ILocalPeer Create(Identity? identity = default, Multiaddr? localAddr = default)
+    public virtual ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default)
     {
         identity ??= new Identity();
         return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/127.0.0.1/tcp/0/p2p/{identity.PeerId}" };
@@ -37,12 +39,12 @@ public class PeerFactory : IPeerFactory
         _upChannelFactory = upChannelFactory;
     }
 
-    private async Task<IListener> ListenAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
+    private async Task<IListener> ListenAsync(LocalPeer peer, Multiaddress addr, CancellationToken token)
     {
         peer.Address = addr;
-        if (!peer.Address.Has(Enums.Multiaddr.P2p))
+        if (!peer.Address.Has<P2P>())
         {
-            peer.Address = peer.Address.Append(Enums.Multiaddr.P2p, peer.Identity.PeerId.ToString());
+            peer.Address = peer.Address.Add<P2P>(peer.Identity.PeerId.ToString());
         }
 
         Channel chan = new();
@@ -101,7 +103,7 @@ public class PeerFactory : IPeerFactory
         return cts.Task;
     }
 
-    protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, Multiaddr addr, CancellationToken token)
+    protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, Multiaddress addr, CancellationToken token)
     {
         try
         {
@@ -150,7 +152,7 @@ public class PeerFactory : IPeerFactory
         }
 
         public event OnConnection? OnConnection;
-        public Multiaddr Address => _localPeer.Address;
+        public Multiaddress Address => _localPeer.Address;
 
         public Task DisconnectAsync()
         {
@@ -179,14 +181,14 @@ public class PeerFactory : IPeerFactory
         }
 
         public Identity? Identity { get; set; }
-        public Multiaddr Address { get; set; }
+        public Multiaddress Address { get; set; }
 
-        public Task<IRemotePeer> DialAsync(Multiaddr addr, CancellationToken token = default)
+        public Task<IRemotePeer> DialAsync(Multiaddress addr, CancellationToken token = default)
         {
             return _factory.DialAsync(this, addr, token);
         }
 
-        public Task<IListener> ListenAsync(Multiaddr addr, CancellationToken token = default)
+        public Task<IListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
         {
             return _factory.ListenAsync(this, addr, token);
         }
@@ -207,7 +209,7 @@ public class PeerFactory : IPeerFactory
         public Channel Channel { get; set; }
 
         public Identity Identity { get; set; }
-        public Multiaddr Address { get; set; }
+        public Multiaddress Address { get; set; }
         internal ILocalPeer LocalPeer { get; }
 
         public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol

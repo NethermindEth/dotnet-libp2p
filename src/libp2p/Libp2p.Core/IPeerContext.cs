@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core;
@@ -11,8 +12,8 @@ public interface IPeerContext
     IPeer LocalPeer { get; }
     IPeer RemotePeer { get; }
 
-    Multiaddr RemoteEndpoint { get; set; }
-    Multiaddr LocalEndpoint { get; set; }
+    Multiaddress RemoteEndpoint { get; set; }
+    Multiaddress LocalEndpoint { get; set; }
 
     // TODO: Get rid of this:
     IPeerContext Fork();

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -30,7 +31,7 @@ public class GossipsubProtocolTests
 
         foreach (int index in Enumerable.Range(1, peerCount))
         {
-            Multiaddr discoveredPeer = TestPeers.Multiaddr(index);
+            Multiaddress discoveredPeer = TestPeers.Multiaddr(index);
             PeerId peerId = TestPeers.PeerId(index);
 
             discovery.OnAddPeer!(new[] { discoveredPeer });

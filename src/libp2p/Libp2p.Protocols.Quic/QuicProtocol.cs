@@ -1,17 +1,19 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Quic;
 using System.Buffers;
-using System.Net.Sockets;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols.Quic;
-using MultiaddrEnum = Nethermind.Libp2p.Core.Enums.Multiaddr;
+//using Nethermind.Libp2p.Protocols.Quic;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -51,10 +53,10 @@ public class QuicProtocol : IProtocol
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
         }
 
-        Multiaddr addr = context.LocalPeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        int udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
+        Multiaddress addr = context.LocalPeer.Address;
+        MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
+        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
+        int udpPort = int.Parse(addr.Get<UDP>().ToString());
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
@@ -78,14 +80,21 @@ public class QuicProtocol : IProtocol
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
         });
 
-        context.LocalEndpoint = Multiaddr.From(
-            ipProtocol, listener.LocalEndPoint.Address.ToString(),
-            MultiaddrEnum.Udp, listener.LocalEndPoint.Port);
+        var localEndPoint = new Multiaddress();
+        // IP (4 or 6 is based on source address).
+        var strLocalEndpoint = listener.LocalEndPoint.Address.ToString();
+        localEndPoint = addr.Has<IP4>() ? localEndPoint.Add<IP4>(strLocalEndpoint) : localEndPoint.Add<IP6>(strLocalEndpoint);
+
+        // UDP
+        localEndPoint = localEndPoint.Add<UDP>(listener.LocalEndPoint.Port);
+
+        // Set on context
+        context.LocalEndpoint = localEndPoint;
 
         if (udpPort == 0)
         {
             context.LocalPeer.Address = context.LocalPeer.Address
-                .Replace(MultiaddrEnum.Udp, listener.LocalEndPoint.Port.ToString());
+                .Replace<UDP>(listener.LocalEndPoint.Port);
         }
 
         channel.OnClose(async () =>
@@ -115,17 +124,19 @@ public class QuicProtocol : IProtocol
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
         }
 
-        Multiaddr addr = context.LocalPeer.Address;
-        MultiaddrEnum ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        IPAddress ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        int udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
+        Multiaddress addr = context.LocalPeer.Address;
+        bool isIp4 = addr.Has<IP4>();
+        MultiaddressProtocol protocol = isIp4 ? addr.Get<IP4>() : addr.Get<IP6>();
+        IPAddress ipAddress = IPAddress.Parse(protocol.ToString());
+        int udpPort = int.Parse(addr.Get<UDP>().ToString());
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
         addr = context.RemotePeer.Address;
-        ipProtocol = addr.Has(MultiaddrEnum.Ip4) ? MultiaddrEnum.Ip4 : MultiaddrEnum.Ip6;
-        ipAddress = IPAddress.Parse(addr.At(ipProtocol)!);
-        udpPort = int.Parse(addr.At(MultiaddrEnum.Udp)!);
+        isIp4 = addr.Has<IP4>();
+        protocol = isIp4 ? addr.Get<IP4>() : addr.Get<IP6>();
+        ipAddress = IPAddress.Parse(protocol.ToString()!);
+        udpPort = int.Parse(addr.Get<UDP>().ToString()!);
 
         IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
@@ -160,37 +171,30 @@ public class QuicProtocol : IProtocol
     }
 
     private static bool VerifyRemoteCertificate(IPeer? remotePeer, X509Certificate certificate) =>
-         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.At(MultiaddrEnum.P2p));
+         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.Get<P2P>().ToString());
 
     private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token)
     {
-        MultiaddrEnum newIpProtocol = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork
-           ? MultiaddrEnum.Ip4
-           : MultiaddrEnum.Ip6;
+        bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
 
-        context.LocalEndpoint = Multiaddr.From(
-            newIpProtocol,
-            connection.LocalEndPoint.Address.ToString(),
-            MultiaddrEnum.Udp,
-            connection.LocalEndPoint.Port);
+        Multiaddress localEndPointMultiaddress = new Multiaddress();
+        string strLocalEndpointAddress = connection.LocalEndPoint.Address.ToString();
+        localEndPointMultiaddress = isIP4 ? localEndPointMultiaddress.Add<IP4>(strLocalEndpointAddress) : localEndPointMultiaddress.Add<IP6>(strLocalEndpointAddress);
+        localEndPointMultiaddress = localEndPointMultiaddress.Add<UDP>(connection.LocalEndPoint.Port);
 
-        context.LocalPeer.Address = context.LocalPeer.Address.Replace(
-                context.LocalEndpoint.Has(MultiaddrEnum.Ip4) ?
-                    MultiaddrEnum.Ip4 :
-                    MultiaddrEnum.Ip6,
-                newIpProtocol,
-                connection.LocalEndPoint.Address.ToString());
+        context.LocalEndpoint = localEndPointMultiaddress;
+
+        context.LocalPeer.Address = isIP4 ? context.LocalPeer.Address.Replace<IP4>(strLocalEndpointAddress) : context.LocalPeer.Address.Replace<IP6>(strLocalEndpointAddress);
 
         IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
-        newIpProtocol = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork
-           ? MultiaddrEnum.Ip4
-           : MultiaddrEnum.Ip6;
+        isIP4 = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork;
 
-        context.RemoteEndpoint = Multiaddr.From(
-            newIpProtocol,
-            remoteIpEndpoint.Address.ToString(),
-            MultiaddrEnum.Udp,
-            remoteIpEndpoint.Port);
+        Multiaddress remoteEndPointMultiaddress = new Multiaddress();
+        string strRemoteEndpointAddress = remoteIpEndpoint.Address.ToString();
+        remoteEndPointMultiaddress = isIP4 ? remoteEndPointMultiaddress.Add<IP4>(strRemoteEndpointAddress) : remoteEndPointMultiaddress.Add<IP6>(strRemoteEndpointAddress);
+        remoteEndPointMultiaddress = remoteEndPointMultiaddress.Add<UDP>(remoteIpEndpoint.Port);
+
+        context.RemoteEndpoint = remoteEndPointMultiaddress;
 
         context.Connected(context.RemotePeer);
 

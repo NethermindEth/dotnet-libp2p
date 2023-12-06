@@ -1,0 +1,71 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2027
+MinimumVisualStudioVersion = 15.0.26124.0
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5174FE92-E9D8-47EA-8738-0E94D8E8F85B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address", "src\Multiformats.Address\Multiformats.Address.csproj", "{BFFDDBBD-0073-49CC-8592-78140A5A7165}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{C0A9F493-26A9-4370-9B7B-EA3B2031B952}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address.Tests", "test\Multiformats.Address.Tests\Multiformats.Address.Tests.csproj", "{B6E09410-D728-4184-A79D-B9195DB90C73}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{BCB0693C-373E-4379-B767-01319F264FFA}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		.travis.yml = .travis.yml
+		appveyor.yml = appveyor.yml
+		build.sh = build.sh
+		LICENSE = LICENSE
+		NuGet.config = NuGet.config
+		README.md = README.md
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|x64.Build.0 = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Debug|x86.Build.0 = Debug|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|x64.ActiveCfg = Release|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|x64.Build.0 = Release|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|x86.ActiveCfg = Release|Any CPU
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165}.Release|x86.Build.0 = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|x64.Build.0 = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Debug|x86.Build.0 = Debug|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|x64.ActiveCfg = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|x64.Build.0 = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|x86.ActiveCfg = Release|Any CPU
+		{B6E09410-D728-4184-A79D-B9195DB90C73}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BFFDDBBD-0073-49CC-8592-78140A5A7165} = {5174FE92-E9D8-47EA-8738-0E94D8E8F85B}
+		{B6E09410-D728-4184-A79D-B9195DB90C73} = {C0A9F493-26A9-4370-9B7B-EA3B2031B952}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C1A38278-CB86-4A00-96FA-EE89A8D7293A}
+	EndGlobalSection
+EndGlobal
