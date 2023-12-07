@@ -3,4 +3,7 @@
 	url = https://github.com/multiformats/multicodec.git
 [submodule "src/cs-multihash"]
 	path = src/cs-multihash
-	url = https://github.com/flcl42/cs-multihash.git
+	url = https://github.com/NethermindEth/cs-multihash.git
+[submodule "src/cs-multiaddress"]
+	path = src/cs-multiaddress
+	url = https://github.com/NethermindEth/cs-multiaddress.git
