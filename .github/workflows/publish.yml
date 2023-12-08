@@ -22,7 +22,7 @@ jobs:
     steps:
 
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
 
@@ -42,10 +42,14 @@ jobs:
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
+        env:
+          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet test Libp2p.Core.Tests -c ${{ env.BUILD_CONFIG }} --no-build
-          #dotnet test Libp2p.Protocols.Multistream.Tests -c ${{ env.BUILD_CONFIG }} --no-build
-          dotnet test Libp2p.Protocols.Noise.Tests -c ${{ env.BUILD_CONFIG }} --no-build
+          dotnet test Libp2p.Core.Tests ${{ env.PACK_OPTS }}
+          #dotnet test Libp2p.Protocols.Multistream.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Noise.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Pubsub.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Quic.Tests ${{ env.PACK_OPTS }}
 
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
@@ -60,11 +64,11 @@ jobs:
           dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
           
           dotnet nuget push **/*.nupkg \
             -k ${{ github.event.inputs.feed == 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
