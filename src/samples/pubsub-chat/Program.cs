@@ -12,9 +12,7 @@ using Multiformats.Address.Protocols;
 using Multiformats.Address;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder
-        .AddAppLayerProtocol<ChatProtocol>()
-        )
+    .AddLibp2p(builder => builder)
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Debug)
             .AddSimpleConsole(l =>

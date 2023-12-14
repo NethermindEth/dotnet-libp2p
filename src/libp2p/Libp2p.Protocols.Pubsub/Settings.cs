@@ -18,6 +18,7 @@ public class Settings
     public int mcache_len { get; set; } = 5;//Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3;//Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;//Expiry time for cache of seen message ids 	2 minutes
+    public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
 
     public Func<Message, string> GetMessageIdFunction = GetMessageId;
 
@@ -25,5 +26,11 @@ public class Settings
     {
         Span<byte> bytes = new byte[message.From.Length + message.Seqno.Length];
         return "";
+    }
+
+    public enum SignaturePolicy
+    {
+        StrictSign,
+        StrictNoSign,
     }
 }

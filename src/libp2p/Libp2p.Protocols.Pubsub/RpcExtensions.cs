@@ -44,8 +44,13 @@ internal static class RpcExtensions
         return rpc;
     }
 
-    public static bool VerifySignature(this Message message)
+    public static bool VerifySignature(this Message message, Settings.SignaturePolicy signaturePolicy)
     {
+        if (signaturePolicy is Settings.SignaturePolicy.StrictNoSign)
+        {
+            return message.Signature.IsEmpty;
+        }
+
         PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
         if (pubKey is null)
         {
@@ -56,8 +61,8 @@ internal static class RpcExtensions
         msgToBeVerified.ClearSignature();
 
         byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
-          .Concat(msgToBeVerified.ToByteArray())
-          .ToArray();
+            .Concat(msgToBeVerified.ToByteArray())
+            .ToArray();
 
         return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
     }

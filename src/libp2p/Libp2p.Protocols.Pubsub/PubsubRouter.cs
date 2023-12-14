@@ -506,7 +506,7 @@ public class PubsubRouter : IRoutingStateContainer
                         continue;
                 }
 
-                if (!message.VerifySignature())
+                if (!message.VerifySignature(settings.DefaultSignaturePolicy))
                 {
                     limboMessageCache!.Add(messageId, message);
                     continue;

@@ -57,6 +57,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Hash", "..\cs-
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Quic.Tests", "Libp2p.Protocols.Quic.Tests\Libp2p.Protocols.Quic.Tests.csproj", "{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A2304809-D04D-46CA-9B94-ED487E3E9B79}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Build.props = Directory.Build.props
+		Directory.Packages.props = Directory.Packages.props
+	EndProjectSection
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address", "..\cs-multiaddress\src\Multiformats.Address\Multiformats.Address.csproj", "{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}"
 EndProject
 Global
