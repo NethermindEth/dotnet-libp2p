@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+    <EnforceExtendedAnalyzerRules>false</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
 
   <ItemGroup>
