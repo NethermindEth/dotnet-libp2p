@@ -119,7 +119,7 @@ public class PeerFactory : IPeerFactory
         ((PeerContext)peerContext).SubDialRequests.Add(new ChannelRequest
         {
             SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
-            Call = (subProtocol, downChannel, channelFactory, context)
+            Dial = (subProtocol, downChannel, channelFactory, context)
                 => ((IDialer<TResult>)subProtocol).DialAsync(downChannel, channelFactory, context),
             SetResult = (result) => cts.SetResult(((Task<TResult>)result).Result),
         });
@@ -133,48 +133,41 @@ public class PeerFactory : IPeerFactory
         ((PeerContext)peerContext).SubDialRequests.Add(new ChannelRequest
         {
             SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
-            Call = (subProtocol, downChannel, channelFactory, context)
+            Dial = (subProtocol, downChannel, channelFactory, context)
                 => ((IDialer<TResult, TParams>)subProtocol).DialAsync(downChannel, channelFactory, context, @params),
             SetResult = (result) => cts.SetResult(((Task<TResult>)result).Result),
-        }); ;
+        });
         return cts.Task;
     }
 
     protected virtual async Task<IRemotePeer> DialAsync(LocalPeer peer, Multiaddress addr, CancellationToken token)
     {
-        try
+        Channel chan = new();
+        token.Register(() => chan.CloseAsync());
+
+        PeerContext context = new()
         {
-            Channel chan = new();
-            token.Register(() => chan.CloseAsync());
+            Id = $"ctx-{++CtxId}",
+            LocalPeer = peer,
+        };
+        RemotePeer result = new(this, peer, context) { Address = addr, Channel = chan };
+        context.RemotePeer = result;
 
-            PeerContext context = new()
-            {
-                Id = $"ctx-{++CtxId}",
-                LocalPeer = peer,
-            };
-            RemotePeer result = new(this, peer, context) { Address = addr, Channel = chan };
-            context.RemotePeer = result;
-
-            TaskCompletionSource<bool> tcs = new();
-            context.OnRemotePeerConnection += remotePeer =>
-            {
-                if (((RemotePeer)remotePeer).LocalPeer != peer)
-                {
-                    return;
-                }
-
-                ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
-            };
-
-            _ = ((IDialer)_protocol).DialAsync(chan, _upChannelFactory, context);
-
-            await tcs.Task;
-            return result;
-        }
-        catch
+        TaskCompletionSource<bool> tcs = new();
+        context.OnRemotePeerConnection += remotePeer =>
         {
-            throw;
-        }
+            if (((RemotePeer)remotePeer).LocalPeer != peer)
+            {
+                return;
+            }
+
+            ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
+        };
+
+        _ = ((IDialer)_protocol).DialAsync(chan, _upChannelFactory, context);
+
+        await tcs.Task;
+        return result;
     }
 
     private class PeerListener : ILocalListener

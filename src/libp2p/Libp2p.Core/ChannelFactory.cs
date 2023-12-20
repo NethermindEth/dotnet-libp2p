@@ -55,7 +55,7 @@ public class ChannelFactory : IChannelFactory
     private void SetupDialing(IId subProtocol, Channel channel, IPeerContext context, IChannelRequest? req)
     {
         ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
-        Func<IId, IChannel, IChannelFactory?, IPeerContext, Task>? call = (req as ChannelRequest)?.Call;
+        Func<IId, IChannel, IChannelFactory?, IPeerContext, Task>? call = (req as ChannelRequest)?.Dial;
 
         _logger?.DialStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 

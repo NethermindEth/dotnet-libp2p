@@ -6,7 +6,7 @@ namespace Nethermind.Libp2p.Core;
 
 internal class ChannelRequest : IChannelRequest
 {
-    public Func<IId, IChannel, IChannelFactory?, IPeerContext, Task>? Call { get; init; }
+    public Func<IId, IChannel, IChannelFactory?, IPeerContext, Task>? Dial { get; init; }
     public Action<Task>? SetResult { get; init; }
 
     public IId? SubProtocol { get; init; }
