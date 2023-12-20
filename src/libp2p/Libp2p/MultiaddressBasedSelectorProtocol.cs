@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// Select protocol based on multiaddr
 /// </summary>
-public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProtocol, IProtocol
+public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProtocol, IDuplexProtocol
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultiaddressBasedSelectorProtocol>();
 
@@ -19,7 +19,7 @@ public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = n
 
     protected override async Task ConnectAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context, bool isListener)
     {
-        IProtocol protocol = null!;
+        IId protocol = null!;
         // TODO: deprecate quic
         if (context.LocalPeer.Address.Has<QUIC>())
         {

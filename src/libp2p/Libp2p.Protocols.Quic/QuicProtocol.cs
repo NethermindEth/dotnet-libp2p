@@ -22,7 +22,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
-public class QuicProtocol : IProtocol
+public class QuicProtocol : IDuplexProtocol
 {
     private readonly ILogger<QuicProtocol>? _logger;
     private readonly ECDsa _sessionKey;
@@ -200,13 +200,13 @@ public class QuicProtocol : IProtocol
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            foreach (IChannelRequest request in context.GetBlockingSubDialRequestsEnumerable())
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
                 IPeerContext dialContext = context.Fork();
                 dialContext.SpecificProtocolRequest = request;
                 IChannel upChannel = channelFactory.SubDial(dialContext);
-                ExchangeData(stream, upChannel, request.CompletionSource);
+                ExchangeData(stream, upChannel);
             }
         }, token);
 
@@ -214,15 +214,14 @@ public class QuicProtocol : IProtocol
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
             IChannel upChannel = channelFactory.SubListen(context);
-            ExchangeData(inboundStream, upChannel, null);
+            ExchangeData(inboundStream, upChannel);
         }
     }
 
-    private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
+    private void ExchangeData(QuicStream stream, IChannel upChannel)
     {
         upChannel.OnClose(async () =>
         {
-            tcs?.SetResult();
             stream.Close();
         });
 

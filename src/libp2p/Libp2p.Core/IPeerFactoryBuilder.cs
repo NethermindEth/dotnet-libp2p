@@ -5,7 +5,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IPeerFactoryBuilder
 {
-    IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol;
+    IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IId;
     IPeerFactory Build();
-    IEnumerable<IProtocol> AppLayerProtocols { get; }
+    IEnumerable<IId> AppLayerProtocols { get; }
 }

@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify
 /// </summary>
-public class IdentifyProtocol : IProtocol
+public class IdentifyProtocol : IDuplexProtocol
 {
     private const string SubProtocolId = "ipfs/0.1.0";
 

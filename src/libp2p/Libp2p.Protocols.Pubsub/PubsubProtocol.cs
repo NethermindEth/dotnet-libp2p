@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
-public abstract class PubsubProtocol : IProtocol
+public abstract class PubsubProtocol : IDuplexProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -56,7 +56,7 @@ public abstract class PubsubProtocol : IProtocol
 
         CancellationToken token = router.InboundConnection(peerId, Id, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            context.RequestDial(this);
         });
         while (!token.IsCancellationRequested)
         {

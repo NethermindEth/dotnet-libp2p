@@ -5,13 +5,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
     .AddLogging(builder =>
-        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
+        builder.SetMinimumLevel(args.Contains("--log") ? LogLevel.Trace : LogLevel.Information)
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
@@ -49,11 +50,16 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1/p2p/{1}" :
         "/ip4/0.0.0.0/tcp/{0}/p2p/{1}";
 
-    IListener listener = await peer.ListenAsync(
+    ILocalListener listener = await peer.ListenAsync(
         string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0", peer.Identity.PeerId),
         ts.Token);
+    listener.OnConnection += async remotePeer =>
+    {
+        logger.LogInformation($"A peer connected {remotePeer.Address}");
+        long result = await remotePeer.DialAsync<PingProtocol, long>();
+        logger.LogInformation($"Communication delay is {result} ms");
+    };
     logger.LogInformation($"Listener started at {listener.Address}");
-    listener.OnConnection += async remotePeer => logger.LogInformation($"A peer connected {remotePeer.Address}");
     Console.CancelKeyPress += delegate { listener.DisconnectAsync(); };
 
     await listener;

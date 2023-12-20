@@ -13,10 +13,10 @@ internal static partial class LogMessages
 
     [LoggerMessage(
         EventId = EventId + 1,
-        EventName = nameof(ReadingPong),
-        Message = "Reading pong {remotePeer}",
+        EventName = nameof(ReadPong),
+        Message = "Read pong {remotePeer}",
         Level = LogLevel.Trace)]
-    internal static partial void ReadingPong(
+    internal static partial void ReadPong(
         this ILogger logger,
         Multiaddress remotePeer);
 

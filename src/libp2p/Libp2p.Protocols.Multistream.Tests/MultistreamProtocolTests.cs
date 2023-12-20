@@ -16,11 +16,11 @@ public class MultistreamProtocolTests
         IPeerContext peerContext = Substitute.For<IPeerContext>();
         peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto1");
         channelFactory.SubProtocols.Returns(new[] { proto1 });
         IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IDuplexProtocol>())
             .Returns(upChannel);
 
         MultistreamProtocol proto = new();
@@ -47,12 +47,12 @@ public class MultistreamProtocolTests
         IChannelRequest channelRequest = Substitute.For<IChannelRequest>();
         peerContext.SpecificProtocolRequest.Returns(channelRequest);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto1");
         channelRequest.SubProtocol.Returns(proto1);
         IChannel upChannel = new TestChannel();
 
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IDuplexProtocol>())
             .Returns(upChannel);
 
         MultistreamProtocol proto = new();
@@ -79,7 +79,7 @@ public class MultistreamProtocolTests
         IPeerContext peerContext = Substitute.For<IPeerContext>();
         peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto1");
         channelFactory.SubProtocols.Returns(new[] { proto1 });
 
@@ -107,13 +107,13 @@ public class MultistreamProtocolTests
         IPeerContext peerContext = Substitute.For<IPeerContext>();
         peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto1");
-        IProtocol? proto2 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto2 = Substitute.For<IDuplexProtocol>();
         proto2.Id.Returns("proto2");
         channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
         IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IDuplexProtocol>())
             .Returns(upChannel);
 
         MultistreamProtocol proto = new();
@@ -143,9 +143,9 @@ public class MultistreamProtocolTests
         IPeerContext peerContext = Substitute.For<IPeerContext>();
         peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
 
-        IProtocol? proto1 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto1");
-        IProtocol? proto2 = Substitute.For<IProtocol>();
+        IDuplexProtocol? proto2 = Substitute.For<IDuplexProtocol>();
         proto1.Id.Returns("proto2");
         channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
 
@@ -160,6 +160,6 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
-        _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IProtocol)null!);
+        _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IDuplexProtocol)null!);
     }
 }

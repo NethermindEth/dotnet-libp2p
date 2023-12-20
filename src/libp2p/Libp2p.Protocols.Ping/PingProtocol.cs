@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Ping;
@@ -11,7 +12,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/ping/ping.md
 /// </summary>
-public class PingProtocol : IProtocol
+public class PingProtocol : IId, IDialer<long>, IListener
 {
     private const int PayloadLength = 32;
 
@@ -24,18 +25,20 @@ public class PingProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger<PingProtocol>();
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task<long> DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
         byte[] byteArray = new byte[PayloadLength];
         _random.NextBytes(byteArray.AsSpan(0, PayloadLength));
         ReadOnlySequence<byte> bytes = new(byteArray);
 
         _logger?.LogPing(context.RemotePeer.Address);
-        await channel.WriteAsync(bytes);
 
-        _logger?.ReadingPong(context.RemotePeer.Address);
+        Stopwatch pingDelay = Stopwatch.StartNew();
+        await channel.WriteAsync(bytes);
         ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
+        pingDelay.Stop();
+
+        _logger?.ReadPong(context.RemotePeer.Address);
 
         _logger?.VerifyingPong(context.RemotePeer.Address);
         if (!byteArray[0..PayloadLength].SequenceEqual(response.ToArray()))
@@ -45,6 +48,7 @@ public class PingProtocol : IProtocol
         }
 
         _logger?.LogPinged(context.RemotePeer.Address);
+        return pingDelay.ElapsedMilliseconds;
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,

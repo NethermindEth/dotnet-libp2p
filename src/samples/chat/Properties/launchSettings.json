@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Chat": {
+      "commandName": "Project",
+      "commandLineArgs": "-sp 3001"
+    }
+  }
+}

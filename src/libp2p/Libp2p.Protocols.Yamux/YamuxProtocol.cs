@@ -8,7 +8,7 @@ using System.Text;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol : SymmetricProtocol, IProtocol
+public class YamuxProtocol : SymmetricProtocol, IDuplexProtocol
 {
     private const int HeaderLength = 12;
     private readonly ILogger? _logger;
@@ -43,7 +43,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            foreach (IChannelRequest request in context.GetBlockingSubDialRequestsEnumerable())
             {
                 int streamId = streamIdCounter;
                 streamIdCounter += 2;
@@ -174,7 +174,6 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                         Type = YamuxHeaderType.Data,
                         StreamID = streamId
                     });
-                channels[streamId].Request?.CompletionSource?.SetResult();
                 _logger?.LogDebug("Close, stream-{0}", streamId);
             });
 

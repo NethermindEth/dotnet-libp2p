@@ -19,7 +19,7 @@ public interface IPeerContext
     IPeerContext Fork();
 
     #region Allows muxer to manage session and channels for the app protocols
-    BlockingCollection<IChannelRequest> SubDialRequests { get; }
+    IEnumerable<IChannelRequest> GetBlockingSubDialRequestsEnumerable();
 
     IChannelRequest? SpecificProtocolRequest { get; set; }
 
@@ -28,6 +28,7 @@ public interface IPeerContext
 
     void Connected(IPeer peer);
     void ListenerReady();
+    void RequestDial(IId protocol);
     #endregion
 }
 

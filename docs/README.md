@@ -12,74 +12,87 @@ Development requires [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download)
 
 1. Write your protocol
 
-Libp2p protocols can be divided into 2 layers:
-- Transport layer protocols, that actively use peer address to discover network and establish connection;
-- Application layer protocols, that is used to exchange actual payload once the connection is active.
+   Libp2p protocols can be divided into 2 layers:
+   - Transport layer protocols, that actively use peer address to discover network and establish connection;
+   - Application layer protocols, that is used to exchange actual payload once the connection is active.
+   
+   Protocol can be used to dial to other peer or to listen for connections.
+   
+   So when a p2p communication needs to be implemented, it's required to implement a protocol according to `IId` interface and at least any of `IDialer`/`IListener` interfaces:
+   
+   ```csharp
+   namespace Nethermind.Libp2p.Core;
+   
+   public abstract class MyCustomProtocol: IProtocol, IDialer, IListener
+   {
+       public string Id => "/my-custom-protocol/1.0.0";
+   
+       public Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+       {
+           ...
+       }
+   
+       public Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+       {
+           ...
+       }
+   }
+   ```
+   
+   The `downChannel` is used to receive from and send data to the transport layer. Check `downChannel.   Reader` and `downChannel.Writer`'s methods.
+   
+   `upChannelFactory` is mostly used by transport layer protocols to initiate upper layer protocol    communication and is not available for application layer protocols.
+   
+   `context` holds information about peers.
 
-Protocol can be used to dial to other peer or to listen for connections.
+2. When protocol is defined, you need add it to the stack and create peer factory:
 
-So when a p2p communication needs to be implemented, it's required to implement a protocol according to `IProtocol` interface:
+   ```csharp
+   using Nethermind.Libp2p.Builder;
+   using Nethermind.Libp2p.Core;
+   
+   IPeerFactory peerFactory = Libp2pPeerFactoryBuilder.Instance
+       .AddAppLayerProtocol<MyCustomProtocol>()
+       .Build();
+   ```
 
-```csharp
-namespace Nethermind.Libp2p.Core;
+   It can be added as an instance or as a type parameter.
 
-public abstract class MyCustomProtocol
-{
-    public Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
-    {
-        ...
-    }
+3. To dial a peer with your new protocol, you need to instantiate a local peer that holds identity using the factory, and then dial. You need to dial to establish connection to remote peer and then dial with your protocol:
 
-    public Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
-    {
-        ...
-    }
-}
-```
+   ```csharp
+   ... 
+   
+   ILocalPeer localPeer = peerFactory.Create(/*optional id and address settings*/);
 
-The `downChannel` is used to receive from and send data to the transport layer. Check `downChannel.Reader` and `downChannel.Writer`'s methods. You need to close this channel if communication is finished.
+   IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+   await remotePeer.DialAsync<ChatProtocol>(ts.Token);
+   await remotePeer.DisconnectAsync();
+   ...
+   ```
 
-`upChannelFactory` is mostly used by transport layer protocols to initiate upper layer protocol communication.
+   in case you implemented `IDialer<TResult>` or `IDialer<TResult, TParams>` you can also receive a result from your protocol(when the session is finished) and pass data to it:
 
-`context` holds information about peers.
+   ```csharp
+   ... 
+   ILocalPeer localPeer = peerFactory.Create();
 
-If protocol symmetric, consider using `SymmetricProtocol` helper as base class.
+   IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+   string[] chatLog = await remotePeer.DialAsync<ChatProtocol>(nickName, ts.Token);
+   await remotePeer.DisconnectAsync();
+   ...
+   ```
 
-2. When protocol is defined, you need add it to the stack and create factory:
-
-```csharp
-using Nethermind.Libp2p.Builder;
-using Nethermind.Libp2p.Core;
-
-IPeerFactory peerFactory = Libp2pPeerFactoryBuilder.Instance
-    .AddAppLayerProtocol<MyCustomProtocol>()
-    .Build();
-```
-
-It can be added as an instance or as a type parameter.
-
-3. To dial to a peer with your new protocol, you need to instantiate a local peer that holds identity using the factory, and then dial. You need to dial to establish connection to remote peer and then dial with your protocol:
-
-```csharp
-    ... 
-    ILocalPeer localPeer = peerFactory.Create();
-
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
-    await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-    await remotePeer.DisconnectAsync();
-    ...
-```
-
-when for listening, the protocol will be automatically negotiated, as far as it was defined while building the stack:
-
-```csharp
-    ... 
-    ILocalPeer peer = peerFactory.Create();
-
-    IListener listener = await peer.ListenAsync(
-        $"/ip4/0.0.0.0/tcp/3000/p2p/{peer.Identity.PeerId}");
-    listener.OnConnection += async remotePeer => Console.WriteLine($"A peer connected {remotePeer.Address}");
-    ...
-```
+   for the listening, the protocol will be automatically negotiated, as far as it was defined while building the stack:
+   
+   ```csharp
+   ... 
+   ILocalPeer peer = peerFactory.Create();
+   
+   IListener listener = await peer.ListenAsync(
+       $"/ip4/0.0.0.0/tcp/3000/p2p/{peer.Identity.PeerId}");
+   listener.OnConnection += async remotePeer => Console.WriteLine($"A peer connected {remotePeer.Address}");
+   ...
+   ```
 
 4. Conventions and potentially useful tips can be found in [the best practices list](./development/best-practices.md)

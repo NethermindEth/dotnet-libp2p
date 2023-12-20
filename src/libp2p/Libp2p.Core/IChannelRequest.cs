@@ -5,6 +5,5 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IChannelRequest
 {
-    IProtocol? SubProtocol { get; }
-    public TaskCompletionSource? CompletionSource { get; }
+    IId SubProtocol { get; }
 }

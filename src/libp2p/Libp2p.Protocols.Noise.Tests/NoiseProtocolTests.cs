@@ -14,11 +14,11 @@ public class NoiseProtocolTests
         // IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         // IPeerContext peerContext = Substitute.For<IPeerContext>();
         //
-        // IProtocol? proto1 = Substitute.For<IProtocol>();
+        // IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         // proto1.Id.Returns("proto1");
         // channelFactory.SubProtocols.Returns(new[] { proto1 });
         // IChannel upChannel = new TestChannel();
-        // channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        // channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IDuplexProtocol>())
         //     .Returns(upChannel);
         //
         // NoiseProtocol proto = new();
@@ -40,11 +40,11 @@ public class NoiseProtocolTests
         // IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
         // IPeerContext peerContext = Substitute.For<IPeerContext>();
         //
-        // IProtocol? proto1 = Substitute.For<IProtocol>();
+        // IDuplexProtocol? proto1 = Substitute.For<IDuplexProtocol>();
         // proto1.Id.Returns("proto1");
         // channelFactory.SubProtocols.Returns(new[] { proto1 });
         // IChannel upChannel = new TestChannel();
-        // channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        // channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IDuplexProtocol>())
         //     .Returns(upChannel);
         //
         // NoiseProtocol proto = new();
