@@ -52,7 +52,7 @@ public class IpTcpProtocol : IProtocol
         if (tcpPort == 0)
         {
             context.LocalPeer.Address = context.LocalPeer.Address
-                .Replace<TCP>(localIpEndpoint.Port);
+                .ReplaceOrAdd<TCP>(localIpEndpoint.Port);
         }
 
         _logger?.LogDebug("Ready to handle connections");
@@ -85,7 +85,7 @@ public class IpTcpProtocol : IProtocol
                                 await Task.Yield();
                             }
 
-                            byte[] buf = new byte[client.Available];
+                            byte[] buf = new byte[1024];
                             int len = await client.ReceiveAsync(buf, SocketFlags.None);
                             if (len != 0)
                             {
@@ -131,9 +131,10 @@ public class IpTcpProtocol : IProtocol
         {
             await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), channel.Token);
         }
-        catch (SocketException)
+        catch (SocketException e)
         {
             _logger?.LogInformation($"Failed({context.Id}) to connect {addr}");
+            _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
             // TODO: Add proper exception and reconnection handling
             return;
         }

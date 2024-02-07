@@ -48,7 +48,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
                     Name = service.FullyQualifiedName,
                     Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
                         .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                        .Select(item => $"dnsaddr={localPeerAddr.Replace<IP4>(item.ToString())}"))
+                        .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}"))
                 });
             }
             else
