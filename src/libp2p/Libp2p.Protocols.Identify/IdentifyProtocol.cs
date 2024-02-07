@@ -13,67 +13,57 @@ namespace Nethermind.Libp2p.Protocols;
 /// </summary>
 public class IdentifyProtocol : IProtocol
 {
-    private const string SubProtocolId = "ipfs/0.1.0";
+    private readonly string _agentVersion;
+    private readonly string _protocolVersion;
 
     private readonly ILogger? _logger;
-    private readonly IPeerFactoryBuilder peerFactoryBuilder;
+    private readonly IPeerFactoryBuilder _peerFactoryBuilder;
 
-    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, ILoggerFactory? loggerFactory = null)
+    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, IdentifyProtocolSettings? settings, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
-        this.peerFactoryBuilder = peerFactoryBuilder;
+        _peerFactoryBuilder = peerFactoryBuilder;
+
+        _agentVersion = settings?.AgentVersion ?? IdentifyProtocolSettings.Default.AgentVersion!;
+        _protocolVersion = settings?.ProtocolVersion ?? IdentifyProtocolSettings.Default.ProtocolVersion!;
     }
 
     public string Id => "/ipfs/id/1.0.0";
 
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         _logger?.LogInformation("Dial");
 
-        try
-        {
-            Identify.Dto.Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
+        Identify.Dto.Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
 
-            _logger?.LogInformation("Received peer info: {identify}", identity);
-            context.RemotePeer.Identity = new Identity(PublicKey.Parser.ParseFrom(identity.PublicKey));
+        _logger?.LogInformation("Received peer info: {identify}", identity);
+        context.RemotePeer.Identity = new Identity(PublicKey.Parser.ParseFrom(identity.PublicKey));
 
-            if (context.RemotePeer.Identity.PublicKey.ToByteString() != identity.PublicKey)
-            {
-                throw new PeerConnectionException();
-            }
-        }
-        catch
+        if (context.RemotePeer.Identity.PublicKey.ToByteString() != identity.PublicKey)
         {
-            throw;
+            throw new PeerConnectionException();
         }
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         _logger?.LogInformation("Listen");
 
-        try
+        Identify.Dto.Identify identify = new()
         {
-            Identify.Dto.Identify identify = new()
-            {
-                AgentVersion = "github.com/Nethermind/dotnet-libp2p/samples@1.0.0",
-                ProtocolVersion = SubProtocolId,
-                ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToBytes()) },
-                ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToBytes()),
-                PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
-                Protocols = { peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
-            };
-            byte[] ar = new byte[identify.CalculateSize()];
-            identify.WriteTo(ar);
-            await channel.WriteSizeAndDataAsync(ar);
-            _logger?.LogDebug("Sent peer info {0}", identify);
-            _logger?.LogInformation("Sent peer id to {0}", context.RemotePeer.Address);
-        }
-        catch
-        {
-
-        }
+            ProtocolVersion = _protocolVersion,
+            AgentVersion = _agentVersion,
+            PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
+            ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToBytes()) },
+            ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToBytes()),
+            Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
+        };
+        byte[] ar = new byte[identify.CalculateSize()];
+        identify.WriteTo(ar);
+        await channel.WriteSizeAndDataAsync(ar);
+        _logger?.LogDebug("Sent peer info {0}", identify);
+        _logger?.LogInformation("Sent peer id to {0}", context.RemotePeer.Address);
     }
 }

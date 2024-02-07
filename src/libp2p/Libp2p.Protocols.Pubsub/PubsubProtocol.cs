@@ -40,7 +40,7 @@ public abstract class PubsubProtocol : IProtocol
         {
             await Task.Delay(-1, token);
         }
-        catch
+        catch (OperationCanceledException)
         {
 
         }

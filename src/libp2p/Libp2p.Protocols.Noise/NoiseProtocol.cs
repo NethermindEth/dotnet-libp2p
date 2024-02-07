@@ -9,6 +9,7 @@ using Noise;
 using System.Text;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 using Org.BouncyCastle.Utilities.Encoders;
@@ -57,6 +58,12 @@ public class NoiseProtocol : IProtocol
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
+
+        PeerId remotePeerId = new(msg1KeyDecoded);
+        if (!context.RemotePeer.Address.Has<P2P>())
+        {
+            context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
+        }
 
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
             .Concat(ByteString.CopyFrom(clientStatic.PublicKey))
@@ -170,6 +177,13 @@ public class NoiseProtocol : IProtocol
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
         PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
         Transport? transport = msg2.Transport;
+
+        PeerId remotePeerId = new(msg2KeyDecoded);
+
+        if (!context.RemotePeer.Address.Has<P2P>())
+        {
+            context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
+        }
 
         IChannel upChannel = upChannelFactory.SubListen(context);
         // UP -> DOWN
