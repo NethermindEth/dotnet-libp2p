@@ -52,7 +52,7 @@ public class PingProtocol : IProtocol
     {
         _logger?.PingListenStarted(context.RemotePeer.Address);
 
-        while (!channel.IsClosed)
+        while (await channel.CanReadAsync())
         {
             _logger?.ReadingPing(context.RemotePeer.Address);
             ReadOnlySequence<byte> request = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);

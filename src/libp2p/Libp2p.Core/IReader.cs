@@ -10,6 +10,17 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
+    /// <summary>
+    /// Waits for any data or EOF marker, returns <c>false</c> if EOF was reached, <c>true</c> without reading data otherwise.
+    /// </summary>
+    /// <returns></returns>
+    ValueTask<bool> CanReadAsync(CancellationToken token = default);
+
+    ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default);
+
+
+    #region Read helpers
     async Task<string> ReadLineAsync()
     {
         int size = await ReadVarintAsync();
@@ -33,17 +44,17 @@ public interface IReader
 
         return parser.ParseFrom(serializedMessage);
     }
+
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
-        while (!token.IsCancellationRequested)
+        while (!token.IsCancellationRequested && await CanReadAsync())
         {
             yield return await ReadAsync(0, ReadBlockingMode.WaitAny, token);
         }
     }
 
-    ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-        CancellationToken token = default);
+    #endregion
 }
 
 public enum ReadBlockingMode

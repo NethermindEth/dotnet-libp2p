@@ -14,17 +14,23 @@ public class ReaderWriterTests
         bool isWritten = false;
         Task wrote = Task.Run(async () =>
         {
-            await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2, 3, 4 }));
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1, 2, 3, 4]));
             isWritten = true;
         });
         await Task.Delay(100);
         Assert.That(isWritten, Is.False);
         ReadOnlySequence<byte> chunk1 = await readerWriter.ReadAsync(1);
-        Assert.That(chunk1.ToArray(), Is.EquivalentTo(new byte[] { 1 }));
-        Assert.That(isWritten, Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(chunk1.ToArray(), Is.EquivalentTo(new byte[] { 1 }));
+            Assert.That(isWritten, Is.False);
+        });
         ReadOnlySequence<byte> chunk2 = await readerWriter.ReadAsync(2);
-        Assert.That(chunk2.ToArray(), Is.EquivalentTo(new byte[] { 2, 3 }));
-        Assert.That(isWritten, Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(chunk2.ToArray(), Is.EquivalentTo(new byte[] { 2, 3 }));
+            Assert.That(isWritten, Is.False);
+        });
         ReadOnlySequence<byte> chunk3 = await readerWriter.ReadAsync(1);
         Assert.That(chunk3.ToArray(), Is.EquivalentTo(new byte[] { 4 }));
         await wrote;
@@ -37,8 +43,8 @@ public class ReaderWriterTests
         Channel.ReaderWriter readerWriter = new();
         _ = Task.Run(async () =>
         {
-            await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }));
-            await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 }));
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1]));
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([2]));
         });
         ReadOnlySequence<byte> allTheData = await readerWriter.ReadAsync(2);
         Assert.That(allTheData.ToArray(), Is.EquivalentTo(new byte[] { 1, 2 }));
@@ -50,10 +56,10 @@ public class ReaderWriterTests
         Channel.ReaderWriter readerWriter = new();
         ValueTask<ReadOnlySequence<byte>> t1 = readerWriter.ReadAsync(2);
         ValueTask<ReadOnlySequence<byte>> t2 = readerWriter.ReadAsync(2);
-        await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }));
-        await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 }));
-        await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 3 }));
-        await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 4 }));
+        await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1]));
+        await readerWriter.WriteAsync(new ReadOnlySequence<byte>([2]));
+        await readerWriter.WriteAsync(new ReadOnlySequence<byte>([3]));
+        await readerWriter.WriteAsync(new ReadOnlySequence<byte>([4]));
         ReadOnlySequence<byte> chunk1 = await t1;
         ReadOnlySequence<byte> chunk2 = await t2;
         Assert.That(chunk1.ToArray(), Is.EquivalentTo(new byte[] { 1, 2 }));
@@ -64,7 +70,7 @@ public class ReaderWriterTests
     public async Task Test_ChannelWrites_WhenReadIsRequested2()
     {
         Channel.ReaderWriter readerWriter = new();
-        _ = Task.Run(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })));
+        _ = Task.Run(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1, 2])));
         ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny);
         Assert.That(res1.ToArray().Length, Is.EqualTo(2));
     }
@@ -87,5 +93,100 @@ public class ReaderWriterTests
         Channel.ReaderWriter readerWriter = new();
         ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait);
         Assert.That(res1.ToArray().Length, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task Test_ChannelWrites_Eof()
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        _ = Task.Run(async () =>
+        {
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1, 2, 3]));
+            await readerWriter.WriteEofAsync();
+        });
+
+        Assert.That(await readerWriter.CanReadAsync(), Is.True);
+        ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+    }
+
+    [TestCase(new byte[0])]
+    [TestCase(new byte[] { 1, 2, 3 })]
+    public async Task Test_ChannelWrites_CannotWriteAfterEof(byte[] toWrite)
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        await readerWriter.WriteEofAsync();
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>(toWrite)));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task Test_ChannelWrites_CanReadAny()
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        _ = Task.Run(async () =>
+        {
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1, 2, 3]));
+            await readerWriter.WriteEofAsync();
+        });
+
+        ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll);
+
+        Assert.That(res1, Has.Length.EqualTo(3));
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task Test_ChannelWrites_CannotReadAll_OnePacket()
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        _ = Task.Run(async () =>
+        {
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1, 2, 3]));
+            await readerWriter.WriteEofAsync();
+        });
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task Test_ChannelWrites_CannotReadAll_Fragmented()
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        _ = Task.Run(async () =>
+        {
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([1]));
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([2, 3]));
+            await readerWriter.WriteAsync(new ReadOnlySequence<byte>([4]));
+            await readerWriter.WriteEofAsync();
+        });
+
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll));
+        Assert.That(await readerWriter.CanReadAsync(), Is.False);
     }
 }

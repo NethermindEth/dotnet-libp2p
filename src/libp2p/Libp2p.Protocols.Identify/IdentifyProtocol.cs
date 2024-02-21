@@ -19,7 +19,7 @@ public class IdentifyProtocol : IProtocol
     private readonly ILogger? _logger;
     private readonly IPeerFactoryBuilder _peerFactoryBuilder;
 
-    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, IdentifyProtocolSettings? settings, ILoggerFactory? loggerFactory = null)
+    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, IdentifyProtocolSettings? settings = null, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
         _peerFactoryBuilder = peerFactoryBuilder;
