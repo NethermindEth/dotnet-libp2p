@@ -48,4 +48,14 @@ public class TestChannel : IChannel
     {
         return _channel.WriteAsync(bytes);
     }
+
+    public ValueTask WriteEofAsync()
+    {
+        return _channel.WriteEofAsync();
+    }
+
+    public ValueTask<bool> CanReadAsync(CancellationToken token = default)
+    {
+        return _channel.CanReadAsync(token);
+    }
 }

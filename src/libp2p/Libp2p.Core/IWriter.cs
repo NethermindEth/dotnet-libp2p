@@ -54,4 +54,5 @@ public interface IWriter
     }
 
     ValueTask WriteAsync(ReadOnlySequence<byte> bytes);
+    ValueTask WriteEofAsync();
 }

@@ -1,0 +1,24 @@
+{
+  "profiles": {
+    "TransportInterop - Client": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "is_dialer": "true",
+        "transport": "tcp",
+        "muxer": "yamux",
+        "security": "noise",
+        "redis_addr": "127.0.0.1:6379"
+      }
+    },
+    "TransportInterop - Server": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "is_dialer": "false",
+        "transport": "tcp",
+        "muxer": "yamux",
+        "security": "noise",
+        "redis_addr": "127.0.0.1:6379"
+      }
+    }
+  }
+}
