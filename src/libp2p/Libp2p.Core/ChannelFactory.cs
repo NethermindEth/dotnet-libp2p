@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Core;
 public class ChannelFactory : IChannelFactory
 {
     private readonly IServiceProvider _serviceProvider;
-    private IProtocol _parent;
+    private IProtocol? _parent;
     private IDictionary<IProtocol, IChannelFactory> _factories;
     private readonly ILogger? _logger;
 
@@ -24,20 +24,20 @@ public class ChannelFactory : IChannelFactory
 
     public IChannel SubDial(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
+        IProtocol subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel channel = CreateChannel(subProtocol);
         ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        _logger?.DialStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
+        _logger?.DialStarted(channel.Id, subProtocol.Id, channelFactory?.GetSubProtocols());
 
         _ = subProtocol.DialAsync(channel.Reverse, channelFactory, context)
             .ContinueWith(async task =>
             {
                 if (!task.IsCompletedSuccessfully)
                 {
-                    _logger?.DialFailed(channel.Id, subProtocol.Id, task.Exception, task.Exception.GetErrorMessage());
+                    _logger?.DialFailed(channel?.Id, subProtocol?.Id, task.Exception, task.Exception.GetErrorMessage());
                 }
-                if (!channel.IsClosed)
+                if (channel != null && !channel.IsClosed)
                 {
                     await channel.CloseAsync(task.Exception is null);
                 }
@@ -50,9 +50,9 @@ public class ChannelFactory : IChannelFactory
 
     public IChannel SubListen(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
+        IProtocol subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel channel = CreateChannel(subProtocol);
-        ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
+        ChannelFactory channelFactory = _factories[subProtocol] as ChannelFactory;
 
         _logger?.ListenStarted(channel.Id, subProtocol.Id, channelFactory.GetSubProtocols());
 
