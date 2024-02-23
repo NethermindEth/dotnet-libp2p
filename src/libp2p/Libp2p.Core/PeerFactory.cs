@@ -12,7 +12,7 @@ public class PeerFactory : IPeerFactory
     private readonly IServiceProvider _serviceProvider;
 
     private IProtocol _protocol;
-    private IChannelFactory _upChannelFactory;
+    private IChannelFactory? _upChannelFactory;
     private static int CtxId = 0;
 
     public PeerFactory(IServiceProvider serviceProvider)
@@ -43,7 +43,7 @@ public class PeerFactory : IPeerFactory
         peer.Address = addr;
         if (!peer.Address.Has<P2P>())
         {
-            peer.Address = peer.Address.Add<P2P>(peer.Identity.PeerId.ToString());
+            peer.Address = peer.Address.Add<P2P>(peer.Identity?.PeerId.ToString());
         }
 
         Channel chan = new();
@@ -179,7 +179,7 @@ public class PeerFactory : IPeerFactory
             _factory = factory;
         }
 
-        public Identity? Identity { get; set; }
+        public Identity? Identity {get; set; }
         public Multiaddress Address { get; set; }
 
         public Task<IRemotePeer> DialAsync(Multiaddress addr, CancellationToken token = default)
@@ -207,7 +207,7 @@ public class PeerFactory : IPeerFactory
 
         public Channel Channel { get; set; }
 
-        public Identity Identity { get; set; }
+        public Identity? Identity { get; set; }
         public Multiaddress Address { get; set; }
         internal ILocalPeer LocalPeer { get; }
 

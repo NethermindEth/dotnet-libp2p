@@ -19,7 +19,7 @@ public class MultistreamProtocol : IProtocol
     {
         _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     }
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         if (!await SendHello(channel))
@@ -83,7 +83,7 @@ public class MultistreamProtocol : IProtocol
         await channelFactory.SubDialAndBind(channel, context, selected);
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory channelFactory,
+    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
         if (!await SendHello(channel))
