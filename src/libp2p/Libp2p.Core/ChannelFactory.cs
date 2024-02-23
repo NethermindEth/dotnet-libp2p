@@ -11,7 +11,7 @@ public class ChannelFactory : IChannelFactory
 {
     private readonly IServiceProvider _serviceProvider;
     private IProtocol? _parent;
-    private IDictionary<IProtocol, IChannelFactory> _factories;
+    private IDictionary<IProtocol, IChannelFactory>? _factories;
     private readonly ILogger? _logger;
 
     public ChannelFactory(IServiceProvider serviceProvider)
@@ -20,11 +20,11 @@ public class ChannelFactory : IChannelFactory
         _logger = _serviceProvider.GetService<ILoggerFactory>()?.CreateLogger<ChannelFactory>();
     }
 
-    public IEnumerable<IProtocol> SubProtocols => _factories.Keys;
+    public IEnumerable<IProtocol> SubProtocols => _factories?.Keys;
 
     public IChannel SubDial(IPeerContext context, IChannelRequest? req = null)
     {
-        IProtocol subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
+        IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         Channel channel = CreateChannel(subProtocol);
         ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 

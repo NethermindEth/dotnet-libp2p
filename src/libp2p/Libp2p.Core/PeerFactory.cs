@@ -43,7 +43,7 @@ public class PeerFactory : IPeerFactory
         peer.Address = addr;
         if (!peer.Address.Has<P2P>())
         {
-            peer.Address = peer.Address.Add<P2P>(peer.Identity.PeerId.ToString());
+            peer.Address = peer.Address.Add<P2P>(peer.Identity?.PeerId?.ToString());
         }
 
         Channel chan = new();
