@@ -179,7 +179,7 @@ public class PeerFactory : IPeerFactory
             _factory = factory;
         }
 
-        public Identity Identity {get; set; }
+        public Identity Identity { get; set; }
         public Multiaddress Address { get; set; }
 
         public Task<IRemotePeer> DialAsync(Multiaddress addr, CancellationToken token = default)
