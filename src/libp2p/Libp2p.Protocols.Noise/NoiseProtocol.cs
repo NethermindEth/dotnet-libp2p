@@ -37,7 +37,7 @@ public class NoiseProtocol : IProtocol
         _psks = Array.Empty<byte[]>();
     }
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
     {
         KeyPair? clientStatic = KeyPair.Generate();
         using HandshakeState? handshakeState = _protocol.Create(true, s: clientStatic.PrivateKey);
@@ -133,7 +133,7 @@ public class NoiseProtocol : IProtocol
         await Task.WhenAll(t, t2);
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
     {
         KeyPair? serverStatic = KeyPair.Generate();
         using HandshakeState? handshakeState =
