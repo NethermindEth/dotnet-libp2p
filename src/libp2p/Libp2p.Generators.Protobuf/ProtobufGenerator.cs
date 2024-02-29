@@ -32,7 +32,6 @@ public class ProtobufGenerator : ISourceGenerator
                     string errorLogs = cmd.StandardError.ReadToEnd();
                     throw new ApplicationException(errorLogs);
                 }
-                string output = cmd.StandardOutput.ReadToEnd();
             }
         }
         catch (Exception e)
