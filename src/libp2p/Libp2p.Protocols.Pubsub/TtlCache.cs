@@ -25,10 +25,13 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
             {
                 await Task.Delay(5_000);
                 DateTimeOffset now = DateTimeOffset.UtcNow;
-                TKey[] keys = items.TakeWhile(i => i.Value.ValidTill < now).Select(i => i.Key).ToArray();
-                foreach (TKey keyToRemove in keys)
+                lock (items)
                 {
-                    items.Remove(keyToRemove);
+                    TKey[] keys = items.TakeWhile(i => i.Value.ValidTill < now).Select(i => i.Key).ToArray();
+                    foreach (TKey keyToRemove in keys)
+                    {
+                        items.Remove(keyToRemove);
+                    }
                 }
             }
         });
@@ -40,11 +43,14 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 
     public void Add(TKey key, TItem item)
     {
-        items.TryAdd(key, new CachedItem
+        lock (items)
         {
-            Item = item,
-            ValidTill = DateTimeOffset.UtcNow.AddMilliseconds(ttl),
-        });
+            items.TryAdd(key, new CachedItem
+            {
+                Item = item,
+                ValidTill = DateTimeOffset.UtcNow.AddMilliseconds(ttl),
+            });
+        }
     }
 
     public void Dispose()
@@ -52,5 +58,11 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         isDisposed = true;
     }
 
-    internal IList<TItem> ToList() => items.Values.Select(i => i.Item).ToList();
+    internal IList<TItem> ToList()
+    {
+        lock (items)
+        {
+            return items.Values.Select(i => i.Item).ToList();
+        }
+    }
 }
