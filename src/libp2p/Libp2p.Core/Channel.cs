@@ -68,10 +68,11 @@ internal class Channel : IChannel
 
     public CancellationToken Token => State.Token;
 
-    public Task CloseAsync(bool graceful = true)
+    public async Task CloseAsync()
     {
+        await Writer.WriteEofAsync();
+        
         State.Cancel();
-        return Task.CompletedTask;
     }
 
     public void OnClose(Func<Task> action)
@@ -257,4 +258,6 @@ internal class Channel : IChannel
     public ValueTask WriteEofAsync() => Writer.WriteEofAsync();
 
     public ValueTask<bool> CanReadAsync(CancellationToken token = default) => Reader.CanReadAsync(token);
+
+    public Task CloseAsync(bool graceful = true) => WriteEofAsync().AsTask();
 }

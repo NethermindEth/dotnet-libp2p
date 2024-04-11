@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using StackExchange.Redis;
@@ -61,8 +62,17 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            IEnumerable<UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
-                 .FirstOrDefault(i => i.Name == "eth0")!
+            var d = NetworkInterface.GetAllNetworkInterfaces()!
+                 .Where(i => i.Name == "eth0" ||
+                    (i.OperationalStatus == OperationalStatus.Up &&
+                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
+
+            IEnumerable <UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
+                 .Where(i => i.Name == "eth0" ||
+                    (i.OperationalStatus == OperationalStatus.Up &&
+                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
+                     i.GetIPProperties().GatewayAddresses.Any())
+                 ).First()
                  .GetIPProperties()
                  .UnicastAddresses
                  .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
@@ -99,6 +109,13 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
         : base(new ServiceCollection()
+              .AddLogging(builder =>
+                builder.SetMinimumLevel(LogLevel.Trace)
+                    .AddSimpleConsole(l =>
+                    {
+                        l.SingleLine = true;
+                        l.TimestampFormat = "[HH:mm:ss.FFF]";
+                    }))
               .AddScoped(_ => defaultPeerFactoryBuilder!)
               .BuildServiceProvider())
     {

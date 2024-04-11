@@ -18,7 +18,7 @@ public class TestChannel : IChannel
     public bool IsClosed => _channel.IsClosed;
     public CancellationToken Token => _channel.Token;
 
-    public Task CloseAsync(bool graceful = true)
+    public Task CloseAsync()
     {
         return _channel.CloseAsync();
     }
@@ -57,5 +57,10 @@ public class TestChannel : IChannel
     public ValueTask<bool> CanReadAsync(CancellationToken token = default)
     {
         return _channel.CanReadAsync(token);
+    }
+
+    public Task CloseAsync(bool graceful = true)
+    {
+        return Task.CompletedTask;
     }
 }

@@ -22,7 +22,8 @@ public class PeerFactory : IPeerFactory
 
     public virtual ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default)
     {
-        return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/" };
+        identity ??= new Identity();
+        return new LocalPeer(this) { Identity = identity ?? new Identity(), Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}" };
     }
 
     /// <summary>

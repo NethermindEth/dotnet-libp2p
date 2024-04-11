@@ -25,8 +25,6 @@ public class IpTcpProtocol : IProtocol
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
-        _logger?.LogInformation("ListenAsync({contextId})", context.Id);
-
         Multiaddress addr = context.LocalPeer.Address;
         bool isIP4 = addr.Has<IP4>();
         MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
@@ -93,8 +91,9 @@ public class IpTcpProtocol : IProtocol
                             }
                         }
                     }
-                    catch (SocketException)
+                    catch (SocketException e)
                     {
+                        
                         await chan.CloseAsync(false);
                     }
                 }, chan.Token);
@@ -117,8 +116,13 @@ public class IpTcpProtocol : IProtocol
         });
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
+        if(channelFactory is null)
+        {
+            throw new ProtocolViolationException();
+        }
+
         _logger?.LogInformation("DialAsync({contextId})", context.Id);
 
         TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -158,7 +162,8 @@ public class IpTcpProtocol : IProtocol
         context.LocalPeer.Address = context.LocalEndpoint.Add<P2P>(context.LocalPeer.Identity.PeerId.ToString());
 
         IChannel upChannel = channelFactory.SubDial(context);
-        channel.Token.Register(() => upChannel.CloseAsync());
+        channel.GetAwaiter().OnCompleted(() => upChannel.CloseAsync());
+
         //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
 
         Task receiveTask = Task.Run(async () =>
