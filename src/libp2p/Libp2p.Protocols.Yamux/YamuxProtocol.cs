@@ -41,6 +41,13 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
         context.Connected(context.RemotePeer);
 
+        int pingCounter = 0;
+
+        using Timer timer = new((s) =>
+        {
+            _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
+        }, null, 30_000, 30_000);
+
         _ = Task.Run(async () =>
         {
             foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
@@ -125,6 +132,12 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
             {
                 _logger?.LogDebug("Write data to upchannel, stream-{0}, len={1}", header.StreamID, data.Length);
                 await channels[header.StreamID].Channel!.WriteAsync(data);
+            }
+
+            if (header.Type == YamuxHeaderType.Ping && (header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
+            {
+                _logger?.LogDebug("Pong");
+                await WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Ack, Length = header.Length });
             }
 
             if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
