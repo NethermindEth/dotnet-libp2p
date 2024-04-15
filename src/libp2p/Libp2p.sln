@@ -65,7 +65,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address", "..\cs-multiaddress\src\Multiformats.Address\Multiformats.Address.csproj", "{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Multiformats.Address.Tests", "..\cs-multiaddress\test\Multiformats.Address.Tests\Multiformats.Address.Tests.csproj", "{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address.Tests", "..\cs-multiaddress\test\Multiformats.Address.Tests\Multiformats.Address.Tests.csproj", "{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
