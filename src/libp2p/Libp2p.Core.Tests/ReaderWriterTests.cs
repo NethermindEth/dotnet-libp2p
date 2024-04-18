@@ -106,17 +106,17 @@ public class ReaderWriterTests
             await readerWriter.WriteEofAsync();
         });
 
-        Assert.That(await readerWriter.CanReadAsync(), Is.True);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ok));
         ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow();
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait));
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny));
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll));
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
     }
 
@@ -127,10 +127,10 @@ public class ReaderWriterTests
         Channel.ReaderWriter readerWriter = new();
 
         await readerWriter.WriteEofAsync();
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>(toWrite)).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
     [Test]
@@ -149,13 +149,13 @@ public class ReaderWriterTests
         Assert.That(res1, Has.Length.EqualTo(3));
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
     [Test]
@@ -170,7 +170,7 @@ public class ReaderWriterTests
         });
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
     [Test]
@@ -187,6 +187,6 @@ public class ReaderWriterTests
         });
 
         Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
-        Assert.That(await readerWriter.CanReadAsync(), Is.False);
+        Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 }
