@@ -62,8 +62,8 @@ public class IdentifyProtocol : IProtocol
         };
         byte[] ar = new byte[identify.CalculateSize()];
         identify.WriteTo(ar);
+
         await channel.WriteSizeAndDataAsync(ar);
-        _logger?.LogDebug("Sent peer info {0}", identify);
-        _logger?.LogInformation("Sent peer id to {0}", context.RemotePeer.Address);
+        _logger?.LogDebug("Sent peer info {identify}", identify);
     }
 }

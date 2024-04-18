@@ -19,6 +19,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
     public async Task ListenAsync(IChannel __, IChannelFactory? channelFactory, IPeerContext context)
     {
+        if(channelFactory is null)
+        {
+            throw new Exception("Protocol is not properly instantiated");
+        }
+
         Multiaddress addr = context.LocalPeer.Address;
         bool isIP4 = addr.Has<IP4>();
         MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
