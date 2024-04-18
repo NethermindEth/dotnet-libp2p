@@ -11,7 +11,6 @@ using Multiformats.Address.Protocols;
 
 namespace Nethermind.Libp2p.Protocols;
 
-// TODO: Rewrite with SocketAsyncEventArgs
 public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
@@ -110,30 +109,29 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         });
     }
 
-    public async Task DialAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel __, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
             throw new ProtocolViolationException();
         }
 
-        _logger?.LogInformation("DialAsync({contextId})", context.Id);
-
-        TaskCompletionSource<bool?> waitForStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
         Multiaddress addr = context.RemotePeer.Address;
         MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
         int tcpPort = addr.Get<TCP>().Port;
+
+        _logger?.LogDebug("Dialing {0}:{1}", ipAddress, tcpPort);
+
         try
         {
             await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
         }
         catch (SocketException e)
         {
-            _logger?.LogInformation($"Failed({context.Id}) to connect {addr}");
+            _logger?.LogDebug($"Failed({context.Id}) to connect {addr}");
             _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
-            // TODO: Add proper exception and reconnection handling
             return;
         }
 
@@ -166,23 +164,21 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             {
                 for (; ; )
                 {
-                    int len = await client.ReceiveAsync(buf, SocketFlags.None);
-                    if (len != 0)
+                    int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
+                    if (dataLength != 0)
                     {
-                        _logger?.LogDebug("Receive {0} data, len={1}", context.Id, len);
-                        if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]))) != IOResult.Ok)
+                        _logger?.LogDebug("Receive {0} data, len={1}", context.Id, dataLength);
+                        if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                         {
                             break;
                         };
                     }
                 }
 
-                waitForStop.SetCanceled();
             }
             catch (SocketException)
             {
-                await upChannel.CloseAsync();
-                waitForStop.SetCanceled();
+                _ = upChannel.CloseAsync();
             }
         });
 
@@ -192,15 +188,13 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
+                    _logger?.LogDebug("Send {0} data, len={1}", context.Id, data.Length);
                     await client.SendAsync(data.ToArray(), SocketFlags.None);
                 }
-
-                waitForStop.SetCanceled();
             }
             catch (SocketException)
             {
-                await upChannel.CloseAsync();
-                waitForStop.SetCanceled();
+                _ = upChannel.CloseAsync();
             }
         });
 

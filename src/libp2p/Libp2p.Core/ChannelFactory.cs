@@ -73,7 +73,7 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        return subProtocol.DialAsync(((Channel)parent).Reverse, channelFactory, context)
+        return subProtocol.DialAsync(((Channel)parent), channelFactory, context)
             .ContinueWith(async task =>
             {
                 if (!task.IsCompletedSuccessfully)
@@ -92,7 +92,7 @@ public class ChannelFactory : IChannelFactory
         IProtocol? subProtocol = req?.SubProtocol ?? SubProtocols.FirstOrDefault();
         ChannelFactory? channelFactory = _factories[subProtocol] as ChannelFactory;
 
-        return subProtocol.ListenAsync(((Channel)parent).Reverse, channelFactory, context)
+        return subProtocol.ListenAsync(((Channel)parent), channelFactory, context)
             .ContinueWith(async task =>
             {
                 await parent.CloseAsync();

@@ -12,31 +12,21 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
-using Org.BouncyCastle.Utilities.Encoders;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol : IProtocol
+public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 {
-    private readonly Protocol _protocol;
-    private readonly byte[][] _psks;
-    private readonly ILogger? _logger;
-    public string Id => "/noise";
-    private const string PayloadSigPrefix = "noise-libp2p-static-key:";
-
-    public NoiseProtocol(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
-        _protocol = new Protocol(
+    private readonly Protocol _protocol = new Protocol(
             HandshakePattern.XX,
             CipherFunction.ChaChaPoly,
             HashFunction.Sha256
         );
-        _psks = Array.Empty<byte[]>();
-    }
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    public string Id => "/noise";
+    private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
     public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
     {
@@ -67,11 +57,9 @@ public class NoiseProtocol : IProtocol
             context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
         }
 
-        byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
-            .Concat(ByteString.CopyFrom(clientStatic.PublicKey))
-            .ToArray();
+        byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(clientStatic.PublicKey)];
         byte[] sig = new byte[64];
-        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
+        Ed25519.Sign([.. context.LocalPeer.Identity.PrivateKey!.Data], 0, msg, 0, msg.Length, sig, 0);
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
@@ -82,9 +70,14 @@ public class NoiseProtocol : IProtocol
                 StreamMuxers = { "na" }
             }
         };
-        _logger?.LogInformation("local  pub key {0}", clientStatic.PublicKey);
-        _logger?.LogInformation("local  prv key {0}", clientStatic.PrivateKey);
-        _logger?.LogInformation("remote pub key {0}", handshakeState.RemoteStaticPublicKey.ToArray());
+
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger?.LogTrace("Local public key {0}", Convert.ToHexString(clientStatic.PublicKey));
+            //_logger?.LogTrace("local  prv key {0}", clientStatic.PrivateKey);
+            _logger?.LogTrace("Remote public key {0}", Convert.ToHexString(handshakeState.RemoteStaticPublicKey.ToArray()));
+        }
+
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.WriteMessage(payload.ToByteArray(), buffer);
         BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten);
@@ -92,43 +85,11 @@ public class NoiseProtocol : IProtocol
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten));
         Transport? transport = msg2.Transport;
 
+        _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
+
         IChannel upChannel = upChannelFactory.SubDial(context);
 
-
-        Task t = Task.Run(async () =>
-        {
-            for (; ; )
-            {
-                ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
-                if (dataReadResult.Result != IOResult.Ok)
-                {
-                    return;
-                }
-
-                byte[] buffer = new byte[2 + 16 + dataReadResult.Data.Length];
-
-                int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
-                BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
-            }
-        });
-        // DOWN -> UP
-        Task t2 = Task.Run(async () =>
-        {
-            for (; ; )
-            {
-                byte[] lengthBytes = (await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll).OrThrow()).ToArray();
-                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes.AsSpan());
-
-                ReadOnlySequence<byte> request = await downChannel.ReadAsync(length).OrThrow();
-                byte[] buffer = new byte[len - 16];
-
-                int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
-                await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
-            }
-        });
-
-        await Task.WhenAny(t, t2);
+        await ExchangeData(transport, downChannel, upChannel);
     }
 
     public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
@@ -148,7 +109,7 @@ public class NoiseProtocol : IProtocol
             .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
             .ToArray();
         byte[] sig = new byte[64];
-        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
+        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey!.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
@@ -183,8 +144,18 @@ public class NoiseProtocol : IProtocol
             context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
         }
 
+        _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
+
         IChannel upChannel = upChannelFactory.SubListen(context);
 
+        await ExchangeData(transport, downChannel, upChannel);
+
+        _logger?.LogDebug("Closed");
+    }
+
+    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel)
+    {
+        // UP -> DOWN
         Task t = Task.Run(async () =>
         {
             for (; ; )
@@ -199,7 +170,11 @@ public class NoiseProtocol : IProtocol
 
                 int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
+                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
+                if (writeResult != IOResult.Ok)
+                {
+                    return;
+                }
             }
         });
         // DOWN -> UP
@@ -207,17 +182,31 @@ public class NoiseProtocol : IProtocol
         {
             for (; ; )
             {
-                byte[] lengthBytes = (await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll).OrThrow()).ToArray();
-                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes.AsSpan());
+                ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll);
+                if (lengthBytesReadResult.Result != IOResult.Ok)
+                {
+                    return;
+                }
 
-                ReadOnlySequence<byte> request = await downChannel.ReadAsync(length).OrThrow();
-                byte[] buffer = new byte[len - 16];
+                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytesReadResult.Data.ToArray().AsSpan());
 
-                int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
-                await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                ReadResult dataReadResult = await downChannel.ReadAsync(length);
+                if (dataReadResult.Result != IOResult.Ok)
+                {
+                    return;
+                }
+                byte[] buffer = new byte[length - 16];
+
+                int bytesRead = transport.ReadMessage(dataReadResult.Data.ToArray(), buffer);
+
+                IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                if (writeResult != IOResult.Ok)
+                {
+                    return;
+                }
             }
         });
 
-        await Task.WhenAny(t, t2);
+        return Task.WhenAny(t, t2);
     }
 }

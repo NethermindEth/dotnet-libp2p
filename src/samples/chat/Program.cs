@@ -19,9 +19,9 @@ ServiceProvider serviceProvider = new ServiceCollection()
             }))
     .BuildServiceProvider();
 
+ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
-ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
 CancellationTokenSource ts = new();
 
 if (args.Length > 0 && args[0] == "-d")
@@ -46,11 +46,11 @@ else
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     string addrTemplate = args.Contains("-quic") ?
-        "/ip4/0.0.0.0/udp/{0}/quic-v1/p2p/{1}" :
-        "/ip4/0.0.0.0/tcp/{0}/p2p/{1}";
+        "/ip4/0.0.0.0/udp/{0}/quic-v1" :
+        "/ip4/0.0.0.0/tcp/{0}";
 
     IListener listener = await peer.ListenAsync(
-        string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0", peer.Identity.PeerId),
+        string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0"),
         ts.Token);
     logger.LogInformation($"Listener started at {listener.Address}");
     listener.OnConnection += async remotePeer => logger.LogInformation($"A peer connected {remotePeer.Address}");

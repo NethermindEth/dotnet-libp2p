@@ -99,7 +99,10 @@ public class PeerFactory : IPeerFactory
     {
         TaskCompletionSource cts = new(token);
         peerContext.SubDialRequests.Add(new ChannelRequest
-        { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
+        {
+            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            CompletionSource = cts
+        });
         return cts.Task;
     }
 
@@ -108,7 +111,7 @@ public class PeerFactory : IPeerFactory
         try
         {
             Channel chan = new();
-            token.Register(() => chan.CloseAsync());
+            token.Register(() => _ = chan.CloseAsync());
 
             PeerContext context = new()
             {
@@ -119,7 +122,9 @@ public class PeerFactory : IPeerFactory
             context.RemotePeer = result;
 
             TaskCompletionSource<bool> tcs = new();
-            context.OnRemotePeerConnection += remotePeer =>
+            RemotePeerConnected remotePeerConnected = null!;
+
+            remotePeerConnected = remotePeer =>
             {
                 if (((RemotePeer)remotePeer).LocalPeer != peer)
                 {
@@ -127,7 +132,9 @@ public class PeerFactory : IPeerFactory
                 }
 
                 ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
+                context.OnRemotePeerConnection -= remotePeerConnected;
             };
+            context.OnRemotePeerConnection += remotePeerConnected;
 
             _ = _protocol.DialAsync(chan, _upChannelFactory, context);
 

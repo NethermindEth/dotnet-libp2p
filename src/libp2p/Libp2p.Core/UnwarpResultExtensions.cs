@@ -10,19 +10,19 @@ public static class UnwarpResultExtensions
     {
         if (self.IsCompleted && self.Result != IOResult.Ok)
         {
-            throw new Exception();
+            throw new Exception($"Unable to write, error: {self.Result}");
         }
         var result = await self.AsTask();
         if (result != IOResult.Ok)
         {
-            throw new Exception($"Unable to read, error: {result}");
+            throw new Exception($"Unable to write, error: {result}");
         }
     }
     public static async ValueTask<ReadOnlySequence<byte>> OrThrow(this ValueTask<ReadResult> self)
     {
         if (self.IsCompleted && self.Result.Result != IOResult.Ok)
         {
-            throw new Exception();
+            throw new Exception($"Unable to read, error: {self.Result}");
         }
         var result = await self.AsTask();
         if (result.Result != IOResult.Ok)
