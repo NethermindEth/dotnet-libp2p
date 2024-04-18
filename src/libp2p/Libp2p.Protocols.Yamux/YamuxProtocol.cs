@@ -4,8 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using System.Buffers;
-using System.Threading.Channels;
-using System.Xml.Linq;
+using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -21,20 +20,21 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
     protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context, bool isListener)
     {
+        if (channelFactory is null)
+        {
+            throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
+        }
+
+        _logger?.LogInformation(isListener ? "Listen" : "Dial");
+
+        TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
+
+        Dictionary<int, ChannelState> channels = new();
+
         try
         {
-            if (channelFactory is null)
-            {
-                throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
-            }
-
-            _logger?.LogInformation(isListener ? "Listen" : "Dial");
             int streamIdCounter = isListener ? 2 : 1;
-
-            Dictionary<int, ChannelState> channels = new();
-
             context.Connected(context.RemotePeer);
-
             int pingCounter = 0;
 
             using Timer timer = new((s) =>
@@ -57,7 +57,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                 }
             });
 
-            for (; ; )
+            while (!downChannelAwaiter.IsCompleted)
             {
                 YamuxHeader header = await ReadHeaderAsync(channel);
                 ReadOnlySequence<byte> data = default;
@@ -256,6 +256,11 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
         {
             await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
             _logger?.LogDebug("Closed with exception {exception}", ex.Message);
+        }
+
+        foreach (ChannelState upChannel in channels.Values)
+        {
+            _ = upChannel.Channel?.CloseAsync();
         }
     }
 

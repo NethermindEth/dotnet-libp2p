@@ -19,7 +19,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
     public async Task ListenAsync(IChannel __, IChannelFactory? channelFactory, IPeerContext context)
     {
-        if(channelFactory is null)
+        if (channelFactory is null)
         {
             throw new Exception("Protocol is not properly instantiated");
         }

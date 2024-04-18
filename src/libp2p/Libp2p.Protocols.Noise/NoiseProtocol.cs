@@ -150,6 +150,7 @@ public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
         await ExchangeData(transport, downChannel, upChannel);
 
+        _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 

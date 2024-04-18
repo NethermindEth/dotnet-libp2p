@@ -14,9 +14,9 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
         IPeerContext context, bool isListener)
     {
         Console.Write("> ");
-        _ =Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
-            for (; ;)
+            for (; ; )
             {
                 ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
                 Console.Write(Encoding.UTF8.GetString(read).Replace("\n\n", "\n> "));
@@ -25,7 +25,7 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
         for (; ; )
         {
             string line = await Reader.ReadLineAsync();
-            if(line == "exit")
+            if (line == "exit")
             {
                 return;
             }
