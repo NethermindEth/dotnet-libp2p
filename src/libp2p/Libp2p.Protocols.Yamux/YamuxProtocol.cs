@@ -126,7 +126,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                     }
 
                     data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length).OrThrow()).ToArray());
-                
+
                     _logger?.LogDebug("Stream {stream id}: Send to upchannel, length={length}", header.StreamID, data.Length);
                     await channels[header.StreamID].Channel!.WriteAsync(data);
                 }
