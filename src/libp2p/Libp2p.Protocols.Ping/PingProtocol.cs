@@ -35,7 +35,7 @@ public class PingProtocol : IProtocol
         await channel.WriteAsync(bytes);
 
         _logger?.ReadingPong(context.RemotePeer.Address);
-        ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
+        ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll).OrThrow();
 
         _logger?.VerifyingPong(context.RemotePeer.Address);
         if (!byteArray[0..PayloadLength].SequenceEqual(response.ToArray()))
@@ -52,15 +52,17 @@ public class PingProtocol : IProtocol
     {
         _logger?.PingListenStarted(context.RemotePeer.Address);
 
-        while (await channel.CanReadAsync())
+        while (true)
         {
             _logger?.ReadingPing(context.RemotePeer.Address);
-            ReadOnlySequence<byte> request = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
-            byte[] byteArray = request.ToArray();
-            ReadOnlySequence<byte> bytes = new(byteArray);
+            ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
+            if (read.Result != IOResult.Ok)
+            {
+                break;
+            }
 
             _logger?.ReturningPong(context.RemotePeer.Address);
-            await channel.WriteAsync(bytes);
+            await channel.WriteAsync(read.Data);
         }
 
         _logger?.PingFinished(context.RemotePeer.Address);

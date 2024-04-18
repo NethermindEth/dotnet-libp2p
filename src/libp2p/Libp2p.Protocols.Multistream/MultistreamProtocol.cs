@@ -93,7 +93,7 @@ public class MultistreamProtocol : IProtocol
         }
 
         IProtocol? selected = null;
-        while (!channel.IsClosed)
+        for (; ; )
         {
             string proto = await channel.ReadLineAsync();
             selected = channelFactory.SubProtocols.FirstOrDefault(x => x.Id == proto);

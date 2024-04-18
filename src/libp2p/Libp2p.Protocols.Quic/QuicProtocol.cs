@@ -97,18 +97,14 @@ public class QuicProtocol : IProtocol
                 .ReplaceOrAdd<UDP>(listener.LocalEndPoint.Port);
         }
 
-        channel.OnClose(async () =>
-        {
-            await listener.DisposeAsync();
-        });
 
         _logger?.ReadyToHandleConnections();
         context.ListenerReady();
 
-        while (!channel.IsClosed)
+        for (; ; )
         {
-            QuicConnection connection = await listener.AcceptConnectionAsync(channel.Token);
-            _ = ProcessStreams(connection, context.Fork(), channelFactory, channel.Token);
+            QuicConnection connection = await listener.AcceptConnectionAsync();
+            _ = ProcessStreams(connection, context.Fork(), channelFactory);
         }
     }
 
@@ -159,21 +155,17 @@ public class QuicProtocol : IProtocol
 
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
 
-        channel.OnClose(async () =>
-        {
-            await connection.CloseAsync(0);
-            await connection.DisposeAsync();
-        });
+
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
-        await ProcessStreams(connection, context, channelFactory, channel.Token);
+        await ProcessStreams(connection, context, channelFactory);
     }
 
     private static bool VerifyRemoteCertificate(IPeer? remotePeer, X509Certificate certificate) =>
          CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.Get<P2P>().ToString());
 
-    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token)
+    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token = default)
     {
         bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
 
@@ -220,36 +212,30 @@ public class QuicProtocol : IProtocol
 
     private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
     {
-        upChannel.OnClose(async () =>
-        {
-            tcs?.SetResult();
-            stream.Close();
-        });
-
         _ = Task.Run(async () =>
         {
             try
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    await stream.WriteAsync(data.ToArray(), upChannel.Token);
+                    await stream.WriteAsync(data.ToArray());
                 }
             }
             catch (SocketException ex)
             {
                 _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync(false);
+                await upChannel.CloseAsync();
             }
-        }, upChannel.Token);
+        });
 
         _ = Task.Run(async () =>
         {
             try
             {
-                while (!upChannel.IsClosed)
+                while (stream.CanRead)
                 {
                     byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false, upChannel.Token);
+                    int len = await stream.ReadAtLeastAsync(buf, 1, false);
                     if (len != 0)
                     {
                         await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
@@ -259,7 +245,7 @@ public class QuicProtocol : IProtocol
             catch (SocketException ex)
             {
                 _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync(false);
+                await upChannel.CloseAsync();
             }
         });
     }

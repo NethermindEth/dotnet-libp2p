@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Newtonsoft.Json.Linq;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -15,19 +16,6 @@ public class TestChannel : IChannel
         _channel = new Channel();
     }
 
-    public bool IsClosed => _channel.IsClosed;
-    public CancellationToken Token => _channel.Token;
-
-    public Task CloseAsync()
-    {
-        return _channel.CloseAsync();
-    }
-
-    public void OnClose(Func<Task> action)
-    {
-        _channel.OnClose(action);
-    }
-
     public TaskAwaiter GetAwaiter()
     {
         return _channel.GetAwaiter();
@@ -38,29 +26,24 @@ public class TestChannel : IChannel
         return _channel.Reverse;
     }
 
-    public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)
     {
         return _channel.ReadAsync(length, blockingMode, token);
     }
 
-    public ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
+    public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
     {
-        return _channel.WriteAsync(bytes);
+        return _channel.WriteAsync(bytes, token);
     }
 
-    public ValueTask WriteEofAsync()
+    public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
     {
-        return _channel.WriteEofAsync();
+        return _channel.WriteEofAsync(token);
     }
 
-    public ValueTask<bool> CanReadAsync(CancellationToken token = default)
+    public ValueTask CloseAsync()
     {
-        return _channel.CanReadAsync(token);
-    }
-
-    public Task CloseAsync(bool graceful = true)
-    {
-        return Task.CompletedTask;
+        return _channel.CloseAsync();
     }
 }

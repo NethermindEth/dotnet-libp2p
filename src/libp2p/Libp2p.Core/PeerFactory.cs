@@ -156,13 +156,12 @@ public class PeerFactory : IPeerFactory
 
         public Task DisconnectAsync()
         {
-            return _chan.CloseAsync();
+            return _chan.CloseAsync().AsTask();
         }
 
         public TaskAwaiter GetAwaiter()
         {
-            return Task.Delay(-1, _chan.Token).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnCanceled)
-                .GetAwaiter();
+            return _chan.GetAwaiter();
         }
 
         internal void RaiseOnConnection(IRemotePeer peer)
@@ -219,7 +218,7 @@ public class PeerFactory : IPeerFactory
 
         public Task DisconnectAsync()
         {
-            return Channel.CloseAsync();
+            return Channel.CloseAsync().AsTask();
         }
 
         public IPeer Fork()

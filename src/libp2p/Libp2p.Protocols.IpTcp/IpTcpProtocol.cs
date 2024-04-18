@@ -12,18 +12,13 @@ using Multiformats.Address.Protocols;
 namespace Nethermind.Libp2p.Protocols;
 
 // TODO: Rewrite with SocketAsyncEventArgs
-public class IpTcpProtocol : IProtocol
+public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 {
-    private readonly ILogger? _logger;
-
-    public IpTcpProtocol(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
-    }
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
 
     public string Id => "ip-tcp";
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel __, IChannelFactory? channelFactory, IPeerContext context)
     {
         Multiaddress addr = context.LocalPeer.Address;
         bool isIP4 = addr.Has<IP4>();
@@ -36,11 +31,7 @@ public class IpTcpProtocol : IProtocol
         srv.Listen(tcpPort);
 
         IPEndPoint localIpEndpoint = (IPEndPoint)srv.LocalEndPoint!;
-        channel.OnClose(() =>
-        {
-            srv.Close();
-            return Task.CompletedTask;
-        });
+
 
         Multiaddress localMultiaddress = new();
         localMultiaddress = isIP4 ? localMultiaddress.Add<IP4>(localIpEndpoint.Address.MapToIPv4()) : localMultiaddress.Add<IP6>(localIpEndpoint.Address.MapToIPv6());
@@ -58,7 +49,7 @@ public class IpTcpProtocol : IProtocol
 
         await Task.Run(async () =>
         {
-            while (!channel.IsClosed)
+            for (; ; )
             {
                 Socket client = await srv.AcceptAsync();
                 IPeerContext clientContext = context.Fork();
@@ -76,7 +67,7 @@ public class IpTcpProtocol : IProtocol
                 {
                     try
                     {
-                        while (!chan.IsClosed)
+                        for (; ; )
                         {
                             if (client.Available == 0)
                             {
@@ -87,16 +78,19 @@ public class IpTcpProtocol : IProtocol
                             int len = await client.ReceiveAsync(buf, SocketFlags.None);
                             if (len != 0)
                             {
-                                await chan.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                                if (await chan.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len])) != IOResult.Ok)
+                                {
+                                    break;
+                                }
                             }
                         }
                     }
                     catch (SocketException e)
                     {
-                        
-                        await chan.CloseAsync(false);
+
+                        await chan.CloseAsync();
                     }
-                }, chan.Token);
+                });
                 _ = Task.Run(async () =>
                 {
                     try
@@ -109,16 +103,16 @@ public class IpTcpProtocol : IProtocol
                     catch (SocketException)
                     {
                         _logger?.LogInformation($"Disconnected({context.Id}) due to a socket exception");
-                        await chan.CloseAsync(false);
+                        await chan.CloseAsync();
                     }
-                }, chan.Token);
+                });
             }
         });
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context)
     {
-        if(channelFactory is null)
+        if (channelFactory is null)
         {
             throw new ProtocolViolationException();
         }
@@ -133,7 +127,7 @@ public class IpTcpProtocol : IProtocol
         int tcpPort = addr.Get<TCP>().Port;
         try
         {
-            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), channel.Token);
+            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
         }
         catch (SocketException e)
         {
@@ -162,7 +156,6 @@ public class IpTcpProtocol : IProtocol
         context.LocalPeer.Address = context.LocalEndpoint.Add<P2P>(context.LocalPeer.Identity.PeerId.ToString());
 
         IChannel upChannel = channelFactory.SubDial(context);
-        channel.GetAwaiter().OnCompleted(() => upChannel.CloseAsync());
 
         //upChannel.OnClosing += (graceful) => upChannel.CloseAsync(graceful);
 
@@ -171,13 +164,16 @@ public class IpTcpProtocol : IProtocol
             byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
-                while (!upChannel.IsClosed)
+                for (; ; )
                 {
                     int len = await client.ReceiveAsync(buf, SocketFlags.None);
                     if (len != 0)
                     {
                         _logger?.LogDebug("Receive {0} data, len={1}", context.Id, len);
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]));
+                        if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..len]))) != IOResult.Ok)
+                        {
+                            break;
+                        };
                     }
                 }
 
@@ -203,7 +199,7 @@ public class IpTcpProtocol : IProtocol
             }
             catch (SocketException)
             {
-                await upChannel.CloseAsync(false);
+                await upChannel.CloseAsync();
                 waitForStop.SetCanceled();
             }
         });

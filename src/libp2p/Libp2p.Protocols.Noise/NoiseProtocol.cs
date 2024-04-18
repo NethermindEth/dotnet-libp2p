@@ -13,6 +13,7 @@ using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 using Org.BouncyCastle.Utilities.Encoders;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -50,9 +51,10 @@ public class NoiseProtocol : IProtocol
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg0.BytesWritten));
 
-        lenBytes = (await downChannel.ReadAsync(2)).ToArray();
-        int len = (int)BinaryPrimitives.ReadInt16BigEndian(lenBytes.AsSpan());
-        ReadOnlySequence<byte> received = await downChannel.ReadAsync(len);
+        lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
+
+        int len = BinaryPrimitives.ReadInt16BigEndian(lenBytes.AsSpan());
+        ReadOnlySequence<byte> received = await downChannel.ReadAsync(len).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
@@ -91,46 +93,42 @@ public class NoiseProtocol : IProtocol
         Transport? transport = msg2.Transport;
 
         IChannel upChannel = upChannelFactory.SubDial(context);
-        downChannel.OnClose(() => upChannel.CloseAsync());
-        // UP -> DOWN
+
+
         Task t = Task.Run(async () =>
         {
-            while (!downChannel.IsClosed && !upChannel.IsClosed)
+            for (; ; )
             {
-                ReadOnlySequence<byte> request =
-                    await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
-                byte[] buffer = new byte[2 + 16 + request.Length];
+                ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
+                if (dataReadResult.Result != IOResult.Ok)
+                {
+                    return;
+                }
 
-                int bytesWritten = transport.WriteMessage(request.ToArray(), buffer.AsSpan(2));
+                byte[] buffer = new byte[2 + 16 + dataReadResult.Data.Length];
+
+                int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-
-                string str = Encoding.UTF8.GetString(request.ToArray());
-                _logger?.LogTrace($"> {buffer.Length}(payload {request.Length})");
-
                 await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
             }
         });
         // DOWN -> UP
         Task t2 = Task.Run(async () =>
         {
-            while (!downChannel.IsClosed && !upChannel.IsClosed)
+            for (; ; )
             {
-                lenBytes = (await downChannel.ReadAsync(2)).ToArray();
-                int len = (int)BinaryPrimitives.ReadUInt16BigEndian(lenBytes.AsSpan());
-                ReadOnlySequence<byte> request =
-                    await downChannel.ReadAsync(len);
+                byte[] lengthBytes = (await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll).OrThrow()).ToArray();
+                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes.AsSpan());
+
+                ReadOnlySequence<byte> request = await downChannel.ReadAsync(length).OrThrow();
                 byte[] buffer = new byte[len - 16];
 
-                _logger?.LogTrace("start READ");
-
                 int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
-                _logger?.LogTrace("READ");
-                _logger?.LogTrace($"< {len + 2}/(payload {bytesRead}) {Hex.ToHexString(buffer)} {Encoding.UTF8.GetString(buffer).ReplaceLineEndings()}");
                 await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
             }
         });
 
-        await Task.WhenAll(t, t2);
+        await Task.WhenAny(t, t2);
     }
 
     public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
@@ -140,10 +138,10 @@ public class NoiseProtocol : IProtocol
             _protocol.Create(false,
                 s: serverStatic.PrivateKey);
 
-        byte[]? lenBytes = (await downChannel.ReadAsync(2)).ToArray();
+        byte[]? lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
         short len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
         byte[] buffer = new byte[Protocol.MaxMessageLength];
-        ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len);
+        ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
         handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
 
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
@@ -169,9 +167,9 @@ public class NoiseProtocol : IProtocol
         BinaryPrimitives.WriteInt16BigEndian(buffer.AsSpan(), (short)msg1.BytesWritten);
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg1.BytesWritten + 2));
 
-        lenBytes = (await downChannel.ReadAsync(2)).ToArray();
+        lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
         len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
-        ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len);
+        ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
@@ -186,40 +184,40 @@ public class NoiseProtocol : IProtocol
         }
 
         IChannel upChannel = upChannelFactory.SubListen(context);
-        // UP -> DOWN
+
         Task t = Task.Run(async () =>
         {
-            while (!downChannel.IsClosed && !upChannel.IsClosed)
+            for (; ; )
             {
-                ReadOnlySequence<byte> request =
-                    await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
-                byte[] buffer = new byte[2 + 16 + request.Length];
+                ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
+                if (dataReadResult.Result != IOResult.Ok)
+                {
+                    return;
+                }
 
-                int bytesWritten = transport.WriteMessage(request.ToArray(), buffer.AsSpan(2));
+                byte[] buffer = new byte[2 + 16 + dataReadResult.Data.Length];
+
+                int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-
-                _logger?.LogTrace($"> {request.Length}");
                 await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
             }
         });
-
         // DOWN -> UP
         Task t2 = Task.Run(async () =>
         {
-            while (!downChannel.IsClosed && !upChannel.IsClosed)
+            for (; ; )
             {
-                lenBytes = (await downChannel.ReadAsync(2)).ToArray();
-                int len = BinaryPrimitives.ReadUInt16BigEndian(lenBytes.AsSpan());
-                ReadOnlySequence<byte> request =
-                    await downChannel.ReadAsync(len);
+                byte[] lengthBytes = (await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll).OrThrow()).ToArray();
+                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes.AsSpan());
+
+                ReadOnlySequence<byte> request = await downChannel.ReadAsync(length).OrThrow();
                 byte[] buffer = new byte[len - 16];
 
                 int bytesRead = transport.ReadMessage(request.ToArray(), buffer);
-                _logger?.LogTrace($"< {bytesRead}");
                 await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
             }
         });
 
-        await Task.WhenAll(t, t2);
+        await Task.WhenAny(t, t2);
     }
 }

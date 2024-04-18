@@ -3,7 +3,6 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using Microsoft.Extensions.Logging;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
@@ -14,101 +13,75 @@ namespace Nethermind.Libp2p.Core;
 internal class Channel : IChannel
 {
     private IChannel? _reversedChannel;
-    private ILogger<Channel>? _logger;
-
-    public Channel(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<Channel>();
-        Id = "unknown";
-        Reader = new ReaderWriter(_logger);
-        Writer = new ReaderWriter(_logger);
-    }
+    private ReaderWriter _reader;
+    private ReaderWriter _writer;
+    private TaskCompletionSource Completion = new();
 
     public Channel()
     {
-        Id = "unknown";
-        Reader = new ReaderWriter();
-        Writer = new ReaderWriter();
+        _reader = new ReaderWriter(this);
+        _writer = new ReaderWriter(this);
     }
 
-    private Channel(IReader reader, IWriter writer)
+    private Channel(ReaderWriter reader, ReaderWriter writer)
     {
-        Id = "unknown";
-        Reader = reader;
-        Writer = writer;
+        _reader = reader;
+        _writer = writer;
     }
-
-    private CancellationTokenSource State { get; init; } = new();
 
     public IChannel Reverse
     {
-        get
+        get => _reversedChannel ??= new Channel((ReaderWriter)Writer, (ReaderWriter)Reader)
         {
-            if (_reversedChannel is not null)
-            {
-                return _reversedChannel;
-            }
+            _reversedChannel = this,
+            Completion = Completion
+        };
+    }
 
-            Channel x = new((ReaderWriter)Writer, (ReaderWriter)Reader)
-            {
-                _logger = _logger,
-                _reversedChannel = this,
-                State = State,
-                Id = Id + "-rev"
-            };
-            return _reversedChannel = x;
+    public IReader Reader { get => _reader; }
+    public IWriter Writer { get => _writer; }
+
+
+    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default)
+    {
+        return Reader.ReadAsync(length, blockingMode, token);
+    }
+
+    public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+    {
+        return Writer.WriteAsync(bytes, token);
+    }
+
+    public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Writer.WriteEofAsync(token);
+
+    public TaskAwaiter GetAwaiter() => Completion.Task.GetAwaiter();
+
+    public async ValueTask CloseAsync()
+    {
+        ValueTask<IOResult> stopReader = _reader.WriteEofAsync();
+        await _writer.WriteEofAsync();
+        if (!stopReader.IsCompleted)
+        {
+            await stopReader;
+        }
+        Completion.TrySetResult();
+    }
+
+    private void TryComplete()
+    {
+        if (_reader._eow && _writer._eow)
+        {
+            Completion.TrySetResult();
         }
     }
 
-    public string Id { get; set; }
-    public IReader Reader { get; private set; }
-    public IWriter Writer { get; private set; }
-
-    public bool IsClosed => State.IsCancellationRequested;
-
-    public CancellationToken Token => State.Token;
-
-    public async Task CloseAsync()
-    {
-        await Writer.WriteEofAsync();
-        
-        State.Cancel();
-    }
-
-    public void OnClose(Func<Task> action)
-    {
-        State.Token.Register(() => action().Wait());
-    }
-
-    public TaskAwaiter GetAwaiter()
-    {
-        return Task.Delay(-1, State.Token).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnCanceled).GetAwaiter();
-    }
-
-    public void Bind(IChannel parent)
-    {
-        Reader = (ReaderWriter)((Channel)parent).Writer;
-        Writer = (ReaderWriter)((Channel)parent).Reader;
-        Channel parentChannel = (Channel)parent;
-        OnClose(() =>
-        {
-            parentChannel.State.Cancel();
-            return Task.CompletedTask;
-        });
-        parentChannel.OnClose(() =>
-        {
-            State.Cancel();
-            return Task.CompletedTask;
-        });
-    }
 
     internal class ReaderWriter : IReader, IWriter
     {
-        private readonly ILogger? _logger;
-
-        public ReaderWriter(ILogger? logger)
+        internal protected ReaderWriter(Channel tryComplete)
         {
-            _logger = logger;
+            _externalCompletionMonitor = tryComplete;
         }
 
         public ReaderWriter()
@@ -120,144 +93,160 @@ internal class Channel : IChannel
         private readonly SemaphoreSlim _read = new(0, 1);
         private readonly SemaphoreSlim _canRead = new(0, 1);
         private readonly SemaphoreSlim _readLock = new(1, 1);
-        private bool _eof = false;
+        private readonly Channel? _externalCompletionMonitor;
+        internal bool _eow = false;
 
-        public async ValueTask<ReadOnlySequence<byte>> ReadAsync(int length,
+        public async ValueTask<ReadResult> ReadAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
-            await _readLock.WaitAsync(token);
-
-            if (_eof)
+            try
             {
-                _readLock.Release();
-                throw new Exception("Can't read after EOF");
-            }
+                await _readLock.WaitAsync(token);
 
-            if (blockingMode == ReadBlockingMode.DontWait && _bytes.Length == 0)
-            {
-                _readLock.Release();
-                return new ReadOnlySequence<byte>();
-            }
+                if (_eow)
+                {
+                    _readLock.Release();
+                    return ReadResult.Ended;
+                }
 
-            await _canRead.WaitAsync(token);
+                if (blockingMode == ReadBlockingMode.DontWait && _bytes.Length == 0)
+                {
+                    _readLock.Release();
+                    return ReadResult.Empty;
+                }
 
-            if (_eof)
-            {
-                _canRead.Release();
-                _readLock.Release();
-                _read.Release();
-                _canWrite.Release();
-                throw new Exception("Can't read after EOF");
-            }
+                await _canRead.WaitAsync(token);
 
-            bool lockAgain = false;
-            long bytesToRead = length != 0
-                ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Length))
-                : _bytes.Length;
-
-            ReadOnlySequence<byte> chunk = default;
-            do
-            {
-                if (lockAgain) await _canRead.WaitAsync(token);
-
-                if (_eof)
+                if (_eow)
                 {
                     _canRead.Release();
                     _readLock.Release();
                     _read.Release();
-                    throw new Exception("Can't read after EOF");
+                    return ReadResult.Ended;
                 }
 
-                ReadOnlySequence<byte> anotherChunk = default;
+                bool lockAgain = false;
+                long bytesToRead = length != 0
+                    ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Length))
+                    : _bytes.Length;
 
-                if (_bytes.Length <= bytesToRead)
+                ReadOnlySequence<byte> chunk = default;
+                do
                 {
-                    anotherChunk = _bytes;
-                    bytesToRead -= _bytes.Length;
-                    _logger?.ReadChunk(_bytes.Length);
-                    _bytes = default;
-                    _read.Release();
+                    if (lockAgain) await _canRead.WaitAsync(token);
+
+                    if (_eow)
+                    {
+                        _canRead.Release();
+                        _readLock.Release();
+                        _read.Release();
+                        return ReadResult.Ended;
+                    }
+
+                    ReadOnlySequence<byte> anotherChunk = default;
+
+                    if (_bytes.Length <= bytesToRead)
+                    {
+                        anotherChunk = _bytes;
+                        bytesToRead -= _bytes.Length;
+                        _bytes = default;
+                        _read.Release();
+                        _canWrite.Release();
+                    }
+                    else if (_bytes.Length > bytesToRead)
+                    {
+                        anotherChunk = _bytes.Slice(0, bytesToRead);
+                        _bytes = _bytes.Slice(bytesToRead, _bytes.End);
+                        bytesToRead = 0;
+                        _canRead.Release();
+                    }
+
+                    chunk = chunk.Length == 0 ? anotherChunk : chunk.Append(anotherChunk.First);
+                    lockAgain = true;
+                } while (bytesToRead != 0);
+
+                _readLock.Release();
+                return ReadResult.Ok(chunk);
+            }
+            catch (TaskCanceledException)
+            {
+                return ReadResult.Cancelled;
+            }
+        }
+
+        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            try
+            {
+                await _canWrite.WaitAsync(token);
+
+                if (_eow)
+                {
                     _canWrite.Release();
+                    return IOResult.Ended;
                 }
-                else if (_bytes.Length > bytesToRead)
+
+                if (_bytes.Length != 0)
                 {
-                    anotherChunk = _bytes.Slice(0, bytesToRead);
-                    _bytes = _bytes.Slice(bytesToRead, _bytes.End);
-                    _logger?.ReadEnough(_bytes.Length);
-                    bytesToRead = 0;
-                    _canRead.Release();
+                    return IOResult.InternalError;
                 }
 
-                chunk = chunk.Length == 0 ? anotherChunk : chunk.Append(anotherChunk.First);
-                lockAgain = true;
-            } while (bytesToRead != 0);
+                if (bytes.Length == 0)
+                {
+                    _canWrite.Release();
+                    return IOResult.Ok;
+                }
 
-            _readLock.Release();
-            return chunk;
+                _bytes = bytes;
+                _canRead.Release();
+                await _read.WaitAsync(token);
+                return IOResult.Ok;
+            }
+            catch (TaskCanceledException)
+            {
+                return IOResult.Cancelled;
+            }
         }
 
-        public async ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
+        public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
         {
-            await _canWrite.WaitAsync();
-
-            if (_eof)
+            try
             {
+                await _canWrite.WaitAsync(token);
+
+                if (_eow)
+                {
+                    _canWrite.Release();
+                    return IOResult.Ended;
+                }
+                _eow = true;
+                _externalCompletionMonitor?.TryComplete();
+                _canRead.Release();
                 _canWrite.Release();
-                throw new Exception("Can't write after EOF");
+                return IOResult.Ok;
             }
-
-            if (_bytes.Length != 0)
+            catch (TaskCanceledException)
             {
-                throw new Exception("Channel is not properly locked");
+                return IOResult.Cancelled;
             }
-
-            _logger?.WriteBytes(bytes.Length);
-
-            if (bytes.Length == 0)
-            {
-                _canWrite.Release();
-                return;
-            }
-
-            _bytes = bytes;
-            _canRead.Release();
-            await _read.WaitAsync();
         }
 
-        public async ValueTask WriteEofAsync()
+        public async ValueTask<IOResult> CanReadAsync(CancellationToken token = default)
         {
-            await _canWrite.WaitAsync();
-            _eof = true;
-            _canRead.Release();
-            _canWrite.Release();
-        }
-
-        public async ValueTask<bool> CanReadAsync(CancellationToken token = default)
-        {
-            if (_eof)
+            try
             {
-                return false;
+                if (_eow)
+                {
+                    return IOResult.Ended;
+                }
+                await _readLock.WaitAsync(token);
+                _readLock.Release();
+                return !_eow ? IOResult.Ok : IOResult.Ended;
             }
-            await _readLock.WaitAsync(token);
-            _readLock.Release();
-            return !_eof;
+            catch (TaskCanceledException)
+            {
+                return IOResult.Cancelled;
+            }
         }
     }
-
-    public ValueTask<ReadOnlySequence<byte>> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-        CancellationToken token = default)
-    {
-        return Reader.ReadAsync(length, blockingMode, token);
-    }
-
-    public ValueTask WriteAsync(ReadOnlySequence<byte> bytes)
-    {
-        return Writer.WriteAsync(bytes);
-    }
-
-    public ValueTask WriteEofAsync() => Writer.WriteEofAsync();
-
-    public ValueTask<bool> CanReadAsync(CancellationToken token = default) => Reader.CanReadAsync(token);
-
-    public Task CloseAsync(bool graceful = true) => WriteEofAsync().AsTask();
 }

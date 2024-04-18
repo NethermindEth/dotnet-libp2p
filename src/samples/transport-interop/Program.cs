@@ -67,7 +67,7 @@ try
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
 
-            IEnumerable <UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
+            IEnumerable<UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&

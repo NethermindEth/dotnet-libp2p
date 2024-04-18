@@ -16,16 +16,15 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
         Console.Write("> ");
         _ = Task.Run(async () =>
         {
-            while (!channel.Token.IsCancellationRequested)
+            for (; ;)
             {
-                ReadOnlySequence<byte> read =
-                    await channel.ReadAsync(0, ReadBlockingMode.WaitAny, channel.Token);
+                ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
                 Console.Write(Encoding.UTF8.GetString(read).Replace("\n\n", "\n> "));
             }
-        }, channel.Token);
-        while (!channel.Token.IsCancellationRequested)
+        });
+        for (; ; )
         {
-            string line = await Reader.ReadLineAsync(channel.Token);
+            string line = await Reader.ReadLineAsync();
             Console.Write("> ");
             byte[] buf = Encoding.UTF8.GetBytes(line + "\n\n");
             await channel.WriteAsync(new ReadOnlySequence<byte>(buf));

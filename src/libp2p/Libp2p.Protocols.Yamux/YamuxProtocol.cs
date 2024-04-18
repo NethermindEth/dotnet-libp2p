@@ -63,7 +63,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                 }
             });
 
-            while (await channel.CanReadAsync())
+            for (; ; )
             {
                 YamuxHeader header = await ReadHeaderAsync(channel);
                 ReadOnlySequence<byte> data = default;
@@ -88,7 +88,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                         foreach (ChannelState channelState in channels.Values)
                         {
-                            if(channelState.Channel is not null)
+                            if (channelState.Channel is not null)
                             {
                                 await channelState.Channel.WriteEofAsync();
                             }
@@ -119,7 +119,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                         await WriteGoAwayAsync(channel, SessionTerminationCode.ProtocolError);
                         return;
                     }
-                    data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length)).ToArray());
+                    data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length).OrThrow()).ToArray());
                     _logger?.LogDebug("Recv data, stream-{0}, len={1}, data: {data}",
                         header.StreamID, data.Length,
                         Encoding.ASCII.GetString(data.ToArray().Select(c => c == 0x1b || c == 0x07 ? (byte)0x2e : c).ToArray()));
@@ -198,7 +198,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                         //   await channels[streamId].Channel!.ReadAsync(channels[streamId].WindowSize, ReadBlockingMode.WaitAny, channel.Token);
                         _logger?.LogDebug("Read data from upchannel, stream-{0}, len={1}", streamId, upData.Length);
 
-                        for(int i = 0; i < upData.Length;)
+                        for (int i = 0; i < upData.Length;)
                         {
                             int sendingSize = Math.Min((int)upData.Length - i, channels[streamId].WindowSize);
                             await WriteHeaderAsync(channel,
@@ -222,7 +222,8 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     channels[streamId] = channels[streamId] with { State = channels[streamId].State | State.UpClosed };
                     _logger?.LogDebug("Close, stream-{id}", streamId);
                 }
-                catch {
+                catch
+                {
                     await WriteHeaderAsync(channel,
                       new YamuxHeader
                       {
@@ -236,22 +237,20 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     _logger?.LogDebug("Unexpected close, stream-{id}", streamId);
                 }
 
-                upChannel.OnClose(() =>
+                await upChannel;
+
+                channels.Remove(streamId);
+                if ((channels[streamId].State | State.UpClosed) == 0)
                 {
-                    channels.Remove(streamId);
-                    if ((channels[streamId].State | State.UpClosed) == 0)
-                    {
-                        _ = WriteHeaderAsync(channel,
-                            new YamuxHeader
-                            {
-                                Flags = YamuxHeaderFlags.Fin,
-                                Type = YamuxHeaderType.WindowUpdate,
-                                StreamID = streamId
-                            });
-                    }
-                    _logger?.LogDebug("Close, stream-{id}", streamId);
-                    return Task.CompletedTask;
-                });
+                    _ = WriteHeaderAsync(channel,
+                        new YamuxHeader
+                        {
+                            Flags = YamuxHeaderFlags.Fin,
+                            Type = YamuxHeaderType.WindowUpdate,
+                            StreamID = streamId
+                        });
+                }
+                _logger?.LogDebug("Close, stream-{id}", streamId);
             }
         }
         catch (Exception ex)
@@ -263,7 +262,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
     private async Task<YamuxHeader> ReadHeaderAsync(IReader reader, CancellationToken token = default)
     {
-        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token)).ToArray();
+        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token).OrThrow()).ToArray();
         YamuxHeader header = YamuxHeader.FromBytes(headerData);
         _logger?.LogDebug("Read, stream-{streamId} type={type} flags={flags}{dataLength}", header.StreamID, header.Type, header.Flags,
             header.Type == YamuxHeaderType.Data ? $", {header.Length}B content" : "");
@@ -279,7 +278,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         _logger?.LogDebug("Write, stream-{streamId} type={type} flags={flags}{dataLength}", header.StreamID, header.Type, header.Flags,
              header.Type == YamuxHeaderType.Data ? $", {header.Length}B content" : "");
         await writer.WriteAsync(
-            data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer));
+            data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
     }
 
     private Task WriteGoAwayAsync(IWriter channel, SessionTerminationCode code) =>

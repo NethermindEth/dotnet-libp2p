@@ -32,7 +32,7 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         await channel.WriteAsync(new ReadOnlySequence<byte>(sizeBuf.Concat(buf).ToArray()));
 
         int structSize = await channel.ReadVarintAsync();
-        buf = (await channel.ReadAsync(structSize)).ToArray();
+        buf = (await channel.ReadAsync(structSize).OrThrow()).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
         await (isListener
