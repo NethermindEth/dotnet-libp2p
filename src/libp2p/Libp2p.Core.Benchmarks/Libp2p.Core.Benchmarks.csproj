@@ -8,7 +8,6 @@
     <Optimize>true</Optimize>
     <LangVersion>latest</LangVersion>
     <OutputType>Exe</OutputType>
-    <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
