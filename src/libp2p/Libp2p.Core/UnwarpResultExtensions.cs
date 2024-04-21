@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core;
@@ -10,24 +11,24 @@ public static class UnwarpResultExtensions
     {
         if (self.IsCompleted && self.Result != IOResult.Ok)
         {
-            throw new Exception($"Unable to write, error: {self.Result}");
+            throw new ChannelClosedException();
         }
         var result = await self.AsTask();
         if (result != IOResult.Ok)
         {
-            throw new Exception($"Unable to write, error: {result}");
+            throw new ChannelClosedException();
         }
     }
     public static async ValueTask<ReadOnlySequence<byte>> OrThrow(this ValueTask<ReadResult> self)
     {
         if (self.IsCompleted && self.Result.Result != IOResult.Ok)
         {
-            throw new Exception($"Unable to read, error: {self.Result}");
+            throw new ChannelClosedException();
         }
         var result = await self.AsTask();
         if (result.Result != IOResult.Ok)
         {
-            throw new Exception($"Unable to read, error: {result}");
+            throw new ChannelClosedException();
         }
         else
         {

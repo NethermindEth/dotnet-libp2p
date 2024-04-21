@@ -12,24 +12,35 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
+using Google.Protobuf.Collections;
 
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
+public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IProtocol
 {
-    private readonly Protocol _protocol = new Protocol(
+    private readonly Protocol _protocol = new(
             HandshakePattern.XX,
             CipherFunction.ChaChaPoly,
             HashFunction.Sha256
         );
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    private readonly NoiseExtensions _extensions = new NoiseExtensions()
+    {
+        StreamMuxers =
+        {
+            multiplexerSettings is null || multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+        }
+    };
+
     public string Id => "/noise";
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
     {
+        ArgumentNullException.ThrowIfNull(upChannelFactory);
+
         KeyPair? clientStatic = KeyPair.Generate();
         using HandshakeState? handshakeState = _protocol.Create(true, s: clientStatic.PrivateKey);
         byte[] buffer = new byte[Protocol.MaxMessageLength];
@@ -64,11 +75,7 @@ public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
-            Extensions = new NoiseExtensions
-            {
-                //StreamMuxers = { "/yamux/1.0.0" }
-                StreamMuxers = { "na" }
-            }
+            Extensions = _extensions
         };
 
         if (_logger is not null && _logger.IsEnabled(LogLevel.Trace))
@@ -90,10 +97,15 @@ public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         IChannel upChannel = upChannelFactory.SubDial(context);
 
         await ExchangeData(transport, downChannel, upChannel);
+
+        _ = upChannel.CloseAsync();
+        _logger?.LogDebug("Closed");
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
     {
+        ArgumentNullException.ThrowIfNull(upChannelFactory);
+
         KeyPair? serverStatic = KeyPair.Generate();
         using HandshakeState? handshakeState =
             _protocol.Create(false,
@@ -114,11 +126,7 @@ public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         {
             IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
-            Extensions = new NoiseExtensions
-            {
-                //StreamMuxers = { "/yamux/1.0.0" }
-                StreamMuxers = { "na" }
-            }
+            Extensions = _extensions
         };
 
         // Send the second handshake message to the client.
@@ -208,6 +216,9 @@ public class NoiseProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             }
         });
 
-        return Task.WhenAny(t, t2);
+        return Task.WhenAny(t, t2).ContinueWith((t) =>
+        {
+
+        });
     }
 }

@@ -3,17 +3,24 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProtocol, IProtocol
+public class YamuxProtocol : SymmetricProtocol, IProtocol
 {
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
 
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
+    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    {
+        multiplexerSettings?.Add(this);
+        _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
+    }
+
+    private readonly ILogger? _logger;
 
     public string Id => "/yamux/1.0.0";
 
@@ -28,7 +35,6 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
         _logger?.LogInformation(isListener ? "Listen" : "Dial");
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
-
         Dictionary<int, ChannelState> channels = new();
 
         try
@@ -39,9 +45,8 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
 
             using Timer timer = new((s) =>
             {
-                int localPingCounter = ++pingCounter;
-                _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = localPingCounter });
-            }, null, 0, PingDelay);
+                _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
+            }, null, PingDelay, PingDelay);
 
             _ = Task.Run(() =>
             {
@@ -53,7 +58,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                     _logger?.LogDebug("Stream {stream id}: Dialing with protocol {proto}", streamId, request.SubProtocol?.Id);
                     channels[streamId] = new ChannelState { Request = request };
 
-                    _ = ActivateUpchannel(streamId, YamuxHeaderFlags.Syn, request);
+                    _ = HandleUpchannel(streamId, YamuxHeaderFlags.Syn, request);
                 }
             });
 
@@ -105,7 +110,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                         if (!channels.ContainsKey(header.StreamID))
                         {
                             channels[header.StreamID] = new();
-                            _ = ActivateUpchannel(header.StreamID, YamuxHeaderFlags.Ack, null);
+                            _ = HandleUpchannel(header.StreamID, YamuxHeaderFlags.Ack, null);
                         }
                     }
                     catch
@@ -119,7 +124,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                     if (header.Length > channels[header.StreamID].WindowSize)
                     {
                         _logger?.LogDebug("Stream {stream id}: Data length > windows size: {length} > {window size}",
-                           header.StreamID, data.Length, channels[header.StreamID].WindowSize);
+                           header.StreamID, header.Length, channels[header.StreamID].WindowSize);
 
                         await WriteGoAwayAsync(channel, SessionTerminationCode.ProtocolError);
                         return;
@@ -133,8 +138,10 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
                 {
-                    _logger?.LogDebug("Stream {stream id}: Window update requested: {old} => {new}", header.StreamID, channels[header.StreamID].WindowSize, header.Length);
-                    channels[header.StreamID] = channels[header.StreamID] with { WindowSize = header.Length };
+                    int oldSize = channels[header.StreamID].WindowSize;
+                    int newSize = oldSize + header.Length;
+                    _logger?.LogDebug("Stream {stream id}: Window update requested: {old} => {new}", header.StreamID, oldSize, newSize);
+                    channels[header.StreamID].WindowSize = newSize;
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
@@ -157,7 +164,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
 
             await WriteGoAwayAsync(channel, SessionTerminationCode.Ok);
 
-            async Task ActivateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, IChannelRequest? channelRequest)
+            async Task HandleUpchannel(int streamId, YamuxHeaderFlags initiationFlag, IChannelRequest? channelRequest)
             {
                 if (channels[streamId].Channel is not null)
                 {
@@ -220,7 +227,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                                new YamuxHeader
                                {
                                    Type = YamuxHeaderType.Data,
-                                   Length = (int)upData.Length,
+                                   Length = sendingSize,
                                    StreamID = streamId
                                }, upData.Slice(i, sendingSize));
                             i += sendingSize;
@@ -235,6 +242,10 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                             StreamID = streamId
                         });
                     _logger?.LogDebug("Stream {stream id}: Upchannel finished writing", streamId);
+                }
+                catch (ChannelClosedException e)
+                {
+                    _logger?.LogDebug("Stream {stream id}: Closed due to transport disconnection", streamId);
                 }
                 catch (Exception e)
                 {
@@ -251,6 +262,10 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
                     _logger?.LogDebug("Stream {stream id}: Unexpected error, closing: {error}", streamId, e.Message);
                 }
             }
+        }
+        catch (ChannelClosedException ex)
+        {
+            _logger?.LogDebug("Closed due to transport disconnection");
         }
         catch (Exception ex)
         {
@@ -279,8 +294,7 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
         YamuxHeader.ToBytes(headerBuffer, ref header);
 
         _logger?.LogTrace("Stream {stream id}: Send type={type} flags={flags} length={length}", header.StreamID, header.Type, header.Flags, header.Length);
-        await writer.WriteAsync(
-            data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
+        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
     }
 
     private Task WriteGoAwayAsync(IWriter channel, SessionTerminationCode code) =>
@@ -291,10 +305,10 @@ public class YamuxProtocol(ILoggerFactory? loggerFactory = null) : SymmetricProt
             StreamID = 0,
         });
 
-    private struct ChannelState(IChannel? channel, IChannelRequest? request = default)
+    private class ChannelState(IChannel? channel = default, IChannelRequest? request = default)
     {
         public IChannel? Channel { get; set; } = channel;
         public IChannelRequest? Request { get; set; } = request;
-        public int WindowSize { get; set; } = 256_000;
+        public int WindowSize { get; set; } = 256 * 1024;
     }
 }
