@@ -39,9 +39,9 @@ public class QuicProtocol : IProtocol
         // SslApplicationProtocol.Http3, // webtransport
     };
 
-    public string Id => "quic";
+    public string Id => "quic-v1";
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -101,6 +101,11 @@ public class QuicProtocol : IProtocol
         _logger?.ReadyToHandleConnections();
         context.ListenerReady();
 
+        singalingChannel.GetAwaiter().OnCompleted(() =>
+        {
+            listener.DisposeAsync();
+        });
+
         for (; ; )
         {
             QuicConnection connection = await listener.AcceptConnectionAsync();
@@ -108,7 +113,7 @@ public class QuicProtocol : IProtocol
         }
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -155,9 +160,12 @@ public class QuicProtocol : IProtocol
 
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
 
-
-
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
+
+        singalingChannel.GetAwaiter().OnCompleted(() =>
+        {
+            connection.CloseAsync(0);
+        });
 
         await ProcessStreams(connection, context, channelFactory);
     }

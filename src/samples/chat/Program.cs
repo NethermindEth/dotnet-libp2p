@@ -36,7 +36,7 @@ if (args.Length > 0 && args[0] == "-d")
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
-    
+
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
     await remotePeer.DisconnectAsync();
 }

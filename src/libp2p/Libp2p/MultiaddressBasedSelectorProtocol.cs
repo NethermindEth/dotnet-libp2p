@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+`// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -21,17 +21,17 @@ public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = n
     {
         IProtocol protocol = null!;
         // TODO: deprecate quic
-        if (context.LocalPeer.Address.Has<QUIC>())
+        if (context.LocalPeer.Address.Has<QUICv1>())
         {
-            throw new ApplicationException("QUIC is not supported. Use QUICv1 instead.");
-        }
-        else if (context.LocalPeer.Address.Has<QUICv1>())
-        {
-            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("quic")) ?? throw new ApplicationException("QUICv1 is not supported");
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") ?? throw new ApplicationException("QUICv1 is not supported");
         }
         else if (context.LocalPeer.Address.Has<TCP>())
         {
-            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id.Contains("tcp")) ?? throw new ApplicationException("TCP is not supported");
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "tcp") ?? throw new ApplicationException("TCP is not supported");
+        }
+        else if (context.LocalPeer.Address.Has<QUIC>())
+        {
+            throw new ApplicationException("QUIC is not supported. Use QUICv1 instead.");
         }
         else
         {

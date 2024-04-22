@@ -135,10 +135,6 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         try
         {
             await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
-            singalingChannel.GetAwaiter().OnCompleted(() =>
-            {
-                client.Close();
-            });
         }
         catch (SocketException e)
         {
@@ -147,6 +143,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             _ = singalingChannel.CloseAsync();
             return;
         }
+
+        singalingChannel.GetAwaiter().OnCompleted(() =>
+        {
+            client.Close();
+        });
 
         IPEndPoint localEndpoint = (IPEndPoint)client.LocalEndPoint!;
         IPEndPoint remoteEndpoint = (IPEndPoint)client.RemoteEndPoint!;
