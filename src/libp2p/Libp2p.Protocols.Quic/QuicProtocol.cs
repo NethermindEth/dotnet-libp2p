@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 //using Nethermind.Libp2p.Protocols.Quic;
@@ -100,16 +101,25 @@ public class QuicProtocol : IProtocol
 
         _logger?.ReadyToHandleConnections();
         context.ListenerReady();
+        TaskAwaiter signalingWawaiter = singalingChannel.GetAwaiter();
 
-        singalingChannel.GetAwaiter().OnCompleted(() =>
+        signalingWawaiter.OnCompleted(() =>
         {
             listener.DisposeAsync();
         });
 
-        for (; ; )
+        while (!signalingWawaiter.IsCompleted)
         {
-            QuicConnection connection = await listener.AcceptConnectionAsync();
-            _ = ProcessStreams(connection, context.Fork(), channelFactory);
+            try
+            {
+                QuicConnection connection = await listener.AcceptConnectionAsync();
+                _ = ProcessStreams(connection, context.Fork(), channelFactory);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Closed with exception {exception}", ex.Message);
+                _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+            }
         }
     }
 
@@ -146,8 +156,8 @@ public class QuicProtocol : IProtocol
             LocalEndPoint = localEndpoint,
             DefaultStreamErrorCode = 0, // Protocol-dependent error code.
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
-            MaxInboundUnidirectionalStreams = 100,
-            MaxInboundBidirectionalStreams = 100,
+            MaxInboundUnidirectionalStreams = 256,
+            MaxInboundBidirectionalStreams = 256,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 TargetHost = null,
@@ -175,6 +185,8 @@ public class QuicProtocol : IProtocol
 
     private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token = default)
     {
+        _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
+
         bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
 
         Multiaddress localEndPointMultiaddress = new Multiaddress();
