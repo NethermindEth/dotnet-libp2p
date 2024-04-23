@@ -3,7 +3,6 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
-using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;

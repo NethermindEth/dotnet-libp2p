@@ -3,7 +3,6 @@
 
 using System.Net;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols.Quic;
 

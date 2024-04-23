@@ -150,8 +150,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         static void SetupChannelFactories(ProtocolStack root)
         {
-            root.UpChannelsFactory.Setup(root.Protocol,
-             new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
+            root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
                      .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
             foreach (ProtocolStack topProto in root.TopProtocols)
             {

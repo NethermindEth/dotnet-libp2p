@@ -32,7 +32,7 @@ public class MultistreamProtocol : IProtocol
         {
             await channel.WriteLineAsync(selector.Id);
             string selectorLine = await channel.ReadLineAsync();
-            _logger?.LogDebug($"Sent {selector.Id}, recv {selectorLine}");
+            _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
             if (selectorLine == selector.Id)
             {
                 return true;
@@ -50,7 +50,7 @@ public class MultistreamProtocol : IProtocol
 
         if (context.SpecificProtocolRequest?.SubProtocol is not null)
         {
-            _logger?.LogDebug($"DIAL FOR SPECIFIC PROTOCOL {context.SpecificProtocolRequest.SubProtocol}");
+            _logger?.LogDebug($"Proposing just {context.SpecificProtocolRequest.SubProtocol}");
             if (await DialProtocol(context.SpecificProtocolRequest.SubProtocol) == true)
             {
                 selected = context.SpecificProtocolRequest.SubProtocol;
@@ -76,10 +76,10 @@ public class MultistreamProtocol : IProtocol
 
         if (selected is null)
         {
-            _logger?.LogDebug($"DIAL NEG FAILED {string.Join(", ", channelFactory.SubProtocols)}");
+            _logger?.LogDebug($"Negotiation failed");
             return;
         }
-        _logger?.LogDebug($"DIAL NEG SUCCEED {string.Join(", ", channelFactory.SubProtocols)} -> {selected}");
+        _logger?.LogDebug($"Protocol selected during dialing: {selected}");
         await channelFactory.SubDialAndBind(channel, context, selected);
     }
 
@@ -93,28 +93,28 @@ public class MultistreamProtocol : IProtocol
         }
 
         IProtocol? selected = null;
-        while (!channel.IsClosed)
+        for (; ; )
         {
             string proto = await channel.ReadLineAsync();
             selected = channelFactory.SubProtocols.FirstOrDefault(x => x.Id == proto);
             if (selected is not null)
             {
                 await channel.WriteLineAsync(selected.Id);
-                _logger?.LogDebug($"Recv {proto}, sent {selected?.Id}");
+                _logger?.LogTrace($"Proposed by remote {proto}, answer: {selected?.Id}");
                 break;
             }
 
-            _logger?.LogDebug($"Recv {proto}, sent {ProtocolNotSupported}");
+            _logger?.LogTrace($"Proposed by remote {proto}, answer: {ProtocolNotSupported}");
             await channel.WriteLineAsync(ProtocolNotSupported);
         }
 
         if (selected is null)
         {
-            _logger?.LogDebug($"LIST NEG FAILED {string.Join(", ", channelFactory.SubProtocols)}");
+            _logger?.LogDebug($"Negotiation failed");
             return;
         }
 
-        _logger?.LogDebug($"LIST NEG SUCCEED {string.Join(", ", channelFactory.SubProtocols)} -> {selected}");
+        _logger?.LogDebug($"Protocol selected during listening: {selected}");
         await channelFactory.SubListenAndBind(channel, context, selected);
     }
 

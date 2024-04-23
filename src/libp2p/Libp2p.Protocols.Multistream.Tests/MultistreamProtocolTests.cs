@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
+using Nethermind.Libp2p.Protocols;
+
+namespace Libp2p.Protocols.Multistream.Tests;
 
 [TestFixture]
 [Parallelizable(scope: ParallelScope.All)]
@@ -21,7 +23,7 @@ public class MultistreamProtocolTests
         channelFactory.SubProtocols.Returns(new[] { proto1 });
         IChannel upChannel = new TestChannel();
         channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(upChannel);
+            .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
@@ -53,7 +55,7 @@ public class MultistreamProtocolTests
         IChannel upChannel = new TestChannel();
 
         channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(upChannel);
+            .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
@@ -114,7 +116,7 @@ public class MultistreamProtocolTests
         channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
         IChannel upChannel = new TestChannel();
         channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(upChannel);
+            .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
         _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);

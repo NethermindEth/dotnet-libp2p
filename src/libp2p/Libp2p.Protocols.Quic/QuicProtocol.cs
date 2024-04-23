@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 //using Nethermind.Libp2p.Protocols.Quic;
@@ -39,9 +40,9 @@ public class QuicProtocol : IProtocol
         // SslApplicationProtocol.Http3, // webtransport
     };
 
-    public string Id => "quic";
+    public string Id => "quic-v1";
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -97,22 +98,32 @@ public class QuicProtocol : IProtocol
                 .ReplaceOrAdd<UDP>(listener.LocalEndPoint.Port);
         }
 
-        channel.OnClose(async () =>
-        {
-            await listener.DisposeAsync();
-        });
 
         _logger?.ReadyToHandleConnections();
         context.ListenerReady();
+        TaskAwaiter signalingWawaiter = singalingChannel.GetAwaiter();
 
-        while (!channel.IsClosed)
+        signalingWawaiter.OnCompleted(() =>
         {
-            QuicConnection connection = await listener.AcceptConnectionAsync(channel.Token);
-            _ = ProcessStreams(connection, context.Fork(), channelFactory, channel.Token);
+            listener.DisposeAsync();
+        });
+
+        while (!signalingWawaiter.IsCompleted)
+        {
+            try
+            {
+                QuicConnection connection = await listener.AcceptConnectionAsync();
+                _ = ProcessStreams(connection, context.Fork(), channelFactory);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Closed with exception {exception}", ex.Message);
+                _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+            }
         }
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -145,8 +156,8 @@ public class QuicProtocol : IProtocol
             LocalEndPoint = localEndpoint,
             DefaultStreamErrorCode = 0, // Protocol-dependent error code.
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
-            MaxInboundUnidirectionalStreams = 100,
-            MaxInboundBidirectionalStreams = 100,
+            MaxInboundUnidirectionalStreams = 256,
+            MaxInboundBidirectionalStreams = 256,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 TargetHost = null,
@@ -159,22 +170,23 @@ public class QuicProtocol : IProtocol
 
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
 
-        channel.OnClose(async () =>
-        {
-            await connection.CloseAsync(0);
-            await connection.DisposeAsync();
-        });
-
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
-        await ProcessStreams(connection, context, channelFactory, channel.Token);
+        singalingChannel.GetAwaiter().OnCompleted(() =>
+        {
+            connection.CloseAsync(0);
+        });
+
+        await ProcessStreams(connection, context, channelFactory);
     }
 
     private static bool VerifyRemoteCertificate(IPeer? remotePeer, X509Certificate certificate) =>
          CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.Get<P2P>().ToString());
 
-    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token)
+    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token = default)
     {
+        _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
+
         bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
 
         Multiaddress localEndPointMultiaddress = new Multiaddress();
@@ -220,36 +232,30 @@ public class QuicProtocol : IProtocol
 
     private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
     {
-        upChannel.OnClose(async () =>
-        {
-            tcs?.SetResult();
-            stream.Close();
-        });
-
         _ = Task.Run(async () =>
         {
             try
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    await stream.WriteAsync(data.ToArray(), upChannel.Token);
+                    await stream.WriteAsync(data.ToArray());
                 }
             }
             catch (SocketException ex)
             {
                 _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync(false);
+                await upChannel.CloseAsync();
             }
-        }, upChannel.Token);
+        });
 
         _ = Task.Run(async () =>
         {
             try
             {
-                while (!upChannel.IsClosed)
+                while (stream.CanRead)
                 {
                     byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false, upChannel.Token);
+                    int len = await stream.ReadAtLeastAsync(buf, 1, false);
                     if (len != 0)
                     {
                         await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
@@ -259,7 +265,7 @@ public class QuicProtocol : IProtocol
             catch (SocketException ex)
             {
                 _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync(false);
+                await upChannel.CloseAsync();
             }
         });
     }

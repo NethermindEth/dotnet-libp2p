@@ -10,9 +10,11 @@ public interface IChannelFactory
 
     IChannel SubListen(IPeerContext context, IChannelRequest? request = null);
 
-    IChannel SubDialAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
 
-    IChannel SubListenAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+
+
 
     IChannel SubDial(IPeerContext context, IProtocol protocol)
     {
@@ -24,12 +26,12 @@ public interface IChannelFactory
         return SubListen(context, new ChannelRequest { SubProtocol = protocol });
     }
 
-    IChannel SubDialAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
+    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
     {
         return SubDialAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
     }
 
-    IChannel SubListenAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
+    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
     {
         return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
     }

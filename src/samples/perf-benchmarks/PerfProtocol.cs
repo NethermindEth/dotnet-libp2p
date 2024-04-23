@@ -31,7 +31,7 @@ public class PerfProtocol : IProtocol
             byte[] bytes = new byte[1024 * 1024];
             long bytesWritten = 0;
 
-            while (!downChannel.Token.IsCancellationRequested)
+            for (; ; )
             {
                 int bytesToWrite = (int)Math.Min(bytes.Length, TotalLoad - bytesWritten);
                 if (bytesToWrite == 0)
@@ -39,18 +39,17 @@ public class PerfProtocol : IProtocol
                     break;
                 }
                 rand.NextBytes(bytes.AsSpan(0, bytesToWrite));
-                ReadOnlySequence<byte> bytesToSend = new(bytes, 0, bytesToWrite);
+                ReadOnlySequence<byte> request = new(bytes, 0, bytesToWrite);
+                await downChannel.WriteAsync(request);
                 bytesWritten += bytesToWrite;
-                await downChannel.WriteAsync(bytesToSend);
-                _logger?.LogDebug($"DIAL WRIT {bytesToSend.Length}");
+                _logger?.LogDebug($"Sent {request.Length} more bytes");
             }
         });
 
         long bytesRead = 0;
-        while (!downChannel.Token.IsCancellationRequested)
+        for (; ; )
         {
-            ReadOnlySequence<byte> read =
-                await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny, downChannel.Token);
+            ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
             _logger?.LogDebug($"DIAL READ {read.Length}");
             bytesRead += read.Length;
             if (bytesRead == TotalLoad)
@@ -65,23 +64,22 @@ public class PerfProtocol : IProtocol
     {
         ulong total = await downChannel.ReadVarintUlongAsync();
         ulong bytesRead = 0;
-        while (!downChannel.Token.IsCancellationRequested)
+        for (; ; )
         {
-            ReadOnlySequence<byte> read =
-                await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny, downChannel.Token);
+            ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
             if (read.Length == 0)
             {
                 continue;
             }
 
-            _logger?.LogDebug($"LIST READ {read.Length}");
-            await downChannel.WriteAsync(read);
-            _logger?.LogDebug($"LIST WRITE {read.Length}");
+            _logger?.LogDebug($"Read {read.Length} more bytes");
+            await downChannel.WriteAsync(read).OrThrow();
+            _logger?.LogDebug($"Sent back {read.Length}");
 
             bytesRead += (ulong)read.Length;
             if (bytesRead == total)
             {
-                _logger?.LogInformation($"LIST DONE");
+                _logger?.LogInformation($"Finished");
                 return;
             }
         }

@@ -3,20 +3,24 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
-using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
 public class YamuxProtocol : SymmetricProtocol, IProtocol
 {
     private const int HeaderLength = 12;
-    private readonly ILogger? _logger;
+    private const int PingDelay = 30_000;
 
-    public YamuxProtocol(ILoggerFactory? loggerFactory = null)
+    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
     {
+        multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
     }
+
+    private readonly ILogger? _logger;
 
     public string Id => "/yamux/1.0.0";
 
@@ -28,219 +32,284 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
             throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
         }
 
-        _logger?.LogInformation("Yamux as {role}", isListener ? "listener" : "dialer");
-        int streamIdCounter = isListener ? 2 : 1;
+        _logger?.LogInformation(isListener ? "Listen" : "Dial");
 
+        TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
         Dictionary<int, ChannelState> channels = new();
 
-        if (!isListener)
+        try
         {
-            await WriteHeaderAsync(channel,
-                new YamuxHeader { Flags = YamuxHeaderFlags.Syn, Type = YamuxHeaderType.Ping, StreamID = 0 });
-        }
+            int streamIdCounter = isListener ? 2 : 1;
+            context.Connected(context.RemotePeer);
+            int pingCounter = 0;
 
-        context.Connected(context.RemotePeer);
-
-        int pingCounter = 0;
-
-        using Timer timer = new((s) =>
-        {
-            _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
-        }, null, 30_000, 30_000);
-
-        _ = Task.Run(async () =>
-        {
-            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            using Timer timer = new((s) =>
             {
-                int streamId = streamIdCounter;
-                streamIdCounter += 2;
-                _logger?.LogDebug("Trying to dial with protocol {proto} via stream-{streamId}", request.SubProtocol?.Id, streamId);
-                channels[streamId] = new ChannelState { Request = request };
-                await WriteHeaderAsync(channel,
-                    new YamuxHeader
-                    {
-                        Flags = YamuxHeaderFlags.Syn,
-                        Type = YamuxHeaderType.Data,
-                        StreamID = streamId,
-                    });
-                ActivateUpchannel(streamId, request);
-            }
-        });
+                _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
+            }, null, PingDelay, PingDelay);
 
-        while (!channel.IsClosed)
-        {
-            YamuxHeader header = await ReadHeaderAsync(channel, token: channel.Token);
-            ReadOnlySequence<byte> data = default;
-
-            if (header.StreamID is 0)
+            _ = Task.Run(() =>
             {
-                if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
+                foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
                 {
-                    _logger?.LogDebug("Confirming session stream");
-                    _ = WriteHeaderAsync(channel,
-                        new YamuxHeader
-                        {
-                            Flags = YamuxHeaderFlags.Ack,
-                            Type = YamuxHeaderType.Data,
-                            StreamID = header.StreamID
-                        });
+                    int streamId = streamIdCounter;
+                    Interlocked.Add(ref streamIdCounter, 2);
+
+                    _logger?.LogDebug("Stream {stream id}: Dialing with protocol {proto}", streamId, request.SubProtocol?.Id);
+                    channels[streamId] = CreateUpchannel(streamId, YamuxHeaderFlags.Syn, request);
                 }
+            });
 
-                if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst || (header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
+            while (!downChannelAwaiter.IsCompleted)
+            {
+                YamuxHeader header = await ReadHeaderAsync(channel);
+                ReadOnlySequence<byte> data = default;
+
+                if (header.StreamID is 0)
                 {
-                    _logger?.LogDebug("Closing all streams");
-
-                    foreach (ChannelState channelState in channels.Values)
+                    if (header.Type == YamuxHeaderType.Ping)
                     {
-                        await channelState.Channel?.CloseAsync();
+                        if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
+                        {
+                            _ = WriteHeaderAsync(channel,
+                                new YamuxHeader
+                                {
+                                    Flags = YamuxHeaderFlags.Ack,
+                                    Type = YamuxHeaderType.Ping,
+                                    Length = header.Length,
+                                });
+
+                            _logger?.LogDebug("Ping received and acknowledged");
+                        }
                     }
 
-                    await channel.CloseAsync();
-                    return;
+                    if (header.Type == YamuxHeaderType.GoAway)
+                    {
+                        _logger?.LogDebug("Closing all streams");
+
+                        foreach (ChannelState channelState in channels.Values)
+                        {
+                            if (channelState.Channel is not null)
+                            {
+                                await channelState.Channel.CloseAsync();
+                            }
+                        }
+
+                        break;
+                    }
+
+                    continue;
                 }
 
-                continue;
-            }
+                if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
+                {
+                    channels[header.StreamID] = CreateUpchannel(header.StreamID, YamuxHeaderFlags.Ack, null);
+                }
 
-            if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
-            {
-                data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length)).ToArray());
-                _logger?.LogDebug("Recv data, stream-{0}, len={1}, data: {data}",
-                    header.StreamID, data.Length,
-                    Encoding.ASCII.GetString(data.ToArray().Select(c => c == 0x1b || c == 0x07 ? (byte)0x2e : c).ToArray()));
-            }
-
-            if (channels.TryAdd(header.StreamID, new()) || (header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
-            {
-                _logger?.LogDebug("Request for a stream");
-                _ = WriteHeaderAsync(channel,
-                    new YamuxHeader
+                if (!channels.ContainsKey(header.StreamID))
+                {
+                    if (header.Type == YamuxHeaderType.Data && header.Length > 0)
                     {
-                        Flags = YamuxHeaderFlags.Ack,
-                        Type = YamuxHeaderType.Data,
-                        StreamID = header.StreamID
-                    });
+                        await channel.ReadAsync(header.Length);
+                    }
+                    _logger?.LogDebug("Stream {stream id}: Ignored for closed stream", header.StreamID);
+                    continue;
+                }
+
+                if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
+                {
+                    if (header.Length > channels[header.StreamID].WindowSize)
+                    {
+                        _logger?.LogDebug("Stream {stream id}: Data length > windows size: {length} > {window size}",
+                           header.StreamID, header.Length, channels[header.StreamID].WindowSize);
+
+                        await WriteGoAwayAsync(channel, SessionTerminationCode.ProtocolError);
+                        return;
+                    }
+
+                    data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length).OrThrow()).ToArray());
+
+                    _logger?.LogDebug("Stream {stream id}: Send to upchannel, length={length}", header.StreamID, data.Length);
+                    await channels[header.StreamID].Channel!.WriteAsync(data);
+                }
+
+                if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
+                {
+                    int oldSize = channels[header.StreamID].WindowSize;
+                    int newSize = oldSize + header.Length;
+                    _logger?.LogDebug("Stream {stream id}: Window update requested: {old} => {new}", header.StreamID, oldSize, newSize);
+                    channels[header.StreamID].WindowSize = newSize;
+                }
+
+                if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
+                {
+                    if (!channels.TryGetValue(header.StreamID, out ChannelState state))
+                    {
+                        continue;
+                    }
+
+                    _ = state.Channel?.WriteEofAsync();
+                    _logger?.LogDebug("Stream {stream id}: Finish receiving", header.StreamID);
+                }
+
+                if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
+                {
+                    _ = channels[header.StreamID].Channel?.CloseAsync();
+                    _logger?.LogDebug("Stream {stream id}: Reset", header.StreamID);
+                }
             }
 
-            if (channels[header.StreamID].Channel is null)
-            {
-                ActivateUpchannel(header.StreamID, null);
-                _logger?.LogDebug("Channel activated for stream-{streamId}", header.StreamID);
-            }
+            await WriteGoAwayAsync(channel, SessionTerminationCode.Ok);
 
-            if (header.Type == YamuxHeaderType.Data)
+            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, IChannelRequest? channelRequest)
             {
-                _logger?.LogDebug("Write data to upchannel, stream-{0}, len={1}", header.StreamID, data.Length);
-                await channels[header.StreamID].Channel!.WriteAsync(data);
-            }
+                bool isListenerChannel = isListener ^ (streamId % 2 == 0);
 
-            if (header.Type == YamuxHeaderType.Ping && (header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
-            {
-                _logger?.LogDebug("Pong");
-                await WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Ack, Length = header.Length });
-            }
+                _logger?.LogDebug("Stream {stream id}: Create up channel, {mode}", streamId, isListenerChannel ? "listen" : "dial");
+                IChannel upChannel;
 
-            if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
-            {
-                _ = channels[header.StreamID].Channel?.CloseAsync();
-                _logger?.LogDebug("Fin, stream-{0}", header.StreamID);
-            }
+                if (isListenerChannel)
+                {
+                    upChannel = channelFactory.SubListen(context);
+                }
+                else
+                {
+                    IPeerContext dialContext = context.Fork();
+                    dialContext.SpecificProtocolRequest = channelRequest;
+                    upChannel = channelFactory.SubDial(dialContext);
+                }
 
-            if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
-            {
-                _ = channels[header.StreamID].Channel?.CloseAsync();
-                _logger?.LogDebug("Rst, stream-{0}", header.StreamID);
+                ChannelState state = new(upChannel, channelRequest);
+                TaskCompletionSource? tcs = state.Request?.CompletionSource;
+
+                upChannel.GetAwaiter().OnCompleted(() =>
+                {
+                    tcs?.SetResult();
+                    channels.Remove(streamId);
+                    _logger?.LogDebug("Stream {stream id}: Closed", streamId);
+                });
+
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await WriteHeaderAsync(channel,
+                                   new YamuxHeader
+                                   {
+                                       Flags = initiationFlag,
+                                       Type = YamuxHeaderType.Data,
+                                       StreamID = streamId
+                                   });
+
+                        if (initiationFlag == YamuxHeaderFlags.Syn)
+                        {
+                            _logger?.LogDebug("Stream {stream id}: New stream request sent", streamId);
+                        }
+                        else
+                        {
+                            _logger?.LogDebug("Stream {stream id}: New stream request acknowledged", streamId);
+                        }
+
+                        await foreach (var upData in upChannel.ReadAllAsync())
+                        {
+                            _logger?.LogDebug("Stream {stream id}: Receive from upchannel, length={length}", streamId, upData.Length);
+
+                            for (int i = 0; i < upData.Length;)
+                            {
+                                int sendingSize = Math.Min((int)upData.Length - i, state.WindowSize);
+                                await WriteHeaderAsync(channel,
+                                   new YamuxHeader
+                                   {
+                                       Type = YamuxHeaderType.Data,
+                                       Length = sendingSize,
+                                       StreamID = streamId
+                                   }, upData.Slice(i, sendingSize));
+                                i += sendingSize;
+                            }
+                        }
+
+                        await WriteHeaderAsync(channel,
+                            new YamuxHeader
+                            {
+                                Flags = YamuxHeaderFlags.Fin,
+                                Type = YamuxHeaderType.WindowUpdate,
+                                StreamID = streamId
+                            });
+                        _logger?.LogDebug("Stream {stream id}: Upchannel finished writing", streamId);
+                    }
+                    catch (ChannelClosedException e)
+                    {
+                        _logger?.LogDebug("Stream {stream id}: Closed due to transport disconnection", streamId);
+                    }
+                    catch (Exception e)
+                    {
+                        await WriteHeaderAsync(channel,
+                          new YamuxHeader
+                          {
+                              Flags = YamuxHeaderFlags.Rst,
+                              Type = YamuxHeaderType.WindowUpdate,
+                              StreamID = streamId
+                          });
+                        _ = upChannel.CloseAsync();
+                        channels.Remove(streamId);
+
+                        _logger?.LogDebug("Stream {stream id}: Unexpected error, closing: {error}", streamId, e.Message);
+                    }
+                });
+
+                return state;
             }
         }
-
-        void ActivateUpchannel(int streamId, IChannelRequest? channelRequest)
+        catch (ChannelClosedException ex)
         {
-            if (channels[streamId].Channel is not null)
-            {
-                return;
-            }
+            _logger?.LogDebug("Closed due to transport disconnection");
+        }
+        catch (Exception ex)
+        {
+            await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
+            _logger?.LogDebug("Closed with exception {exception}", ex.Message);
+            _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+        }
 
-            bool isListenerChannel = isListener ^ (streamId % 2 == 0);
-
-            _logger?.LogDebug("Create chan for stream-{0} isListener = {1}", streamId, isListenerChannel);
-            IChannel upChannel;
-
-            if (isListenerChannel)
-            {
-                upChannel = channelFactory.SubListen(context);
-            }
-            else
-            {
-                IPeerContext dialContext = context.Fork();
-                dialContext.SpecificProtocolRequest = channels[streamId].Request;
-                upChannel = channelFactory.SubDial(dialContext);
-            }
-
-            channels[streamId] = new(upChannel, channelRequest);
-
-            upChannel.OnClose(async () =>
-            {
-                await WriteHeaderAsync(channel,
-                    new YamuxHeader
-                    {
-                        Flags = YamuxHeaderFlags.Fin,
-                        Type = YamuxHeaderType.Data,
-                        StreamID = streamId
-                    });
-                channels[streamId].Request?.CompletionSource?.SetResult();
-                _logger?.LogDebug("Close, stream-{0}", streamId);
-            });
-
-            _ = Task.Run(async () =>
-            {
-                while (!channel.IsClosed)
-                {
-                    ReadOnlySequence<byte> upData =
-                        await channels[streamId].Channel!.ReadAsync(0, ReadBlockingMode.WaitAny,
-                            channel.Token);
-                    _logger?.LogDebug("Read data from upchannel, stream-{0}, len={1}", streamId, upData.Length);
-                    await WriteHeaderAsync(channel,
-                        new YamuxHeader
-                        {
-                            Type = YamuxHeaderType.Data,
-                            Length = (int)upData.Length,
-                            StreamID = streamId
-                        }, upData);
-                }
-            });
+        foreach (ChannelState upChannel in channels.Values)
+        {
+            _ = upChannel.Channel?.CloseAsync();
         }
     }
 
     private async Task<YamuxHeader> ReadHeaderAsync(IReader reader, CancellationToken token = default)
     {
-        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token)).ToArray();
+        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token).OrThrow()).ToArray();
         YamuxHeader header = YamuxHeader.FromBytes(headerData);
-        _logger?.LogDebug("Read, stream-{streamId} type={type} flags={flags}{dataLength}", header.StreamID, header.Type, header.Flags,
-            header.Type == YamuxHeaderType.Data ? $", {header.Length}B content" : "");
+        _logger?.LogTrace("Stream {stream id}: Receive type={type} flags={flags} length={length}", header.StreamID, header.Type, header.Flags, header.Length);
         return header;
     }
 
     private async Task WriteHeaderAsync(IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
     {
         byte[] headerBuffer = new byte[HeaderLength];
-        header.Length = (int)data.Length;
+        if (header.Type == YamuxHeaderType.Data)
+        {
+            header.Length = (int)data.Length;
+        }
         YamuxHeader.ToBytes(headerBuffer, ref header);
 
-        _logger?.LogDebug("Write, stream-{streamId} type={type} flags={flags}{dataLength}", header.StreamID, header.Type, header.Flags,
-             header.Type == YamuxHeaderType.Data ? $", {header.Length}B content" : "");
-        await writer.WriteAsync(
-            data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer));
+        _logger?.LogTrace("Stream {stream id}: Send type={type} flags={flags} length={length}", header.StreamID, header.Type, header.Flags, header.Length);
+        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
     }
 
-    private struct ChannelState
-    {
-        public ChannelState(IChannel? channel, IChannelRequest? request = default)
+    private Task WriteGoAwayAsync(IWriter channel, SessionTerminationCode code) =>
+        WriteHeaderAsync(channel, new YamuxHeader
         {
-            Channel = channel;
-            Request = request;
-        }
+            Type = YamuxHeaderType.GoAway,
+            Length = (int)code,
+            StreamID = 0,
+        });
 
-        public IChannel? Channel { get; set; }
-        public IChannelRequest? Request { get; set; }
+    private class ChannelState(IChannel? channel = default, IChannelRequest? request = default)
+    {
+        public IChannel? Channel { get; set; } = channel;
+        public IChannelRequest? Request { get; set; } = request;
+        public int WindowSize { get; set; } = 256 * 1024;
     }
 }

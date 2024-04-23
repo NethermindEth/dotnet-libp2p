@@ -92,12 +92,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 9,
         EventName = nameof(DialFailed),
-        Message = "Dial error {protocol} via {channel}: {errorMessage}",
+        Message = "Dial error {protocol}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
     internal static partial void DialFailed(
         this ILogger logger,
-        string channel,
         string protocol,
         Exception? exception,
         string errorMessage);
@@ -105,12 +104,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 10,
         EventName = nameof(ListenFailed),
-        Message = "Listen error {protocol} via {channel}: {errorMessage}",
+        Message = "Listen error {protocol}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
     internal static partial void ListenFailed(
         this ILogger logger,
-        string channel,
         string protocol,
         Exception? exception,
         string errorMessage);
@@ -118,12 +116,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 11,
         EventName = nameof(DialAndBindFailed),
-        Message = "Dial and bind error {protocol} via {channel}: {errorMessage}",
+        Message = "Dial and bind error {protocol}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
     internal static partial void DialAndBindFailed(
         this ILogger logger,
-        string channel,
         string protocol,
         Exception? exception,
         string errorMessage);
@@ -131,12 +128,11 @@ internal static partial class LogMessages
     [LoggerMessage(
         EventId = EventId + 12,
         EventName = nameof(ListenAndBindFailed),
-        Message = "Listen and bind error {protocol} via {channel}: {errorMessage}",
+        Message = "Listen and bind error {protocol}: {errorMessage}",
         Level = LogLevel.Error,
         SkipEnabledCheck = true)]
     internal static partial void ListenAndBindFailed(
         this ILogger logger,
-        string channel,
         string protocol,
         Exception? exception,
         string errorMessage);
