@@ -4,9 +4,11 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
+[RequiresPreviewFeatures]
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
 {
