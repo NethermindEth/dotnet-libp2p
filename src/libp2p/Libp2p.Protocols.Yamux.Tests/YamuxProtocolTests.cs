@@ -99,7 +99,7 @@ public class YamuxProtocolTests
         listenerUpchannelFactory.SubListen(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
            .Returns(listenerUpChannel);
 
-        YamuxProtocol proto = new(new DebugLoggerFactory());
+        YamuxProtocol proto = new(loggerFactory: new DebugLoggerFactory());
 
         _ = proto.ListenAsync(listenerDownChannel, listenerUpchannelFactory, listenerPeerContext);
 
