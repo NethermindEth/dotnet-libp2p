@@ -11,64 +11,17 @@ using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 
+// TODO: Add tests
 [TestFixture]
 public class YamuxProtocolTests
 {
-    // implement the following testcases:
+    // TODO:
+    // Implement the following test cases:
     // Establish connection, expect 0 stream
     // Close connection, expect goaway
     // Try speak a protocol
     // Exchange data
     // Expect error and react to it
-
-    [Test]
-    public async Task Test_Connection_Ackowledged()
-    {
-        IChannel downChannel = new TestChannel();
-        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-
-        IProtocol? proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("proto1");
-        channelFactory.SubProtocols.Returns(new[] { proto1 });
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(Task.CompletedTask);
-
-        YamuxProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.WriteLineAsync(proto.Id);
-        await downChannel.WriteLineAsync("proto1");
-
-        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
-        channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
-        await downChannel.CloseAsync();
-    }
-
-    [Test]
-    public async Task Test_ConnectionClosed_ForBrokenHandshake()
-    {
-        IChannel downChannel = new TestChannel();
-        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-
-        IProtocol? proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("proto1");
-        channelFactory.SubProtocols.Returns(new[] { proto1 });
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(Task.CompletedTask);
-
-        NoiseProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await downChannel.WriteLineAsync(proto.Id);
-        await downChannel.WriteLineAsync("proto2");
-
-        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
-        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
-        channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
-    }
 
     [Test]
     public async Task Test_Protocol_Communication()
@@ -112,28 +65,5 @@ public class YamuxProtocolTests
         Assert.That(res, Is.EqualTo("hello"));
 
         await Task.Delay(1000);
-    }
-
-
-    class PingPongProtocol : IProtocol
-    {
-        public string Id => throw new NotImplementedException();
-
-        public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
-        {
-            const string line = "hello";
-            await downChannel.WriteLineAsync(line);
-            await downChannel.WriteEofAsync();
-            string received = await downChannel.ReadLineAsync();
-            Assert.That(received, Is.EqualTo(line));
-        }
-
-        public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
-        {
-            string line = await downChannel.ReadLineAsync();
-            ReadOnlySequence<byte>? readAfter = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
-            Assert.That(readAfter, Is.Null);
-            await downChannel.WriteLineAsync(line);
-        }
     }
 }

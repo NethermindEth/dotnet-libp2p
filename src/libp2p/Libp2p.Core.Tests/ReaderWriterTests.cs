@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -109,13 +110,13 @@ public class ReaderWriterTests
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ok));
         ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow();
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
     }
@@ -129,7 +130,7 @@ public class ReaderWriterTests
         await readerWriter.WriteEofAsync();
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>(toWrite)).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.WriteAsync(new ReadOnlySequence<byte>(toWrite)).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
@@ -148,13 +149,13 @@ public class ReaderWriterTests
 
         Assert.That(res1, Has.Length.EqualTo(3));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
@@ -169,7 +170,7 @@ public class ReaderWriterTests
             await readerWriter.WriteEofAsync();
         });
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 
@@ -186,7 +187,7 @@ public class ReaderWriterTests
             await readerWriter.WriteEofAsync();
         });
 
-        Assert.ThrowsAsync<Exception>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(5, ReadBlockingMode.WaitAll).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
     }
 }

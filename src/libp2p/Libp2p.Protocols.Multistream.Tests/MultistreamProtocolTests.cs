@@ -3,6 +3,8 @@
 
 using Nethermind.Libp2p.Protocols;
 
+namespace Libp2p.Protocols.Multistream.Tests;
+
 [TestFixture]
 [Parallelizable(scope: ParallelScope.All)]
 public class MultistreamProtocolTests
