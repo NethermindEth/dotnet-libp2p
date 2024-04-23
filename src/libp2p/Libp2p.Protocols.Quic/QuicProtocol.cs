@@ -189,7 +189,7 @@ public class QuicProtocol : IProtocol
 
         bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
 
-        Multiaddress localEndPointMultiaddress = new Multiaddress();
+        Multiaddress localEndPointMultiaddress = new();
         string strLocalEndpointAddress = connection.LocalEndPoint.Address.ToString();
         localEndPointMultiaddress = isIP4 ? localEndPointMultiaddress.Add<IP4>(strLocalEndpointAddress) : localEndPointMultiaddress.Add<IP6>(strLocalEndpointAddress);
         localEndPointMultiaddress = localEndPointMultiaddress.Add<UDP>(connection.LocalEndPoint.Port);
@@ -201,7 +201,7 @@ public class QuicProtocol : IProtocol
         IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
         isIP4 = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork;
 
-        Multiaddress remoteEndPointMultiaddress = new Multiaddress();
+        Multiaddress remoteEndPointMultiaddress = new();
         string strRemoteEndpointAddress = remoteIpEndpoint.Address.ToString();
         remoteEndPointMultiaddress = isIP4 ? remoteEndPointMultiaddress.Add<IP4>(strRemoteEndpointAddress) : remoteEndPointMultiaddress.Add<IP6>(strRemoteEndpointAddress);
         remoteEndPointMultiaddress = remoteEndPointMultiaddress.Add<UDP>(remoteIpEndpoint.Port);
@@ -232,6 +232,13 @@ public class QuicProtocol : IProtocol
 
     private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
     {
+        upChannel.GetAwaiter().OnCompleted(() =>
+        {
+            stream.Close();
+            tcs?.SetResult();
+            _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
+        });
+
         _ = Task.Run(async () =>
         {
             try
@@ -240,6 +247,7 @@ public class QuicProtocol : IProtocol
                 {
                     await stream.WriteAsync(data.ToArray());
                 }
+                stream.CompleteWrites();
             }
             catch (SocketException ex)
             {
@@ -261,6 +269,7 @@ public class QuicProtocol : IProtocol
                         await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
                     }
                 }
+                await upChannel.WriteEofAsync();
             }
             catch (SocketException ex)
             {

@@ -27,7 +27,7 @@ public class MultiaddressBasedSelectorProtocol(ILoggerFactory? loggerFactory = n
         }
         else if (context.LocalPeer.Address.Has<TCP>())
         {
-            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "tcp") ?? throw new ApplicationException("TCP is not supported");
+            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "ip-tcp") ?? throw new ApplicationException("TCP is not supported");
         }
         else if (context.LocalPeer.Address.Has<QUIC>())
         {

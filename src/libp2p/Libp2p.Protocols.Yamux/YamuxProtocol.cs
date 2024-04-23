@@ -197,7 +197,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                                    new YamuxHeader
                                    {
                                        Flags = initiationFlag,
-                                       Type = YamuxHeaderType.Data,
+                                       Type = YamuxHeaderType.WindowUpdate,
                                        StreamID = streamId
                                    });
 
