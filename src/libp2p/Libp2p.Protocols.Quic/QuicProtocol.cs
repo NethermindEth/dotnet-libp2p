@@ -12,6 +12,7 @@ using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 //using Nethermind.Libp2p.Protocols.Quic;
@@ -19,10 +20,11 @@ using System.Security.Cryptography.X509Certificates;
 namespace Nethermind.Libp2p.Protocols;
 
 #pragma warning disable CA1416 // Do not inform about platform compatibility
-#pragma warning disable CA2252 // EnablePreviewFeatures is set in the project, but build still fails
+
 /// <summary>
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
+[RequiresPreviewFeatures]
 public class QuicProtocol : IProtocol
 {
     private readonly ILogger<QuicProtocol>? _logger;
