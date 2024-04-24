@@ -117,7 +117,7 @@ public class IpTcpProtocol : IProtocol
         });
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
     {
         _logger?.LogInformation("DialAsync({contextId})", context.Id);
 
