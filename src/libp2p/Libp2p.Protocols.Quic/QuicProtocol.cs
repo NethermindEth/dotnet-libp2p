@@ -15,7 +15,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-//using Nethermind.Libp2p.Protocols.Quic;
 
 namespace Nethermind.Libp2p.Protocols;
 

@@ -4,6 +4,8 @@
 [submodule "src/cs-multihash"]
 	path = src/cs-multihash
 	url = https://github.com/NethermindEth/cs-multihash.git
+	branch = master
 [submodule "src/cs-multiaddress"]
 	path = src/cs-multiaddress
 	url = https://github.com/NethermindEth/cs-multiaddress.git
+	branch = master
