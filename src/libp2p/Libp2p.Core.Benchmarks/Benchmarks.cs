@@ -55,7 +55,7 @@ public class ChannelsBenchmark
             long i = 0;
             while (i < TotalSize)
             {
-                i += (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny)).Length;
+                i += (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow()).Length;
             }
         });
     }

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>transport_interop</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
+    <EnablePreviewFeatures>true</EnablePreviewFeatures>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NRedisStack" Version="0.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+
+    <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
+  </ItemGroup>
+
+</Project>

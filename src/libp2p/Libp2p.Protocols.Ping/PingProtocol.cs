@@ -27,18 +27,20 @@ public class PingProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        byte[] byteArray = new byte[PayloadLength];
-        _random.NextBytes(byteArray.AsSpan(0, PayloadLength));
-        ReadOnlySequence<byte> bytes = new(byteArray);
+        byte[] ping = new byte[PayloadLength];
+        _random.NextBytes(ping.AsSpan(0, PayloadLength));
+        ReadOnlySequence<byte> bytes = new(ping);
 
         _logger?.LogPing(context.RemotePeer.Address);
         await channel.WriteAsync(bytes);
+        _logger?.LogTrace("Sent ping: {ping}", Convert.ToHexString(ping));
 
         _logger?.ReadingPong(context.RemotePeer.Address);
-        ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
+        ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll).OrThrow();
+        _logger?.LogTrace("Received pong: {ping}", Convert.ToHexString(ping));
 
         _logger?.VerifyingPong(context.RemotePeer.Address);
-        if (!byteArray[0..PayloadLength].SequenceEqual(response.ToArray()))
+        if (!ping[0..PayloadLength].SequenceEqual(response.ToArray()))
         {
             _logger?.PingFailed(context.RemotePeer.Address);
             throw new ApplicationException();
@@ -52,15 +54,21 @@ public class PingProtocol : IProtocol
     {
         _logger?.PingListenStarted(context.RemotePeer.Address);
 
-        while (!channel.IsClosed)
+        while (true)
         {
             _logger?.ReadingPing(context.RemotePeer.Address);
-            ReadOnlySequence<byte> request = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
-            byte[] byteArray = request.ToArray();
-            ReadOnlySequence<byte> bytes = new(byteArray);
+            ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAny);
+            if (read.Result != IOResult.Ok)
+            {
+                break;
+            }
+
+            byte[] ping = read.Data.ToArray();
+            _logger?.LogTrace("Received ping: {ping}", Convert.ToHexString(ping));
 
             _logger?.ReturningPong(context.RemotePeer.Address);
-            await channel.WriteAsync(bytes);
+            await channel.WriteAsync(new ReadOnlySequence<byte>(ping));
+            _logger?.LogTrace("Sent pong: {ping}", Convert.ToHexString(ping));
         }
 
         _logger?.PingFinished(context.RemotePeer.Address);

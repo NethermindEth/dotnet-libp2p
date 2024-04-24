@@ -9,7 +9,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {
-    ValueTask WriteLineAsync(string str, bool prependedWithSize = true)
+    ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
     {
         int len = Encoding.UTF8.GetByteCount(str) + 1;
         byte[] buf = new byte[VarInt.GetSizeInBytes(len) + len];
@@ -20,7 +20,7 @@ public interface IWriter
         return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
-    ValueTask WriteVarintAsync(int val)
+    ValueTask<IOResult> WriteVarintAsync(int val)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
         int offset = 0;
@@ -28,7 +28,7 @@ public interface IWriter
         return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
-    ValueTask WriteVarintAsync(ulong val)
+    ValueTask<IOResult> WriteVarintAsync(ulong val)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
         int offset = 0;
@@ -36,7 +36,7 @@ public interface IWriter
         return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
-    ValueTask WriteSizeAndDataAsync(byte[] data)
+    ValueTask<IOResult> WriteSizeAndDataAsync(byte[] data)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(data.Length) + data.Length];
         int offset = 0;
@@ -52,6 +52,7 @@ public interface IWriter
         await WriteVarintAsync(serializedMessage.Length);
         await WriteAsync(new ReadOnlySequence<byte>(serializedMessage));
     }
-
-    ValueTask WriteAsync(ReadOnlySequence<byte> bytes);
+    ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default);
+    ValueTask<IOResult> WriteEofAsync(CancellationToken token = default);
 }
+

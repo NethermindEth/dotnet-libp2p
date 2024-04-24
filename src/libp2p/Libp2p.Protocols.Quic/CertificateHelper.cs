@@ -69,5 +69,5 @@ public class CertificateHelper
     }
 
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();
-    private static byte[] ContentToSignFromTlsPublicKey(byte[] keyInfo) => SignaturePrefix.Concat(keyInfo).ToArray();
+    private static byte[] ContentToSignFromTlsPublicKey(byte[] keyInfo) => [.. SignaturePrefix, .. keyInfo];
 }

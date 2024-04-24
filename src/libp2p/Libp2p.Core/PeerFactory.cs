@@ -22,7 +22,8 @@ public class PeerFactory : IPeerFactory
 
     public virtual ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default)
     {
-        return new LocalPeer(this) { Identity = identity, Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/" };
+        identity ??= new Identity();
+        return new LocalPeer(this) { Identity = identity ?? new Identity(), Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}" };
     }
 
     /// <summary>
@@ -98,7 +99,10 @@ public class PeerFactory : IPeerFactory
     {
         TaskCompletionSource cts = new(token);
         peerContext.SubDialRequests.Add(new ChannelRequest
-        { SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider), CompletionSource = cts });
+        {
+            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            CompletionSource = cts
+        });
         return cts.Task;
     }
 
@@ -107,7 +111,7 @@ public class PeerFactory : IPeerFactory
         try
         {
             Channel chan = new();
-            token.Register(() => chan.CloseAsync());
+            token.Register(() => _ = chan.CloseAsync());
 
             PeerContext context = new()
             {
@@ -118,7 +122,9 @@ public class PeerFactory : IPeerFactory
             context.RemotePeer = result;
 
             TaskCompletionSource<bool> tcs = new();
-            context.OnRemotePeerConnection += remotePeer =>
+            RemotePeerConnected remotePeerConnected = null!;
+
+            remotePeerConnected = remotePeer =>
             {
                 if (((RemotePeer)remotePeer).LocalPeer != peer)
                 {
@@ -126,7 +132,9 @@ public class PeerFactory : IPeerFactory
                 }
 
                 ConnectedTo(remotePeer, true).ContinueWith((t) => { tcs.TrySetResult(true); });
+                context.OnRemotePeerConnection -= remotePeerConnected;
             };
+            context.OnRemotePeerConnection += remotePeerConnected;
 
             _ = _protocol.DialAsync(chan, _upChannelFactory, context);
 
@@ -155,13 +163,12 @@ public class PeerFactory : IPeerFactory
 
         public Task DisconnectAsync()
         {
-            return _chan.CloseAsync();
+            return _chan.CloseAsync().AsTask();
         }
 
         public TaskAwaiter GetAwaiter()
         {
-            return Task.Delay(-1, _chan.Token).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnCanceled)
-                .GetAwaiter();
+            return _chan.GetAwaiter();
         }
 
         internal void RaiseOnConnection(IRemotePeer peer)
@@ -218,7 +225,7 @@ public class PeerFactory : IPeerFactory
 
         public Task DisconnectAsync()
         {
-            return Channel.CloseAsync();
+            return Channel.CloseAsync().AsTask();
         }
 
         public IPeer Fork()

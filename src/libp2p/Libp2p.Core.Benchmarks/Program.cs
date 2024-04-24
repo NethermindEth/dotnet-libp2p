@@ -8,7 +8,7 @@ using System.Buffers;
 using System.Diagnostics;
 
 Channel chan = new();
-IChannel revChan = ((Channel)chan).Reverse;
+IChannel revChan = chan.Reverse;
 
 const long GiB = 1024 * 1024 * 1024;
 long PacketSize = 1 * 1024;
@@ -42,7 +42,7 @@ await Task.Run(async () =>
     {
         try
         {
-            d = (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny));
+            d = (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow());
             i += d.Length;
         }
         catch

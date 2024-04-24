@@ -3,7 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
-using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols.Ping;
 
