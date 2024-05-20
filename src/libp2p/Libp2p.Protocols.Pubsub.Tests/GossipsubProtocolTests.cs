@@ -35,9 +35,9 @@ public class GossipsubProtocolTests
             PeerId peerId = TestPeers.PeerId(index);
 
             discovery.OnAddPeer!(new[] { discoveredPeer });
-            router.OutboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, sentRpcs.Add);
-            router.InboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, () => { });
-            router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
+            router.OutboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, Task.CompletedTask, sentRpcs.Add);
+            router.InboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, Task.CompletedTask, Task.CompletedTask, () => Task.CompletedTask);
+            await router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
         }
 
         await router.Heartbeat();

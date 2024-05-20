@@ -6,6 +6,9 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Xml.Linq;
+
+[assembly: InternalsVisibleTo("Libp2p.Protocols.Yamux.Tests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -65,6 +68,10 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                 YamuxHeader header = await ReadHeaderAsync(channel);
                 ReadOnlySequence<byte> data = default;
 
+                if (header.Type > YamuxHeaderType.GoAway)
+                {
+
+                }
                 if (header.StreamID is 0)
                 {
                     if (header.Type == YamuxHeaderType.Ping)
@@ -81,6 +88,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                             _logger?.LogDebug("Ping received and acknowledged");
                         }
+                        continue;
                     }
 
                     if (header.Type == YamuxHeaderType.GoAway)
@@ -118,27 +126,71 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
                 {
-                    if (header.Length > channels[header.StreamID].WindowSize)
+                    if (header.Length > channels[header.StreamID].LocalWindow.Available)
                     {
                         _logger?.LogDebug("Stream {stream id}: Data length > windows size: {length} > {window size}",
-                           header.StreamID, header.Length, channels[header.StreamID].WindowSize);
+                           header.StreamID, header.Length, channels[header.StreamID].LocalWindow.Available);
 
                         await WriteGoAwayAsync(channel, SessionTerminationCode.ProtocolError);
                         return;
                     }
 
-                    data = new ReadOnlySequence<byte>((await channel.ReadAsync(header.Length).OrThrow()).ToArray());
+                    data = await channel.ReadAsync(header.Length).OrThrow();
 
-                    _logger?.LogDebug("Stream {stream id}: Send to upchannel, length={length}", header.StreamID, data.Length);
-                    await channels[header.StreamID].Channel!.WriteAsync(data);
+                    bool spent = channels[header.StreamID].LocalWindow.SpendWindow((int)data.Length);
+                    if (!spent)
+                    {
+                        _logger?.LogDebug("Stream {stream id}: Window spent out of budget", header.StreamID);
+                        await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
+                        return;
+                    }
+
+                    ValueTask<IOResult> writeTask = channels[header.StreamID].Channel!.WriteAsync(data);
+
+                    if (writeTask.IsCompleted)
+                    {
+                        if (writeTask.Result == IOResult.Ok)
+                        {
+                            int extendedBy = channels[header.StreamID].LocalWindow.ExtendWindowIfNeeded();
+                            if (extendedBy is not 0)
+                            {
+                                _ = WriteHeaderAsync(channel,
+                                    new YamuxHeader
+                                    {
+                                        Type = YamuxHeaderType.WindowUpdate,
+                                        Length = extendedBy,
+                                        StreamID = header.StreamID
+                                    });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        writeTask.GetAwaiter().OnCompleted(() =>
+                        {
+                            if (writeTask.Result == IOResult.Ok)
+                            {
+                                int extendedBy = channels[header.StreamID].LocalWindow.ExtendWindowIfNeeded();
+                                if (extendedBy is not 0)
+                                {
+                                    _ = WriteHeaderAsync(channel,
+                                        new YamuxHeader
+                                        {
+                                            Type = YamuxHeaderType.WindowUpdate,
+                                            Length = extendedBy,
+                                            StreamID = header.StreamID
+                                        });
+                                }
+                            }
+                        });
+                    }
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
                 {
-                    int oldSize = channels[header.StreamID].WindowSize;
-                    int newSize = oldSize + header.Length;
+                    int oldSize = channels[header.StreamID].RemoteWindow.Available;
+                    int newSize = channels[header.StreamID].RemoteWindow.ExtendWindow(header.Length);
                     _logger?.LogDebug("Stream {stream id}: Window update requested: {old} => {new}", header.StreamID, oldSize, newSize);
-                    channels[header.StreamID].WindowSize = newSize;
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
@@ -197,7 +249,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                                    new YamuxHeader
                                    {
                                        Flags = initiationFlag,
-                                       Type = YamuxHeaderType.Data,
+                                       Type = YamuxHeaderType.WindowUpdate,
                                        StreamID = streamId
                                    });
 
@@ -216,14 +268,15 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                             for (int i = 0; i < upData.Length;)
                             {
-                                int sendingSize = Math.Min((int)upData.Length - i, state.WindowSize);
+                                int sendingSize = await state.RemoteWindow.SpendWindowOrWait((int)upData.Length - i);
+
                                 await WriteHeaderAsync(channel,
-                                   new YamuxHeader
-                                   {
-                                       Type = YamuxHeaderType.Data,
-                                       Length = sendingSize,
-                                       StreamID = streamId
-                                   }, upData.Slice(i, sendingSize));
+                                    new YamuxHeader
+                                    {
+                                        Type = YamuxHeaderType.Data,
+                                        Length = sendingSize,
+                                        StreamID = streamId
+                                    }, upData.Slice(i, sendingSize));
                                 i += sendingSize;
                             }
                         }
@@ -310,6 +363,84 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
     {
         public IChannel? Channel { get; set; } = channel;
         public IChannelRequest? Request { get; set; } = request;
-        public int WindowSize { get; set; } = 256 * 1024;
+
+        public DataWindow LocalWindow { get; } = new();
+        public DataWindow RemoteWindow { get; } = new();
+    }
+
+    public class DataWindow(int defaultWindowSize = 256 * 1024)
+    {
+        private int _defaultWindowSize = defaultWindowSize;
+        private int _available = defaultWindowSize;
+        private int _requestedSize;
+        private TaskCompletionSource<int>? _windowSizeTcs;
+        public int Available { get => _available; }
+
+        internal int ExtendWindowIfNeeded()
+        {
+            if (_available < _defaultWindowSize / 2)
+            {
+                return ExtendWindow(_defaultWindowSize);
+            }
+
+            return 0;
+        }
+
+        internal int ExtendWindow(int length)
+        {
+            if (length is 0)
+            {
+                return 0;
+            }
+
+            lock (this)
+            {
+                _available += length;
+                if (_windowSizeTcs is not null)
+                {
+                    int availableSize = Math.Min(_requestedSize, _available);
+                    _available -= availableSize;
+                    _windowSizeTcs.SetResult(availableSize);
+                }
+                return _available;
+            }
+        }
+
+        internal async Task<int> SpendWindowOrWait(int requestedSize)
+        {
+            if (requestedSize is 0)
+            {
+                return 0;
+            }
+            if (_windowSizeTcs is not null)
+            {
+                await _windowSizeTcs.Task;
+            }
+
+            TaskCompletionSource<int>? taskToWait;
+
+            lock (this)
+            {
+                if (_available is 0)
+                {
+                    taskToWait = _windowSizeTcs = new();
+                    _requestedSize = requestedSize;
+                }
+                else
+                {
+                    int availableSize = Math.Min(requestedSize, _available);
+                    _available -= availableSize;
+                    return availableSize;
+                }
+            }
+
+            return await taskToWait.Task;
+        }
+
+        internal bool SpendWindow(int requestedSize)
+        {
+            int result = Interlocked.Add(ref _available, -requestedSize);
+            return result >= 0;
+        }
     }
 }

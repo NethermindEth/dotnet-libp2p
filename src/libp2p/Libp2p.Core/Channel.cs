@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
+[assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
 
 namespace Nethermind.Libp2p.Core;
 

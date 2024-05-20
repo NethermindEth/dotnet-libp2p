@@ -31,19 +31,23 @@ public abstract class PubsubProtocol : IProtocol
         string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
-        CancellationToken token = router.OutboundConnection(peerId, Id, (rpc) =>
+        TaskCompletionSource dialTcs = new();
+        CancellationToken token = router.OutboundConnection(peerId, Id, dialTcs.Task, (rpc) =>
         {
-            _ = channel.WritePrefixedProtobufAsync(rpc);
+            var t = channel.WriteSizeAndProtobufAsync(rpc);
+            _logger?.LogTrace($"Sent message from {peerId}: {rpc}");
+            t.AsTask().ContinueWith((t) =>
+            {
+                if (!t.IsCompletedSuccessfully)
+                {
+                    _logger?.LogWarning($"Sending RPC failed message to {peerId}: {rpc}");
+                }
+            });
+            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
         });
 
-        try
-        {
-            await Task.Delay(-1, token);
-        }
-        catch (OperationCanceledException)
-        {
-
-        }
+        await channel;
+        dialTcs.SetResult();
         _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
 
     }
@@ -51,19 +55,40 @@ public abstract class PubsubProtocol : IProtocol
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
+
         string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
-        CancellationToken token = router.InboundConnection(peerId, Id, () =>
+        TaskCompletionSource listTcs = new();
+        TaskCompletionSource dialTcs = new();
+
+        CancellationToken token = router.InboundConnection(peerId, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this, CompletionSource = dialTcs });
+            return dialTcs.Task;
         });
+
         while (!token.IsCancellationRequested)
         {
-            Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
-            router.OnRpc(peerId, rpc);
+            Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
+            if (rpc is null)
+            {
+                _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
+
+            }
+            else
+            {
+                _logger?.LogTrace($"Received message from {peerId}: {rpc}");
+                _ = router.OnRpc(peerId, rpc);
+            }
         }
+        listTcs.SetResult();
         _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
+    }
+
+    public override string ToString()
+    {
+        return Id;
     }
 }
 
@@ -88,9 +113,9 @@ public class GossipsubProtocolV11 : PubsubProtocol
     }
 }
 
-public class GossipsubProtocolV12 : PubsubProtocol
-{
-    public GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory)
-    {
-    }
-}
+//public class GossipsubProtocolV12 : PubsubProtocol
+//{
+//    public GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory)
+//    {
+//    }
+//}

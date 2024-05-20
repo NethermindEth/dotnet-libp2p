@@ -42,7 +42,7 @@ public class QuicProtocol : IProtocol
 
     public string Id => "quic-v1";
 
-    public async Task ListenAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -101,7 +101,7 @@ public class QuicProtocol : IProtocol
 
         _logger?.ReadyToHandleConnections();
         context.ListenerReady();
-        TaskAwaiter signalingWawaiter = singalingChannel.GetAwaiter();
+        TaskAwaiter signalingWawaiter = signalingChannel.GetAwaiter();
 
         signalingWawaiter.OnCompleted(() =>
         {
@@ -123,7 +123,7 @@ public class QuicProtocol : IProtocol
         }
     }
 
-    public async Task DialAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -172,7 +172,7 @@ public class QuicProtocol : IProtocol
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
-        singalingChannel.GetAwaiter().OnCompleted(() =>
+        signalingChannel.GetAwaiter().OnCompleted(() =>
         {
             connection.CloseAsync(0);
         });

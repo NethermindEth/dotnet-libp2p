@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Dto;
+using Multiformats.Address.Protocols;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -56,8 +57,8 @@ public class IdentifyProtocol : IProtocol
             ProtocolVersion = _protocolVersion,
             AgentVersion = _agentVersion,
             PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
-            ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.ToBytes()),
+            ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.Get<IP>().ToBytes()) },
+            ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.Get<IP>().ToBytes()),
             Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
         };
         byte[] ar = new byte[identify.CalculateSize()];

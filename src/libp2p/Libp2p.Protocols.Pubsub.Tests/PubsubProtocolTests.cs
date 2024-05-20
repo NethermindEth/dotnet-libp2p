@@ -30,7 +30,7 @@ public class PubsubProtocolTests
         await Task.Delay(100);
         _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());
 
-        router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, (rpc) => { });
+        router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, Task.CompletedTask, (rpc) => { });
         Assert.That(state.ConnectedPeers, Has.Member(peerId));
     }
 }
