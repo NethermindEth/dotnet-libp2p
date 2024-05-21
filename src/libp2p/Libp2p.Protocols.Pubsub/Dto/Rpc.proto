@@ -27,6 +27,7 @@ message ControlMessage {
   repeated ControlIWant iwant = 2;
   repeated ControlGraft graft = 3; 
   repeated ControlPrune prune = 4;
+  repeated ControlIDontWant idontwant = 5;
 }
 
 message ControlIHave {
@@ -51,4 +52,8 @@ message ControlPrune {
 message PeerInfo {
 	optional bytes peerID = 1;
 	optional bytes signedPeerRecord = 2;
+}
+
+message ControlIDontWant {
+    repeated bytes messageIDs = 1;
 }

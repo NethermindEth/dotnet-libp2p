@@ -25,7 +25,7 @@ public class PubsubProtocolTests
         CancellationToken token = default;
 
         _ = router.RunAsync(peer, discovery, token: token);
-        discovery.OnAddPeer!(new[] { discoveredPeer });
+        discovery.OnAddPeer!([discoveredPeer]);
 
         await Task.Delay(100);
         _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());

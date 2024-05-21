@@ -168,9 +168,9 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     {
                         writeTask.GetAwaiter().OnCompleted(() =>
                         {
-                            if (writeTask.Result == IOResult.Ok)
+                            if (writeTask.Result == IOResult.Ok && channels.TryGetValue(header.StreamID, out ChannelState? channelState))
                             {
-                                int extendedBy = channels[header.StreamID].LocalWindow.ExtendWindowIfNeeded();
+                                int extendedBy = channelState.LocalWindow.ExtendWindowIfNeeded();
                                 if (extendedBy is not 0)
                                 {
                                     _ = WriteHeaderAsync(channel,

@@ -24,12 +24,12 @@ internal interface IRoutingStateContainer
     Task Heartbeat();
 }
 
-public class PubsubRouter : IRoutingStateContainer
+public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
 {
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
-    //public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
+    public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
 
     class PubsubPeer
     {
@@ -84,9 +84,11 @@ public class PubsubRouter : IRoutingStateContainer
     private Settings settings;
     private TtlCache<MessageId, Message> messageCache;
     private TtlCache<MessageId, Message> limboMessageCache;
+    private TtlCache<(PeerId, MessageId)> dontWantMessages;
+
     private ILocalPeer? localPeer;
     private ManagedPeer peer;
-    private ILogger? logger;
+    private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
     // all floodsub peers in topics
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();
@@ -113,11 +115,6 @@ public class PubsubRouter : IRoutingStateContainer
         Canceled = cts.Token;
     }
 
-    public PubsubRouter(ILoggerFactory? loggerFactory = default)
-    {
-        logger = loggerFactory?.CreateLogger<PubsubRouter>();
-    }
-
     public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
     {
         if (this.localPeer is not null)
@@ -129,6 +126,7 @@ public class PubsubRouter : IRoutingStateContainer
         this.settings = settings ?? Settings.Default;
         messageCache = new(this.settings.MessageCacheTtl);
         limboMessageCache = new(this.settings.MessageCacheTtl);
+        dontWantMessages = new(this.settings.MessageCacheTtl);
 
         LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
 
@@ -143,12 +141,9 @@ public class PubsubRouter : IRoutingStateContainer
 
     private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
     {
-        if (localPeer is null)
-        {
-            throw new ArgumentNullException(nameof(localPeer));
-        }
+        ArgumentNullException.ThrowIfNull(localPeer);
 
-        ObservableCollection<Multiaddress> col = new();
+        ObservableCollection<Multiaddress> col = [];
         discoveryProtocol.OnAddPeer = (addrs) =>
         {
             _ = Task.Run(async () =>
@@ -157,7 +152,7 @@ public class PubsubRouter : IRoutingStateContainer
 
                 if (!peerState.ContainsKey(remotePeer.Identity.PeerId))
                 {
-                    await remotePeer.DialAsync<GossipsubProtocolV11>(token);
+                    await remotePeer.DialAsync<GossipsubProtocol>(token);
                     if (peerState.TryGetValue(remotePeer.Identity.PeerId, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                     {
                         _ = remotePeer.DisconnectAsync();
@@ -630,6 +625,14 @@ public class PubsubRouter : IRoutingStateContainer
                                .Publish.AddRange(messages);
                         }
                     }
+
+                    if (rpc.Control.Idontwant.Any())
+                    {
+                        foreach (MessageId messageId in rpc.Control.Iwant.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray())).Take(settings.MaxIdontwantMessages))
+                        {
+                            dontWantMessages.Add((peerId, messageId));
+                        }
+                    }
                 }
             }
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
@@ -637,9 +640,9 @@ public class PubsubRouter : IRoutingStateContainer
                 peerState[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
             }
         }
-        catch
+        catch (Exception ex)
         {
-
+            logger?.LogError("Exception during rpc handling: {exception}", ex);
         }
         finally
         {

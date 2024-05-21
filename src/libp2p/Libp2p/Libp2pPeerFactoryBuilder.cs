@@ -41,7 +41,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV12>()
-            .AddAppLayerProtocol<GossipsubProtocolV11>()
+            //.AddAppLayerProtocol<GossipsubProtocolV11>()
             .AddAppLayerProtocol<GossipsubProtocol>()
             .AddAppLayerProtocol<FloodsubProtocol>();
     }

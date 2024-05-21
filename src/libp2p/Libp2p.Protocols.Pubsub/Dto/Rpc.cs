@@ -29,28 +29,31 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             "dHJvbBgDIAEoCzIPLkNvbnRyb2xNZXNzYWdlGi0KB1N1Yk9wdHMSEQoJc3Vi",
             "c2NyaWJlGAEgASgIEg8KB3RvcGljaWQYAiABKAkiYwoHTWVzc2FnZRIMCgRm",
             "cm9tGAEgASgMEgwKBGRhdGEYAiABKAwSDQoFc2Vxbm8YAyABKAwSDQoFdG9w",
-            "aWMYBCACKAkSEQoJc2lnbmF0dXJlGAUgASgMEgsKA2tleRgGIAEoDCKIAQoO",
+            "aWMYBCACKAkSEQoJc2lnbmF0dXJlGAUgASgMEgsKA2tleRgGIAEoDCKuAQoO",
             "Q29udHJvbE1lc3NhZ2USHAoFaWhhdmUYASADKAsyDS5Db250cm9sSUhhdmUS",
             "HAoFaXdhbnQYAiADKAsyDS5Db250cm9sSVdhbnQSHAoFZ3JhZnQYAyADKAsy",
-            "DS5Db250cm9sR3JhZnQSHAoFcHJ1bmUYBCADKAsyDS5Db250cm9sUHJ1bmUi",
-            "MwoMQ29udHJvbElIYXZlEg8KB3RvcGljSUQYASABKAkSEgoKbWVzc2FnZUlE",
-            "cxgCIAMoDCIiCgxDb250cm9sSVdhbnQSEgoKbWVzc2FnZUlEcxgBIAMoDCIf",
-            "CgxDb250cm9sR3JhZnQSDwoHdG9waWNJRBgBIAEoCSJKCgxDb250cm9sUHJ1",
-            "bmUSDwoHdG9waWNJRBgBIAEoCRIYCgVwZWVycxgCIAMoCzIJLlBlZXJJbmZv",
-            "Eg8KB2JhY2tvZmYYAyABKAQiNAoIUGVlckluZm8SDgoGcGVlcklEGAEgASgM",
-            "EhgKEHNpZ25lZFBlZXJSZWNvcmQYAiABKAxCKaoCJk5ldGhlcm1pbmQuTGli",
-            "cDJwLlByb3RvY29scy5QdWJzdWIuRHRv"));
+            "DS5Db250cm9sR3JhZnQSHAoFcHJ1bmUYBCADKAsyDS5Db250cm9sUHJ1bmUS",
+            "JAoJaWRvbnR3YW50GAUgAygLMhEuQ29udHJvbElEb250V2FudCIzCgxDb250",
+            "cm9sSUhhdmUSDwoHdG9waWNJRBgBIAEoCRISCgptZXNzYWdlSURzGAIgAygM",
+            "IiIKDENvbnRyb2xJV2FudBISCgptZXNzYWdlSURzGAEgAygMIh8KDENvbnRy",
+            "b2xHcmFmdBIPCgd0b3BpY0lEGAEgASgJIkoKDENvbnRyb2xQcnVuZRIPCgd0",
+            "b3BpY0lEGAEgASgJEhgKBXBlZXJzGAIgAygLMgkuUGVlckluZm8SDwoHYmFj",
+            "a29mZhgDIAEoBCI0CghQZWVySW5mbxIOCgZwZWVySUQYASABKAwSGAoQc2ln",
+            "bmVkUGVlclJlY29yZBgCIAEoDCImChBDb250cm9sSURvbnRXYW50EhIKCm1l",
+            "c3NhZ2VJRHMYASADKAxCKaoCJk5ldGhlcm1pbmQuTGlicDJwLlByb3RvY29s",
+            "cy5QdWJzdWIuRHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Parser, new[]{ "Subscriptions", "Publish", "Control" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts.Parser, new[]{ "Subscribe", "Topicid" }, null, null, null, null)}),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message.Parser, new[]{ "From", "Data", "Seqno", "Topic", "Signature", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune", "Idontwant" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave.Parser, new[]{ "TopicID", "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft.Parser, new[]{ "TopicID" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser, new[]{ "TopicID", "Peers", "Backoff" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo.Parser, new[]{ "PeerID", "SignedPeerRecord" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo.Parser, new[]{ "PeerID", "SignedPeerRecord" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant.Parser, new[]{ "MessageIDs" }, null, null, null, null)
           }));
     }
     #endregion
@@ -1068,6 +1071,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       iwant_ = other.iwant_.Clone();
       graft_ = other.graft_.Clone();
       prune_ = other.prune_.Clone();
+      idontwant_ = other.idontwant_.Clone();
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -1121,6 +1125,17 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       get { return prune_; }
     }
 
+    /// <summary>Field number for the "idontwant" field.</summary>
+    public const int IdontwantFieldNumber = 5;
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant> _repeated_idontwant_codec
+        = pb::FieldCodec.ForMessage(42, global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant> idontwant_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant>();
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant> Idontwant {
+      get { return idontwant_; }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -1140,6 +1155,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       if(!iwant_.Equals(other.iwant_)) return false;
       if(!graft_.Equals(other.graft_)) return false;
       if(!prune_.Equals(other.prune_)) return false;
+      if(!idontwant_.Equals(other.idontwant_)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -1151,6 +1167,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       hash ^= iwant_.GetHashCode();
       hash ^= graft_.GetHashCode();
       hash ^= prune_.GetHashCode();
+      hash ^= idontwant_.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -1173,6 +1190,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       iwant_.WriteTo(output, _repeated_iwant_codec);
       graft_.WriteTo(output, _repeated_graft_codec);
       prune_.WriteTo(output, _repeated_prune_codec);
+      idontwant_.WriteTo(output, _repeated_idontwant_codec);
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -1187,6 +1205,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       iwant_.WriteTo(ref output, _repeated_iwant_codec);
       graft_.WriteTo(ref output, _repeated_graft_codec);
       prune_.WriteTo(ref output, _repeated_prune_codec);
+      idontwant_.WriteTo(ref output, _repeated_idontwant_codec);
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -1201,6 +1220,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       size += iwant_.CalculateSize(_repeated_iwant_codec);
       size += graft_.CalculateSize(_repeated_graft_codec);
       size += prune_.CalculateSize(_repeated_prune_codec);
+      size += idontwant_.CalculateSize(_repeated_idontwant_codec);
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
       }
@@ -1217,6 +1237,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       iwant_.Add(other.iwant_);
       graft_.Add(other.graft_);
       prune_.Add(other.prune_);
+      idontwant_.Add(other.idontwant_);
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
 
@@ -1248,6 +1269,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             prune_.AddEntriesFrom(input, _repeated_prune_codec);
             break;
           }
+          case 42: {
+            idontwant_.AddEntriesFrom(input, _repeated_idontwant_codec);
+            break;
+          }
         }
       }
     #endif
@@ -1277,6 +1302,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           case 34: {
             prune_.AddEntriesFrom(ref input, _repeated_prune_codec);
+            break;
+          }
+          case 42: {
+            idontwant_.AddEntriesFrom(ref input, _repeated_idontwant_codec);
             break;
           }
         }
@@ -2430,6 +2459,184 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           case 18: {
             SignedPeerRecord = input.ReadBytes();
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  public sealed partial class ControlIDontWant : pb::IMessage<ControlIDontWant>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<ControlIDontWant> _parser = new pb::MessageParser<ControlIDontWant>(() => new ControlIDontWant());
+    private pb::UnknownFieldSet _unknownFields;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<ControlIDontWant> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[8]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlIDontWant() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlIDontWant(ControlIDontWant other) : this() {
+      messageIDs_ = other.messageIDs_.Clone();
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlIDontWant Clone() {
+      return new ControlIDontWant(this);
+    }
+
+    /// <summary>Field number for the "messageIDs" field.</summary>
+    public const int MessageIDsFieldNumber = 1;
+    private static readonly pb::FieldCodec<pb::ByteString> _repeated_messageIDs_codec
+        = pb::FieldCodec.ForBytes(10);
+    private readonly pbc::RepeatedField<pb::ByteString> messageIDs_ = new pbc::RepeatedField<pb::ByteString>();
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pbc::RepeatedField<pb::ByteString> MessageIDs {
+      get { return messageIDs_; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as ControlIDontWant);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(ControlIDontWant other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if(!messageIDs_.Equals(other.messageIDs_)) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      hash ^= messageIDs_.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      messageIDs_.WriteTo(output, _repeated_messageIDs_codec);
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      messageIDs_.WriteTo(ref output, _repeated_messageIDs_codec);
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      size += messageIDs_.CalculateSize(_repeated_messageIDs_codec);
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(ControlIDontWant other) {
+      if (other == null) {
+        return;
+      }
+      messageIDs_.Add(other.messageIDs_);
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+        switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 10: {
+            messageIDs_.AddEntriesFrom(input, _repeated_messageIDs_codec);
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+        switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 10: {
+            messageIDs_.AddEntriesFrom(ref input, _repeated_messageIDs_codec);
             break;
           }
         }

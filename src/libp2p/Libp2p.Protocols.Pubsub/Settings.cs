@@ -19,6 +19,7 @@ public class Settings
     public int mcache_gossip { get; set; } = 3;//Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;//Expiry time for cache of seen message ids 	2 minutes
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
+    public int MaxIdontwantMessages { get; set; } = 50;
 
     public Func<Message, string> GetMessageIdFunction = GetMessageId;
 

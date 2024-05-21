@@ -92,30 +92,10 @@ public abstract class PubsubProtocol : IProtocol
     }
 }
 
-public class FloodsubProtocol : PubsubProtocol
-{
-    public FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.FloodsubProtocolVersion, router, loggerFactory)
-    {
-    }
-}
+public class FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.FloodsubProtocolVersion, router, loggerFactory);
 
-public class GossipsubProtocol : PubsubProtocol
-{
-    public GossipsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV10, router, loggerFactory)
-    {
-    }
-}
+public class GossipsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV10, router, loggerFactory);
 
-public class GossipsubProtocolV11 : PubsubProtocol
-{
-    public GossipsubProtocolV11(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV11, router, loggerFactory)
-    {
-    }
-}
+public class GossipsubProtocolV11(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV11, router, loggerFactory);
 
-//public class GossipsubProtocolV12 : PubsubProtocol
-//{
-//    public GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : base(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory)
-//    {
-//    }
-//}
+public class GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory);

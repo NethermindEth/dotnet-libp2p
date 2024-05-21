@@ -66,3 +66,8 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         }
     }
 }
+
+internal class TtlCache<TKey>(int ttl) : TtlCache<TKey, bool>(ttl) where TKey : notnull
+{
+    public void Add(TKey key) => Add(key, false);
+}
