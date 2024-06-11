@@ -43,6 +43,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             };
             TokenSource = new CancellationTokenSource();
             Backoff = [];
+            SendRpcQueue = new ConcurrentQueue<Rpc>();
         }
 
         private enum PubsubProtocol
@@ -52,8 +53,38 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             Gossipsub,
         }
 
+        public void Send(Rpc rpc)
+        {
+            SendRpcQueue.Enqueue(rpc);
+            if (SendRpc is not null)
+            {
+                lock (SendRpcQueue)
+                {
+                    while (SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
+                    {
+                        SendRpc.Invoke(rpcToSend);
+                    }
+                }
+            }
+        }
         public Dictionary<string, DateTime> Backoff { get; internal set; }
-        public Action<Rpc>? SendRpc { get; internal set; }
+        public ConcurrentQueue<Rpc> SendRpcQueue { get; }
+        private Action<Rpc>? _sendRpc;
+        public Action<Rpc>? SendRpc
+        {
+            get => _sendRpc; set
+            {
+                _sendRpc = value;
+                if(_sendRpc is not null)
+                lock (SendRpcQueue)
+                {
+                    while (SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
+                    {
+                        _sendRpc.Invoke(rpcToSend);
+                    }
+                }
+            }
+        }
         public CancellationTokenSource TokenSource { get; init; }
         public PeerId PeerId { get; set; }
 
@@ -178,47 +209,53 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     {
         Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
 
-        if (!fPeers.TryAdd(topicId, new HashSet<PeerId>()))
+        if (!fPeers.TryAdd(topicId, []))
         {
             // Already exists
             return topic;
         }
 
-        gPeers.TryAdd(topicId, new HashSet<PeerId>());
-        mesh[topicId] = new HashSet<PeerId>();
-        HashSet<PeerId> peersToGraft = fanout.Remove(topicId, out HashSet<PeerId>? fanoutPeers) ?
-            fanoutPeers :
-            new HashSet<PeerId>();
-        fanoutLastPublished.Remove(topicId, out _);
+        gPeers.TryAdd(topicId, []);
 
-        foreach (PeerId peerId in gPeers[topicId])
+        mesh.TryAdd(topicId, []);
+
+        Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
+        foreach (var peer in peerState)
         {
-            if (peersToGraft.Count >= settings.Degree)
-            {
-                break;
-            }
-
-            peersToGraft.Add(peerId);
+            peer.Value.Send(topicUpdate);
         }
 
-        Rpc topicUpdate = new Rpc().WithTopics([topicId], Enumerable.Empty<string>());
-        //Rpc topicUpdateAndGraft = topicUpdate.Clone();
-        //topicUpdateAndGraft.Control = new();
-        //topicUpdateAndGraft.Control.Graft.Add(new ControlGraft { TopicID = topicId });
+        //HashSet<PeerId> peersToGraft = fanout.Remove(topicId, out HashSet<PeerId>? fanoutPeers) ? fanoutPeers : [];
+        //fanoutLastPublished.Remove(topicId, out _);
+
+        ////foreach (PeerId peerId in gPeers[topicId])
+        ////{
+        ////    if (peersToGraft.Count >= settings.Degree)
+        ////    {
+        ////        break;
+        ////    }
+
+        ////    peersToGraft.Add(peerId);
+        ////}
+
+        //Rpc topicUpdate = new Rpc().WithTopics([topicId], Enumerable.Empty<string>());
+        ////Rpc topicUpdateAndGraft = topicUpdate.Clone();
+        ////topicUpdateAndGraft.Control = new();
+        ////topicUpdateAndGraft.Control.Graft.Add(new ControlGraft { TopicID = topicId });
 
         //foreach (PeerId gPeer in gPeers[topicId])
         //{
-        //    if (peersToGraft.Contains(gPeer))
-        //    {
-        //        peerState[gPeer].SendRpc?.Invoke(topicUpdateAndGraft!);
-        //    }
-        //    else
-        //    {
-        //        peerState[gPeer].SendRpc?.Invoke(topicUpdate);
-        //    }
+        //    //if (peersToGraft.Contains(gPeer))
+        //    //{
+        //    //    peerState[gPeer].Send(topicUpdateAndGraft!);
+        //    //}
+        //    //else
+        //    //{
+        //        peerState[gPeer].Send(topicUpdate);
+        //    //}
         //}
 
-        //topic.GraftingPeers = peersToGraft;
+        ////topic.GraftingPeers = peersToGraft;
 
         return topic;
     }
@@ -230,7 +267,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             Rpc msg = new Rpc()
                 .WithTopics([], [topicId]);
 
-            peerState[peerId].SendRpc?.Invoke(msg);
+            peerState[peerId].Send(msg);
         }
         foreach (PeerId peerId in gPeers[topicId])
         {
@@ -241,7 +278,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
             }
-            peerState[peerId].SendRpc?.Invoke(msg);
+            peerState[peerId].Send(msg);
         }
     }
 
@@ -252,7 +289,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             Rpc msg = new Rpc()
                 .WithTopics(Enumerable.Empty<string>(), topicState.Keys);
 
-            peerState[peerId].SendRpc?.Invoke(msg);
+            peerState[peerId].Send(msg);
         }
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
 
@@ -274,7 +311,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
         foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
         {
-            peerState[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
+            peerState[peerMessage.Key].Send(peerMessage.Value);
         }
     }
 
@@ -288,7 +325,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 if (mesh.Value.Count < settings.LowestDegree)
                 {
-                    PeerId[] peersToGraft = gPeers[mesh.Key].Where(p => !mesh.Value.Contains(p) && peerState[p].SendRpc is not null && (!peerState[p].Backoff.TryGetValue(mesh.Key, out DateTime backoff) || backoff < DateTime.Now)).Take(settings.Degree - mesh.Value.Count).ToArray();
+                    PeerId[] peersToGraft = gPeers[mesh.Key].Where(p => !mesh.Value.Contains(p) && (!peerState[p].Backoff.TryGetValue(mesh.Key, out DateTime backoff) || backoff < DateTime.Now)).Take(settings.Degree - mesh.Value.Count).ToArray();
                     foreach (PeerId peerId in peersToGraft)
                     {
                         mesh.Value.Add(peerId);
@@ -351,7 +388,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
         foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
         {
-            peerState[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
+            peerState[peerMessage.Key].Send(peerMessage.Value);
         }
 
         return Task.CompletedTask;
@@ -366,13 +403,13 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
         foreach (PeerId peerId in fPeers[topicId])
         {
-            peerState[peerId].SendRpc?.Invoke(rpc);
+            peerState[peerId].Send(rpc);
         }
         if (mesh.ContainsKey(topicId))
         {
             foreach (PeerId peerId in mesh[topicId])
             {
-                peerState[peerId].SendRpc?.Invoke(rpc);
+                peerState[peerId].Send(rpc);
             }
         }
         else
@@ -394,7 +431,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
             foreach (PeerId peerId in topicFanout)
             {
-                peerState[peerId].SendRpc?.Invoke(rpc);
+                peerState[peerId].Send(rpc);
             }
         }
     }
@@ -417,7 +454,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         }
 
         Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
-        peer.SendRpc.Invoke(helloMessage);
+        peer.Send(helloMessage);
         logger?.LogDebug("Outbound {peerId}", peerId);
         return peer.TokenSource.Token;
     }
@@ -564,6 +601,9 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                             else
                             {
                                 mesh[graft.TopicID].Add(peerId);
+                                peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                                    .Ensure(r => r.Control.Graft)
+                                    .Add(new ControlGraft { TopicID = graft.TopicID });
                             }
                         }
                     }
@@ -637,7 +677,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             }
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
             {
-                peerState[peerMessage.Key].SendRpc?.Invoke(peerMessage.Value);
+                peerState[peerMessage.Key].Send(peerMessage.Value);
             }
         }
         catch (Exception ex)

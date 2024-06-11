@@ -35,7 +35,7 @@ public abstract class PubsubProtocol : IProtocol
         CancellationToken token = router.OutboundConnection(peerId, Id, dialTcs.Task, (rpc) =>
         {
             var t = channel.WriteSizeAndProtobufAsync(rpc);
-            _logger?.LogTrace($"Sent message from {peerId}: {rpc}");
+            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
             t.AsTask().ContinueWith((t) =>
             {
                 if (!t.IsCompletedSuccessfully)
