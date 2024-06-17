@@ -7,7 +7,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class Settings
 {
-    public static Settings Default => new();
+    public static Settings Default { get; } = new();
+
+    public int ReconnectionAttempts { get; set; } = 10;
+    public int ReconnectionPeriod { get; set; } = 15_000;
 
     public int Degree { get; set; } = 6; //The desired outbound degree of the network 	6
     public int LowestDegree { get; set; } = 4; //Lower bound for outbound degree 	4

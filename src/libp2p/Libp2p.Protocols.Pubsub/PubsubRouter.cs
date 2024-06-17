@@ -144,7 +144,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     private readonly ConcurrentBag<Reconnection> reconnections = new();
     private ulong seqNo = 1;
 
-    private record Reconnection(Multiaddress[] Addresses, int Attempts = 10);
+    private record Reconnection(Multiaddress[] Addresses, int Attempts);
 
     static PubsubRouter()
     {
@@ -177,7 +177,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             while (!token.IsCancellationRequested)
             {
-                await Task.Delay(15000);
+                await Task.Delay(this.settings.ReconnectionPeriod);
                 await Reconnect(token);
             }
         }, token);
@@ -211,7 +211,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 }
                 catch
                 {
-                    reconnections.Add(new Reconnection(addrs));
+                    reconnections.Add(new Reconnection(addrs, settings.ReconnectionAttempts));
                 }
             });
             return true;
@@ -478,7 +478,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
             peerState.TryRemove(peerId, out _);
-            reconnections.Add(new Reconnection([addr]));
+            reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
         });
         Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
         peer.Send(helloMessage);
@@ -505,7 +505,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
                 peerState.TryRemove(peerId, out _);
-                reconnections.Add(new Reconnection([addr]));
+                reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
             });
 
             subDial();
