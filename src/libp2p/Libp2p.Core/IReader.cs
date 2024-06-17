@@ -53,6 +53,7 @@ public interface IReader
 
         return parser.ParseFrom(serializedMessage);
     }
+
     async ValueTask<T?> ReadAnyPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
     {
         int messageLength = await ReadVarintAsync(token);

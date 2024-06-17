@@ -20,6 +20,14 @@ public interface IWriter
         return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
+    ValueTask<IOResult> WriteVarintAsync(int val)
+    {
+        byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
+        int offset = 0;
+        VarInt.Encode(val, buf, ref offset);
+        return WriteAsync(new ReadOnlySequence<byte>(buf));
+    }
+
     ValueTask<IOResult> WriteVarintAsync(ulong val)
     {
         byte[] buf = new byte[VarInt.GetSizeInBytes(val)];

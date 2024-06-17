@@ -70,7 +70,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
-
+                    // TODO: Handle bad packet
                 }
                 if (header.StreamID is 0)
                 {
