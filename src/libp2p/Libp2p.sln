@@ -71,8 +71,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TransportInterop", "..\samples\transport-interop\TransportInterop.csproj", "{EC505F21-FC69-4432-88A8-3CD5F7899B08}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "shutter-p2p", "..\samples\shutter\shutter-p2p.csproj", "{EF8CB565-A5A0-4A08-B1AC-A57157C356AF}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -195,10 +193,6 @@ Global
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Release|Any CPU.Build.0 = Release|Any CPU
-		{EF8CB565-A5A0-4A08-B1AC-A57157C356AF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EF8CB565-A5A0-4A08-B1AC-A57157C356AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EF8CB565-A5A0-4A08-B1AC-A57157C356AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EF8CB565-A5A0-4A08-B1AC-A57157C356AF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -223,7 +217,6 @@ Global
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{D9003366-1562-49CA-B32D-087BBE3973ED} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
-		{EF8CB565-A5A0-4A08-B1AC-A57157C356AF} = {0DC1C6A1-0A5B-43BA-9605-621C21A16716}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}

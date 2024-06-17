@@ -1189,7 +1189,7 @@
         "type": "Project",
         "dependencies": {
           "BinaryEncoding": "[1.4.0, )",
-          "BouncyCastle.Cryptography": "[2.2.1, )",
+          "BouncyCastle.Cryptography": "[2.3.1, )",
           "Multiformats.Base": "[2.0.1, )",
           "System.Composition": "[1.2.0, )",
           "murmurhash": "[1.0.2, )"
