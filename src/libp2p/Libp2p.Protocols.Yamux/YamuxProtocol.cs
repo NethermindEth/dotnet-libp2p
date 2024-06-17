@@ -6,7 +6,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using System.Xml.Linq;
 
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Yamux.Tests")]
 

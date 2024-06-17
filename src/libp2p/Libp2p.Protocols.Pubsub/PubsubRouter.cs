@@ -7,12 +7,9 @@ using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
-using Org.BouncyCastle.Asn1.Tsp;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
-using System.Drawing;
-using System.Net.NetworkInformation;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
