@@ -32,7 +32,7 @@ public abstract class PubsubProtocol : IProtocol
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
 
         TaskCompletionSource dialTcs = new();
-        CancellationToken token = router.OutboundConnection(peerId, Id, dialTcs.Task, (rpc) =>
+        CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
         {
             var t = channel.WriteSizeAndProtobufAsync(rpc);
             _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
@@ -62,9 +62,9 @@ public abstract class PubsubProtocol : IProtocol
         TaskCompletionSource listTcs = new();
         TaskCompletionSource dialTcs = new();
 
-        CancellationToken token = router.InboundConnection(peerId, Id, listTcs.Task, dialTcs.Task, () =>
+        CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this, CompletionSource = dialTcs });
+            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
             return dialTcs.Task;
         });
 
@@ -74,7 +74,7 @@ public abstract class PubsubProtocol : IProtocol
             if (rpc is null)
             {
                 _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
-
+                break;
             }
             else
             {

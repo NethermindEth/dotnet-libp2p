@@ -9,8 +9,6 @@ using Nethermind.Libp2p.Stack;
 using NReco.Logging.File;
 using Nethermind.Libp2p.Protocols;
 
-using Nethermind.Libp2p.Core.Dto;
-using Google.Protobuf;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder)
@@ -59,11 +57,19 @@ MyProto proto = new();
 
 _ = router.RunAsync(peer, proto, token: ts.Token);
 
+string[] peers = [
+"/ip4/207.154.243.191/tcp/23000/p2p/12D3KooWPjX9v7FWmPvAUSTMpG7j2jXWxNnUxyDZrXPqmK29QNEd",
+"/ip4/207.154.243.191/tcp/23001/p2p/12D3KooWJGopzaxs5G2FCPPMAy9zUoEdp5X7VebANvHGwiKW61Ck",
+"/ip4/207.154.243.191/tcp/23002/p2p/12D3KooWPV5c2K5oHugFFArAwaJfxUrrTEjjwJgCQ44LNTsi7p68",
+"/ip4/207.154.243.191/tcp/23003/p2p/12D3KooWKZBm2JvZE9SyPy3bQupgxtHzJC4y3E7xaHX5aRVewspC"
+];
+
 // Add Peers
-proto.OnAddPeer?.Invoke(["/ip4/161.35.71.168/tcp/23000/p2p/12D3KooWPjX9v7FWmPvAUSTMpG7j2jXWxNnUxyDZrXPqmK29QNEd"]);
-proto.OnAddPeer?.Invoke(["/ip4/161.35.71.168/tcp/23001/p2p/12D3KooWJGopzaxs5G2FCPPMAy9zUoEdp5X7VebANvHGwiKW61Ck"]);
-proto.OnAddPeer?.Invoke(["/ip4/161.35.71.168/tcp/23002/p2p/12D3KooWPV5c2K5oHugFFArAwaJfxUrrTEjjwJgCQ44LNTsi7p68"]);
-proto.OnAddPeer?.Invoke(["/ip4/161.35.71.168/tcp/23003/p2p/12D3KooWKZBm2JvZE9SyPy3bQupgxtHzJC4y3E7xaHX5aRVewspC"]);
+
+foreach (var peerAddr in peers)
+{
+    proto.OnAddPeer?.Invoke([peerAddr]);
+}
 
 // proto.OnRemovePeer += (Multiaddress[] p) => {
 //     Console.WriteLine("peer removed!");

@@ -1,24 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
-internal class ManagedPeer
+internal class ManagedPeer(ILocalPeer peer)
 {
-    private ILocalPeer peer;
-
-    public ManagedPeer(ILocalPeer peer)
-    {
-        this.peer = peer;
-    }
-
     internal async Task<IRemotePeer> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = new();
@@ -27,8 +14,18 @@ internal class ManagedPeer
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
-        IRemotePeer firstConnected = (await Task.WhenAny(addrs
-            .Select(addr => peer.DialAsync(addr, cancellations[addr].Token)))).Result;
+        Task timoutTask = Task.Delay(15_000, token);
+        Task<Task<IRemotePeer>> firstConnectedTask = Task.WhenAny(addrs
+            .Select(addr => peer.DialAsync(addr, cancellations[addr].Token)));
+
+        Task wait = await Task.WhenAny(firstConnectedTask, timoutTask);
+
+        if (wait == timoutTask)
+        {
+            throw new TimeoutException();
+        }
+
+        IRemotePeer firstConnected = firstConnectedTask.Result.Result;
 
         foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
         {
