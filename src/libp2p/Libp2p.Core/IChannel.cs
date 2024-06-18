@@ -9,4 +9,14 @@ public interface IChannel : IReader, IWriter
 {
     ValueTask CloseAsync();
     TaskAwaiter GetAwaiter();
+
+    CancellationToken CancellationToken
+    {
+        get
+        {
+            var token = new CancellationTokenSource();
+            GetAwaiter().OnCompleted(token.Cancel);
+            return token.Token;
+        }
+    }
 }

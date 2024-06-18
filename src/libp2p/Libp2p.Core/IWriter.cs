@@ -45,13 +45,12 @@ public interface IWriter
         return WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
-    async ValueTask WritePrefixedProtobufAsync<T>(T grpcMessage) where T : IMessage<T>
+    async ValueTask WriteSizeAndProtobufAsync<T>(T grpcMessage) where T : IMessage<T>
     {
         byte[] serializedMessage = grpcMessage.ToByteArray();
-
-        await WriteVarintAsync(serializedMessage.Length);
-        await WriteAsync(new ReadOnlySequence<byte>(serializedMessage));
+        await WriteSizeAndDataAsync(serializedMessage);
     }
+
     ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default);
     ValueTask<IOResult> WriteEofAsync(CancellationToken token = default);
 }

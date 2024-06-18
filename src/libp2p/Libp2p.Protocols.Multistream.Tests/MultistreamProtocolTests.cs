@@ -26,7 +26,7 @@ public class MultistreamProtocolTests
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -35,6 +35,9 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
+
+        await dialTask;
+
         _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         await downChannel.CloseAsync();
     }
@@ -58,7 +61,7 @@ public class MultistreamProtocolTests
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -67,7 +70,9 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
-        await Task.Delay(30);
+
+        await dialTask;
+
         _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         await downChannel.CloseAsync();
     }
@@ -92,10 +97,12 @@ public class MultistreamProtocolTests
             await downChannel.WriteLineAsync("proto2");
         });
 
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
+
+        await dialTask;
 
         _ = channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
     }
@@ -119,7 +126,7 @@ public class MultistreamProtocolTests
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -131,7 +138,8 @@ public class MultistreamProtocolTests
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto2.Id));
 
-        await Task.Delay(30);
+        await dialTask;
+
         _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto2);
         await upChannel.CloseAsync();
     }
@@ -152,7 +160,7 @@ public class MultistreamProtocolTests
         channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
 
         MultistreamProtocol proto = new();
-        _ = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -162,6 +170,9 @@ public class MultistreamProtocolTests
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
+
+        await dialTask;
+
         _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IProtocol)null!);
     }
 }

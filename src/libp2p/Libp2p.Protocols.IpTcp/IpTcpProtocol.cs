@@ -17,7 +17,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
     public string Id => "ip-tcp";
 
-    public async Task ListenAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -33,7 +33,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
         srv.Bind(new IPEndPoint(ipAddress, tcpPort));
         srv.Listen(tcpPort);
-        singalingChannel.GetAwaiter().OnCompleted(() =>
+        signalingChannel.GetAwaiter().OnCompleted(() =>
         {
             srv.Close();
         });
@@ -82,7 +82,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                                 await Task.Yield();
                             }
 
-                            byte[] buf = new byte[1024];
+                            byte[] buf = new byte[client.ReceiveBufferSize];
                             int length = await client.ReceiveAsync(buf, SocketFlags.None);
                             if (length != 0)
                             {
@@ -117,7 +117,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
         });
     }
 
-    public async Task DialAsync(IChannel singalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
     {
         if (channelFactory is null)
         {
@@ -134,17 +134,17 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
         try
         {
-            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort));
+            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), signalingChannel.CancellationToken);
         }
         catch (SocketException e)
         {
             _logger?.LogDebug($"Failed({context.Id}) to connect {addr}");
             _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
-            _ = singalingChannel.CloseAsync();
+            _ = signalingChannel.CloseAsync();
             return;
         }
 
-        singalingChannel.GetAwaiter().OnCompleted(() =>
+        signalingChannel.GetAwaiter().OnCompleted(() =>
         {
             client.Close();
         });

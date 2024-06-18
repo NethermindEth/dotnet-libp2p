@@ -37,7 +37,8 @@ internal static class RpcExtensions
 
     public static Rpc WithTopics(this Rpc rpc, IEnumerable<string> addTopics, IEnumerable<string> removeTopics)
     {
-        IEnumerable<Rpc.Types.SubOpts> subsOpts = addTopics.Select(a => new Rpc.Types.SubOpts { Subscribe = true, Topicid = a }).Concat(
+        IEnumerable<Rpc.Types.SubOpts> subsOpts =
+            addTopics.Select(a => new Rpc.Types.SubOpts { Subscribe = true, Topicid = a }).Concat(
             removeTopics.Select(r => new Rpc.Types.SubOpts { Subscribe = false, Topicid = r })
             );
         rpc.Subscriptions.AddRange(subsOpts);

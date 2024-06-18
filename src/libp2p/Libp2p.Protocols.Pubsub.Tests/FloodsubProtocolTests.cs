@@ -32,18 +32,22 @@ public class FloodsubProtocolTests
         router.Subscribe(commonTopic);
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
 
-        discovery.OnAddPeer!(new[] { discoveredPeer });
+        discovery.OnAddPeer!([discoveredPeer]);
         await Task.Delay(100);
         _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());
 
-        router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, sentRpcs.Add);
-        router.InboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, () => { });
-        router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
+        TaskCompletionSource tcs = new();
+
+        router.OutboundConnection(discoveredPeer, PubsubRouter.FloodsubProtocolVersion, tcs.Task, sentRpcs.Add);
+        router.InboundConnection(discoveredPeer, PubsubRouter.FloodsubProtocolVersion, tcs.Task, tcs.Task, () => Task.CompletedTask);
+        await router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
 
         Assert.Multiple(() =>
         {
             Assert.That(state.FloodsubPeers[commonTopic], Has.Member(peerId));
             Assert.That(sentRpcs.Any(rpc => rpc.Subscriptions.Any(s => s.Subscribe && s.Topicid == commonTopic)), Is.True);
         });
+
+        tcs.SetResult();
     }
 }

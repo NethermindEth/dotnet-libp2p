@@ -7,7 +7,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class Settings
 {
-    public static Settings Default => new();
+    public static Settings Default { get; } = new();
+
+    public int ReconnectionAttempts { get; set; } = 10;
+    public int ReconnectionPeriod { get; set; } = 15_000;
 
     public int Degree { get; set; } = 6; //The desired outbound degree of the network 	6
     public int LowestDegree { get; set; } = 4; //Lower bound for outbound degree 	4
@@ -19,6 +22,7 @@ public class Settings
     public int mcache_gossip { get; set; } = 3;//Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;//Expiry time for cache of seen message ids 	2 minutes
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
+    public int MaxIdontwantMessages { get; set; } = 50;
 
     public Func<Message, string> GetMessageIdFunction = GetMessageId;
 

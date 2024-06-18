@@ -8,5 +8,5 @@ internal enum YamuxHeaderType : byte
     Data = 0,
     WindowUpdate = 1,
     Ping = 2,
-    GoAway = 3
+    GoAway = 3,
 }

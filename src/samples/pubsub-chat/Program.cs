@@ -14,7 +14,7 @@ using Multiformats.Address;
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder)
     .AddLogging(builder =>
-        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Debug)
+        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
@@ -28,7 +28,7 @@ ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Pub
 CancellationTokenSource ts = new();
 
 Identity localPeerIdentity = new();
-string addr = $"/ip4/0.0.0.0/udp/0/quic-v1/p2p/{localPeerIdentity.PeerId}";
+string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 
 ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
 
@@ -36,10 +36,18 @@ PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
 topic.OnMessage += (byte[] msg) =>
 {
-    ChatMessage? chatMessage = JsonSerializer.Deserialize<ChatMessage>(Encoding.UTF8.GetString(msg));
-    if (chatMessage is not null)
+    try
     {
-        Console.WriteLine("{0}: {1}", chatMessage.SenderNick, chatMessage.Message);
+        ChatMessage? chatMessage = JsonSerializer.Deserialize<ChatMessage>(Encoding.UTF8.GetString(msg));
+
+        if (chatMessage is not null)
+        {
+            Console.WriteLine("{0}: {1}", chatMessage.SenderNick, chatMessage.Message);
+        }
+    }
+    catch
+    {
+        Console.Error.WriteLine("Enable to decode chat message");
     }
 };
 

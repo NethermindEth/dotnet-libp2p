@@ -29,15 +29,17 @@ public class GossipsubProtocolTests
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
         Assert.That(state.GossipsubPeers.Keys, Has.Member(commonTopic));
 
+        TaskCompletionSource tcs = new();
+
         foreach (int index in Enumerable.Range(1, peerCount))
         {
             Multiaddress discoveredPeer = TestPeers.Multiaddr(index);
             PeerId peerId = TestPeers.PeerId(index);
 
             discovery.OnAddPeer!(new[] { discoveredPeer });
-            router.OutboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, sentRpcs.Add);
-            router.InboundConnection(peerId, PubsubRouter.GossipsubProtocolVersionV10, () => { });
-            router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
+            router.OutboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, sentRpcs.Add);
+            router.InboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, tcs.Task, () => Task.CompletedTask);
+            await router.OnRpc(peerId, new Rpc().WithTopics(new[] { commonTopic }, Enumerable.Empty<string>()));
         }
 
         await router.Heartbeat();
@@ -47,5 +49,7 @@ public class GossipsubProtocolTests
             Assert.That(state.GossipsubPeers[commonTopic], Has.Count.EqualTo(peerCount));
             Assert.That(state.Mesh[commonTopic], Has.Count.EqualTo(Settings.Default.Degree));
         });
+
+        tcs.SetResult();
     }
 }

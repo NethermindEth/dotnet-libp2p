@@ -25,12 +25,12 @@ public class PubsubProtocolTests
         CancellationToken token = default;
 
         _ = router.RunAsync(peer, discovery, token: token);
-        discovery.OnAddPeer!(new[] { discoveredPeer });
+        discovery.OnAddPeer!([discoveredPeer]);
 
         await Task.Delay(100);
         _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());
 
-        router.OutboundConnection(peerId, PubsubRouter.FloodsubProtocolVersion, (rpc) => { });
+        router.OutboundConnection(discoveredPeer, PubsubRouter.FloodsubProtocolVersion, Task.CompletedTask, (rpc) => { });
         Assert.That(state.ConnectedPeers, Has.Member(peerId));
     }
 }
