@@ -79,11 +79,11 @@ public class ShutterP2P
         long lastMessageProcessed = DateTimeOffset.Now.ToUnixTimeSeconds();
         long delta = 0;
 
-        Task.Run(() =>
+        Task.Run(async () =>
                 {
                     for (; ; )
                     {
-                        Thread.Sleep(250);
+                        await Task.Delay(250);
 
                         while (_msgQueue.Reader.TryRead(out var msg))
                         {
@@ -94,7 +94,7 @@ public class ShutterP2P
                         long oldDelta = delta;
                         delta = DateTimeOffset.Now.ToUnixTimeSeconds() - lastMessageProcessed;
 
-                        if (delta > 0 && delta % (60 * 2) == 0 && delta != oldDelta)
+                        if (delta > 0 && delta % (60 * 20) == 0 && delta != oldDelta)
                         {
                             Console.Error.Write($"Not receiving Shutter messages ({delta / 60}m)...");
                         }
