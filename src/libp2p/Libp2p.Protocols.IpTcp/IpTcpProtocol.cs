@@ -75,7 +75,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                 {
                     try
                     {
-                        for (; ; )
+                        for (; client.Connected;)
                         {
                             if (client.Available == 0)
                             {
@@ -91,6 +91,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                                     break;
                                 }
                             }
+                            else
+                            {
+                                break;
+                            }
                         }
                     }
                     catch (SocketException e)
@@ -104,7 +108,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                     {
                         await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                         {
-                            await client.SendAsync(data.ToArray(), SocketFlags.None);
+                            int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
+                            if (sent is 0 || !client.Connected)
+                            {
+                                break;
+                            }
                         }
                     }
                     catch (SocketException)
@@ -174,7 +182,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
-                for (; ; )
+                for (; client.Connected;)
                 {
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
                     if (dataLength != 0)
@@ -183,7 +191,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                         if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                         {
                             break;
-                        };
+                        }
+                    }
+                    else
+                    {
+                        break;
                     }
                 }
 
@@ -201,7 +213,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
                     _logger?.LogDebug("Send {0} data, len={1}", context.Id, data.Length);
-                    await client.SendAsync(data.ToArray(), SocketFlags.None);
+                    int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
+                    if (sent is 0 || !client.Connected)
+                    {
+                        break;
+                    }
                 }
             }
             catch (SocketException)

@@ -200,7 +200,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                     if (!peerState.ContainsKey(remotePeer.Address.Get<P2P>().ToString()))
                     {
                         await remotePeer.DialAsync<GossipsubProtocol>(token);
-                        if (peerState.TryGetValue(remotePeer.Identity.PeerId, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                        if (peerState.TryGetValue(remotePeer.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
                             _ = remotePeer.DisconnectAsync();
                         }
@@ -475,6 +475,22 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
             peerState.TryRemove(peerId, out _);
+            foreach (var topicPeers in fPeers)
+            {
+                topicPeers.Value.Remove(peerId);
+            }
+            foreach (var topicPeers in gPeers)
+            {
+                topicPeers.Value.Remove(peerId);
+            }
+            foreach (var topicPeers in fanout)
+            {
+                topicPeers.Value.Remove(peerId);
+            }
+            foreach (var topicPeers in mesh)
+            {
+                topicPeers.Value.Remove(peerId);
+            }
             reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
         });
         Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
@@ -502,6 +518,22 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
                 peerState.TryRemove(peerId, out _);
+                foreach (var topicPeers in fPeers)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (var topicPeers in gPeers)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (var topicPeers in fanout)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (var topicPeers in mesh)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
                 reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
             });
 
