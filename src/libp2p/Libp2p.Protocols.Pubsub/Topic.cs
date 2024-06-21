@@ -1,14 +1,12 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Core;
-
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 class Topic : ITopic
 {
     private readonly PubsubRouter router;
-    private string topicName;
+    private readonly string topicName;
 
     public Topic(PubsubRouter router, string topicName)
     {
@@ -23,7 +21,6 @@ class Topic : ITopic
         };
     }
 
-    public HashSet<PeerId> GraftingPeers { get; set; }
     public DateTime LastPublished { get; set; }
 
     public event Action<byte[]>? OnMessage;
