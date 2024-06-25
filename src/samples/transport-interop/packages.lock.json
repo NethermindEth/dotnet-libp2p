@@ -57,8 +57,8 @@
       },
       "BouncyCastle.Cryptography": {
         "type": "Transitive",
-        "resolved": "2.3.1",
-        "contentHash": "buwoISwecYke3CmgG1AQSg+sNZjJeIb93vTAtJiHZX35hP/teYMxsfg0NDXGUKjGx6BKBTNKc77O2M3vKvlXZQ=="
+        "resolved": "2.4.0",
+        "contentHash": "SwXsAV3sMvAU/Nn31pbjhWurYSjJ+/giI/0n6tCrYoupEK34iIHCuk3STAd9fx8yudM85KkLSVdn951vTng/vQ=="
       },
       "Google.Protobuf": {
         "type": "Transitive",
@@ -172,19 +172,37 @@
           "System.Runtime": "4.3.0"
         }
       },
-      "Multiformats.Base": {
-        "type": "Transitive",
-        "resolved": "2.0.1",
-        "contentHash": "JherI2cl97crsQHN5pwwNIlz004D64szvvXRRq8XVXQR2ZOFTaW5UEs8sJmt80bhW3cHH7XP4ooCqGYr/WBNRw==",
-        "dependencies": {
-          "NETStandard.Library": "1.6.1",
-          "System.Runtime.Numerics": "4.3.0"
-        }
-      },
       "murmurhash": {
         "type": "Transitive",
         "resolved": "1.0.2",
         "contentHash": "Yw9+sYL3qdTEXDKAEeiXsVwsP2K2nyWOxgvbDD1w5j+yu0CYk5edLvGmmJHqqFxuBFrVsgb7iF2XGprRlt+SEA=="
+      },
+      "Nethermind.Multiformats.Address": {
+        "type": "Transitive",
+        "resolved": "1.1.2",
+        "contentHash": "14BDWJB1f9aFi8P/uD9a9mFvdzACw817njDUkU8VlPkSG/jkeH0so/cw/qoBXiRms7A4Js3NbFzjNF3T4t8U1g==",
+        "dependencies": {
+          "BinaryEncoding": "1.4.0",
+          "Nethermind.Multiformats.Base": "2.0.3",
+          "Nethermind.Multiformats.Hash": "1.5.2"
+        }
+      },
+      "Nethermind.Multiformats.Base": {
+        "type": "Transitive",
+        "resolved": "2.0.3",
+        "contentHash": "DnV0CyXVSqXkBd0tVCWBN70psTQjvUBYOlA6DGnChs/aUSyVU4G+iamjT+F+1WGUjJTB0jY4wnegHfafKgffYA=="
+      },
+      "Nethermind.Multiformats.Hash": {
+        "type": "Transitive",
+        "resolved": "1.5.2",
+        "contentHash": "PYDca7lM1eYOdlCfuo/0STL2ktNefrvWUT7pUQvfuB7chaFN+J5h5+BijRMVa8codCUSiVnuxnEFT0WBVJqA4w==",
+        "dependencies": {
+          "BinaryEncoding": "1.4.0",
+          "BouncyCastle.Cryptography": "2.4.0",
+          "Nethermind.Multiformats.Base": "2.0.3",
+          "System.Composition": "1.2.0",
+          "murmurhash": "1.0.2"
+        }
       },
       "NETStandard.Library": {
         "type": "Transitive",
@@ -1177,34 +1195,15 @@
           "System.Xml.ReaderWriter": "4.3.0"
         }
       },
-      "multiformats.address": {
-        "type": "Project",
-        "dependencies": {
-          "BinaryEncoding": "[1.3.4, )",
-          "Multiformats.Base": "[2.0.1, )",
-          "Multiformats.Hash": "[1.3.0, )"
-        }
-      },
-      "multiformats.hash": {
-        "type": "Project",
-        "dependencies": {
-          "BinaryEncoding": "[1.4.0, )",
-          "BouncyCastle.Cryptography": "[2.3.1, )",
-          "Multiformats.Base": "[2.0.1, )",
-          "System.Composition": "[1.2.0, )",
-          "murmurhash": "[1.0.2, )"
-        }
-      },
       "Nethermind.Libp2p.Core": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.3.1, )",
+          "BouncyCastle.Cryptography": "[2.4.0, )",
           "Google.Protobuf": "[3.25.1, )",
           "Microsoft.Extensions.DependencyInjection": "[8.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.0, )",
-          "Multiformats.Address": "[1.1.1, )",
-          "Multiformats.Hash": "[1.5.0, )",
+          "Nethermind.Multiformats.Address": "[1.1.2, )",
           "SimpleBase": "[4.0.0, )"
         }
       },
@@ -1233,9 +1232,8 @@
       "Nethermind.Libp2p.Protocols.Noise": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.3.1, )",
+          "BouncyCastle.Cryptography": "[2.4.0, )",
           "Google.Protobuf": "[3.25.1, )",
-          "Multiformats.Hash": "[1.5.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Noise.NET": "[1.0.0, )"
         }
@@ -1249,9 +1247,8 @@
       "Nethermind.Libp2p.Protocols.Quic": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.3.1, )",
+          "BouncyCastle.Cryptography": "[2.4.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.0, )",
-          "Multiformats.Hash": "[1.5.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
