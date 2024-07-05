@@ -53,8 +53,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Tes
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Ping", "Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj", "{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Hash", "..\cs-multihash\src\Multiformats.Hash\Multiformats.Hash.csproj", "{064158B8-C0A0-4CE5-8D6A-77FE657788FE}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Quic.Tests", "Libp2p.Protocols.Quic.Tests\Libp2p.Protocols.Quic.Tests.csproj", "{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A2304809-D04D-46CA-9B94-ED487E3E9B79}"
@@ -62,10 +60,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Directory.Build.props = Directory.Build.props
 		Directory.Packages.props = Directory.Packages.props
 	EndProjectSection
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address", "..\cs-multiaddress\src\Multiformats.Address\Multiformats.Address.csproj", "{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Multiformats.Address.Tests", "..\cs-multiaddress\test\Multiformats.Address.Tests\Multiformats.Address.Tests.csproj", "{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux.Tests", "Libp2p.Protocols.Yamux.Tests\Libp2p.Protocols.Yamux.Tests.csproj", "{D9003366-1562-49CA-B32D-087BBE3973ED}"
 EndProject
@@ -169,22 +163,10 @@ Global
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FC0E9BCE-2848-45DC-AE20-FB7E862A199E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{064158B8-C0A0-4CE5-8D6A-77FE657788FE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EEECB761-A3C3-4598-AD03-EFABBF6CAA77}.Release|Any CPU.Build.0 = Release|Any CPU
-		{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1C7EF4B1-E314-46C7-99EC-16C7B20A1618}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0582D2CC-05C7-47BF-B42A-65EDF3A02FAB}.Release|Any CPU.Build.0 = Release|Any CPU
 		{D9003366-1562-49CA-B32D-087BBE3973ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{D9003366-1562-49CA-B32D-087BBE3973ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D9003366-1562-49CA-B32D-087BBE3973ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
