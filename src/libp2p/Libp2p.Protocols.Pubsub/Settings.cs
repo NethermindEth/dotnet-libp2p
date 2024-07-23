@@ -25,7 +25,7 @@ public class Settings
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
-    public Func<Message, MessageId> GetMessageId = (Message message) => new MessageId(message.From.Concat(message.Seqno).ToArray());
+    public Func<Message, MessageId> GetMessageId { get; set; } = (Message message) => new MessageId([.. message.From, .. message.Seqno]);
 
     public enum SignaturePolicy
     {
