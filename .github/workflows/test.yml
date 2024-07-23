@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet restore --force-evaluate
+        run: dotnet restore
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
