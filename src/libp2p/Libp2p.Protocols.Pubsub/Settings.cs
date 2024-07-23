@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
@@ -24,13 +25,7 @@ public class Settings
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
-    public Func<Message, string> GetMessageIdFunction = GetMessageId;
-
-    private static string GetMessageId(Message message)
-    {
-        Span<byte> bytes = new byte[message.From.Length + message.Seqno.Length];
-        return "";
-    }
+    public Func<Message, MessageId> GetMessageId = (Message message) => new MessageId(message.From.Concat(message.Seqno).ToArray());
 
     public enum SignaturePolicy
     {
