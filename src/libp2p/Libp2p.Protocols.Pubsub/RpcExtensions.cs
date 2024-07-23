@@ -68,10 +68,6 @@ internal static class RpcExtensions
         return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
     }
 
-    public static MessageId GetId(this Message message)
-    {
-        return new(message.From.Concat(message.Seqno).ToArray());
-    }
     public static T Ensure<T>(this Rpc self, Func<Rpc, T> accessor)
     {
         switch (accessor)
