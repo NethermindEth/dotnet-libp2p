@@ -24,7 +24,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
 [RequiresPreviewFeatures]
-public class QuicProtocol : IProtocol
+public class QuicProtocol : ITransportProtocol
 {
     private readonly ILogger<QuicProtocol>? _logger;
     private readonly ECDsa _sessionKey;

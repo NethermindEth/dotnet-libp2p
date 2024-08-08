@@ -19,3 +19,8 @@ public class ChannelClosedException : Libp2pException
 {
 
 }
+
+public class Libp2pSetupException(string? message = null) : Libp2pException(message)
+{
+
+}

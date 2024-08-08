@@ -3,15 +3,16 @@
 
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerFactory : IPeerFactory
+public abstract class PeerFactory : IPeerFactory
 {
     private readonly IServiceProvider _serviceProvider;
 
-    private IProtocol _protocol;
+    private IId _protocol;
     private IChannelFactory _upChannelFactory;
     private static int CtxId = 0;
 
@@ -20,11 +21,7 @@ public class PeerFactory : IPeerFactory
         _serviceProvider = serviceProvider;
     }
 
-    public virtual ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default)
-    {
-        identity ??= new Identity();
-        return new LocalPeer(this) { Identity = identity ?? new Identity(), Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}" };
-    }
+    public abstract ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default);
 
     /// <summary>
     /// PeerFactory interface ctor
@@ -33,7 +30,7 @@ public class PeerFactory : IPeerFactory
     /// <param name="appFactory"></param>
     /// <param name="protocol"></param>
     /// <param name="appLayerProtocols"></param>
-    public void Setup(IProtocol protocol, IChannelFactory upChannelFactory)
+    public void Setup(IId protocol, IChannelFactory upChannelFactory)
     {
         _protocol = protocol;
         _upChannelFactory = upChannelFactory;
@@ -84,7 +81,13 @@ public class PeerFactory : IPeerFactory
             ConnectedTo(remotePeer, false)
                 .ContinueWith(t => { result.RaiseOnConnection(remotePeer); }, token);
         };
-        _ = _protocol.ListenAsync(chan, _upChannelFactory, peerContext);
+
+        _ = _protocol switch
+        {
+            IProtocol protocol => _ = protocol.ListenAsync(chan, _upChannelFactory, peerContext),
+            ITransportProtocol protocol => _ = protocol.ListenAsync(chan, _upChannelFactory, peerContext),
+            _ => throw new Libp2pSetupException($"{nameof(IProtocol)} or {nameof(ITransportProtocol)} should be implemented by {_protocol.GetType()}"),
+        };        
 
         await ts.Task;
         return result;
@@ -136,7 +139,12 @@ public class PeerFactory : IPeerFactory
             };
             context.OnRemotePeerConnection += remotePeerConnected;
 
-            _ = _protocol.DialAsync(chan, _upChannelFactory, context);
+            _ = _protocol switch
+            {
+                IProtocol protocol => _ = protocol.DialAsync(chan, _upChannelFactory, context),
+                ITransportProtocol protocol => _ = protocol.DialAsync(chan, _upChannelFactory, context),
+                _ => throw new Libp2pSetupException($"{nameof(IProtocol)} or {nameof(ITransportProtocol)} should be implemented by {_protocol.GetType()}"),
+            };
 
             await tcs.Task;
             return result;
@@ -234,3 +242,4 @@ public class PeerFactory : IPeerFactory
         }
     }
 }
+

@@ -7,22 +7,22 @@ namespace Nethermind.Libp2p.Core;
 
 public static class PeerFactoryBuilderBase
 {
-    private static HashSet<IProtocol> protocols = new();
+    private static HashSet<IId> protocols = new();
 
-    internal static IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+    internal static TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IId
     {
         if (instance is not null)
         {
             protocols.Add(instance);
         }
 
-        IProtocol? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
+        IId? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
         if (existing is null)
         {
             existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
             protocols.Add(existing);
         }
-        return existing;
+        return (TProtocol)existing;
     }
 }
 
@@ -42,7 +42,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
     }
 
-    protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
+    protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IId
     {
         return new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
     }
@@ -61,11 +61,11 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         public ProtocolStack? Root { get; private set; }
         public ProtocolStack? Parent { get; private set; }
         public ProtocolStack? PrevSwitch { get; private set; }
-        public IProtocol Protocol { get; }
+        public IId Protocol { get; }
         public HashSet<ProtocolStack> TopProtocols { get; } = new();
         public ChannelFactory UpChannelsFactory { get; }
 
-        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
+        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IId protocol)
         {
             this.builder = builder;
             this.serviceProvider = serviceProvider;
@@ -79,7 +79,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             return this;
         }
 
-        public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
+        public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IId
         {
             ProtocolStack nextNode = new(builder, serviceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance));
             return Over(nextNode);
@@ -91,14 +91,14 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             {
                 throw new NotImplementedException();
             }
-            IProtocol protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
+            IId protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
             ProtocolStack stack = new(builder, serviceProvider, protocol);
             return Or(stack);
         }
 
         public ProtocolStack Over(ProtocolStack stack)
         {
-            PeerFactoryBuilderBase<TBuilder, TPeerFactory>.ProtocolStack rootProto = stack.Root ?? stack;
+            ProtocolStack rootProto = stack.Root ?? stack;
             TopProtocols.Add(rootProto);
 
             if (PrevSwitch != null)
@@ -149,8 +149,8 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         static void SetupChannelFactories(ProtocolStack root)
         {
-            root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
-                     .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
+            root.UpChannelsFactory.Setup(new Dictionary<IId, IChannelFactory>(root.TopProtocols
+                     .Select(p => new KeyValuePair<IId, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
             foreach (ProtocolStack topProto in root.TopProtocols)
             {
                 if (!root.TopProtocols.Any())

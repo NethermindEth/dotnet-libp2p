@@ -96,7 +96,7 @@ public class MultistreamProtocol : IProtocol
         for (; ; )
         {
             string proto = await channel.ReadLineAsync();
-            selected = channelFactory!.SubProtocols.FirstOrDefault(x => x.Id == proto);
+            selected = channelFactory!.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
             if (selected is not null)
             {
                 await channel.WriteLineAsync(selected.Id);

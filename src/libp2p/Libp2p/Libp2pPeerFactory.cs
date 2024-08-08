@@ -27,6 +27,7 @@ public class Libp2pPeerFactory : PeerFactory
         {
             localAddr.Add<P2P>(identity.PeerId.ToString());
         }
-        return base.Create(identity, localAddr);
+
+        return new LocalPeer(this) { Identity = identity ?? new Identity(), Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}" };
     }
 }

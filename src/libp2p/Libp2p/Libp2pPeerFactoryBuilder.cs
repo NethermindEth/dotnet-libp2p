@@ -38,7 +38,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             .Over<YamuxProtocol>();
 
         return
-            Over<MultiaddressBasedSelectorProtocol>()
+            Over<MultiaddressBasedSelector>()
             .Over<QuicProtocol>().Or(tcpStack)
             .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()

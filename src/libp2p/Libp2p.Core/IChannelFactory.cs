@@ -5,7 +5,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IChannelFactory
 {
-    IEnumerable<IProtocol> SubProtocols { get; }
+    IEnumerable<IId> SubProtocols { get; }
     IChannel SubDial(IPeerContext context, IChannelRequest? request = null);
 
     IChannel SubListen(IPeerContext context, IChannelRequest? request = null);
