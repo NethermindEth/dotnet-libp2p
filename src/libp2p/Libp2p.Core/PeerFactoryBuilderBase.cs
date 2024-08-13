@@ -2,21 +2,22 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 
 public static class PeerFactoryBuilderBase
 {
-    private static HashSet<IId> protocols = new();
+    private static HashSet<IProtocol> protocols = new();
 
-    internal static TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IId
+    internal static TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
     {
         if (instance is not null)
         {
             protocols.Add(instance);
         }
 
-        IId? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
+        IProtocol? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
         if (existing is null)
         {
             existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
@@ -28,7 +29,7 @@ public static class PeerFactoryBuilderBase
 
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
-    where TPeerFactory : PeerFactory
+    where TPeerFactory : IPeerFactory
 {
     private readonly List<IProtocol> _appLayerProtocols = new();
     public IEnumerable<IProtocol> AppLayerProtocols { get => _appLayerProtocols; }
@@ -42,7 +43,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
     }
 
-    protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IId
+    protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
         return new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
     }
@@ -59,13 +60,13 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         private readonly IServiceProvider serviceProvider;
 
         public ProtocolStack? Root { get; private set; }
-        public ProtocolStack? Parent { get; private set; }
+        public ProtocolStack Parent { get; private set; }
         public ProtocolStack? PrevSwitch { get; private set; }
-        public IId Protocol { get; }
+        public IProtocol Protocol { get; }
         public HashSet<ProtocolStack> TopProtocols { get; } = new();
         public ChannelFactory UpChannelsFactory { get; }
 
-        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IId protocol)
+        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
         {
             this.builder = builder;
             this.serviceProvider = serviceProvider;
@@ -79,7 +80,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             return this;
         }
 
-        public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IId
+        public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
         {
             ProtocolStack nextNode = new(builder, serviceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance));
             return Over(nextNode);
@@ -89,9 +90,10 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         {
             if (Parent is null)
             {
-                throw new NotImplementedException();
+                Parent = new ProtocolStack(builder, serviceProvider, new RootStub());
+                Parent.Over(this);
             }
-            IId protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
+            IProtocol protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
             ProtocolStack stack = new(builder, serviceProvider, protocol);
             return Or(stack);
         }
@@ -116,7 +118,8 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         {
             if (Parent is null)
             {
-                throw new NotImplementedException();
+                Parent = new ProtocolStack(builder, serviceProvider, new RootStub());
+                Parent.Over(this);
             }
             stack.PrevSwitch = this;
             return Parent.Over(stack);
@@ -147,10 +150,12 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             throw new ApplicationException("Root protocol is not properly defined");
         }
 
+        Dictionary<IProtocol, IProtocol[]> protocols = new();
+
         static void SetupChannelFactories(ProtocolStack root)
         {
-            root.UpChannelsFactory.Setup(new Dictionary<IId, IChannelFactory>(root.TopProtocols
-                     .Select(p => new KeyValuePair<IId, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
+            root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
+                     .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
             foreach (ProtocolStack topProto in root.TopProtocols)
             {
                 if (!root.TopProtocols.Any())
@@ -163,8 +168,11 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         SetupChannelFactories(root);
 
+        IBuilderContext builderContext = ActivatorUtilities.GetServiceOrCreateInstance<IBuilderContext>(ServiceProvider);
+        builderContext.Protocols = protocols;//root.Protocol is RootStub ? root.TopProtocols.Select(s => s.Protocol).ToArray() : [root?.Protocol]
+
         TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
-        result.Setup(root?.Protocol!, root!.UpChannelsFactory);
+
         return result;
     }
 
@@ -177,5 +185,10 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         {
             return (IsSelector ? "(selector)" : "") + string.Join(",", Protocols.Select(p => p.Id));
         }
+    }
+
+    class RootStub : IProtocol
+    {
+        public string Id => "protocol hierachy root";
     }
 }

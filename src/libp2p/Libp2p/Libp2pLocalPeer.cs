@@ -9,6 +9,6 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace Nethermind.Libp2p;
-//internal class Libp2pLocalPeer: ILocalPeer
+//internal class Libp2pLocalPeer: IPeer
 //{
 //}

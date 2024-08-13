@@ -221,13 +221,13 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = channelFactory.SubListen(context);
+                    upChannel = channelFactory.SubListen();
                 }
                 else
                 {
                     IPeerContext dialContext = context.Fork();
                     dialContext.SpecificProtocolRequest = channelRequest;
-                    upChannel = channelFactory.SubDial(dialContext);
+                    upChannel = channelFactory.SubDial();
                 }
 
                 ChannelState state = new(upChannel, channelRequest);

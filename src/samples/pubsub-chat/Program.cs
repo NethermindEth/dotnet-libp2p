@@ -30,7 +30,7 @@ CancellationTokenSource ts = new();
 Identity localPeerIdentity = new();
 string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 
-ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
+IPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");

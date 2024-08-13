@@ -4,9 +4,9 @@
 using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
-internal class ManagedPeer(ILocalPeer peer)
+internal class ManagedPeer(IPeer peer)
 {
-    internal async Task<IRemotePeer> DialAsync(Multiaddress[] addrs, CancellationToken token)
+    internal async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = new();
         foreach (Multiaddress addr in addrs)
@@ -15,7 +15,7 @@ internal class ManagedPeer(ILocalPeer peer)
         }
 
         Task timoutTask = Task.Delay(15_000, token);
-        Task<Task<IRemotePeer>> firstConnectedTask = Task.WhenAny(addrs
+        Task<Task<ISession>> firstConnectedTask = Task.WhenAny(addrs
             .Select(addr => peer.DialAsync(addr, cancellations[addr].Token)));
 
         Task wait = await Task.WhenAny(firstConnectedTask, timoutTask);
@@ -25,7 +25,7 @@ internal class ManagedPeer(ILocalPeer peer)
             throw new TimeoutException();
         }
 
-        IRemotePeer firstConnected = firstConnectedTask.Result.Result;
+        ISession firstConnected = firstConnectedTask.Result.Result;
 
         foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
         {

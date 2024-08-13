@@ -93,7 +93,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
 
-        IChannel upChannel = upChannelFactory.SubDial(context);
+        IChannel upChannel = upChannelFactory.SubDial();
 
         await ExchangeData(transport, downChannel, upChannel);
 
@@ -153,7 +153,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
 
-        IChannel upChannel = upChannelFactory.SubListen(context);
+        IChannel upChannel = upChannelFactory.SubListen();
 
         await ExchangeData(transport, downChannel, upChannel);
 

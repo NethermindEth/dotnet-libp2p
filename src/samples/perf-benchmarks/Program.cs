@@ -18,13 +18,13 @@ await Task.Delay(1000);
     IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
     Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-    ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
+    IPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}");
 
     Multiaddress remoteAddr = listener.Address;
-    ILocalPeer localPeer = peerFactory.Create();
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+    IPeer localPeer = peerFactory.Create();
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<PerfProtocol>();
@@ -41,12 +41,12 @@ await Task.Delay(1000);
         .AddAppLayerProtocol<PerfProtocol>()
         .Build();
 
-    ILocalPeer peer = peerFactory.Create();
+    IPeer peer = peerFactory.Create();
     IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0");
 
     Multiaddress remoteAddr = listener.Address;
-    ILocalPeer localPeer = peerFactory.Create();
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+    IPeer localPeer = peerFactory.Create();
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<PerfProtocol>();

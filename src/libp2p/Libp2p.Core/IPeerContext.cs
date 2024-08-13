@@ -2,34 +2,41 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
-using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IPeerContext
+public interface IContext
 {
     string Id { get; }
-    IPeer LocalPeer { get; }
-    IPeer RemotePeer { get; }
-
-    Multiaddress RemoteEndpoint { get; set; }
-    Multiaddress LocalEndpoint { get; set; }
-
-    // TODO: Get rid of this:
-    IPeerContext Fork();
-
-    #region Allows muxer to manage session and channels for the app protocols
-    BlockingCollection<IChannelRequest> SubDialRequests { get; }
-
-    IChannelRequest? SpecificProtocolRequest { get; set; }
-
-    event RemotePeerConnected OnRemotePeerConnection;
-    event ListenerReady OnListenerReady;
-
-    void Connected(IPeer peer);
-    void ListenerReady();
-    #endregion
+    IPeer Peer { get; }
 }
 
-public delegate void RemotePeerConnected(IRemotePeer peer);
-public delegate void ListenerReady();
+public interface ITransportContext : IContext
+{
+    void ListenerReady(Multiaddress addr);
+    ITransportConnectionContext CreateConnection();
+}
+
+public interface ITransportConnectionContext : IDisposable, IChannelFactory, IContext
+{
+    CancellationToken Token { get; }
+    IConnectionSessionContext CreateSession(PeerId peerId);
+}
+
+public interface IConnectionContext : IChannelFactory, IContext
+{
+    Task DisconnectAsync();
+    IConnectionSessionContext CreateSession(PeerId peerId);
+}
+
+public interface IConnectionSessionContext : IDisposable
+{
+    string Id { get; }
+    IEnumerable<IChannelRequest> DialRequests { get; }
+}
+
+public interface ISessionContext : IChannelFactory, IContext
+{
+    Task DialAsync<TProtocol>() where TProtocol: ISessionProtocol;
+    Task DisconnectAsync();
+}

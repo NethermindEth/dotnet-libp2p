@@ -80,7 +80,8 @@ public class MultistreamProtocol : IProtocol
             return;
         }
         _logger?.LogDebug($"Protocol selected during dialing: {selected}");
-        await channelFactory.SubDialAndBind(channel, context, selected);
+        //await channelFactory.SubDialAndBind(channel, context, selected);
+        throw new NotImplementedException();
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -115,7 +116,8 @@ public class MultistreamProtocol : IProtocol
         }
 
         _logger?.LogDebug($"Protocol selected during listening: {selected}");
-        await channelFactory.SubListenAndBind(channel, context, selected);
+        // await channelFactory.SubListenAndBind(channel, context, selected);
+        throw new NotImplementedException();
     }
 
     private async Task<bool> SendHello(IChannel channel)

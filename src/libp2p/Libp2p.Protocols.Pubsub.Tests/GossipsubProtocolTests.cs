@@ -19,7 +19,7 @@ public class GossipsubProtocolTests
         int peerCount = Settings.Default.Degree * 2;
         const string commonTopic = "topic1";
 
-        ILocalPeer peer = new TestLocalPeer();
+        IPeer peer = new TestLocalPeer();
         TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
         List<Rpc> sentRpcs = new();

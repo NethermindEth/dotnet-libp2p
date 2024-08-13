@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Stack;
@@ -17,41 +18,38 @@ public class MultiaddressBasedSelector(ILoggerFactory? loggerFactory = null): IT
 
     public string Id => "multiaddr-select";
 
-    public Task DialAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public Task DialAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        return ConnectAsync(channel, channelFactory, context, false);
+        return ConnectAsync(context, listenAddr, token, false);
     }
 
-    public Task ListenAsync(IChannel channel, IChannelFactory? channelFactory, IPeerContext context)
+    public Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        return ConnectAsync(channel, channelFactory, context, true);
+        return ConnectAsync(context, listenAddr, token, true);
     }
 
-    protected async Task ConnectAsync(IChannel _, IChannelFactory? channelFactory, IPeerContext context, bool isListener)
+    protected async Task ConnectAsync(ITransportContext context, Multiaddress addr, CancellationToken token, bool isListener)
     {
-        ITransportProtocol protocol = null!;
-        // TODO: deprecate quic
-        if (context.LocalPeer.Address.Has<QUICv1>())
-        {
-            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
-        }
-        else if (context.LocalPeer.Address.Has<TCP>())
-        {
-            protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
-        }
-        else if (context.LocalPeer.Address.Has<QUIC>())
-        {
-            throw new ApplicationException("QUIC is not supported. Use QUICv1 instead.");
-        }
-        else
-        {
-            throw new NotImplementedException($"No transport protocol found for the given address: {context.LocalPeer.Address}");
-        }
+        throw new NotImplementedException();
+        //ITransportProtocol protocol = null!;
 
-        _logger?.LogPickedProtocol(protocol.Id, isListener ? "listen" : "dial");
+        //if (addr.Has<QUICv1>())
+        //{
+        //    protocol = context!.SubProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
+        //}
+        //else if (addr.Has<TCP>())
+        //{
+        //    protocol = channelFactory!.SubProtocols.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
+        //}
+        //else
+        //{
+        //    throw new NotImplementedException($"No transport protocol found for the given address: {addr}");
+        //}
 
-        await (isListener
-            ? protocol.ListenAsync(_, channelFactory, context)
-            : protocol.DialAsync(_, channelFactory, context));
+        //_logger?.LogPickedProtocol(protocol.Id, isListener ? "listen" : "dial");
+
+        //await (isListener
+        //    ? protocol.ListenAsync(context, addr, token)
+        //    : protocol.DialAsync(context, addr, token));
     }
 }

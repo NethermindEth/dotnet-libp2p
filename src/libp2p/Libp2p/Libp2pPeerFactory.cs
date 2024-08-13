@@ -14,12 +14,32 @@ public class Libp2pPeerFactory : PeerFactory
     {
     }
 
-    protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
+    protected override async Task ConnectedTo(ISession peer, bool isDialer)
     {
         await peer.DialAsync<IdentifyProtocol>();
     }
 
-    public override ILocalPeer Create(Identity? identity = null, Multiaddress? localAddr = null)
+    protected override IProtocol SelectProtocol(Multiaddress addr)
+    {
+        ITransportProtocol protocol = null!;
+
+        if (addr.Has<QUICv1>())
+        {
+            protocol = TopProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
+        }
+        else if (addr.Has<TCP>())
+        {
+            protocol = TopProtocols!.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
+        }
+        else
+        {
+            throw new NotImplementedException($"No transport protocol found for the given address: {addr}");
+        }
+
+        return protocol;
+    }
+
+    public override IPeer Create(Identity? identity = null)
     {
         identity ??= new Identity();
         localAddr ??= $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}";

@@ -43,22 +43,16 @@ public class QuicProtocol : ITransportProtocol
 
     public string Id => "quic-v1";
 
-    public async Task ListenAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task ListenAsync(ITransportContext context, Multiaddress localAddr, CancellationToken token)
     {
-        if (channelFactory is null)
-        {
-            throw new ArgumentException($"The protocol requires {nameof(channelFactory)}");
-        }
-
         if (!QuicListener.IsSupported)
         {
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
         }
 
-        Multiaddress addr = context.LocalPeer.Address;
-        MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
+        MultiaddressProtocol ipProtocol = localAddr.Has<IP4>() ? localAddr.Get<IP4>() : localAddr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
-        int udpPort = int.Parse(addr.Get<UDP>().ToString());
+        int udpPort = int.Parse(localAddr.Get<UDP>().ToString());
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
@@ -70,8 +64,8 @@ public class QuicProtocol : ITransportProtocol
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
                 ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
-                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity)
+                RemoteCertificateValidationCallback = (_, c, _, _) => true,
+                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Identity)
             },
         };
 
@@ -82,39 +76,25 @@ public class QuicProtocol : ITransportProtocol
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
         });
 
-        var localEndPoint = new Multiaddress();
-        // IP (4 or 6 is based on source address).
-        var strLocalEndpoint = listener.LocalEndPoint.Address.ToString();
-        localEndPoint = addr.Has<IP4>() ? localEndPoint.Add<IP4>(strLocalEndpoint) : localEndPoint.Add<IP6>(strLocalEndpoint);
-
-        // UDP
-        localEndPoint = localEndPoint.Add<UDP>(listener.LocalEndPoint.Port);
-
-        // Set on context
-        context.LocalEndpoint = localEndPoint;
-
         if (udpPort == 0)
         {
-            context.LocalPeer.Address = context.LocalPeer.Address
-                .ReplaceOrAdd<UDP>(listener.LocalEndPoint.Port);
+            localAddr = localAddr.ReplaceOrAdd<UDP>(listener.LocalEndPoint.Port);
         }
 
+        context.ListenerReady(localAddr);
 
         _logger?.ReadyToHandleConnections();
-        context.ListenerReady();
-        TaskAwaiter signalingWawaiter = signalingChannel.GetAwaiter();
 
-        signalingWawaiter.OnCompleted(() =>
-        {
-            listener.DisposeAsync();
-        });
+        token.Register(() => _ = listener.DisposeAsync());
 
-        while (!signalingWawaiter.IsCompleted)
+        while (!token.IsCancellationRequested)
         {
             try
             {
                 QuicConnection connection = await listener.AcceptConnectionAsync();
-                _ = ProcessStreams(connection, context.Fork(), channelFactory);
+                ITransportConnectionContext clientContext = context.CreateConnection(() => _ = connection.CloseAsync(0));
+
+                _ = ProcessStreams(clientContext, connection, token).ContinueWith(t => clientContext.Dispose());
             }
             catch (Exception ex)
             {
@@ -124,37 +104,24 @@ public class QuicProtocol : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        if (channelFactory is null)
-        {
-            throw new ArgumentException($"The protocol requires {nameof(channelFactory)}");
-        }
-
         if (!QuicConnection.IsSupported)
         {
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
         }
 
-        Multiaddress addr = context.LocalPeer.Address;
+        Multiaddress addr = remoteAddr;
         bool isIp4 = addr.Has<IP4>();
         MultiaddressProtocol protocol = isIp4 ? addr.Get<IP4>() : addr.Get<IP6>();
+
         IPAddress ipAddress = IPAddress.Parse(protocol.ToString());
         int udpPort = int.Parse(addr.Get<UDP>().ToString());
-
-        IPEndPoint localEndpoint = new(ipAddress, udpPort);
-
-        addr = context.RemotePeer.Address;
-        isIp4 = addr.Has<IP4>();
-        protocol = isIp4 ? addr.Get<IP4>() : addr.Get<IP6>();
-        ipAddress = IPAddress.Parse(protocol.ToString()!);
-        udpPort = int.Parse(addr.Get<UDP>().ToString()!);
 
         IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
         QuicClientConnectionOptions clientConnectionOptions = new()
         {
-            LocalEndPoint = localEndpoint,
             DefaultStreamErrorCode = 0, // Protocol-dependent error code.
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
             MaxInboundUnidirectionalStreams = 256,
@@ -163,8 +130,8 @@ public class QuicProtocol : ITransportProtocol
             {
                 TargetHost = null,
                 ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(context.RemotePeer, c),
-                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
+                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(remoteAddr, c),
+                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.Identity) },
             },
             RemoteEndPoint = remoteEndpoint,
         };
@@ -173,52 +140,27 @@ public class QuicProtocol : ITransportProtocol
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
-        signalingChannel.GetAwaiter().OnCompleted(() =>
-        {
-            connection.CloseAsync(0);
-        });
+        token.Register(() => _ = connection.CloseAsync(0));
+        using ITransportConnectionContext clientContext = context.CreateConnection(() => _ = connection.CloseAsync(0));
 
-        await ProcessStreams(connection, context, channelFactory);
+        await ProcessStreams(clientContext, connection, token);
     }
 
-    private static bool VerifyRemoteCertificate(IPeer? remotePeer, X509Certificate certificate) =>
-         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeer?.Address.Get<P2P>().ToString());
+    private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
+         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remoteAddr.Get<P2P>().ToString());
 
-    private async Task ProcessStreams(QuicConnection connection, IPeerContext context, IChannelFactory channelFactory, CancellationToken token = default)
+    private async Task ProcessStreams(ITransportConnectionContext context, QuicConnection connection, CancellationToken token = default)
     {
         _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
 
-        bool isIP4 = connection.LocalEndPoint.AddressFamily == AddressFamily.InterNetwork;
-
-        Multiaddress localEndPointMultiaddress = new();
-        string strLocalEndpointAddress = connection.LocalEndPoint.Address.ToString();
-        localEndPointMultiaddress = isIP4 ? localEndPointMultiaddress.Add<IP4>(strLocalEndpointAddress) : localEndPointMultiaddress.Add<IP6>(strLocalEndpointAddress);
-        localEndPointMultiaddress = localEndPointMultiaddress.Add<UDP>(connection.LocalEndPoint.Port);
-
-        context.LocalEndpoint = localEndPointMultiaddress;
-
-        context.LocalPeer.Address = isIP4 ? context.LocalPeer.Address.ReplaceOrAdd<IP4>(strLocalEndpointAddress) : context.LocalPeer.Address.ReplaceOrAdd<IP6>(strLocalEndpointAddress);
-
-        IPEndPoint remoteIpEndpoint = connection.RemoteEndPoint!;
-        isIP4 = remoteIpEndpoint.AddressFamily == AddressFamily.InterNetwork;
-
-        Multiaddress remoteEndPointMultiaddress = new();
-        string strRemoteEndpointAddress = remoteIpEndpoint.Address.ToString();
-        remoteEndPointMultiaddress = isIP4 ? remoteEndPointMultiaddress.Add<IP4>(strRemoteEndpointAddress) : remoteEndPointMultiaddress.Add<IP6>(strRemoteEndpointAddress);
-        remoteEndPointMultiaddress = remoteEndPointMultiaddress.Add<UDP>(remoteIpEndpoint.Port);
-
-        context.RemoteEndpoint = remoteEndPointMultiaddress;
-
-        context.Connected(context.RemotePeer);
+        using ISessionContext session = context.CreateSession();
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+            foreach (IChannelRequest request in session.SubDialRequests.GetConsumingEnumerable())
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-                IPeerContext dialContext = context.Fork();
-                dialContext.SpecificProtocolRequest = request;
-                IChannel upChannel = channelFactory.SubDial(dialContext);
+                IChannel upChannel = session.SubDial(request);
                 ExchangeData(stream, upChannel, request.CompletionSource);
             }
         }, token);
@@ -226,7 +168,7 @@ public class QuicProtocol : ITransportProtocol
         while (!token.IsCancellationRequested)
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
-            IChannel upChannel = channelFactory.SubListen(context);
+            IChannel upChannel = session.SubListen();
             ExchangeData(inboundStream, upChannel, null);
         }
     }

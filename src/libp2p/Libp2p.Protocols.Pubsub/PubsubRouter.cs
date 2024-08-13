@@ -118,7 +118,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     private TtlCache<MessageId, Message> limboMessageCache;
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
 
-    private ILocalPeer? localPeer;
+    private IPeer? localPeer;
     private ManagedPeer peer;
     private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
@@ -150,7 +150,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         Canceled = cts.Token;
     }
 
-    public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
+    public async Task RunAsync(IPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
     {
         if (this.localPeer is not null)
         {
@@ -195,14 +195,14 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 try
                 {
-                    IRemotePeer remotePeer = await peer.DialAsync(addrs, token);
+                    ISession session = await peer.DialAsync(addrs, token);
 
-                    if (!peerState.ContainsKey(remotePeer.Address.Get<P2P>().ToString()))
+                    if (!peerState.ContainsKey(session.Address.Get<P2P>().ToString()))
                     {
-                        await remotePeer.DialAsync<GossipsubProtocol>(token);
-                        if (peerState.TryGetValue(remotePeer.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                        await session.DialAsync<GossipsubProtocol>(token);
+                        if (peerState.TryGetValue(session.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
-                            _ = remotePeer.DisconnectAsync();
+                            _ = session.DisconnectAsync();
                         }
                     }
                 }
@@ -232,7 +232,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             try
             {
-                IRemotePeer remotePeer = await peer.DialAsync(rec.Addresses, token);
+                ISession remotePeer = await peer.DialAsync(rec.Addresses, token);
                 await remotePeer.DialAsync<GossipsubProtocol>(token);
             }
             catch

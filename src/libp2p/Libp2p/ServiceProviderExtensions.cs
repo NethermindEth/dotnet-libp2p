@@ -11,11 +11,13 @@ namespace Nethermind.Libp2p.Stack;
 public static class ServiceProviderExtensions
 {
     [RequiresPreviewFeatures]
-    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder> factorySetup)
+    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
     {
         return services
-            .AddScoped(sp => factorySetup(new Libp2pPeerFactoryBuilder(sp)))
-            .AddScoped(sp => (ILibp2pPeerFactoryBuilder)factorySetup(new Libp2pPeerFactoryBuilder(sp)))
+            .AddSingleton(sp => new Libp2pPeerFactoryBuilder(sp))
+            .AddSingleton<IBuilderContext, Libp2pBuilderContext>()
+            .AddSingleton(sp => factorySetup is null ? sp.GetRequiredService<Libp2pPeerFactoryBuilder>() : factorySetup(sp.GetRequiredService<Libp2pPeerFactoryBuilder>()))
+            .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>())
             .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
             .AddScoped<PubsubRouter>()
             .AddScoped<MultiplexerSettings>()

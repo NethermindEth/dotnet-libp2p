@@ -22,7 +22,7 @@ public class MultistreamProtocolTests
         proto1.Id.Returns("proto1");
         channelFactory.SubProtocols.Returns(new[] { proto1 });
         IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
@@ -38,7 +38,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
     }
 
@@ -57,7 +57,7 @@ public class MultistreamProtocolTests
         channelRequest.SubProtocol.Returns(proto1);
         IChannel upChannel = new TestChannel();
 
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
@@ -73,7 +73,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
     }
 
@@ -104,7 +104,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, proto1);
     }
 
     [Test]
@@ -122,7 +122,7 @@ public class MultistreamProtocolTests
         proto2.Id.Returns("proto2");
         channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
         IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
@@ -140,7 +140,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto2);
+        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, proto2);
         await upChannel.CloseAsync();
     }
 
@@ -173,6 +173,6 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IProtocol)null!);
+        _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, (IProtocol)null!);
     }
 }

@@ -32,10 +32,10 @@ if (args.Length > 0 && args[0] == "-d")
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 
-    ILocalPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
+    IPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
     await remotePeer.DisconnectAsync();
@@ -43,7 +43,7 @@ if (args.Length > 0 && args[0] == "-d")
 else
 {
     Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-    ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
+    IPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     string addrTemplate = args.Contains("-quic") ?
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :

@@ -5,34 +5,33 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IChannelFactory
 {
-    IEnumerable<IId> SubProtocols { get; }
-    IChannel SubDial(IPeerContext context, IChannelRequest? request = null);
+    IEnumerable<IProtocol> SubProtocols { get; }
+    IChannel SubDial(IChannelRequest? request = null);
 
-    IChannel SubListen(IPeerContext context, IChannelRequest? request = null);
+    IChannel SubListen(IChannelRequest? request = null);
 
-    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+    Task SubDialAndBind(IChannel parentChannel, IChannelRequest? request = null);
 
-    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+    Task SubListenAndBind(IChannel parentChannel, IChannelRequest? request = null);
 
 
-
-    IChannel SubDial(IPeerContext context, IProtocol protocol)
+    IChannel SubDial(IProtocol protocol)
     {
-        return SubDial(context, new ChannelRequest { SubProtocol = protocol });
+        return SubDial(new ChannelRequest { SubProtocol = protocol });
     }
 
-    IChannel SubListen(IPeerContext context, IProtocol protocol)
+    IChannel SubListen(IProtocol protocol)
     {
-        return SubListen(context, new ChannelRequest { SubProtocol = protocol });
+        return SubListen(new ChannelRequest { SubProtocol = protocol });
     }
 
-    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
+    Task SubDialAndBind(IChannel parentChannel, IProtocol protocol)
     {
-        return SubDialAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
+        return SubDialAndBind(parentChannel, new ChannelRequest { SubProtocol = protocol });
     }
 
-    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
+    Task SubListenAndBind(IChannel parentChannel, IProtocol protocol)
     {
-        return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
+        return SubListenAndBind(parentChannel, new ChannelRequest { SubProtocol = protocol });
     }
 }

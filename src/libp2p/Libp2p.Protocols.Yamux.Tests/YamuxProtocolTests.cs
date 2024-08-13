@@ -34,7 +34,7 @@ public class YamuxProtocolTests
         IChannelFactory dialerUpchannelFactory = Substitute.For<IChannelFactory>();
         dialerUpchannelFactory.SubProtocols.Returns(new[] { proto1 });
         TestChannel dialerUpChannel = new TestChannel();
-        dialerUpchannelFactory.SubDial(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
+        dialerUpchannelFactory.SubDial(Arg.Any<IChannelRequest>())
            .Returns(dialerUpChannel);
 
 
@@ -47,7 +47,7 @@ public class YamuxProtocolTests
         listenerPeerContext.SubDialRequests.Returns(listenerRequests);
         listenerUpchannelFactory.SubProtocols.Returns(new[] { proto1 });
         TestChannel listenerUpChannel = new TestChannel();
-        listenerUpchannelFactory.SubListen(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
+        listenerUpchannelFactory.SubListen(Arg.Any<IChannelRequest>())
            .Returns(listenerUpChannel);
 
         YamuxProtocol proto = new(loggerFactory: new DebugLoggerFactory());

@@ -33,7 +33,7 @@ try
 
     if (isDialer)
     {
-        ILocalPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress());
+        IPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress());
 
         Log($"Picking an address to dial...");
 
@@ -46,7 +46,7 @@ try
 
         Log($"Dialing {listenerAddr}...");
         Stopwatch handshakeStartInstant = Stopwatch.StartNew();
-        IRemotePeer remotePeer = await localPeer.DialAsync(listenerAddr);
+        ISession remotePeer = await localPeer.DialAsync(listenerAddr);
 
         Stopwatch pingIstant = Stopwatch.StartNew();
         await remotePeer.DialAsync<PingProtocol>();
@@ -81,7 +81,7 @@ try
             ip = addresses.First().Address.ToString()!;
         }
         Log("Starting to listen...");
-        ILocalPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress(ip));
+        IPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress(ip));
         IListener listener = await localPeer.ListenAsync(localPeer.Address);
         listener.OnConnection += (peer) => { Log($"Connected {peer.Address}"); return Task.CompletedTask; };
         Log($"Listening on {listener.Address}");
