@@ -19,8 +19,7 @@ public class MultistreamProtocol : IProtocol
     {
         _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     }
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, IConnectionContext context)
     {
         if (!await SendHello(channel))
         {
@@ -59,7 +58,7 @@ public class MultistreamProtocol : IProtocol
         }
         else
         {
-            foreach (IProtocol selector in channelFactory!.SubProtocols)
+            foreach (IProtocol selector in context!.SubProtocols)
             {
                 bool? dialResult = await DialProtocol(selector);
                 if (dialResult == true)
@@ -80,12 +79,10 @@ public class MultistreamProtocol : IProtocol
             return;
         }
         _logger?.LogDebug($"Protocol selected during dialing: {selected}");
-        //await channelFactory.SubDialAndBind(channel, context, selected);
-        throw new NotImplementedException();
+        await context.SubDialAndBind(channel, selected);
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, IConnectionContext context)
     {
         if (!await SendHello(channel))
         {
@@ -97,7 +94,7 @@ public class MultistreamProtocol : IProtocol
         for (; ; )
         {
             string proto = await channel.ReadLineAsync();
-            selected = channelFactory!.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
+            selected = context.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
             if (selected is not null)
             {
                 await channel.WriteLineAsync(selected.Id);
@@ -116,8 +113,7 @@ public class MultistreamProtocol : IProtocol
         }
 
         _logger?.LogDebug($"Protocol selected during listening: {selected}");
-        // await channelFactory.SubListenAndBind(channel, context, selected);
-        throw new NotImplementedException();
+        await context.SubListenAndBind(channel, selected);
     }
 
     private async Task<bool> SendHello(IChannel channel)

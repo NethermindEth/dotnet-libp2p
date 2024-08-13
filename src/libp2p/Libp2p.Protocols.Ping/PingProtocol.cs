@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/ping/ping.md
 /// </summary>
-public class PingProtocol : IProtocol
+public class PingProtocol : ISessionProtocol
 {
     private const int PayloadLength = 32;
 
@@ -24,8 +24,7 @@ public class PingProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger<PingProtocol>();
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         byte[] ping = new byte[PayloadLength];
         _random.NextBytes(ping.AsSpan(0, PayloadLength));
@@ -49,8 +48,7 @@ public class PingProtocol : IProtocol
         _logger?.LogPinged(context.RemotePeer.Address);
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
         _logger?.PingListenStarted(context.RemotePeer.Address);
 

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
@@ -8,28 +9,31 @@ using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactory : PeerFactory
+public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings) : PeerFactory(protocolStackSettings)
 {
-    public Libp2pPeerFactory(IServiceProvider serviceProvider) : base(serviceProvider)
-    {
-    }
+    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, identity ?? new Identity());
+}
 
-    protected override async Task ConnectedTo(ISession peer, bool isDialer)
+class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity) : LocalPeer(protocolStackSettings, identity)
+{
+    protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        await peer.DialAsync<IdentifyProtocol>();
+        await session.DialAsync<IdentifyProtocol>();
     }
 
     protected override IProtocol SelectProtocol(Multiaddress addr)
     {
+        ArgumentNullException.ThrowIfNull(protocolStackSettings.TopProtocols);
+
         ITransportProtocol protocol = null!;
 
         if (addr.Has<QUICv1>())
         {
-            protocol = TopProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
+            protocol = protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
         }
         else if (addr.Has<TCP>())
         {
-            protocol = TopProtocols!.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
+            protocol = protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
         }
         else
         {
@@ -37,17 +41,5 @@ public class Libp2pPeerFactory : PeerFactory
         }
 
         return protocol;
-    }
-
-    public override IPeer Create(Identity? identity = null)
-    {
-        identity ??= new Identity();
-        localAddr ??= $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}";
-        if (localAddr.Get<P2P>() is null)
-        {
-            localAddr.Add<P2P>(identity.PeerId.ToString());
-        }
-
-        return new LocalPeer(this) { Identity = identity ?? new Identity(), Address = localAddr ?? $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}" };
     }
 }

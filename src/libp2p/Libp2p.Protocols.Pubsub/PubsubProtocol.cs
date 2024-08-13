@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
-public abstract class PubsubProtocol : IProtocol
+public abstract class PubsubProtocol : ISessionProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -25,8 +25,7 @@ public abstract class PubsubProtocol : IProtocol
         this.router = router;
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
@@ -52,8 +51,7 @@ public abstract class PubsubProtocol : IProtocol
 
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
 
         string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
@@ -64,7 +62,7 @@ public abstract class PubsubProtocol : IProtocol
 
         CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            _ = context.DialAsync([this]);
             return dialTcs.Task;
         });
 

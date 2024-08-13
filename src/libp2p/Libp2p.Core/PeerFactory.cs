@@ -5,10 +5,12 @@ using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerFactory(IBuilderContext builderContext) : IPeerFactory
+public class PeerFactory(IProtocolStackSettings protocolStackSettings) : IPeerFactory
 {
+    protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
+
     public virtual IPeer Create(Identity? identity = default)
     {
-        return new LocalPeer(builderContext, identity ?? new Identity());
+        return new LocalPeer(protocolStackSettings, identity ?? new Identity());
     }
 }

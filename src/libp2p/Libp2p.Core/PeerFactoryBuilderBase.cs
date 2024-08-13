@@ -168,8 +168,8 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         SetupChannelFactories(root);
 
-        IBuilderContext builderContext = ActivatorUtilities.GetServiceOrCreateInstance<IBuilderContext>(ServiceProvider);
-        builderContext.Protocols = protocols;//root.Protocol is RootStub ? root.TopProtocols.Select(s => s.Protocol).ToArray() : [root?.Protocol]
+        IProtocolStackSettings protocolStackSettings = ActivatorUtilities.GetServiceOrCreateInstance<IProtocolStackSettings>(ServiceProvider);
+        protocolStackSettings.Protocols = protocols;//root.Protocol is RootStub ? root.TopProtocols.Select(s => s.Protocol).ToArray() : [root?.Protocol]
 
         TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
 

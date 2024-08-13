@@ -65,7 +65,7 @@ public class QuicProtocol : ITransportProtocol
             {
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => true,
-                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Identity)
+                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)
             },
         };
 
@@ -92,7 +92,7 @@ public class QuicProtocol : ITransportProtocol
             try
             {
                 QuicConnection connection = await listener.AcceptConnectionAsync();
-                ITransportConnectionContext clientContext = context.CreateConnection(() => _ = connection.CloseAsync(0));
+                ITransportConnectionContext clientContext = context.CreateConnection();
 
                 _ = ProcessStreams(clientContext, connection, token).ContinueWith(t => clientContext.Dispose());
             }
@@ -104,7 +104,7 @@ public class QuicProtocol : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(ITransportConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         if (!QuicConnection.IsSupported)
         {
@@ -131,7 +131,7 @@ public class QuicProtocol : ITransportProtocol
                 TargetHost = null,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(remoteAddr, c),
-                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.Identity) },
+                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity) },
             },
             RemoteEndPoint = remoteEndpoint,
         };
@@ -141,9 +141,7 @@ public class QuicProtocol : ITransportProtocol
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
 
         token.Register(() => _ = connection.CloseAsync(0));
-        using ITransportConnectionContext clientContext = context.CreateConnection(() => _ = connection.CloseAsync(0));
-
-        await ProcessStreams(clientContext, connection, token);
+        await ProcessStreams(context, connection, token);
     }
 
     private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
@@ -153,14 +151,14 @@ public class QuicProtocol : ITransportProtocol
     {
         _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
 
-        using ISessionContext session = context.CreateSession();
+        using IConnectionSessionContext session = context.CreateSession(null!);
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in session.SubDialRequests.GetConsumingEnumerable())
+            foreach (IChannelRequest request in session.DialRequests)
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-                IChannel upChannel = session.SubDial(request);
+                IChannel upChannel = context.SubDial(request);
                 ExchangeData(stream, upChannel, request.CompletionSource);
             }
         }, token);
@@ -168,7 +166,7 @@ public class QuicProtocol : ITransportProtocol
         while (!token.IsCancellationRequested)
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
-            IChannel upChannel = session.SubListen();
+            IChannel upChannel = context.SubListen();
             ExchangeData(inboundStream, upChannel, null);
         }
     }

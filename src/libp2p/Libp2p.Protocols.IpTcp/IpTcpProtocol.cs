@@ -44,7 +44,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 Socket client = await listener.AcceptAsync();
 
-                ITransportConnectionContext connectionCtx = context.CreateConnection(client.Close);
+                ITransportConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
 
                 IChannel upChannel = connectionCtx.SubListen();
@@ -101,7 +101,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         });
     }
 
-    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(ITransportConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
 
@@ -119,12 +119,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             return;
         }
 
-        using ITransportConnectionContext connectionCtx = context.CreateConnection(client.Close);
-
-        connectionCtx.Token.Register(client.Close);
+        context.Token.Register(client.Close);
         token.Register(client.Close);
 
-        IChannel upChannel = connectionCtx.SubDial();
+        IChannel upChannel = context.SubDial();
 
         Task receiveTask = Task.Run(async () =>
         {
@@ -134,7 +132,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 for (; client.Connected;)
                 {
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    _logger?.LogDebug("Receive {0} data, len={1}", connectionCtx.Id, dataLength);
+                    _logger?.LogDebug("Receive {0} data, len={1}", context.Id, dataLength);
 
                     if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                     {
@@ -154,7 +152,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    _logger?.LogDebug("Send {0} data, len={1}", connectionCtx.Id, data.Length);
+                    _logger?.LogDebug("Send {0} data, len={1}", context.Id, data.Length);
                     int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
                     if (sent is 0 || !client.Connected)
                     {
@@ -168,7 +166,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             }
         });
 
-        await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
+        await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => context.Dispose());
 
         _ = upChannel.CloseAsync();
     }

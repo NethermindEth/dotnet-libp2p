@@ -12,7 +12,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify
 /// </summary>
-public class IdentifyProtocol : IProtocol
+public class IdentifyProtocol : ISessionProtocol
 {
     private readonly string _agentVersion;
     private readonly string _protocolVersion;
@@ -31,8 +31,7 @@ public class IdentifyProtocol : IProtocol
 
     public string Id => "/ipfs/id/1.0.0";
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogInformation("Dial");
 
@@ -47,8 +46,7 @@ public class IdentifyProtocol : IProtocol
         }
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogInformation("Listen");
 
@@ -56,9 +54,9 @@ public class IdentifyProtocol : IProtocol
         {
             ProtocolVersion = _protocolVersion,
             AgentVersion = _agentVersion,
-            PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
-            ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.Get<IP>().ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.Get<IP>().ToBytes()),
+            PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
+            ListenAddrs = { ByteString.CopyFrom(context.Peer.Address.Get<IP>().ToBytes()) },
+            ObservedAddr = ByteString.CopyFrom(context.RemotePeer.Address.Get<IP>().ToBytes()),
             Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
         };
         byte[] ar = new byte[identify.CalculateSize()];

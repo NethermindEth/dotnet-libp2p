@@ -9,6 +9,8 @@ public class TransportContext(LocalPeer peer, ITransportProtocol proto) : ITrans
 {
     public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
     public Identity Identity => peer.Identity;
+    public IPeer Peer => peer;
+    public IRemotePeer RemotePeer => throw new NotImplementedException();
 
     public void ListenerReady(Multiaddress addr)
     {

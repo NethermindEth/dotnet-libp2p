@@ -165,7 +165,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
         LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
 
-        _ = localPeer.ListenAsync(localPeer.Address, token);
+        _ = localPeer.StartListenAsync([localPeer.Address], token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);
         logger?.LogInformation("Started");
 

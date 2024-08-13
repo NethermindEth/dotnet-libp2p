@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using Org.BouncyCastle.Asn1.X509;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -26,14 +27,8 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
     public string Id => "/yamux/1.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context, bool isListener)
+    protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
-        if (channelFactory is null)
-        {
-            throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
-        }
-
         _logger?.LogInformation(isListener ? "Listen" : "Dial");
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
@@ -42,7 +37,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
-            context.Connected(context.RemotePeer);
+            IConnectionSessionContext session = context.CreateSession(context.RemotePeer.Address.GetPeerId()!);
             int pingCounter = 0;
 
             using Timer timer = new((s) =>
@@ -52,7 +47,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             _ = Task.Run(() =>
             {
-                foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+                foreach (IChannelRequest request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
                     Interlocked.Add(ref streamIdCounter, 2);
@@ -221,13 +216,12 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = channelFactory.SubListen();
+                    upChannel = context.SubListen();
                 }
                 else
                 {
-                    IPeerContext dialContext = context.Fork();
-                    dialContext.SpecificProtocolRequest = channelRequest;
-                    upChannel = channelFactory.SubDial();
+                    context.SpecificProtocolRequest = channelRequest;
+                    upChannel = context.SubDial();
                 }
 
                 ChannelState state = new(upChannel, channelRequest);

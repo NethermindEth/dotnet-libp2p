@@ -11,6 +11,21 @@ public interface IContext
     IPeer Peer { get; }
 }
 
+public interface IConnectionContext
+{
+    string Id { get; }
+    IPeer Peer { get; }
+    IRemotePeer RemotePeer { get; }
+}
+
+public interface IRemotePeer
+{
+    Identity Identity { get; set; }
+    Multiaddress Address { get; set; }
+}
+
+
+
 public interface ITransportContext : IContext
 {
     void ListenerReady(Multiaddress addr);
@@ -38,5 +53,6 @@ public interface IConnectionSessionContext : IDisposable
 public interface ISessionContext : IChannelFactory, IContext
 {
     Task DialAsync<TProtocol>() where TProtocol: ISessionProtocol;
+    Task DialAsync(ISessionProtocol[] protocols);
     Task DisconnectAsync();
 }

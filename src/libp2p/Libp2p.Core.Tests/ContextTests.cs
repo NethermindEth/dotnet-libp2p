@@ -21,7 +21,7 @@ public class ContextTests
         IConnectionProtocol cProto = new CProto();
         ISessionProtocol sProto = new SProto();
 
-        BuilderContext builderContext = new BuilderContext
+        BuilderContext protocolStackSettings = new BuilderContext
         {
             Protocols = new Dictionary<IProtocol, IProtocol[]>
         {
@@ -32,8 +32,8 @@ public class ContextTests
             TopProtocols = [tProto]
         };
 
-        LocalPeer peer1 = new LocalPeer(builderContext, new Identity());
-        LocalPeer peer2 = new LocalPeer(builderContext, new Identity());
+        LocalPeer peer1 = new LocalPeer(protocolStackSettings, new Identity());
+        LocalPeer peer2 = new LocalPeer(protocolStackSettings, new Identity());
 
         await peer1.StartListenAsync([new Multiaddress()]);
         await peer2.StartListenAsync([new Multiaddress()]);
@@ -63,7 +63,7 @@ public class ContextTests
     }
 }
 
-class BuilderContext : IBuilderContext
+class BuilderContext : IProtocolStackSettings
 {
     public Dictionary<IProtocol, IProtocol[]>? Protocols { get; set; } = new Dictionary<IProtocol, IProtocol[]> { };
     public IProtocol[]? TopProtocols { get; set; } = [];
@@ -143,7 +143,7 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using ISession session = context.CreateSession(new PeerId(new Dto.PublicKey()));
+            using IConnectionSessionContext session = context.CreateSession(new PeerId(new Dto.PublicKey()));
             IChannel topChan = context.SubDial();
 
             ReadResult received;
@@ -174,7 +174,7 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using ISession session = context.CreateSession();
+            using IConnectionSessionContext session = context.CreateSession(new PeerId(new Dto.PublicKey()));
             IChannel topChan = context.SubListen();
 
             ReadResult received;

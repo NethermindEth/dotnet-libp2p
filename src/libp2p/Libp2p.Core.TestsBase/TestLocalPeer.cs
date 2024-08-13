@@ -19,6 +19,8 @@ public class TestLocalPeer : IPeer
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
+    public event OnConnection OnConnection;
+
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
         return Task.FromResult<ISession>(new TestRemotePeer(addr));
@@ -46,7 +48,7 @@ public class TestRemotePeer : ISession
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
 
-    public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
+    public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {
         return Task.CompletedTask;
     }

@@ -10,27 +10,32 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core;
 
-public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPeer
+public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity identity) : IPeer
 {
+
+    protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
+
     public Identity Identity { get; } = identity;
 
     public ObservableCollection<Multiaddress> ListenAddresses { get; } = new();
     public ObservableCollection<Session> Sessions { get; } = new();
+    public Multiaddress Address => throw new NotImplementedException();
 
-    public class Session(LocalPeer localPeer) : ISession
+    protected virtual Task ConnectedTo(ISession peer, bool isDialer) => Task.CompletedTask;
+
+    public class Session(LocalPeer localPeer) : ISession, IRemotePeer
     {
+        
         public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
 
-
-
-        public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
+        public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
             TaskCompletionSource tcs = new();
             SubDialRequests.Add(new ChannelRequest() { CompletionSource = tcs, SubProtocol = localPeer.GetProtocolInstance<TProtocol>() });
             return tcs.Task;
         }
 
-        public Task DialAsync(IProtocol[] protocols, CancellationToken token = default)
+        public Task DialAsync(ISessionProtocol[] protocols, CancellationToken token = default)
         {
             TaskCompletionSource tcs = new();
             SubDialRequests.Add(new ChannelRequest() { CompletionSource = tcs, SubProtocol = protocols[0] });
@@ -48,11 +53,15 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
         public PeerId PeerId { get; set; }
 
+        public Identity Identity { get; set; }
+
+        public Multiaddress Address { get; set; }
+
         private BlockingCollection<IChannelRequest> SubDialRequests = new();
 
         internal IEnumerable<IChannelRequest> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
 
-        internal Task DisconnectAsync()
+        public Task DisconnectAsync()
         {
             return Task.CompletedTask;
         }
@@ -60,21 +69,23 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     protected virtual IProtocol SelectProtocol(Multiaddress addr)
     {
-        if (builderContext.TopProtocols is null)
+        if (protocolStackSettings.TopProtocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (builderContext.TopProtocols.Length is not 1)
+        if (protocolStackSettings.TopProtocols.Length is not 1)
         {
             throw new Libp2pSetupException("Top protocol should be single one by default");
 
         }
 
-        return builderContext.TopProtocols.Single();
+        return protocolStackSettings.TopProtocols.Single();
     }
 
     Dictionary<ITransportContext, TaskCompletionSource<Multiaddress>> listenerReadyTcs = new();
+
+    public event OnConnection OnConnection;
 
     public virtual async Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
     {
@@ -138,22 +149,22 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     internal IEnumerable<IProtocol> GetProtocolsFor(IProtocol protocol)
     {
-        if (builderContext.Protocols is null)
+        if (protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!builderContext.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        return builderContext.Protocols[protocol];
+        return protocolStackSettings.Protocols[protocol];
     }
 
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
-        return builderContext.Protocols?.Keys.FirstOrDefault(p => p.GetType() == typeof(TProtocol));
+        return protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.GetType() == typeof(TProtocol));
     }
 
     public async Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
@@ -176,17 +187,17 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     internal IChannel SubDial(LocalPeer localPeer, Session session, IProtocol protocol, IChannelRequest? request)
     {
-        if (builderContext.Protocols is null)
+        if (protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!builderContext.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? builderContext.Protocols[protocol].First();
+        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         Channel res = new Channel();
         if (top is IConnectionProtocol tProto)
@@ -204,17 +215,17 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     internal IChannel SubListen(LocalPeer localPeer, Session session, IProtocol protocol, IChannelRequest? request)
     {
-        if (builderContext.Protocols is null)
+        if (protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!builderContext.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? builderContext.Protocols[protocol].First();
+        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         Channel res = new Channel();
         if (top is IConnectionProtocol tProto)
@@ -232,17 +243,17 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     internal async Task SubDialAndBind(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IChannelRequest? request)
     {
-        if (builderContext.Protocols is null)
+        if (protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!builderContext.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? builderContext.Protocols[protocol].First();
+        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         if (top is IConnectionProtocol tProto)
         {
@@ -259,17 +270,17 @@ public class LocalPeer(IBuilderContext builderContext, Identity identity) : IPee
 
     internal async Task SubListenAndBind(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IChannelRequest? request)
     {
-        if (builderContext.Protocols is null)
+        if (protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(builderContext)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!builderContext.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? builderContext.Protocols[protocol].First();
+        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         if (top is IConnectionProtocol tProto)
         {
@@ -308,9 +319,14 @@ public class ConnectionSessionContext(LocalPeer localPeer, LocalPeer.Session ses
 
 public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), ISessionContext
 {
-    public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
+    public Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol
     {
-        return session.DialAsync<TProtocol>(token);
+        return session.DialAsync<TProtocol>();
+    }
+
+    public Task DialAsync(ISessionProtocol[] protocols)
+    {
+        return session.DialAsync(protocols);
     }
 
     public Task DisconnectAsync()
@@ -347,10 +363,11 @@ public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, I
     }
 }
 
-
 public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol)
 {
+    public IChannelRequest SpecificProtocolRequest { get; set; }
     public IPeer Peer => localPeer;
+    public IRemotePeer RemotePeer => session;
 
     public IEnumerable<IProtocol> SubProtocols => localPeer.GetProtocolsFor(protocol);
 

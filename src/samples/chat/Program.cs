@@ -32,7 +32,7 @@ if (args.Length > 0 && args[0] == "-d")
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 
-    IPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
+    IPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
     ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
@@ -49,12 +49,14 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
-    IListener listener = await peer.ListenAsync(
-        string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0"),
-        ts.Token);
-    logger.LogInformation("Listener started at {address}", listener.Address);
-    listener.OnConnection += async remotePeer => logger.LogInformation("A peer connected {remote}", remotePeer.Address);
-    Console.CancelKeyPress += delegate { listener.DisconnectAsync(); };
+    peer.OnConnection += async newSession => logger.LogInformation("A peer connected {remote}", newSession.Address);
 
-    await listener;
+    await peer.StartListenAsync(
+        [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],
+        ts.Token);
+    logger.LogInformation("Listener started at {address}", peer.Address);
+
+    Console.CancelKeyPress += delegate { ts.Cancel(); };
+
+    await Task.FromCanceled(ts.Token);
 }

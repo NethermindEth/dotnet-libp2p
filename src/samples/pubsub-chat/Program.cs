@@ -30,7 +30,7 @@ CancellationTokenSource ts = new();
 Identity localPeerIdentity = new();
 string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 
-IPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
+IPeer peer = peerFactory.Create(localPeerIdentity);
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
@@ -55,7 +55,7 @@ _ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<I
 
 
 
-string peerId = peer.Address.Get<P2P>().ToString();
+string peerId = peer.Identity.PeerId.ToString();
 
 string nickName = "libp2p-dotnet";
 

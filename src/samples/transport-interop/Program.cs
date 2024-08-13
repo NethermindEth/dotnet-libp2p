@@ -33,7 +33,7 @@ try
 
     if (isDialer)
     {
-        IPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress());
+        IPeer localPeer = peerFactory.Create();
 
         Log($"Picking an address to dial...");
 
@@ -81,13 +81,15 @@ try
             ip = addresses.First().Address.ToString()!;
         }
         Log("Starting to listen...");
-        IPeer localPeer = peerFactory.Create(localAddr: builder.MakeAddress(ip));
-        IListener listener = await localPeer.ListenAsync(localPeer.Address);
-        listener.OnConnection += (peer) => { Log($"Connected {peer.Address}"); return Task.CompletedTask; };
-        Log($"Listening on {listener.Address}");
-        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(listener.Address.ToString()));
+        IPeer localPeer = peerFactory.Create();
+
+        CancellationTokenSource listennTcs = new();
+        await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
+        localPeer.OnConnection += (peer) => { Log($"Connected {peer.Address}"); return Task.CompletedTask; };
+        Log($"Listening on {localPeer.Address}");
+        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.Address.ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
-        await listener.DisconnectAsync();
+        await listennTcs.CancelAsync();
         return -1;
     }
 }
