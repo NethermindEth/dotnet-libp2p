@@ -29,7 +29,7 @@ internal class ManagedPeer(IPeer peer)
 
         foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
         {
-            if (c.Key != firstConnected.Address)
+            if (c.Key != firstConnected.RemoteAddress)
             {
                 c.Value.Cancel(false);
             }

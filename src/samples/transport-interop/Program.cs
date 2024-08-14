@@ -85,7 +85,7 @@ try
 
         CancellationTokenSource listennTcs = new();
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
-        localPeer.OnConnection += (peer) => { Log($"Connected {peer.Address}"); return Task.CompletedTask; };
+        localPeer.OnConnection += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {localPeer.Address}");
         db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.Address.ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);

@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Core;
 
 //public class PeerContext : IPeerContext
 //{
-    
+
 
 //    public string Id { get; set; }
 //    public IPeerInfo LocalPeer { get; set; }

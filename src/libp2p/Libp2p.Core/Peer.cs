@@ -4,7 +4,6 @@
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Stack;
-using Org.BouncyCastle.Tls;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 
@@ -23,10 +22,13 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
 
     protected virtual Task ConnectedTo(ISession peer, bool isDialer) => Task.CompletedTask;
 
-    public class Session(LocalPeer localPeer) : ISession, IRemotePeer
+    public class Session(LocalPeer localPeer, bool isListener) : ISession
     {
-        
         public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
+        public bool IsListener => isListener;
+        public Multiaddress RemoteAddress => Remote.Address ?? throw new Libp2pException("Session contains uninitialized remote address.");
+        public Multiaddress Address { get; set; }
+        public Remote Remote { get; } = new Remote();
 
         public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
@@ -42,7 +44,15 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             return tcs.Task;
         }
 
+        private readonly BlockingCollection<ChannelRequest> SubDialRequests = [];
+
         private CancellationTokenSource connectionTokenSource = new();
+        public Task DisconnectAsync()
+        {
+            connectionTokenSource.Cancel();
+            return Task.CompletedTask;
+        }
+
 
         public CancellationToken ConnectionToken => connectionTokenSource.Token;
 
@@ -51,20 +61,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
 
         public Task Connected => ConnectedTcs.Task;
 
-        public PeerId PeerId { get; set; }
-
-        public Identity Identity { get; set; }
-
-        public Multiaddress Address { get; set; }
-
-        private BlockingCollection<IChannelRequest> SubDialRequests = new();
-
-        internal IEnumerable<IChannelRequest> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
-
-        public Task DisconnectAsync()
-        {
-            return Task.CompletedTask;
-        }
+        internal IEnumerable<ChannelRequest> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
     }
 
     protected virtual IProtocol SelectProtocol(Multiaddress addr)
@@ -100,7 +97,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
                 throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {listenerProtocol.GetType()}");
             }
 
-            ITransportContext ctx = new TransportContext(this, transportProtocol);
+            ITransportContext ctx = new TransportContext(this, transportProtocol, true);
             TaskCompletionSource<Multiaddress> tcs = new();
             listenerReadyTcs[ctx] = tcs;
 
@@ -113,11 +110,6 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         await Task.WhenAll(listenTasks);
     }
 
-    public ITransportContext CreateContext(ITransportProtocol tProto)
-    {
-        return new TransportContext(this, tProto);
-    }
-
     public void ListenerReady(ITransportContext sender, Multiaddress addr)
     {
         if (listenerReadyTcs.Remove(sender, out TaskCompletionSource<Multiaddress>? tcs))
@@ -126,25 +118,29 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         }
     }
 
-    public ITransportConnectionContext CreateConnection(ITransportProtocol proto)
+    public ITransportConnectionContext CreateConnection(ITransportProtocol proto, bool isListener)
     {
-        Session session = new(this);
-        Sessions.Add(session);
+        Session session = new(this, isListener);
         return new TransportConnectionContext(this, session, proto);
     }
 
-    public IConnectionSessionContext CreateSession(Session session, PeerId peerId)
+    public IConnectionSessionContext CreateSession(Session session)
     {
+        if (session.Remote.Address?.GetPeerId() is null)
+        {
+            throw new Libp2pSetupException($"{nameof(session.Remote)} should be initialiazed before session creation");
+        }
+
         lock (Sessions)
         {
-            if(Sessions.Any(s => !object.ReferenceEquals(session, s) && s.PeerId == peerId))
+            if (Sessions.Any(s => !ReferenceEquals(session, s) && s.Remote.Address?.GetPeerId() == session.Remote.Address?.GetPeerId()))
             {
                 throw new Libp2pException("Session is already established");
             }
 
-            session.PeerId = peerId;
-            return new ConnectionSessionContext(this, session);
+            Sessions.Add(session);
         }
+        return new ConnectionSessionContext(this, session);
     }
 
     internal IEnumerable<IProtocol> GetProtocolsFor(IProtocol protocol)
@@ -176,7 +172,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {dialerProtocol.GetType()}");
         }
 
-        Session session = new(this);
+        Session session = new(this, false);
         ITransportConnectionContext ctx = new TransportConnectionContext(this, session, transportProtocol);
 
         _ = transportProtocol.DialAsync(ctx, addr, token);
@@ -185,7 +181,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         return session;
     }
 
-    internal IChannel SubDial(LocalPeer localPeer, Session session, IProtocol protocol, IChannelRequest? request)
+    internal IChannel Upgrade(LocalPeer localPeer, Session session, IProtocol protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
     {
         if (protocolStackSettings.Protocols is null)
         {
@@ -197,23 +193,24 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
+        IProtocol top = upgradeProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         Channel res = new Channel();
         if (top is IConnectionProtocol tProto)
         {
             var ctx = new ConnectionContext(this, session, top);
-            _ = tProto.DialAsync(res.Reverse, ctx);
+            _ = session.IsListener ? tProto.ListenAsync(res.Reverse, ctx) : tProto.DialAsync(res.Reverse, ctx);
         }
+
         if (top is ISessionProtocol sProto)
         {
             var ctx = new SessionContext(this, session, top);
-            _ = sProto.DialAsync(res.Reverse, ctx);
+            _ = session.IsListener ? sProto.ListenAsync(res.Reverse, ctx) : sProto.DialAsync(res.Reverse, ctx);
         }
         return res;
     }
 
-    internal IChannel SubListen(LocalPeer localPeer, Session session, IProtocol protocol, IChannelRequest? request)
+    internal async Task Upgrade(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
     {
         if (protocolStackSettings.Protocols is null)
         {
@@ -225,72 +222,17 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
-
-        Channel res = new Channel();
-        if (top is IConnectionProtocol tProto)
-        {
-            var ctx = new ConnectionContext(this, session, top);
-            _ = tProto.ListenAsync(res.Reverse, ctx);
-        }
-        if (top is ISessionProtocol sProto)
-        {
-            var ctx = new SessionContext(this, session, top);
-            _ = sProto.ListenAsync(res.Reverse, ctx);
-        }
-        return res;
-    }
-
-    internal async Task SubDialAndBind(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IChannelRequest? request)
-    {
-        if (protocolStackSettings.Protocols is null)
-        {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
-        }
-
-        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
-        {
-            throw new Libp2pSetupException($"{protocol} is noty added");
-        }
-
-        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
+        IProtocol top = upgradeProtocol ?? protocolStackSettings.Protocols[protocol].First();
 
         if (top is IConnectionProtocol tProto)
         {
-            var ctx = new ConnectionContext(this, session, top);
+            var ctx = new ConnectionContext(this, session, top) { UpgradeOptions = options };
             await tProto.DialAsync(parentChannel, ctx);
         }
         if (top is ISessionProtocol sProto)
         {
-            var ctx = new SessionContext(this, session, top);
+            var ctx = new SessionContext(this, session, top) { UpgradeOptions = options };
             await sProto.DialAsync(parentChannel, ctx);
-        }
-    }
-
-
-    internal async Task SubListenAndBind(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IChannelRequest? request)
-    {
-        if (protocolStackSettings.Protocols is null)
-        {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
-        }
-
-        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
-        {
-            throw new Libp2pSetupException($"{protocol} is noty added");
-        }
-
-        IProtocol top = request?.SubProtocol ?? protocolStackSettings.Protocols[protocol].First();
-
-        if (top is IConnectionProtocol tProto)
-        {
-            var ctx = new ConnectionContext(this, session, top);
-            await tProto.ListenAsync(parentChannel, ctx);
-        }
-        if (top is ISessionProtocol sProto)
-        {
-            var ctx = new SessionContext(this, session, top);
-            await sProto.ListenAsync(parentChannel, ctx);
         }
     }
 
@@ -301,15 +243,17 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
 
     internal void DisposeSession(Session session)
     {
-        
+
     }
 }
 
 public class ConnectionSessionContext(LocalPeer localPeer, LocalPeer.Session session) : IConnectionSessionContext
 {
-    public IEnumerable<IChannelRequest> DialRequests => session.GetRequestQueue();
+    public IEnumerable<ChannelRequest> DialRequests => session.GetRequestQueue();
 
     public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
+
+    public Remote Remote => session.Remote;
 
     public void Dispose()
     {
@@ -319,6 +263,8 @@ public class ConnectionSessionContext(LocalPeer localPeer, LocalPeer.Session ses
 
 public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), ISessionContext
 {
+    public UpgradeOptions? UpgradeOptions { get; init; }
+
     public Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol
     {
         return session.DialAsync<TProtocol>();
@@ -339,9 +285,9 @@ public class TransportConnectionContext(LocalPeer localPeer, LocalPeer.Session s
 {
     public CancellationToken Token => session.ConnectionToken;
 
-    public IConnectionSessionContext CreateSession(PeerId peerId)
+    public IConnectionSessionContext CreateSession()
     {
-        return localPeer.CreateSession(session, peerId);
+        return localPeer.CreateSession(session);
     }
 
     public void Dispose()
@@ -352,9 +298,11 @@ public class TransportConnectionContext(LocalPeer localPeer, LocalPeer.Session s
 
 public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), IConnectionContext
 {
-    public IConnectionSessionContext CreateSession(PeerId peerId)
+    public UpgradeOptions? UpgradeOptions { get; init; }
+
+    public IConnectionSessionContext CreateSession()
     {
-        return localPeer.CreateSession(session, peerId);
+        return localPeer.CreateSession(session);
     }
 
     public Task DisconnectAsync()
@@ -363,11 +311,10 @@ public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, I
     }
 }
 
-public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol)
+public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : IChannelFactory
 {
-    public IChannelRequest SpecificProtocolRequest { get; set; }
     public IPeer Peer => localPeer;
-    public IRemotePeer RemotePeer => session;
+    public Remote Remote => session.Remote;
 
     public IEnumerable<IProtocol> SubProtocols => localPeer.GetProtocolsFor(protocol);
 
@@ -377,23 +324,23 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtoc
     protected LocalPeer.Session session = session;
     protected IProtocol protocol = protocol;
 
-    public IChannel SubDial(IChannelRequest? request = null)
+    public IChannel Upgrade(UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.SubDial(localPeer, session, protocol, request);
+        return localPeer.Upgrade(localPeer, session, protocol, null, upgradeOptions);
     }
 
-    public Task SubDialAndBind(IChannel parentChannel, IChannelRequest? request = null)
+    public Task Upgrade(IChannel parentChannel, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.SubDialAndBind(localPeer, session, parentChannel, protocol, request);
+        return localPeer.Upgrade(localPeer, session, parentChannel, protocol, null, upgradeOptions);
     }
 
-    public IChannel SubListen(IChannelRequest? request = null)
+    public IChannel Upgrade(IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.SubListen(localPeer, session, protocol, request);
+        return localPeer.Upgrade(localPeer, session, protocol, specificProtocol, upgradeOptions);
     }
 
-    public Task SubListenAndBind(IChannel parentChannel, IChannelRequest? request = null)
+    public Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.SubListenAndBind(localPeer, session, parentChannel, protocol, request);
+        return localPeer.Upgrade(localPeer, session, parentChannel, protocol, specificProtocol, upgradeOptions);
     }
 }

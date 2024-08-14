@@ -47,14 +47,13 @@ public class MultistreamProtocol : IProtocol
 
         IProtocol? selected = null;
 
-        if (context.SpecificProtocolRequest?.SubProtocol is not null)
+        if (context.UpgradeOptions?.SelectedProtocol is not null)
         {
-            _logger?.LogDebug($"Proposing just {context.SpecificProtocolRequest.SubProtocol}");
-            if (await DialProtocol(context.SpecificProtocolRequest.SubProtocol) == true)
+            _logger?.LogDebug($"Proposing just {context.UpgradeOptions.SelectedProtocol}");
+            if (await DialProtocol(context.UpgradeOptions.SelectedProtocol) == true)
             {
-                selected = context.SpecificProtocolRequest.SubProtocol;
+                selected = context.UpgradeOptions.SelectedProtocol;
             }
-            context.SpecificProtocolRequest = null;
         }
         else
         {
@@ -79,7 +78,7 @@ public class MultistreamProtocol : IProtocol
             return;
         }
         _logger?.LogDebug($"Protocol selected during dialing: {selected}");
-        await context.SubDialAndBind(channel, selected);
+        await context.Upgrade(channel, selected);
     }
 
     public async Task ListenAsync(IChannel channel, IConnectionContext context)
@@ -113,7 +112,7 @@ public class MultistreamProtocol : IProtocol
         }
 
         _logger?.LogDebug($"Protocol selected during listening: {selected}");
-        await context.SubListenAndBind(channel, selected);
+        await context.Upgrade(channel, selected);
     }
 
     private async Task<bool> SendHello(IChannel channel)

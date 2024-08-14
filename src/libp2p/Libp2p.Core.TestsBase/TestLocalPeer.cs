@@ -48,6 +48,8 @@ public class TestRemotePeer : ISession
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
 
+    public Multiaddress RemoteAddress => new Multiaddress();
+
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {
         return Task.CompletedTask;

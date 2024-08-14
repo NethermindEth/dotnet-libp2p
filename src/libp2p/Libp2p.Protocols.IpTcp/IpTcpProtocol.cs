@@ -47,7 +47,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 ITransportConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
 
-                IChannel upChannel = connectionCtx.SubListen();
+                IChannel upChannel = connectionCtx.Upgrade();
 
                 Task readTask = Task.Run(async () =>
                 {
@@ -122,7 +122,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         context.Token.Register(client.Close);
         token.Register(client.Close);
 
-        IChannel upChannel = context.SubDial();
+        IChannel upChannel = context.Upgrade();
 
         Task receiveTask = Task.Run(async () =>
         {

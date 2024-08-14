@@ -26,7 +26,7 @@ public delegate Task OnConnection(ISession newSession);
 
 public interface ISession
 {
-    Multiaddress Address { get; }
+    Multiaddress RemoteAddress { get; }
 
     Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol;
     Task DisconnectAsync();

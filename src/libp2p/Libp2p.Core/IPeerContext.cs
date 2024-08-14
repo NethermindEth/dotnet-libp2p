@@ -11,20 +11,11 @@ public interface IContext
     IPeer Peer { get; }
 }
 
-public interface IConnectionContext
+public class Remote
 {
-    string Id { get; }
-    IPeer Peer { get; }
-    IRemotePeer RemotePeer { get; }
+    public Multiaddress? Address { get; set; }
+    public Identity? Identity { get; set; }
 }
-
-public interface IRemotePeer
-{
-    Identity Identity { get; set; }
-    Multiaddress Address { get; set; }
-}
-
-
 
 public interface ITransportContext : IContext
 {
@@ -34,25 +25,31 @@ public interface ITransportContext : IContext
 
 public interface ITransportConnectionContext : IDisposable, IChannelFactory, IContext
 {
+    Remote Remote { get; }
     CancellationToken Token { get; }
-    IConnectionSessionContext CreateSession(PeerId peerId);
+    IConnectionSessionContext CreateSession();
 }
 
 public interface IConnectionContext : IChannelFactory, IContext
 {
+    UpgradeOptions? UpgradeOptions { get; }
+    Remote Remote { get; }
     Task DisconnectAsync();
-    IConnectionSessionContext CreateSession(PeerId peerId);
+    IConnectionSessionContext CreateSession();
 }
 
 public interface IConnectionSessionContext : IDisposable
 {
+    Remote Remote { get; }
     string Id { get; }
-    IEnumerable<IChannelRequest> DialRequests { get; }
+    IEnumerable<ChannelRequest> DialRequests { get; }
 }
 
 public interface ISessionContext : IChannelFactory, IContext
 {
-    Task DialAsync<TProtocol>() where TProtocol: ISessionProtocol;
+    UpgradeOptions? UpgradeOptions { get; }
+    Remote Remote { get; }
+    Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol[] protocols);
     Task DisconnectAsync();
 }

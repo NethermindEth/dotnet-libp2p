@@ -151,14 +151,14 @@ public class QuicProtocol : ITransportProtocol
     {
         _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
 
-        using IConnectionSessionContext session = context.CreateSession(null!);
+        using IConnectionSessionContext session = context.CreateSession();
 
         _ = Task.Run(async () =>
         {
-            foreach (IChannelRequest request in session.DialRequests)
+            foreach (ChannelRequest request in session.DialRequests)
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-                IChannel upChannel = context.SubDial(request);
+                IChannel upChannel = context.Upgrade(new UpgradeOptions { SelectedProtocol = request.SubProtocol });
                 ExchangeData(stream, upChannel, request.CompletionSource);
             }
         }, token);
@@ -166,7 +166,7 @@ public class QuicProtocol : ITransportProtocol
         while (!token.IsCancellationRequested)
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
-            IChannel upChannel = context.SubListen();
+            IChannel upChannel = context.Upgrade();
             ExchangeData(inboundStream, upChannel, null);
         }
     }

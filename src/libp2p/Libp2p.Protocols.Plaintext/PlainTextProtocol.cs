@@ -34,8 +34,6 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         buf = (await channel.ReadAsync(structSize).OrThrow()).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
-        await (isListener
-            ? context.SubListenAndBind(channel)
-            : context.SubDialAndBind(channel));
+        await context.Upgrade(channel);
     }
 }

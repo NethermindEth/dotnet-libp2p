@@ -197,10 +197,10 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 {
                     ISession session = await peer.DialAsync(addrs, token);
 
-                    if (!peerState.ContainsKey(session.Address.Get<P2P>().ToString()))
+                    if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
                     {
                         await session.DialAsync<GossipsubProtocol>(token);
-                        if (peerState.TryGetValue(session.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                        if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
                             _ = session.DisconnectAsync();
                         }

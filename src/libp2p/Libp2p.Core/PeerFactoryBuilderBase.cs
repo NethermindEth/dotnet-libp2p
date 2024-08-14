@@ -27,6 +27,11 @@ public static class PeerFactoryBuilderBase
     }
 }
 
+public class ProtocolRef(IProtocol protocol)
+{
+    IProtocol Protocol => protocol;
+}
+
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : IPeerFactory
@@ -64,14 +69,12 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         public ProtocolStack? PrevSwitch { get; private set; }
         public IProtocol Protocol { get; }
         public HashSet<ProtocolStack> TopProtocols { get; } = new();
-        public ChannelFactory UpChannelsFactory { get; }
 
         public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
         {
             this.builder = builder;
             this.serviceProvider = serviceProvider;
             Protocol = protocol;
-            UpChannelsFactory = ActivatorUtilities.GetServiceOrCreateInstance<ChannelFactory>(serviceProvider);
         }
 
         public ProtocolStack AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
@@ -145,17 +148,18 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         ProtocolStack? root = transportLayer.Root;
 
-        if (root?.Protocol is null || root.UpChannelsFactory is null)
+        if (root?.Protocol is null)
         {
             throw new ApplicationException("Root protocol is not properly defined");
         }
 
         Dictionary<IProtocol, IProtocol[]> protocols = new();
 
-        static void SetupChannelFactories(ProtocolStack root)
+        void SetupChannelFactories(ProtocolStack root)
         {
-            root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
-                     .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
+            protocols.Add(root.Protocol, root.TopProtocols.Select(p => p.Protocol).ToArray());
+            //root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
+            //         .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
             foreach (ProtocolStack topProto in root.TopProtocols)
             {
                 if (!root.TopProtocols.Any())
@@ -169,7 +173,8 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         SetupChannelFactories(root);
 
         IProtocolStackSettings protocolStackSettings = ActivatorUtilities.GetServiceOrCreateInstance<IProtocolStackSettings>(ServiceProvider);
-        protocolStackSettings.Protocols = protocols;//root.Protocol is RootStub ? root.TopProtocols.Select(s => s.Protocol).ToArray() : [root?.Protocol]
+        protocolStackSettings.Protocols = protocols;
+        protocolStackSettings.TopProtocols = root.Protocol is RootStub ? root.TopProtocols.Select(s => s.Protocol).ToArray() : [root?.Protocol];
 
         TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
 

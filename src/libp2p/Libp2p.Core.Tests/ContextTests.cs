@@ -21,14 +21,14 @@ public class ContextTests
         IConnectionProtocol cProto = new CProto();
         ISessionProtocol sProto = new SProto();
 
-        BuilderContext protocolStackSettings = new BuilderContext
+        ProtocolStackSettings protocolStackSettings = new()
         {
             Protocols = new Dictionary<IProtocol, IProtocol[]>
-        {
-            { tProto, [ cProto] },
-            { cProto, [sProto] },
-            { sProto, [] },
-        },
+            {
+                { tProto, [ cProto] },
+                { cProto, [sProto] },
+                { sProto, [] },
+            },
             TopProtocols = [tProto]
         };
 
@@ -63,7 +63,7 @@ public class ContextTests
     }
 }
 
-class BuilderContext : IProtocolStackSettings
+class ProtocolStackSettings : IProtocolStackSettings
 {
     public Dictionary<IProtocol, IProtocol[]>? Protocols { get; set; } = new Dictionary<IProtocol, IProtocol[]> { };
     public IProtocol[]? TopProtocols { get; set; } = [];
@@ -81,7 +81,7 @@ class TProto : ITransportProtocol
             using ITransportConnectionContext connectionCtx = context.CreateConnection();
 
 
-            IChannel topChan = connectionCtx.SubListen();
+            IChannel topChan = connectionCtx.Upgrade();
             connectionCtx.Token.Register(() => topChan.CloseAsync());
 
 
@@ -89,14 +89,14 @@ class TProto : ITransportProtocol
             while (true)
             {
                 received = await ContextTests.tcp.ReadAsync(1, ReadBlockingMode.WaitAny);
-                if(received.Result != IOResult.Ok)
+                if (received.Result != IOResult.Ok)
                 {
                     break;
                 }
 
                 var sent = await topChan.WriteAsync(received.Data);
 
-                if (sent!= IOResult.Ok)
+                if (sent != IOResult.Ok)
                 {
                     break;
                 }
@@ -111,7 +111,7 @@ class TProto : ITransportProtocol
 
     public async Task DialAsync(ITransportConnectionContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        IChannel topChan = context.SubDial();
+        IChannel topChan = context.Upgrade();
         context.Token.Register(() => topChan.CloseAsync());
 
 
@@ -143,8 +143,8 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using IConnectionSessionContext session = context.CreateSession(new PeerId(new Dto.PublicKey()));
-            IChannel topChan = context.SubDial();
+            using IConnectionSessionContext session = context.CreateSession();
+            IChannel topChan = context.Upgrade();
 
             ReadResult received;
             while (true)
@@ -174,8 +174,8 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using IConnectionSessionContext session = context.CreateSession(new PeerId(new Dto.PublicKey()));
-            IChannel topChan = context.SubListen();
+            using IConnectionSessionContext session = context.CreateSession();
+            IChannel topChan = context.Upgrade();
 
             ReadResult received;
             while (true)

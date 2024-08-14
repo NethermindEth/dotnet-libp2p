@@ -37,7 +37,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
-            IConnectionSessionContext session = context.CreateSession(context.RemotePeer.Address.GetPeerId()!);
+            IConnectionSessionContext session = context.CreateSession();
             int pingCounter = 0;
 
             using Timer timer = new((s) =>
@@ -47,7 +47,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             _ = Task.Run(() =>
             {
-                foreach (IChannelRequest request in session.DialRequests)
+                foreach (ChannelRequest request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
                     Interlocked.Add(ref streamIdCounter, 2);
@@ -207,7 +207,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             await WriteGoAwayAsync(channel, SessionTerminationCode.Ok);
 
-            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, IChannelRequest? channelRequest)
+            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, ChannelRequest? channelRequest)
             {
                 bool isListenerChannel = isListener ^ (streamId % 2 == 0);
 
@@ -216,12 +216,11 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = context.SubListen();
+                    upChannel = context.Upgrade();
                 }
                 else
                 {
-                    context.SpecificProtocolRequest = channelRequest;
-                    upChannel = context.SubDial();
+                    upChannel = context.Upgrade(new UpgradeOptions { SelectedProtocol = channelRequest?.SubProtocol });
                 }
 
                 ChannelState state = new(upChannel, channelRequest);
@@ -352,10 +351,10 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
             StreamID = 0,
         });
 
-    private class ChannelState(IChannel? channel = default, IChannelRequest? request = default)
+    private class ChannelState(IChannel? channel = default, ChannelRequest? request = default)
     {
         public IChannel? Channel { get; set; } = channel;
-        public IChannelRequest? Request { get; set; } = request;
+        public ChannelRequest? Request { get; set; } = request;
 
         public DataWindow LocalWindow { get; } = new();
         public DataWindow RemoteWindow { get; } = new();

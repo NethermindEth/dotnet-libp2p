@@ -5,12 +5,12 @@ using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Core;
 
-public class TransportContext(LocalPeer peer, ITransportProtocol proto) : ITransportContext
+public class TransportContext(LocalPeer peer, ITransportProtocol proto, bool isListener) : ITransportContext
 {
     public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
     public Identity Identity => peer.Identity;
     public IPeer Peer => peer;
-    public IRemotePeer RemotePeer => throw new NotImplementedException();
+    public bool IsListener => isListener;
 
     public void ListenerReady(Multiaddress addr)
     {
@@ -19,6 +19,6 @@ public class TransportContext(LocalPeer peer, ITransportProtocol proto) : ITrans
 
     public ITransportConnectionContext CreateConnection()
     {
-        return peer.CreateConnection(proto);
+        return peer.CreateConnection(proto, isListener);
     }
 }
