@@ -37,8 +37,10 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             .Over<MultistreamProtocol>()
             .Over<YamuxProtocol>();
 
+        ProtocolStack relayStack = Over<MultistreamProtocol>().Over<NoiseProtocol>();
+
         return
-            Over<QuicProtocol>().Or(tcpStack)
+            Over<QuicProtocol>().Or(tcpStack).Or(relayStack)
             .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV12>()

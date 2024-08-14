@@ -17,13 +17,13 @@ public class ContextTests
     [Test]
     public async Task E2e()
     {
-        ITransportProtocol tProto = new TProto();
-        IConnectionProtocol cProto = new CProto();
-        ISessionProtocol sProto = new SProto();
+        ProtocolRef tProto = new ProtocolRef(new TProto());
+        ProtocolRef cProto = new ProtocolRef(new CProto());
+        ProtocolRef sProto = new ProtocolRef(new SProto());
 
         ProtocolStackSettings protocolStackSettings = new()
         {
-            Protocols = new Dictionary<IProtocol, IProtocol[]>
+            Protocols = new Dictionary<ProtocolRef, ProtocolRef[]>
             {
                 { tProto, [ cProto] },
                 { cProto, [sProto] },
@@ -65,8 +65,8 @@ public class ContextTests
 
 class ProtocolStackSettings : IProtocolStackSettings
 {
-    public Dictionary<IProtocol, IProtocol[]>? Protocols { get; set; } = new Dictionary<IProtocol, IProtocol[]> { };
-    public IProtocol[]? TopProtocols { get; set; } = [];
+    public Dictionary<ProtocolRef, ProtocolRef[]>? Protocols { get; set; } = [];
+    public ProtocolRef[]? TopProtocols { get; set; } = [];
 }
 
 class TProto : ITransportProtocol

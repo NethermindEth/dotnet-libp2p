@@ -7,6 +7,6 @@ namespace Nethermind.Libp2p.Stack;
 
 public interface IProtocolStackSettings
 {
-    Dictionary<IProtocol, IProtocol[]>? Protocols { get; set; }
-    IProtocol[]? TopProtocols { get; set; }
+    Dictionary<ProtocolRef, ProtocolRef[]>? Protocols { get; set; }
+    ProtocolRef[]? TopProtocols { get; set; }
 }

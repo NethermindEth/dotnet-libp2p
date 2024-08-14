@@ -5,7 +5,7 @@ using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Core;
 
-public class TransportContext(LocalPeer peer, ITransportProtocol proto, bool isListener) : ITransportContext
+public class TransportContext(LocalPeer peer, ProtocolRef proto, bool isListener) : ITransportContext
 {
     public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
     public Identity Identity => peer.Identity;

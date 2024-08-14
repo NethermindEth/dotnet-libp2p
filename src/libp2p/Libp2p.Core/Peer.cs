@@ -64,7 +64,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         internal IEnumerable<ChannelRequest> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
     }
 
-    protected virtual IProtocol SelectProtocol(Multiaddress addr)
+    protected virtual ProtocolRef SelectProtocol(Multiaddress addr)
     {
         if (protocolStackSettings.TopProtocols is null)
         {
@@ -90,14 +90,14 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
 
         foreach (Multiaddress addr in addrs)
         {
-            IProtocol listenerProtocol = SelectProtocol(addr);
+            ProtocolRef listenerProtocol = SelectProtocol(addr);
 
-            if (listenerProtocol is not ITransportProtocol transportProtocol)
+            if (listenerProtocol.Protocol is not ITransportProtocol transportProtocol)
             {
                 throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {listenerProtocol.GetType()}");
             }
 
-            ITransportContext ctx = new TransportContext(this, transportProtocol, true);
+            ITransportContext ctx = new TransportContext(this, listenerProtocol, true);
             TaskCompletionSource<Multiaddress> tcs = new();
             listenerReadyTcs[ctx] = tcs;
 
@@ -118,7 +118,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         }
     }
 
-    public ITransportConnectionContext CreateConnection(ITransportProtocol proto, bool isListener)
+    public ITransportConnectionContext CreateConnection(ProtocolRef proto, bool isListener)
     {
         Session session = new(this, isListener);
         return new TransportConnectionContext(this, session, proto);
@@ -143,7 +143,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         return new ConnectionSessionContext(this, session);
     }
 
-    internal IEnumerable<IProtocol> GetProtocolsFor(IProtocol protocol)
+    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
     {
         if (protocolStackSettings.Protocols is null)
         {
@@ -155,25 +155,25 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        return protocolStackSettings.Protocols[protocol];
+        return protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
     }
 
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
-        return protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.GetType() == typeof(TProtocol));
+        return protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
     public async Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
-        IProtocol dialerProtocol = SelectProtocol(addr);
+        ProtocolRef dialerProtocol = SelectProtocol(addr);
 
-        if (dialerProtocol is not ITransportProtocol transportProtocol)
+        if (dialerProtocol.Protocol is not ITransportProtocol transportProtocol)
         {
             throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {dialerProtocol.GetType()}");
         }
 
         Session session = new(this, false);
-        ITransportConnectionContext ctx = new TransportConnectionContext(this, session, transportProtocol);
+        ITransportConnectionContext ctx = new TransportConnectionContext(this, session, dialerProtocol);
 
         _ = transportProtocol.DialAsync(ctx, addr, token);
 
@@ -181,7 +181,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         return session;
     }
 
-    internal IChannel Upgrade(LocalPeer localPeer, Session session, IProtocol protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
+    internal IChannel Upgrade(LocalPeer localPeer, Session session, ProtocolRef protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
     {
         if (protocolStackSettings.Protocols is null)
         {
@@ -193,7 +193,7 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
             throw new Libp2pSetupException($"{protocol} is noty added");
         }
 
-        IProtocol top = upgradeProtocol ?? protocolStackSettings.Protocols[protocol].First();
+        ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) : protocolStackSettings.Protocols[protocol].First();
 
         Channel res = new Channel();
         if (top is IConnectionProtocol tProto)
@@ -210,19 +210,14 @@ public class LocalPeer(IProtocolStackSettings protocolStackSettings, Identity id
         return res;
     }
 
-    internal async Task Upgrade(LocalPeer localPeer, Session session, IChannel parentChannel, IProtocol protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
+    internal async Task Upgrade(LocalPeer localPeer, Session session, IChannel parentChannel, ProtocolRef protocol, IProtocol? upgradeProtocol, UpgradeOptions? options)
     {
         if (protocolStackSettings.Protocols is null)
         {
             throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
-        {
-            throw new Libp2pSetupException($"{protocol} is noty added");
-        }
-
-        IProtocol top = upgradeProtocol ?? protocolStackSettings.Protocols[protocol].First();
+        ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) : protocolStackSettings.Protocols[protocol].First();
 
         if (top is IConnectionProtocol tProto)
         {
@@ -261,7 +256,7 @@ public class ConnectionSessionContext(LocalPeer localPeer, LocalPeer.Session ses
     }
 }
 
-public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), ISessionContext
+public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol) : ContextBase(localPeer, session, protocol), ISessionContext
 {
     public UpgradeOptions? UpgradeOptions { get; init; }
 
@@ -281,7 +276,7 @@ public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, IPro
     }
 }
 
-public class TransportConnectionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), ITransportConnectionContext
+public class TransportConnectionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol) : ContextBase(localPeer, session, protocol), ITransportConnectionContext
 {
     public CancellationToken Token => session.ConnectionToken;
 
@@ -296,7 +291,7 @@ public class TransportConnectionContext(LocalPeer localPeer, LocalPeer.Session s
     }
 }
 
-public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : ContextBase(localPeer, session, protocol), IConnectionContext
+public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol) : ContextBase(localPeer, session, protocol), IConnectionContext
 {
     public UpgradeOptions? UpgradeOptions { get; init; }
 
@@ -311,7 +306,7 @@ public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, I
     }
 }
 
-public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtocol protocol) : IChannelFactory
+public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol) : IChannelFactory
 {
     public IPeer Peer => localPeer;
     public Remote Remote => session.Remote;
@@ -322,7 +317,7 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, IProtoc
 
     protected LocalPeer localPeer = localPeer;
     protected LocalPeer.Session session = session;
-    protected IProtocol protocol = protocol;
+    protected ProtocolRef protocol = protocol;
 
     public IChannel Upgrade(UpgradeOptions? upgradeOptions = null)
     {

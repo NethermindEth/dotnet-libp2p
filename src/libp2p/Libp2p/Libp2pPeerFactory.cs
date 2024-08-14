@@ -21,19 +21,19 @@ class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity
         await session.DialAsync<IdentifyProtocol>();
     }
 
-    protected override IProtocol SelectProtocol(Multiaddress addr)
+    protected override ProtocolRef SelectProtocol(Multiaddress addr)
     {
         ArgumentNullException.ThrowIfNull(protocolStackSettings.TopProtocols);
 
-        ITransportProtocol protocol = null!;
+        ProtocolRef? protocol;
 
         if (addr.Has<QUICv1>())
         {
-            protocol = protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Id == "quic-v1") as ITransportProtocol ?? throw new ApplicationException("QUICv1 is not supported");
+            protocol = protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Protocol.Id == "quic-v1") ?? throw new ApplicationException("QUICv1 is not supported");
         }
         else if (addr.Has<TCP>())
         {
-            protocol = protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Id == "ip-tcp") as ITransportProtocol ?? throw new ApplicationException("TCP is not supported");
+            protocol = protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Protocol.Id == "ip-tcp") ?? throw new ApplicationException("TCP is not supported");
         }
         else
         {

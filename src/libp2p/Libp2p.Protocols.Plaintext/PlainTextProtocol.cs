@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class PlainTextProtocol : SymmetricProtocol, IProtocol
+public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
 {
     public string Id => "/plaintext/2.0.0";
 
@@ -35,5 +35,20 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
         await context.Upgrade(channel);
+    }
+}
+
+public class RelayProtocol : ISessionProtocol
+{
+    public string Id => throw new NotImplementedException();
+
+    public Task DialAsync(IChannel downChannel, ISessionContext context)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task ListenAsync(IChannel downChannel, ISessionContext context)
+    {
+        throw new NotImplementedException();
     }
 }
