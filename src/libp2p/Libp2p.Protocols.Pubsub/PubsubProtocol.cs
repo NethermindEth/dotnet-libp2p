@@ -27,11 +27,11 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        string peerId = context.Remote.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Dialed({context.Id}) {context.Remote.Address}");
+        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
 
         TaskCompletionSource dialTcs = new();
-        CancellationToken token = router.OutboundConnection(context.Remote.Address, Id, dialTcs.Task, (rpc) =>
+        CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
         {
             var t = channel.WriteSizeAndProtobufAsync(rpc);
             _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
@@ -47,20 +47,20 @@ public abstract class PubsubProtocol : ISessionProtocol
 
         await channel;
         dialTcs.SetResult();
-        _logger?.LogDebug($"Finished dial({context.Id}) {context.Remote.Address}");
+        _logger?.LogDebug($"Finished dial({context.Id}) {context.State.RemoteAddress}");
 
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
 
-        string peerId = context.Remote.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Listen({context.Id}) to {context.Remote.Address}");
+        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
 
         TaskCompletionSource listTcs = new();
         TaskCompletionSource dialTcs = new();
 
-        CancellationToken token = router.InboundConnection(context.Remote.Address, Id, listTcs.Task, dialTcs.Task, () =>
+        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, dialTcs.Task, () =>
         {
             _ = context.DialAsync([this]);
             return dialTcs.Task;
@@ -81,7 +81,7 @@ public abstract class PubsubProtocol : ISessionProtocol
             }
         }
         listTcs.SetResult();
-        _logger?.LogDebug($"Finished({context.Id}) list {context.Remote.Address}");
+        _logger?.LogDebug($"Finished({context.Id}) list {context.State.RemoteAddress}");
     }
 
     public override string ToString()

@@ -37,7 +37,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
-            IConnectionSessionContext session = context.CreateSession();
+            INewSessionContext session = context.UpgradeToSession();
             int pingCounter = 0;
 
             using Timer timer = new((s) =>

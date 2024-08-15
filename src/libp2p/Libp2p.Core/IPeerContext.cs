@@ -2,54 +2,52 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IContext
+public interface ITransportContext
+{
+    IPeer Peer { get; }
+    void ListenerReady(Multiaddress addr);
+    INewConnectionContext CreateConnection();
+}
+
+public interface IContextState
 {
     string Id { get; }
-    IPeer Peer { get; }
+    State State { get; }
 }
 
-public class Remote
-{
-    public Multiaddress? Address { get; set; }
-    public Identity? Identity { get; set; }
-}
-
-public interface ITransportContext : IContext
-{
-    void ListenerReady(Multiaddress addr);
-    ITransportConnectionContext CreateConnection();
-}
-
-public interface ITransportConnectionContext : IDisposable, IChannelFactory, IContext
-{
-    Remote Remote { get; }
-    CancellationToken Token { get; }
-    IConnectionSessionContext CreateSession();
-}
-
-public interface IConnectionContext : IChannelFactory, IContext
+public interface IConnectionContext : ITransportContext, IChannelFactory, IContextState
 {
     UpgradeOptions? UpgradeOptions { get; }
-    Remote Remote { get; }
     Task DisconnectAsync();
-    IConnectionSessionContext CreateSession();
+    INewSessionContext UpgradeToSession();
 }
 
-public interface IConnectionSessionContext : IDisposable
+public interface ISessionContext : IConnectionContext
 {
-    Remote Remote { get; }
-    string Id { get; }
+    Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
+    Task DialAsync(ISessionProtocol[] protocols);
+}
+
+
+public interface INewConnectionContext : IDisposable, IChannelFactory, IContextState
+{
+    IPeer Peer { get; }
+    CancellationToken Token { get; }
+    INewSessionContext UpgradeToSession();
+}
+
+public interface INewSessionContext : IDisposable, INewConnectionContext
+{
     IEnumerable<ChannelRequest> DialRequests { get; }
 }
 
-public interface ISessionContext : IChannelFactory, IContext
+public class State
 {
-    UpgradeOptions? UpgradeOptions { get; }
-    Remote Remote { get; }
-    Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
-    Task DialAsync(ISessionProtocol[] protocols);
-    Task DisconnectAsync();
+    public Multiaddress? LocalAddress { get; set; }
+    public Multiaddress? RemoteAddress { get; set; }
+    public PublicKey? RemotePublicKey { get; set; }
 }

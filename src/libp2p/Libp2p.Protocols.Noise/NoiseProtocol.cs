@@ -61,9 +61,9 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
 
         PeerId remotePeerId = new(msg1KeyDecoded);
-        if (!context.Remote.Address.Has<P2P>())
+        if (!context.State.RemoteAddress.Has<P2P>())
         {
-            context.Remote.Address.Add(new P2P(remotePeerId.ToString()));
+            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
 
         byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(clientStatic.PublicKey)];
@@ -90,7 +90,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten));
         Transport? transport = msg2.Transport;
 
-        _logger?.LogDebug("Established connection to {peer}", context.Remote.Address);
+        _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
         IChannel upChannel = context.Upgrade();
 
@@ -143,12 +143,12 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         PeerId remotePeerId = new(msg2KeyDecoded);
 
-        if (!context.Remote.Address.Has<P2P>())
+        if (!(context.State.RemoteAddress?.Has<P2P>() ?? false))
         {
-            context.Remote.Address.Add(new P2P(remotePeerId.ToString()));
+            context.State.RemoteAddress!.Add(new P2P(remotePeerId.ToString()));
         }
 
-        _logger?.LogDebug("Established connection to {peer}", context.Remote.Address);
+        _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
         IChannel upChannel = context.Upgrade();
 

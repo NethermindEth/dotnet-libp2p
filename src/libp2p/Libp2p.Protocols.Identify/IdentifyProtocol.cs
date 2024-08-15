@@ -38,9 +38,9 @@ public class IdentifyProtocol : ISessionProtocol
         Identify.Dto.Identify identity = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
 
         _logger?.LogInformation("Received peer info: {identify}", identity);
-        context.Remote.Identity = new Identity(PublicKey.Parser.ParseFrom(identity.PublicKey));
+        context.State.RemotePublicKey = PublicKey.Parser.ParseFrom(identity.PublicKey);
 
-        if (context.Remote.Identity.PublicKey.ToByteString() != identity.PublicKey)
+        if (context.State.RemotePublicKey.ToByteString() != identity.PublicKey)
         {
             throw new PeerConnectionException();
         }
@@ -56,7 +56,7 @@ public class IdentifyProtocol : ISessionProtocol
             AgentVersion = _agentVersion,
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
             ListenAddrs = { ByteString.CopyFrom(context.Peer.Address.Get<IP>().ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(context.Remote.Address!.Get<IP>().ToBytes()),
+            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.Get<IP>().ToBytes()),
             Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
         };
         byte[] ar = new byte[identify.CalculateSize()];

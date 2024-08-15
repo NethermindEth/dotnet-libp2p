@@ -78,7 +78,7 @@ class TProto : ITransportProtocol
         try
         {
             context.ListenerReady(Multiaddress.Decode("/ip4/127.0.0.1/tcp/4096"));
-            using ITransportConnectionContext connectionCtx = context.CreateConnection();
+            using INewConnectionContext connectionCtx = context.CreateConnection();
 
 
             IChannel topChan = connectionCtx.Upgrade();
@@ -109,7 +109,7 @@ class TProto : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(ITransportConnectionContext context, Multiaddress listenAddr, CancellationToken token)
+    public async Task DialAsync(INewConnectionContext context, Multiaddress listenAddr, CancellationToken token)
     {
         IChannel topChan = context.Upgrade();
         context.Token.Register(() => topChan.CloseAsync());
@@ -143,7 +143,7 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using IConnectionSessionContext session = context.CreateSession();
+            using INewSessionContext session = context.UpgradeToSession();
             IChannel topChan = context.Upgrade();
 
             ReadResult received;
@@ -174,7 +174,7 @@ class CProto : IConnectionProtocol
     {
         try
         {
-            using IConnectionSessionContext session = context.CreateSession();
+            using INewSessionContext session = context.UpgradeToSession();
             IChannel topChan = context.Upgrade();
 
             ReadResult received;

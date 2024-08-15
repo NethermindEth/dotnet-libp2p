@@ -17,4 +17,12 @@ public interface IChannelFactory
 public class UpgradeOptions
 {
     public IProtocol? SelectedProtocol { get; init; }
+    public UpgradeModeOverride ModeOverride { get; init; } = UpgradeModeOverride.None;
+}
+
+public enum UpgradeModeOverride
+{
+    None,
+    Dial,
+    Listen,
 }

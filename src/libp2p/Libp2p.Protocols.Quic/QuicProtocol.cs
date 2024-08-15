@@ -92,7 +92,7 @@ public class QuicProtocol : ITransportProtocol
             try
             {
                 QuicConnection connection = await listener.AcceptConnectionAsync();
-                ITransportConnectionContext clientContext = context.CreateConnection();
+                INewConnectionContext clientContext = context.CreateConnection();
 
                 _ = ProcessStreams(clientContext, connection, token).ContinueWith(t => clientContext.Dispose());
             }
@@ -104,7 +104,7 @@ public class QuicProtocol : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(ITransportConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(INewConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         if (!QuicConnection.IsSupported)
         {
@@ -147,11 +147,11 @@ public class QuicProtocol : ITransportProtocol
     private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
          CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remoteAddr.Get<P2P>().ToString());
 
-    private async Task ProcessStreams(ITransportConnectionContext context, QuicConnection connection, CancellationToken token = default)
+    private async Task ProcessStreams(INewConnectionContext context, QuicConnection connection, CancellationToken token = default)
     {
         _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
 
-        using IConnectionSessionContext session = context.CreateSession();
+        using INewSessionContext session = context.UpgradeToSession();
 
         _ = Task.Run(async () =>
         {

@@ -17,7 +17,7 @@ public class TransportContext(LocalPeer peer, ProtocolRef proto, bool isListener
         peer.ListenerReady(this, addr);
     }
 
-    public ITransportConnectionContext CreateConnection()
+    public INewConnectionContext CreateConnection()
     {
         return peer.CreateConnection(proto, isListener);
     }

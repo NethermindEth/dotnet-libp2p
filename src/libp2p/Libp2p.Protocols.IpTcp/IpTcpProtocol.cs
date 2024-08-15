@@ -44,7 +44,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 Socket client = await listener.AcceptAsync();
 
-                ITransportConnectionContext connectionCtx = context.CreateConnection();
+                INewConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
 
                 IChannel upChannel = connectionCtx.Upgrade();
@@ -91,7 +91,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                     }
                     catch (SocketException)
                     {
-                        _logger?.LogInformation($"Disconnected({context.Id}) due to a socket exception");
+                        _logger?.LogInformation($"Disconnected due to a socket exception");
                         await upChannel.CloseAsync();
                     }
                 });
@@ -101,7 +101,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         });
     }
 
-    public async Task DialAsync(ITransportConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(INewConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
 

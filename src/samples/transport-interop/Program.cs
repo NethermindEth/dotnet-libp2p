@@ -129,36 +129,46 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport"];
 
-    protected override ProtocolStack BuildStack()
+    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
-        ProtocolStack stack = transport switch
+        ProtocolRef[] transportStack = [transport switch
         {
-            "tcp" => Over<IpTcpProtocol>(),
+            "tcp" => Get<IpTcpProtocol>(),
             // TODO: Improve QUIC imnteroperability
-            "quic-v1" => Over<QuicProtocol>(),
+            "quic-v1" => Get<QuicProtocol>(),
             _ => throw new NotImplementedException(),
-        };
+        }];
 
-        stack = stack.Over<MultistreamProtocol>();
+        ProtocolRef[] selector = [Get<MultistreamProtocol>()];
+        Connect(transportStack, selector);
 
         if (!stacklessProtocols.Contains(transport))
         {
-            stack = security switch
+            ProtocolRef[] securityStack = [security switch
             {
-                "noise" => stack.Over<NoiseProtocol>(),
+                "noise" => Get<NoiseProtocol>(),
                 _ => throw new NotImplementedException(),
-            };
-            stack = stack.Over<MultistreamProtocol>();
-            stack = muxer switch
+            }];
+            Connect(selector, transportStack);
+
+            selector = [Get<MultistreamProtocol>()];
+            Connect(transportStack, selector);
+
+            ProtocolRef[] muxerStack = [muxer switch
             {
-                "yamux" => stack.Over<YamuxProtocol>(),
+                "yamux" => Get<YamuxProtocol>(),
                 _ => throw new NotImplementedException(),
-            };
-            stack = stack.Over<MultistreamProtocol>();
+            }];
+            Connect(selector, muxerStack);
+
+            selector = [Get<MultistreamProtocol>()];
+            Connect(muxerStack, selector);
         }
 
-        return stack.AddAppLayerProtocol<IdentifyProtocol>()
-                    .AddAppLayerProtocol<PingProtocol>();
+        ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];
+        Connect(selector, apps);
+
+        return transportStack; 
     }
 
     public string MakeAddress(string ip = "0.0.0.0", string port = "0") => transport switch
