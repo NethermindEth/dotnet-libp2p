@@ -32,7 +32,7 @@ public class NoiseProtocolTests
         // channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         // await downChannel.CloseAsync();
     }
-       [Test]
+    [Test]
     public async Task Test_ConnectionEstablished_With_PreSelectedMuxer()
     {
         IChannel downChannel = new TestChannel();
@@ -66,8 +66,8 @@ public class NoiseProtocolTests
         Assert.That(peerContext.SpecificProtocolRequest.SubProtocol, Is.EqualTo(proto1));
         await downChannel.CloseAsync();
         await upChannel.CloseAsync();
-}
-[Test]
+    }
+    [Test]
     public async Task Test_ConnectionClosed_ForBrokenHandshake()
     {
         // IChannel downChannel = new TestChannel();
