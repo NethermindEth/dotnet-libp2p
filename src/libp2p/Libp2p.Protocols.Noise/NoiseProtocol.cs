@@ -29,8 +29,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
     {
         StreamMuxers =
         {
-            multiplexerSettings is null || multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
-        }
+           multiplexerSettings is null ? ["na"] : multiplexerSettings.Multiplexers.Any() ? [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)] : []
+           }
     };
 
     public string Id => "/noise";
@@ -60,6 +60,15 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
+          if (_extensions.StreamMuxers.Any())
+        {
+            var selectedProtocol = upChannelFactory?.SubProtocols.FirstOrDefault(proto => proto.Id == _extensions.StreamMuxers[0]);
+            context.SpecificProtocolRequest = new ChannelRequest
+            {
+                SubProtocol = selectedProtocol,
+                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+            };
+        }
 
         PeerId remotePeerId = new(msg1KeyDecoded);
         if (!context.RemotePeer.Address.Has<P2P>())
@@ -95,7 +104,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = upChannelFactory.SubDial(context);
 
-        await ExchangeData(transport, downChannel, upChannel);
+          _ = ExchangeData(transport, downChannel, upChannel);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
@@ -155,7 +164,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = upChannelFactory.SubListen(context);
 
-        await ExchangeData(transport, downChannel, upChannel);
+        _ = ExchangeData(transport, downChannel, upChannel);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
