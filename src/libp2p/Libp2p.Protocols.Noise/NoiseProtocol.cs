@@ -104,7 +104,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = upChannelFactory.SubDial(context);
 
-          _ = ExchangeData(transport, downChannel, upChannel);
+        _ = ExchangeData(transport, downChannel, upChannel);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
