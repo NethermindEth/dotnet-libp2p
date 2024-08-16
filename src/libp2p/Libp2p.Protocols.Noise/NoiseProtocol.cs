@@ -60,7 +60,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
-          if (_extensions.StreamMuxers.Any())
+        if (_extensions.StreamMuxers.Any())
         {
             var selectedProtocol = upChannelFactory?.SubProtocols.FirstOrDefault(proto => proto.Id == _extensions.StreamMuxers[0]);
             context.SpecificProtocolRequest = new ChannelRequest
