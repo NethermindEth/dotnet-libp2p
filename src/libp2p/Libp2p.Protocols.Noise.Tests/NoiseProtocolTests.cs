@@ -32,6 +32,7 @@ public class NoiseProtocolTests
         // channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
         // await downChannel.CloseAsync();
     }
+    
     [Test]
     public async Task Test_ConnectionEstablished_With_PreSelectedMuxer()
     {
