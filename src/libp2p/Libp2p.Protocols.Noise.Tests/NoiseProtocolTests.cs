@@ -70,7 +70,7 @@ public class NoiseProtocolTests
         //Act
         Task ListenTask = proto.ListenAsync(downChannel, channelFactory, listenerContext);
         Task DialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        await Task.WhenAll(DialTask, ListenTask)
+        await Task.WhenAll(DialTask, ListenTask);
 
         //Assert
         Assert.That(peerContext.SpecificProtocolRequest.SubProtocol, Is.EqualTo(proto1));
