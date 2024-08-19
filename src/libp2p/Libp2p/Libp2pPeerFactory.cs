@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
@@ -9,12 +10,12 @@ using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings) : PeerFactory(protocolStackSettings)
+public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, loggerFactory)
 {
-    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, identity ?? new Identity());
+    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, identity ?? new Identity(), loggerFactory);
 }
 
-class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity) : LocalPeer(protocolStackSettings, identity)
+class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, protocolStackSettings, loggerFactory)
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {

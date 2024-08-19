@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IProtocol
+public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
 {
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,

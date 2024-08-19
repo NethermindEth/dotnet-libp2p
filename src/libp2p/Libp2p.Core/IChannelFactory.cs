@@ -14,10 +14,11 @@ public interface IChannelFactory
     Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? options = null);
 }
 
-public class UpgradeOptions
+public record UpgradeOptions
 {
     public IProtocol? SelectedProtocol { get; init; }
-    public UpgradeModeOverride ModeOverride { get; init; } = UpgradeModeOverride.None;
+    public UpgradeModeOverride ModeOverride { get; init; }
+    public TaskCompletionSource? CompletionSource { get; init; }
 }
 
 public enum UpgradeModeOverride

@@ -7,7 +7,6 @@ namespace Nethermind.Libp2p.Core;
 
 public class TransportContext(LocalPeer peer, ProtocolRef proto, bool isListener) : ITransportContext
 {
-    public string Id { get; } = Interlocked.Increment(ref Ids.IdCounter).ToString();
     public Identity Identity => peer.Identity;
     public IPeer Peer => peer;
     public bool IsListener => isListener;
@@ -17,8 +16,16 @@ public class TransportContext(LocalPeer peer, ProtocolRef proto, bool isListener
         peer.ListenerReady(this, addr);
     }
 
-    public INewConnectionContext CreateConnection()
+    public virtual INewConnectionContext CreateConnection()
     {
-        return peer.CreateConnection(proto, isListener);
+        return peer.CreateConnection(proto, null, isListener);
+    }
+}
+
+public class DialerTransportContext(LocalPeer peer, LocalPeer.Session session, ProtocolRef proto) : TransportContext(peer, proto, false)
+{
+    public override INewConnectionContext CreateConnection()
+    {
+        return peer.CreateConnection(proto, session, false);
     }
 }

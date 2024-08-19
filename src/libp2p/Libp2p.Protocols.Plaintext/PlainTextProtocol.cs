@@ -38,9 +38,23 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
     }
 }
 
-public class RelayProtocol : ISessionProtocol
+public class RelayHopProtocol : ISessionProtocol
 {
-    public string Id => throw new NotImplementedException();
+    public string Id => "/libp2p/circuit/relay/0.2.0/hop";
+
+    public Task DialAsync(IChannel downChannel, ISessionContext context)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task ListenAsync(IChannel downChannel, ISessionContext context)
+    {
+        throw new NotImplementedException();
+    }
+}
+public class RelayStopProtocol : ISessionProtocol
+{
+    public string Id => "/libp2p/circuit/relay/0.2.0/stop";
 
     public Task DialAsync(IChannel downChannel, ISessionContext context)
     {

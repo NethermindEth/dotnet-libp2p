@@ -163,9 +163,8 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         limboMessageCache = new(this.settings.MessageCacheTtl);
         dontWantMessages = new(this.settings.MessageCacheTtl);
 
-        LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
+        LocalPeerId = localPeer.Identity.PeerId;
 
-        _ = localPeer.StartListenAsync([localPeer.Address], token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);
         logger?.LogInformation("Started");
 
@@ -223,7 +222,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             }
         }, token);
 
-        await discoveryProtocol.DiscoverAsync(localPeer.Address, token);
+        await discoveryProtocol.DiscoverAsync(localPeer, token);
     }
 
     private async Task Reconnect(CancellationToken token)

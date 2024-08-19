@@ -14,6 +14,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 {
     private bool enforcePlaintext;
     private bool addPubsub;
+    private bool addRelay;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -27,31 +28,29 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    public ILibp2pPeerFactoryBuilder WithRelay()
+    {
+        addRelay = true;
+        return this;
+    }
+
     protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
-        ProtocolRef[] transports = [
-            Get<IpTcpProtocol>(),
-            Get<QuicProtocol>()
-            ];
-
-        ProtocolRef[] selector1 = [Get<MultistreamProtocol>()];
-        Connect(transports, selector1);
+        ProtocolRef tcp = Get<IpTcpProtocol>();
 
         ProtocolRef[] encryption = [enforcePlaintext ?
             Get<PlainTextProtocol>() :
             Get<NoiseProtocol>()];
-        Connect(selector1, encryption);
-
-        ProtocolRef[] selector2 = [Get<MultistreamProtocol>()];
-        Connect(encryption, selector2);
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
-        Connect(selector2, muxers);
 
-        ProtocolRef[] selector3 = [Get<MultistreamProtocol>()];
-        Connect(muxers, selector3);
+        ProtocolRef[] commonSelector = [Get<MultistreamProtocol>()];
+        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonSelector);
 
-        ProtocolRef relay = Get<RelayProtocol>();
+        ProtocolRef quic = Get<QuicProtocol>();
+        Connect([quic], commonSelector);
+
+        ProtocolRef[] relay = addRelay ?  [Get<RelayHopProtocol>(), Get<RelayHopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
             Get<GossipsubProtocolV12>(),
             Get<GossipsubProtocolV11>(),
@@ -62,15 +61,18 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         ProtocolRef[] apps = [
             Get<IdentifyProtocol>(),
             .. additionalProtocols,
-            relay,
+            .. relay,
             .. pubsub,
         ];
-        Connect(selector3, apps);
+        Connect(commonSelector, apps);
 
-        ProtocolRef[] relaySelector = [Get<MultistreamProtocol>()];
-        Connect([relay], relaySelector);
-        Connect(relaySelector, apps.Where(a => a != relay).ToArray());
+        if (addRelay)
+        {
+            ProtocolRef[] relaySelector = [Get<MultistreamProtocol>()];
+            Connect(relay, relaySelector);
+            Connect(relaySelector, apps.Where(a => !relay.Contains(a)).ToArray());
+        }
 
-        return transports;
+        return [tcp, quic];
     }
 }

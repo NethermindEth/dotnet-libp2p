@@ -21,7 +21,7 @@ public class FloodsubProtocolTests
         const string commonTopic = "topic1";
 
         IPeer peer = Substitute.For<IPeer>();
-        peer.Address.Returns(localPeerAddr);
+        peer.ListenAddresses.Returns([localPeerAddr]);
         peer.DialAsync(discoveredPeer, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeer));
 
         TestDiscoveryProtocol discovery = new();

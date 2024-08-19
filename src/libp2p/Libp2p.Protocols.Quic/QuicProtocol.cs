@@ -11,7 +11,6 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -104,7 +103,7 @@ public class QuicProtocol : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(INewConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         if (!QuicConnection.IsSupported)
         {
@@ -139,9 +138,10 @@ public class QuicProtocol : ITransportProtocol
         QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
+        INewConnectionContext connectionContext = context.CreateConnection();
 
         token.Register(() => _ = connection.CloseAsync(0));
-        await ProcessStreams(context, connection, token);
+        await ProcessStreams(connectionContext, connection, token);
     }
 
     private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
@@ -155,28 +155,27 @@ public class QuicProtocol : ITransportProtocol
 
         _ = Task.Run(async () =>
         {
-            foreach (ChannelRequest request in session.DialRequests)
+            foreach (UpgradeOptions upgradeOptions in session.DialRequests)
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-                IChannel upChannel = context.Upgrade(new UpgradeOptions { SelectedProtocol = request.SubProtocol });
-                ExchangeData(stream, upChannel, request.CompletionSource);
+                IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                ExchangeData(stream, upChannel);
             }
         }, token);
 
         while (!token.IsCancellationRequested)
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
-            IChannel upChannel = context.Upgrade();
-            ExchangeData(inboundStream, upChannel, null);
+            IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+            ExchangeData(inboundStream, upChannel);
         }
     }
 
-    private void ExchangeData(QuicStream stream, IChannel upChannel, TaskCompletionSource? tcs)
+    private void ExchangeData(QuicStream stream, IChannel upChannel)
     {
         upChannel.GetAwaiter().OnCompleted(() =>
         {
             stream.Close();
-            tcs?.SetResult();
             _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
         });
 

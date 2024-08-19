@@ -62,7 +62,7 @@ public abstract class PubsubProtocol : ISessionProtocol
 
         CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            _ = context.DialAsync([this]);
+            _ = context.DialAsync(this);
             return dialTcs.Task;
         });
 

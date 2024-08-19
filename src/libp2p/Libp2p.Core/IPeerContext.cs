@@ -29,7 +29,7 @@ public interface IConnectionContext : ITransportContext, IChannelFactory, IConte
 public interface ISessionContext : IConnectionContext
 {
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
-    Task DialAsync(ISessionProtocol[] protocols);
+    Task DialAsync(ISessionProtocol protocol);
 }
 
 
@@ -42,7 +42,7 @@ public interface INewConnectionContext : IDisposable, IChannelFactory, IContextS
 
 public interface INewSessionContext : IDisposable, INewConnectionContext
 {
-    IEnumerable<ChannelRequest> DialRequests { get; }
+    IEnumerable<UpgradeOptions> DialRequests { get; }
 }
 
 public class State

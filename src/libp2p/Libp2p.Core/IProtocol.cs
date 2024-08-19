@@ -31,7 +31,7 @@ public interface ITransportProtocol : IProtocol
     /// <param name="upChannelFactory">Factory that spawns new channels used to interact with top layer protocols</param>
     /// <param name="context">Holds information about local and remote peers</param>
     /// <returns></returns>
-    Task DialAsync(INewConnectionContext context, Multiaddress listenAddr, CancellationToken token);
+    Task DialAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token);
 }
 
 public interface IConnectionProtocol : IProtocol

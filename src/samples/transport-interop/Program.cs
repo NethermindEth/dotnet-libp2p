@@ -86,8 +86,8 @@ try
         CancellationTokenSource listennTcs = new();
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
         localPeer.OnConnection += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
-        Log($"Listening on {localPeer.Address}");
-        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.Address.ToString()));
+        Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
+        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
         await listennTcs.CancelAsync();
         return -1;
@@ -149,20 +149,13 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
                 "noise" => Get<NoiseProtocol>(),
                 _ => throw new NotImplementedException(),
             }];
-            Connect(selector, transportStack);
-
-            selector = [Get<MultistreamProtocol>()];
-            Connect(transportStack, selector);
-
             ProtocolRef[] muxerStack = [muxer switch
             {
                 "yamux" => Get<YamuxProtocol>(),
                 _ => throw new NotImplementedException(),
             }];
-            Connect(selector, muxerStack);
 
-            selector = [Get<MultistreamProtocol>()];
-            Connect(muxerStack, selector);
+            selector = Connect(selector, transportStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
         }
 
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];

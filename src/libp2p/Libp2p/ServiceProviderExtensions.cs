@@ -15,7 +15,7 @@ public static class ServiceProviderExtensions
     {
         return services
             .AddSingleton(sp => new Libp2pPeerFactoryBuilder(sp))
-            .AddSingleton<IProtocolStackSettings, Libp2pBuilderContext>()
+            .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
             .AddSingleton(sp => factorySetup is null ? sp.GetRequiredService<Libp2pPeerFactoryBuilder>() : factorySetup(sp.GetRequiredService<Libp2pPeerFactoryBuilder>()))
             .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>())
             .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())

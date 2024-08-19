@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
-using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address.Net;
+using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
-using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Protocols.Identify;
+using Nethermind.Libp2p.Stack;
+using System.Net.Sockets;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -18,12 +21,12 @@ public class IdentifyProtocol : ISessionProtocol
     private readonly string _protocolVersion;
 
     private readonly ILogger? _logger;
-    private readonly IPeerFactoryBuilder _peerFactoryBuilder;
+    private readonly IProtocolStackSettings _protocolStackSettings;
 
-    public IdentifyProtocol(IPeerFactoryBuilder peerFactoryBuilder, IdentifyProtocolSettings? settings = null, ILoggerFactory? loggerFactory = null)
+    public IdentifyProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
-        _peerFactoryBuilder = peerFactoryBuilder;
+        _protocolStackSettings = protocolStackSettings;
 
         _agentVersion = settings?.AgentVersion ?? IdentifyProtocolSettings.Default.AgentVersion!;
         _protocolVersion = settings?.ProtocolVersion ?? IdentifyProtocolSettings.Default.ProtocolVersion!;
@@ -55,10 +58,13 @@ public class IdentifyProtocol : ISessionProtocol
             ProtocolVersion = _protocolVersion,
             AgentVersion = _agentVersion,
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
-            ListenAddrs = { ByteString.CopyFrom(context.Peer.Address.Get<IP>().ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.Get<IP>().ToBytes()),
-            Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
+            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),
+            Protocols = { _protocolStackSettings.Protocols!.Select(r => r.Key.Protocol).OfType<ISessionProtocol>().Select(p => p.Id) }
         };
+
+        ByteString[] endpoints = context.Peer.ListenAddresses.Where(a => !a.ToEndPoint().Address.IsPrivate()).Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto)).Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
+        identify.ListenAddrs.AddRange(endpoints);
+
         byte[] ar = new byte[identify.CalculateSize()];
         identify.WriteTo(ar);
 

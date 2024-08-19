@@ -9,7 +9,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/multiformats/multistream-select
 /// </summary>
-public class MultistreamProtocol : IProtocol
+public class MultistreamProtocol : IConnectionProtocol
 {
     private readonly ILogger? _logger;
     private const string ProtocolNotSupported = "na";
@@ -19,6 +19,7 @@ public class MultistreamProtocol : IProtocol
     {
         _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     }
+
     public async Task DialAsync(IChannel channel, IConnectionContext context)
     {
         if (!await SendHello(channel))
@@ -77,7 +78,7 @@ public class MultistreamProtocol : IProtocol
             _logger?.LogDebug($"Negotiation failed");
             return;
         }
-        _logger?.LogDebug($"Protocol selected during dialing: {selected}");
+        _logger?.LogDebug($"Protocol selected during dialing: {selected.Id}");
         await context.Upgrade(channel, selected);
     }
 

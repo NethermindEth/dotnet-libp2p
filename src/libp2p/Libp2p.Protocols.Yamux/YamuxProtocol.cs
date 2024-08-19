@@ -4,7 +4,6 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
-using Org.BouncyCastle.Asn1.X509;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -12,7 +11,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol : SymmetricProtocol, IProtocol
+public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 {
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
@@ -32,7 +31,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         _logger?.LogInformation(isListener ? "Listen" : "Dial");
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
-        Dictionary<int, ChannelState> channels = new();
+        Dictionary<int, ChannelState> channels = [];
 
         try
         {
@@ -47,12 +46,12 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             _ = Task.Run(() =>
             {
-                foreach (ChannelRequest request in session.DialRequests)
+                foreach (UpgradeOptions request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
                     Interlocked.Add(ref streamIdCounter, 2);
 
-                    _logger?.LogDebug("Stream {stream id}: Dialing with protocol {proto}", streamId, request.SubProtocol?.Id);
+                    _logger?.LogDebug("Stream {stream id}: Dialing with protocol {proto}", streamId, request.SelectedProtocol?.Id);
                     channels[streamId] = CreateUpchannel(streamId, YamuxHeaderFlags.Syn, request);
                 }
             });
@@ -105,7 +104,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
-                    channels[header.StreamID] = CreateUpchannel(header.StreamID, YamuxHeaderFlags.Ack, null);
+                    channels[header.StreamID] = CreateUpchannel(header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
                 }
 
                 if (!channels.ContainsKey(header.StreamID))
@@ -207,7 +206,7 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
             await WriteGoAwayAsync(channel, SessionTerminationCode.Ok);
 
-            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, ChannelRequest? channelRequest)
+            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
                 bool isListenerChannel = isListener ^ (streamId % 2 == 0);
 
@@ -216,19 +215,17 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = context.Upgrade();
+                    upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
                 }
                 else
                 {
-                    upChannel = context.Upgrade(new UpgradeOptions { SelectedProtocol = channelRequest?.SubProtocol });
+                    upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                 }
 
-                ChannelState state = new(upChannel, channelRequest);
-                TaskCompletionSource? tcs = state.Request?.CompletionSource;
+                ChannelState state = new(upChannel);
 
                 upChannel.GetAwaiter().OnCompleted(() =>
                 {
-                    tcs?.SetResult();
                     channels.Remove(streamId);
                     _logger?.LogDebug("Stream {stream id}: Closed", streamId);
                 });
@@ -351,10 +348,10 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
             StreamID = 0,
         });
 
-    private class ChannelState(IChannel? channel = default, ChannelRequest? request = default)
+    private class ChannelState(IChannel? channel = default)
     {
         public IChannel? Channel { get; set; } = channel;
-        public ChannelRequest? Request { get; set; } = request;
+        //public ChannelRequest? Request { get; set; } = request;
 
         public DataWindow LocalWindow { get; } = new();
         public DataWindow RemoteWindow { get; } = new();

@@ -51,9 +51,8 @@ topic.OnMessage += (byte[] msg) =>
     }
 };
 
+_ = peer.StartListenAsync([addr], ts.Token);
 _ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
-
-
 
 string peerId = peer.Identity.PeerId.ToString();
 

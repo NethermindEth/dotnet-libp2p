@@ -32,8 +32,8 @@ public class ContextTests
             TopProtocols = [tProto]
         };
 
-        LocalPeer peer1 = new LocalPeer(protocolStackSettings, new Identity());
-        LocalPeer peer2 = new LocalPeer(protocolStackSettings, new Identity());
+        LocalPeer peer1 = new LocalPeer(new Identity(), protocolStackSettings);
+        LocalPeer peer2 = new LocalPeer(new Identity(), protocolStackSettings);
 
         await peer1.StartListenAsync([new Multiaddress()]);
         await peer2.StartListenAsync([new Multiaddress()]);
@@ -51,7 +51,7 @@ public class ContextTests
         //IConnectionContext cContext = peer.CreateContext(cProto);
 
         //cContext.SubDial();
-        //ISession connectionSessionContext = cContext.CreateSession();
+        //ISession connectionSessionContext = cContext.UpgradeToSession();
 
         //ISessionContext sContext = peer.CreateContext(sProto);
 
@@ -79,7 +79,7 @@ class TProto : ITransportProtocol
         {
             context.ListenerReady(Multiaddress.Decode("/ip4/127.0.0.1/tcp/4096"));
             using INewConnectionContext connectionCtx = context.CreateConnection();
-
+            connectionCtx.State.RemoteAddress = Multiaddress.Decode("/ip4/127.0.0.1/tcp/1000");
 
             IChannel topChan = connectionCtx.Upgrade();
             connectionCtx.Token.Register(() => topChan.CloseAsync());
@@ -109,10 +109,11 @@ class TProto : ITransportProtocol
         }
     }
 
-    public async Task DialAsync(INewConnectionContext context, Multiaddress listenAddr, CancellationToken token)
+    public async Task DialAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        IChannel topChan = context.Upgrade();
-        context.Token.Register(() => topChan.CloseAsync());
+        INewConnectionContext connectionContext = context.CreateConnection();
+        IChannel topChan = connectionContext.Upgrade();
+        connectionContext.Token.Register(() => topChan.CloseAsync());
 
 
         ReadResult received;

@@ -54,9 +54,10 @@ else
     await peer.StartListenAsync(
         [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],
         ts.Token);
-    logger.LogInformation("Listener started at {address}", peer.Address);
+    logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));
 
     Console.CancelKeyPress += delegate { ts.Cancel(); };
 
-    await Task.FromCanceled(ts.Token);
+    await Task.Delay(-1, ts.Token);
+    await peer.DisconnectAsync();
 }

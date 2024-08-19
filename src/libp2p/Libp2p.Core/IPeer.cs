@@ -9,17 +9,16 @@ namespace Nethermind.Libp2p.Core;
 public interface IPeer
 {
     Identity Identity { get; }
-    Multiaddress Address { get; }
 
     Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default);
 
     Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default);
 
-    //Task DisconnectAsync();
+    Task DisconnectAsync();
 
     ObservableCollection<Multiaddress> ListenAddresses { get; }
 
-    event OnConnection OnConnection;
+    event OnConnection? OnConnection;
 }
 
 public delegate Task OnConnection(ISession newSession);

@@ -19,17 +19,17 @@ public class TestLocalPeer : IPeer
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
-    public event OnConnection OnConnection;
+    public event OnConnection? OnConnection;
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
         return Task.FromResult<ISession>(new TestRemotePeer(addr));
     }
 
-    //public Task<IListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
-    //{
-    //    return Task.FromResult<IListener>(null);
-    //}
+    public Task DisconnectAsync()
+    {
+        return Task.CompletedTask;
+    }
 
     public Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
     {

@@ -8,6 +8,8 @@ using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Multiformats.Address.Net;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -21,7 +23,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
     {
         Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
 
-        IPEndPoint endpoint = ToEndPoint(listenAddr);
+        IPEndPoint endpoint = listenAddr.ToEndPoint();
 
         listener.Bind(endpoint);
         listener.Listen();
@@ -29,7 +31,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         if (endpoint.Port is 0)
         {
             IPEndPoint localIpEndpoint = (IPEndPoint)listener.LocalEndPoint!;
-            listenAddr.Add<TCP>(localIpEndpoint.Port);
+            listenAddr.ReplaceOrAdd<TCP>(localIpEndpoint.Port);
         }
 
         token.Register(listener.Close);
@@ -101,11 +103,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         });
     }
 
-    public async Task DialAsync(INewConnectionContext context, Multiaddress remoteAddr, CancellationToken token)
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
 
-        IPEndPoint remoteEndpoint = ToEndPoint(remoteAddr);
+        IPEndPoint remoteEndpoint = remoteAddr.ToEndPoint();
         _logger?.LogDebug("Dialing {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
 
         try
@@ -114,15 +116,28 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         }
         catch (SocketException e)
         {
-            _logger?.LogDebug($"Failed({context.Id}) to connect {remoteAddr}");
+            _logger?.LogDebug($"Failed to connect {remoteAddr}");
             _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
-            return;
+            throw;
         }
 
-        context.Token.Register(client.Close);
+        if (client.LocalEndPoint is null)
+        {
+            throw new Libp2pException($"{nameof(client.LocalEndPoint)} is not set for client connection.");
+        }
+        if (client.RemoteEndPoint is null)
+        {
+            throw new Libp2pException($"{nameof(client.RemoteEndPoint)} is not set for client connection.");
+        }
+
+        INewConnectionContext connectionCtx = context.CreateConnection();
+        connectionCtx.State.RemoteAddress = ToMultiaddress(client.RemoteEndPoint, ProtocolType.Tcp);
+        connectionCtx.State.LocalAddress = ToMultiaddress(client.LocalEndPoint, ProtocolType.Tcp);
+
+        connectionCtx.Token.Register(client.Close);
         token.Register(client.Close);
 
-        IChannel upChannel = context.Upgrade();
+        IChannel upChannel = connectionCtx.Upgrade();
 
         Task receiveTask = Task.Run(async () =>
         {
@@ -132,7 +147,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 for (; client.Connected;)
                 {
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    _logger?.LogDebug("Receive {0} data, len={1}", context.Id, dataLength);
+                    _logger?.LogDebug("Ctx{0}: receive, length={1}", connectionCtx.Id, dataLength);
 
                     if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                     {
@@ -152,7 +167,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    _logger?.LogDebug("Send {0} data, len={1}", context.Id, data.Length);
+                    _logger?.LogDebug("Ctx{0}: send, length={2}", connectionCtx.Id, data.Length);
                     int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
                     if (sent is 0 || !client.Connected)
                     {
@@ -166,16 +181,39 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             }
         });
 
-        await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => context.Dispose());
+        await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
 
         _ = upChannel.CloseAsync();
     }
 
-    private static IPEndPoint ToEndPoint(Multiaddress addr)
+
+    public static Multiaddress ToMultiaddress(EndPoint ep, ProtocolType protocolType)
     {
-        MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
-        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
-        int tcpPort = int.Parse(addr.Get<TCP>().ToString());
-        return new IPEndPoint(ipAddress, tcpPort);
+        Multiaddress multiaddress = new Multiaddress();
+        IPEndPoint iPEndPoint = (IPEndPoint)ep;
+        if (iPEndPoint != null)
+        {
+            if (iPEndPoint.AddressFamily == AddressFamily.InterNetwork)
+            {
+                multiaddress.Add<IP4>(iPEndPoint.Address.MapToIPv4());
+            }
+
+            if (iPEndPoint.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                multiaddress.Add<IP6>(iPEndPoint.Address.MapToIPv6());
+            }
+
+            if (protocolType == ProtocolType.Tcp)
+            {
+                multiaddress.Add<TCP>(iPEndPoint.Port);
+            }
+
+            if (protocolType == ProtocolType.Udp)
+            {
+                multiaddress.Add<UDP>(iPEndPoint.Port);
+            }
+        }
+
+        return multiaddress;
     }
 }

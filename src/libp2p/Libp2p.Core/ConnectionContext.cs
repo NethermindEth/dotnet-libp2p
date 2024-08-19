@@ -20,7 +20,7 @@ namespace Nethermind.Libp2p.Core;
 
 //    public Identity Identity => throw new NotImplementedException();
 
-//    public ISessionContext CreateSession()
+//    public ISessionContext UpgradeToSession()
 //    {
 //        throw new NotImplementedException();
 //    }

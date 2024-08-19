@@ -1,16 +1,15 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Stack;
-using Org.BouncyCastle.Tls;
-using System;
 
 namespace Nethermind.Libp2p.Core;
 
 public static class PeerFactoryBuilderBase
 {
-    private static HashSet<IProtocol> protocols = new();
+    private static readonly HashSet<IProtocol> protocols = [];
 
     internal static TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
     {
@@ -29,11 +28,14 @@ public static class PeerFactoryBuilderBase
     }
 }
 
-public class ProtocolRef(IProtocol protocol)
+public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {
     static int IdCounter = 0;
+    private readonly bool l;
+
     public string RefId { get; } = Interlocked.Increment(ref IdCounter).ToString();
     public IProtocol Protocol => protocol;
+    public bool IsExposed => isExposed;
 
     public override string ToString()
     {
@@ -55,9 +57,9 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
     }
 
-    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
-        _appLayerProtocols.Add(new ProtocolRef(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance)));
+        _appLayerProtocols.Add(new ProtocolRef(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
     }
 
@@ -65,12 +67,24 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     private Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
 
-    protected void Connect(ProtocolRef[] protocols, ProtocolRef[] upgradeTo)
+    protected ProtocolRef[] Connect(ProtocolRef[] protocols, params ProtocolRef[][] upgradeToStacks)
     {
-        foreach (ProtocolRef protocolRef in protocols)
+        ProtocolRef[] previous = protocols;
+        foreach (ProtocolRef[] upgradeTo in upgradeToStacks)
         {
-            this.protocols.TryAdd(protocolRef, upgradeTo);
+            foreach (ProtocolRef protocolRef in previous)
+            {
+                this.protocols[protocolRef] = upgradeTo;
+
+                foreach (ProtocolRef upgradeToRef in upgradeTo)
+                {
+                    this.protocols.TryAdd(upgradeToRef, []);
+                }
+            }
+            previous = upgradeTo;
         }
+
+        return previous;
     }
 
     protected ProtocolRef Get<TProtocol>() where TProtocol : IProtocol
