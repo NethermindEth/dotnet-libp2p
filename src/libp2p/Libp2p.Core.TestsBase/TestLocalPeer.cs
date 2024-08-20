@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class TestLocalPeer : ILocalPeer
+public class TestLocalPeer : IPeer
 {
     public TestLocalPeer()
     {
@@ -16,18 +17,32 @@ public class TestLocalPeer : ILocalPeer
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
 
-    public Task<IRemotePeer> DialAsync(Multiaddress addr, CancellationToken token = default)
+    public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
+
+    public event OnConnection? OnConnection;
+
+    public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
-        return Task.FromResult<IRemotePeer>(new TestRemotePeer(addr));
+        return Task.FromResult<ISession>(new TestRemotePeer(addr));
     }
 
-    public Task<IListener> ListenAsync(Multiaddress addr, CancellationToken token = default)
+    public Task<ISession> DialAsync(Multiaddress[] samePeerAddrs, CancellationToken token = default)
     {
-        return Task.FromResult<IListener>(null);
+        return Task.FromResult<ISession>(new TestRemotePeer(samePeerAddrs.First()));
+    }
+
+    public Task DisconnectAsync()
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
+    {
+        throw new NotImplementedException();
     }
 }
 
-public class TestRemotePeer : IRemotePeer
+public class TestRemotePeer : ISession
 {
     public TestRemotePeer(Multiaddress addr)
     {
@@ -38,7 +53,9 @@ public class TestRemotePeer : IRemotePeer
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
 
-    public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : IProtocol
+    public Multiaddress RemoteAddress => new Multiaddress();
+
+    public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {
         return Task.CompletedTask;
     }

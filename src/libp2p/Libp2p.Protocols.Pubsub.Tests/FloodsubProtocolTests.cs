@@ -20,8 +20,8 @@ public class FloodsubProtocolTests
         Multiaddress localPeerAddr = TestPeers.Multiaddr(2);
         const string commonTopic = "topic1";
 
-        ILocalPeer peer = Substitute.For<ILocalPeer>();
-        peer.Address.Returns(localPeerAddr);
+        IPeer peer = Substitute.For<IPeer>();
+        peer.ListenAddresses.Returns([localPeerAddr]);
         peer.DialAsync(discoveredPeer, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeer));
 
         TestDiscoveryProtocol discovery = new();

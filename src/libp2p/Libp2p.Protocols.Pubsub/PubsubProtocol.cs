@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
-public abstract class PubsubProtocol : IProtocol
+public abstract class PubsubProtocol : ISessionProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -25,14 +25,13 @@ public abstract class PubsubProtocol : IProtocol
         this.router = router;
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
+        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
 
         TaskCompletionSource dialTcs = new();
-        CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
+        CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
         {
             var t = channel.WriteSizeAndProtobufAsync(rpc);
             _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
@@ -48,23 +47,22 @@ public abstract class PubsubProtocol : IProtocol
 
         await channel;
         dialTcs.SetResult();
-        _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
+        _logger?.LogDebug($"Finished dial({context.Id}) {context.State.RemoteAddress}");
 
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
 
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
+        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
 
         TaskCompletionSource listTcs = new();
         TaskCompletionSource dialTcs = new();
 
-        CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
+        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            _ = context.DialAsync(this);
             return dialTcs.Task;
         });
 
@@ -83,7 +81,7 @@ public abstract class PubsubProtocol : IProtocol
             }
         }
         listTcs.SetResult();
-        _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
+        _logger?.LogDebug($"Finished({context.Id}) list {context.State.RemoteAddress}");
     }
 
     public override string ToString()

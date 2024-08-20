@@ -118,8 +118,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     private TtlCache<MessageId, Message> limboMessageCache;
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
 
-    private ILocalPeer? localPeer;
-    private ManagedPeer peer;
+    private IPeer localPeer;
     private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
     // all floodsub peers in topics
@@ -150,22 +149,20 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         Canceled = cts.Token;
     }
 
-    public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
+    public async Task RunAsync(IPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
     {
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
         }
         this.localPeer = localPeer;
-        peer = new ManagedPeer(localPeer);
         this.settings = settings ?? Settings.Default;
         messageCache = new(this.settings.MessageCacheTtl);
         limboMessageCache = new(this.settings.MessageCacheTtl);
         dontWantMessages = new(this.settings.MessageCacheTtl);
 
-        LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
+        LocalPeerId = localPeer.Identity.PeerId;
 
-        _ = localPeer.ListenAsync(localPeer.Address, token);
         _ = StartDiscoveryAsync(discoveryProtocol, token);
         logger?.LogInformation("Started");
 
@@ -195,14 +192,14 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 try
                 {
-                    IRemotePeer remotePeer = await peer.DialAsync(addrs, token);
+                    ISession session = await localPeer.DialAsync(addrs, token);
 
-                    if (!peerState.ContainsKey(remotePeer.Address.Get<P2P>().ToString()))
+                    if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
                     {
-                        await remotePeer.DialAsync<GossipsubProtocol>(token);
-                        if (peerState.TryGetValue(remotePeer.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                        await session.DialAsync<GossipsubProtocol>(token);
+                        if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
-                            _ = remotePeer.DisconnectAsync();
+                            _ = session.DisconnectAsync();
                         }
                     }
                 }
@@ -223,7 +220,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             }
         }, token);
 
-        await discoveryProtocol.DiscoverAsync(localPeer.Address, token);
+        await discoveryProtocol.DiscoverAsync(localPeer, token);
     }
 
     private async Task Reconnect(CancellationToken token)
@@ -232,7 +229,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             try
             {
-                IRemotePeer remotePeer = await peer.DialAsync(rec.Addresses, token);
+                ISession remotePeer = await localPeer.DialAsync(rec.Addresses, token);
                 await remotePeer.DialAsync<GossipsubProtocol>(token);
             }
             catch

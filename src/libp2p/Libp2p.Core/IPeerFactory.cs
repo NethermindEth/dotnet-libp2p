@@ -7,5 +7,5 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IPeerFactory
 {
-    ILocalPeer Create(Identity? identity = default, Multiaddress? localAddr = default);
+    IPeer Create(Identity? identity = default);
 }

@@ -9,10 +9,12 @@ using System.Runtime.Versioning;
 namespace Nethermind.Libp2p.Stack;
 
 [RequiresPreviewFeatures]
-public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
+public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
     ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
+    private bool addPubsub;
+    private bool addRelay;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -20,31 +22,57 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
+    public ILibp2pPeerFactoryBuilder WithPubsub()
     {
+        addPubsub = true;
+        return this;
     }
 
-    protected override ProtocolStack BuildStack()
+    public ILibp2pPeerFactoryBuilder WithRelay()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ?
-            Over<PlainTextProtocol>() :
-            Over<NoiseProtocol>();
+        addRelay = true;
+        return this;
+    }
 
-        ProtocolStack tcpStack =
-            Over<IpTcpProtocol>()
-            .Over<MultistreamProtocol>()
-            .Over(tcpEncryptionStack)
-            .Over<MultistreamProtocol>()
-            .Over<YamuxProtocol>();
+    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
+    {
+        ProtocolRef tcp = Get<IpTcpProtocol>();
 
-        return
-            Over<MultiaddressBasedSelectorProtocol>()
-            .Over<QuicProtocol>().Or(tcpStack)
-            .Over<MultistreamProtocol>()
-            .AddAppLayerProtocol<IdentifyProtocol>()
-            //.AddAppLayerProtocol<GossipsubProtocolV12>()
-            //.AddAppLayerProtocol<GossipsubProtocolV11>()
-            .AddAppLayerProtocol<GossipsubProtocol>()
-            .AddAppLayerProtocol<FloodsubProtocol>();
+        ProtocolRef[] encryption = [enforcePlaintext ?
+            Get<PlainTextProtocol>() :
+            Get<NoiseProtocol>()];
+
+        ProtocolRef[] muxers = [Get<YamuxProtocol>()];
+
+        ProtocolRef[] commonSelector = [Get<MultistreamProtocol>()];
+        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonSelector);
+
+        ProtocolRef quic = Get<QuicProtocol>();
+        Connect([quic], commonSelector);
+
+        ProtocolRef[] relay = addRelay ?  [Get<RelayHopProtocol>(), Get<RelayHopProtocol>()] : [];
+        ProtocolRef[] pubsub = addPubsub ? [
+            Get<GossipsubProtocolV12>(),
+            Get<GossipsubProtocolV11>(),
+            Get<GossipsubProtocol>(),
+            Get<FloodsubProtocol>()
+            ] : [];
+
+        ProtocolRef[] apps = [
+            Get<IdentifyProtocol>(),
+            .. additionalProtocols,
+            .. relay,
+            .. pubsub,
+        ];
+        Connect(commonSelector, apps);
+
+        if (addRelay)
+        {
+            ProtocolRef[] relaySelector = [Get<MultistreamProtocol>()];
+            Connect(relay, relaySelector);
+            Connect(relaySelector, apps.Where(a => !relay.Contains(a)).ToArray());
+        }
+
+        return [tcp, quic];
     }
 }
