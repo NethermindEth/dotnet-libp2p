@@ -118,8 +118,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     private TtlCache<MessageId, Message> limboMessageCache;
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
 
-    private IPeer? localPeer;
-    private ManagedPeer peer;
+    private IPeer localPeer;
     private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
     // all floodsub peers in topics
@@ -157,7 +156,6 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             throw new InvalidOperationException("Router has been already started");
         }
         this.localPeer = localPeer;
-        peer = new ManagedPeer(localPeer);
         this.settings = settings ?? Settings.Default;
         messageCache = new(this.settings.MessageCacheTtl);
         limboMessageCache = new(this.settings.MessageCacheTtl);
@@ -194,7 +192,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             {
                 try
                 {
-                    ISession session = await peer.DialAsync(addrs, token);
+                    ISession session = await localPeer.DialAsync(addrs, token);
 
                     if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
                     {
@@ -231,7 +229,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             try
             {
-                ISession remotePeer = await peer.DialAsync(rec.Addresses, token);
+                ISession remotePeer = await localPeer.DialAsync(rec.Addresses, token);
                 await remotePeer.DialAsync<GossipsubProtocol>(token);
             }
             catch

@@ -26,6 +26,11 @@ public class TestLocalPeer : IPeer
         return Task.FromResult<ISession>(new TestRemotePeer(addr));
     }
 
+    public Task<ISession> DialAsync(Multiaddress[] samePeerAddrs, CancellationToken token = default)
+    {
+        return Task.FromResult<ISession>(new TestRemotePeer(samePeerAddrs.First()));
+    }
+
     public Task DisconnectAsync()
     {
         return Task.CompletedTask;

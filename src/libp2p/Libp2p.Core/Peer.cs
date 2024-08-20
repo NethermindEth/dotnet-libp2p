@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Extensions;
 using Nethermind.Libp2p.Stack;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
@@ -47,6 +48,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             TaskCompletionSource tcs = new();
             SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = protocol }, token);
             await tcs.Task;
+            MarkAsConnected();
         }
 
         private CancellationTokenSource connectionTokenSource = new();
@@ -149,7 +151,6 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
     public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener)
     {
         session ??= new(this);
-        session.MarkAsConnected();
         return new NewConnectionContext(this, session, proto, isListener, null);
     }
 
@@ -178,8 +179,8 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
                 session.DisconnectAsync();
                 return;
             }
-            OnConnection?.Invoke(session);
             session.ConnectedTcs.SetResult();
+            OnConnection?.Invoke(session);
         });
         return new NewSessionContext(this, session, proto, isListener, null);
     }
@@ -202,6 +203,35 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
         return protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
+    }
+
+    public async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
+    {
+        Dictionary<Multiaddress, CancellationTokenSource> cancellations = new();
+        foreach (Multiaddress addr in addrs)
+        {
+            cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
+        }
+
+        Task timeoutTask = Task.Delay(15_000, token);
+        Task wait = await TaskHelper.FirstSuccess([timeoutTask, ..addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
+
+        if (wait == timeoutTask)
+        {
+            throw new TimeoutException();
+        }
+
+        ISession firstConnected = (wait as Task<ISession>)!.Result;
+
+        foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
+        {
+            if (c.Key != firstConnected.RemoteAddress)
+            {
+                c.Value.Cancel(false);
+            }
+        }
+
+        return firstConnected;
     }
 
     public async Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
@@ -228,6 +258,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             }
             throw new Libp2pException("Not able to dial the peer");
         }
+        await session.Connected;
         return session;
     }
 
@@ -245,7 +276,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
         ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) : protocolStackSettings.Protocols[protocol].Single();
 
-        Channel res = new();
+        Channel downChannel = new();
 
         isListener = options?.ModeOverride switch { UpgradeModeOverride.Dial => false, UpgradeModeOverride.Listen => true, _ => isListener };
 
@@ -258,14 +289,14 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             case IConnectionProtocol tProto:
                 {
                     var ctx = new ConnectionContext(this, session, top, isListener, options);
-                    upgradeTask = isListener ? tProto.ListenAsync(res.Reverse, ctx) : tProto.DialAsync(res.Reverse, ctx);
+                    upgradeTask = isListener ? tProto.ListenAsync(downChannel.Reverse, ctx) : tProto.DialAsync(downChannel.Reverse, ctx);
                    
                     break;
                 }
             case ISessionProtocol sProto:
                 {
                     var ctx = new SessionContext(this, session, top, isListener, options);
-                    upgradeTask = isListener ? sProto.ListenAsync(res.Reverse, ctx) : sProto.DialAsync(res.Reverse, ctx);
+                    upgradeTask = isListener ? sProto.ListenAsync(downChannel.Reverse, ctx) : sProto.DialAsync(downChannel.Reverse, ctx);
                     break;
                 }
             default:
@@ -274,7 +305,11 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
         if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
         {
-            _ = upgradeTask.ContinueWith(t => MapToTaskCompletionSource(t, options.CompletionSource));
+            _ = upgradeTask.ContinueWith(async t =>
+            {
+                MapToTaskCompletionSource(t, options.CompletionSource);
+                await downChannel.CloseAsync();
+            });
         }
 
         upgradeTask.ContinueWith(t =>
@@ -285,7 +320,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             }
         });
 
-        return res;
+        return downChannel;
     }
 
     private static void MapToTaskCompletionSource(Task t, TaskCompletionSource tcs)
@@ -344,14 +379,17 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
         if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
         {
-            _ = upgradeTask.ContinueWith(t => MapToTaskCompletionSource(t, options.CompletionSource));
+            _ = upgradeTask.ContinueWith(async t => {
+                MapToTaskCompletionSource(t, options.CompletionSource);
+                await parentChannel.CloseAsync();
+            });
         }
 
         await upgradeTask.ContinueWith(t =>
         {
             if (t.IsFaulted)
             {
-                _logger?.LogError("failed");
+                _logger?.LogError($"Upgrade task failed with {t.Exception}");
             }
         });
     }
@@ -377,13 +415,11 @@ public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, Prot
 
     public async Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol
     {
-        await session.Connected;
         await session.DialAsync<TProtocol>();
     }
 
     public async Task DialAsync(ISessionProtocol protocol)
     {
-        await session.Connected;
         await session.DialAsync(protocol);
     }
 

@@ -215,11 +215,11 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
+                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
                 }
                 else
                 {
-                    upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                 }
 
                 ChannelState state = new(upChannel);
@@ -309,8 +309,7 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         catch (Exception ex)
         {
             await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
-            _logger?.LogDebug("Closed with exception {exception}", ex.Message);
-            _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+            _logger?.LogDebug("Closed with exception \"{exception}\" {stackTrace}", ex.Message, ex.StackTrace);
         }
 
         foreach (ChannelState upChannel in channels.Values)

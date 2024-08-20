@@ -11,6 +11,7 @@ public interface IPeer
     Identity Identity { get; }
 
     Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default);
+    Task<ISession> DialAsync(Multiaddress[] samePeerAddrs, CancellationToken token = default);
 
     Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default);
 

@@ -8,18 +8,19 @@ using Nethermind.Libp2p.Protocols;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using Multiformats.Address.Protocols;
-using Multiformats.Address;
+using System.Text.RegularExpressions;
+
+Regex omittedLogs = new Regex(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder)
+    .AddLibp2p(builder => builder.WithPubsub())
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
                 l.TimestampFormat = "[HH:mm:ss.FFF]";
-            }))
+            }).AddFilter((_, type, lvl) => !omittedLogs.IsMatch(type!)))
     .BuildServiceProvider();
 
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
