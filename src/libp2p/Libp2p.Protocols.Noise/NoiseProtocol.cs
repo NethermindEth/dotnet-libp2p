@@ -29,8 +29,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
     {
         StreamMuxers =
         {
-           multiplexerSettings is null ? ["na"] : multiplexerSettings.Multiplexers.Any() ? [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)] : []
-           }
+           multiplexerSettings is null ? ["na"] : !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+         }
     };
 
     public string Id => "/noise";
