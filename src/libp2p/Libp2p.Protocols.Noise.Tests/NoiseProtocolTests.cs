@@ -31,14 +31,14 @@ public class NoiseProtocolTests
         channelFactory.SubListenAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
-        var multiplexerSettings = new MultiplexerSettings();
-        var remotemultiplexerSettings = new MultiplexerSettings();
-        remotemultiplexerSettings.Add(proto2);
-        remotemultiplexerSettings.Add(proto1);
-        multiplexerSettings.Add(proto1);
+        var i_multiplexerSettings = new MultiplexerSettings();
+        var r_multiplexerSettings = new MultiplexerSettings();
+        r_multiplexerSettings.Add(proto2);
+        r_multiplexerSettings.Add(proto1);
+        i_multiplexerSettings.Add(proto1);
 
-        NoiseProtocol proto = new(multiplexerSettings);
-        NoiseProtocol proto_test = new(remotemultiplexerSettings);
+        NoiseProtocol proto_initiator = new(i_multiplexerSettings);
+        NoiseProtocol proto_responder = new(r_multiplexerSettings);
 
         peerContext.LocalPeer.Identity.Returns(new Identity());
         listenerContext.LocalPeer.Identity.Returns(new Identity());
@@ -52,8 +52,8 @@ public class NoiseProtocolTests
         listenerContext.RemotePeer.Address.Returns(listenerAddr);
 
         // Act
-        Task listenTask = proto_test.ListenAsync(downChannel, channelFactory, listenerContext);
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task listenTask = proto_responder.ListenAsync(downChannel, channelFactory, listenerContext);
+        Task dialTask = proto_initiator.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
 
         ValueTask<IOResult> writeTask = downChannelFromProtocolPov.WriteVarintAsync(1);
         Task<int> readTask = downChannel.ReadVarintAsync();
@@ -148,14 +148,14 @@ public class NoiseProtocolTests
         channelFactory.SubListenAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
-        var multiplexerSettings = new MultiplexerSettings();
-        var remotemultiplexerSettings = new MultiplexerSettings();
-        remotemultiplexerSettings.Add(proto2);
-        remotemultiplexerSettings.Add(proto1);
-        multiplexerSettings.Add(proto1);
+        var i_multiplexerSettings = new MultiplexerSettings();
+        var r_multiplexerSettings = new MultiplexerSettings();
+        r_multiplexerSettings.Add(proto2);
+        r_multiplexerSettings.Add(proto1);
+        i_multiplexerSettings.Add(proto1);
 
-        NoiseProtocol proto = new(multiplexerSettings);
-        NoiseProtocol proto_test = new(remotemultiplexerSettings);
+        NoiseProtocol proto_initiator = new(i_multiplexerSettings);
+        NoiseProtocol proto_responder = new(r_multiplexerSettings);
 
         peerContext.LocalPeer.Identity.Returns(new Identity());
         listenerContext.LocalPeer.Identity.Returns(new Identity());
@@ -169,8 +169,8 @@ public class NoiseProtocolTests
         listenerContext.RemotePeer.Address.Returns(listenerAddr);
 
         // Act
-        Task listenTask = proto_test.ListenAsync(downChannel, channelFactory, listenerContext);
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task listenTask = proto_responder.ListenAsync(downChannel, channelFactory, listenerContext);
+        Task dialTask = proto_initiator.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
 
         await downChannelFromProtocolPov.WriteVarintAsync(1);
         int str = await downChannel.ReadVarintAsync();
@@ -183,3 +183,5 @@ public class NoiseProtocolTests
         await upChannel.CloseAsync();
     }
 }
+
+        
