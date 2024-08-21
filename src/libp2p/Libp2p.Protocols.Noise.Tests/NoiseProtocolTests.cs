@@ -124,7 +124,6 @@ public class NoiseProtocolTests
         await downChannel.CloseAsync();
         await upChannel.CloseAsync();
     }
-    
     [Test]
     public async Task Test_ConnectionClosed_ForBrokenHandshake()
     {
