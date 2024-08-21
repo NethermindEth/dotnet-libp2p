@@ -60,7 +60,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
-            List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
+        List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
     .Where(m => !string.IsNullOrEmpty(m))
     .ToList();
 
