@@ -60,12 +60,34 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
-        if (_extensions.StreamMuxers.Any())
+            List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
+    .Where(m => !string.IsNullOrEmpty(m))
+    .ToList();
+
+        IProtocol commonMuxer = null;
+
+        foreach (var responderMuxer in responderMuxers)
         {
-            var selectedProtocol = upChannelFactory?.SubProtocols.FirstOrDefault(proto => proto.Id == _extensions.StreamMuxers[0]);
+            foreach (var proto in multiplexerSettings.Multiplexers)
+            {
+                if (proto.Id == responderMuxer)
+                {
+                    commonMuxer = proto;
+                    break;
+                }
+            }
+
+            if (commonMuxer != null)
+            {
+                break;
+            }
+        }
+
+        if (commonMuxer != null)
+        {
             context.SpecificProtocolRequest = new ChannelRequest
             {
-                SubProtocol = selectedProtocol,
+                SubProtocol = commonMuxer,
                 CompletionSource = context.SpecificProtocolRequest?.CompletionSource
             };
         }
@@ -104,7 +126,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = upChannelFactory.SubDial(context);
 
-        _ = ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
@@ -155,6 +177,38 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         PeerId remotePeerId = new(msg2KeyDecoded);
 
+        List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers
+     .Where(m => !string.IsNullOrEmpty(m))
+     .ToList();
+
+        IProtocol commonMuxer = null;
+
+        foreach (var initiatorMuxer in initiatorMuxers)
+        {
+            foreach (var proto in multiplexerSettings.Multiplexers)
+            {
+                if (proto.Id == initiatorMuxer)
+                {
+                    commonMuxer = proto;
+                    break;
+                }
+            }
+
+            if (commonMuxer != null)
+            {
+                break;
+            }
+        }
+
+        if (commonMuxer != null)
+        {
+            context.SpecificProtocolRequest = new ChannelRequest
+            {
+                SubProtocol = commonMuxer,
+                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+            };
+        }
+
         if (!context.RemotePeer.Address.Has<P2P>())
         {
             context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
@@ -164,7 +218,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = upChannelFactory.SubListen(context);
 
-        _ = ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
