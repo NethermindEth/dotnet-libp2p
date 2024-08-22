@@ -64,25 +64,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
     .Where(m => !string.IsNullOrEmpty(m))
     .ToList();
 
-        IProtocol commonMuxer = null;
-
-        foreach (var responderMuxer in responderMuxers)
-        {
-            foreach (var proto in multiplexerSettings.Multiplexers)
-            {
-                if (proto.Id == responderMuxer)
-                {
-                    commonMuxer = proto;
-                    break;
-                }
-            }
-
-            if (commonMuxer != null)
-            {
-                break;
-            }
-        }
-
+        IProtocol commonMuxer = multiplexerSettings.Multiplexers.FirstOrDefault(m=>responderMuxers.Contains(m.Id));
         if (commonMuxer != null)
         {
             context.SpecificProtocolRequest = new ChannelRequest
@@ -181,25 +163,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
      .Where(m => !string.IsNullOrEmpty(m))
      .ToList();
 
-        IProtocol commonMuxer = null;
-
-        foreach (var initiatorMuxer in initiatorMuxers)
-        {
-            foreach (var proto in multiplexerSettings.Multiplexers)
-            {
-                if (proto.Id == initiatorMuxer)
-                {
-                    commonMuxer = proto;
-                    break;
-                }
-            }
-
-            if (commonMuxer != null)
-            {
-                break;
-            }
-        }
-
+        IProtocol commonMuxer = multiplexerSettings.Multiplexers.FirstOrDefault(m=>initiatorMuxers.Contains(m.Id));
         if (commonMuxer != null)
         {
             context.SpecificProtocolRequest = new ChannelRequest
