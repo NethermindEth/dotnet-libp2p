@@ -57,8 +57,8 @@ public class NoiseProtocolTests
 
         ValueTask<IOResult> writeTask = downChannelFromProtocolPov.WriteVarintAsync(1);
         Task<int> readTask = downChannel.ReadVarintAsync();
-        await Task.Delay(TimeSpan.FromSeconds(2));
         await Task.WhenAll(writeTask.AsTask(), readTask);
+        await Task.Delay(TimeSpan.FromSeconds(2));
         int str = await readTask;
 
         // Assert
