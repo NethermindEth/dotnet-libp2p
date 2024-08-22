@@ -164,7 +164,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
      .ToList();
        
         IProtocol commonMuxer = multiplexerSettings.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
-        
         if (commonMuxer != null)
         {
             context.SpecificProtocolRequest = new ChannelRequest
