@@ -19,6 +19,9 @@ As a stack implementer, you may be interested in [more advanced tutorials](./doc
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+### Releases
+All releases are published on NuGet: [dotnet-libp2p](https://www.nuget.org/packages?q=Nethermind.Libp2p&includeComputedFrameworks=true&prerel=true&sortby=created-desc)
+
 ## Building the solution
 
 The solution depends on external repositories.
