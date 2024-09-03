@@ -65,6 +65,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TransportInterop", "..\samples\transport-interop\TransportInterop.csproj", "{EC505F21-FC69-4432-88A8-3CD5F7899B08}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.TLS", "Libp2p.Protocols.TLS\Libp2p.Protocols.TLS.csproj", "{9CC6B2CD-3006-49D2-B55A-EB984658DF7A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.TLS.Tests", "Libp2p.Protocols.TLS.Tests\Libp2p.Protocols.TLS.Tests.csproj", "{1C596BBF-C828-4B5D-B79A-51C0374CD37F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -175,6 +179,14 @@ Global
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EC505F21-FC69-4432-88A8-3CD5F7899B08}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9CC6B2CD-3006-49D2-B55A-EB984658DF7A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9CC6B2CD-3006-49D2-B55A-EB984658DF7A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9CC6B2CD-3006-49D2-B55A-EB984658DF7A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9CC6B2CD-3006-49D2-B55A-EB984658DF7A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1C596BBF-C828-4B5D-B79A-51C0374CD37F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1C596BBF-C828-4B5D-B79A-51C0374CD37F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1C596BBF-C828-4B5D-B79A-51C0374CD37F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1C596BBF-C828-4B5D-B79A-51C0374CD37F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
