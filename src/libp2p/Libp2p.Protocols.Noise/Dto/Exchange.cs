@@ -56,6 +56,7 @@ namespace Nethermind.Libp2p.Protocols.Noise.Dto {
   #endregion
 
   #region Messages
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class Exchange : pb::IMessage<Exchange>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -310,6 +311,7 @@ namespace Nethermind.Libp2p.Protocols.Noise.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class NoiseExtensions : pb::IMessage<NoiseExtensions>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -514,6 +516,7 @@ namespace Nethermind.Libp2p.Protocols.Noise.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class PublicKey : pb::IMessage<PublicKey>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -771,6 +774,7 @@ namespace Nethermind.Libp2p.Protocols.Noise.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class NoiseHandshakePayload : pb::IMessage<NoiseHandshakePayload>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage

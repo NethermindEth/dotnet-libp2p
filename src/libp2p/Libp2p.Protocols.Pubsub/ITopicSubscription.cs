@@ -3,8 +3,9 @@
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-public interface ITopic
+public interface ITopicSubscription
 {
     event Action<byte[]>? OnMessage;
     void Publish(byte[] bytes);
+    void Unsubscribe();
 }

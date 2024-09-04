@@ -245,7 +245,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         }
     }
 
-    public ITopic Subscribe(string topicId)
+    public ITopicSubscription Subscribe(string topicId)
     {
         Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
 

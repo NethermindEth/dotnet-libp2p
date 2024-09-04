@@ -60,6 +60,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
   #region Messages
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class Rpc : pb::IMessage<Rpc>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -313,6 +314,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static partial class Types {
+      [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
       public sealed partial class SubOpts : pb::IMessage<SubOpts>
       #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
           , pb::IBufferMessage
@@ -575,6 +577,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class Message : pb::IMessage<Message>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -1033,6 +1036,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlMessage : pb::IMessage<ControlMessage>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -1315,6 +1319,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlIHave : pb::IMessage<ControlIHave>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -1544,6 +1549,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlIWant : pb::IMessage<ControlIWant>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -1722,6 +1728,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlGraft : pb::IMessage<ControlGraft>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -1925,6 +1932,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlPrune : pb::IMessage<ControlPrune>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -2214,6 +2222,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class PeerInfo : pb::IMessage<PeerInfo>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -2468,6 +2477,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
   }
 
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ControlIDontWant : pb::IMessage<ControlIDontWant>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
