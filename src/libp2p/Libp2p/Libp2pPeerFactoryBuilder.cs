@@ -8,7 +8,6 @@ using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
-[RequiresPreviewFeatures]
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
 {
