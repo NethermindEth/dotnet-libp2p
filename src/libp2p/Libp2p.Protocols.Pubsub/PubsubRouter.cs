@@ -114,6 +114,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
     private Settings settings;
+    private PeerStore store;
     private TtlCache<MessageId, Message> messageCache;
     private TtlCache<MessageId, Message> limboMessageCache;
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
@@ -150,7 +151,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         Canceled = cts.Token;
     }
 
-    public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
+    public async Task RunAsync(ILocalPeer localPeer, PeerStore store, Settings? settings = null, CancellationToken token = default)
     {
         if (this.localPeer is not null)
         {
@@ -159,6 +160,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         this.localPeer = localPeer;
         peer = new ManagedPeer(localPeer);
         this.settings = settings ?? Settings.Default;
+        this.store = store;
         messageCache = new(this.settings.MessageCacheTtl);
         limboMessageCache = new(this.settings.MessageCacheTtl);
         dontWantMessages = new(this.settings.MessageCacheTtl);
@@ -166,30 +168,9 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
 
         _ = localPeer.ListenAsync(localPeer.Address, token);
-        _ = StartDiscoveryAsync(discoveryProtocol, token);
         logger?.LogInformation("Started");
 
-        // reconnection if needed
-        _ = Task.Run(async () =>
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(this.settings.ReconnectionPeriod);
-                await Reconnect(token);
-            }
-        }, token);
-
-        await Task.Delay(Timeout.Infinite, token);
-        messageCache.Dispose();
-        limboMessageCache.Dispose();
-    }
-
-    private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
-    {
-        ArgumentNullException.ThrowIfNull(localPeer);
-
-        ObservableCollection<Multiaddress> col = [];
-        discoveryProtocol.OnAddPeer = (addrs) =>
+        store.OnNewPeer += (addrs) =>
         {
             _ = Task.Run(async () =>
             {
@@ -208,24 +189,36 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 }
                 catch
                 {
-                    reconnections.Add(new Reconnection(addrs, settings.ReconnectionAttempts));
+                    reconnections.Add(new Reconnection(addrs, this.settings.ReconnectionAttempts));
                 }
             });
-            return true;
         };
 
         _ = Task.Run(async () =>
         {
             while (!token.IsCancellationRequested)
             {
-                await Task.Delay(settings.HeartbeatInterval);
+                await Task.Delay(this.settings.HeartbeatInterval);
                 await Heartbeat();
             }
         }, token);
 
-        await discoveryProtocol.DiscoverAsync(localPeer.Address, token);
+        // reconnection if needed
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(this.settings.ReconnectionPeriod);
+                await Reconnect(token);
+            }
+        }, token);
+
+        await Task.Delay(Timeout.Infinite, token);
+        messageCache.Dispose();
+        limboMessageCache.Dispose();
     }
 
+    
     private async Task Reconnect(CancellationToken token)
     {
         while (reconnections.TryTake(out Reconnection? rec))

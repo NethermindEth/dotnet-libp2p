@@ -51,7 +51,7 @@ topic.OnMessage += (byte[] msg) =>
     }
 };
 
-_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
+_ = router.RunAsync(peer, new Nethermind.Libp2p.Core.Discovery.PeerStore(), token: ts.Token);
 
 
 

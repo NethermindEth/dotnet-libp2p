@@ -19,12 +19,12 @@ public class GossipsubProtocolTests
         int peerCount = Settings.Default.Degree * 2;
         const string commonTopic = "topic1";
 
-        ILocalPeer peer = new TestLocalPeer();
+        ILocalPeer peer = new LocalPeerStub();
         TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
         List<Rpc> sentRpcs = new();
 
-        _ = router.RunAsync(peer, discovery, token: token);
+        _ = router.RunAsync(peer, new Core.Discovery.PeerStore(), token: token);
         router.Subscribe(commonTopic);
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
         Assert.That(state.GossipsubPeers.Keys, Has.Member(commonTopic));

@@ -28,7 +28,7 @@ public class FloodsubProtocolTests
         CancellationToken token = default;
         List<Rpc> sentRpcs = new();
 
-        _ = router.RunAsync(peer, discovery, token: token);
+        _ = router.RunAsync(peer, new Core.Discovery.PeerStore(), token: token);
         router.Subscribe(commonTopic);
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
 

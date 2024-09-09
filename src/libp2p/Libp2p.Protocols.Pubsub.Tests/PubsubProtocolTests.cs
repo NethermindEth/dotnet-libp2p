@@ -24,7 +24,7 @@ public class PubsubProtocolTests
         TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
 
-        _ = router.RunAsync(peer, discovery, token: token);
+        _ = router.RunAsync(peer, new Core.Discovery.PeerStore(), token: token);
         discovery.OnAddPeer!([discoveredPeer]);
 
         await Task.Delay(100);

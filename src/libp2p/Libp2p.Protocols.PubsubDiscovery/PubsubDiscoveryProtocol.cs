@@ -15,7 +15,7 @@ public class PubSubDiscoverySettings
     public bool ListenOnly { get; set; }
 }
 
-public class PubSubDiscovery(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, ILocalPeer peer) : IDiscoveryProtocol
+public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, PeerStore peerStore, ILocalPeer peer) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
     private readonly PubSubDiscoverySettings _settings = settings;
@@ -46,7 +46,7 @@ public class PubSubDiscovery(PubsubRouter pubSubRouter, PubSubDiscoverySettings 
                 {
                     topic.Publish(new Peer
                     {
-                        PublicKey = peer.Identity.PrivateKey.ToByteString(),
+                        PublicKey = peer.Identity.PublicKey.ToByteString(),
                         Addrs = { ByteString.CopyFrom(peer.Address.ToBytes()) },
                     }.ToByteArray());
                 }
@@ -56,12 +56,7 @@ public class PubSubDiscovery(PubsubRouter pubSubRouter, PubSubDiscoverySettings 
     private void OnPeerMessage(byte[] msg)
     {
         Peer peer = Peer.Parser.ParseFrom(msg);
-        OnAddPeer?.Invoke([.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))]);
+        peerStore.Discover([.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))]);
     }
-
-    public Func<Multiaddress[], bool>? OnAddPeer { private get; set; }
-
-    public Func<Multiaddress[], bool>? OnRemovePeer { private get; set; }
-
 }
 

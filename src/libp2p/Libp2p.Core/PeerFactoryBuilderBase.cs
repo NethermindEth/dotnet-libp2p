@@ -44,7 +44,9 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
-        return new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
+        ProtocolStack result = new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
+        result.Root = result;
+        return result;
     }
 
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
@@ -58,7 +60,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         private readonly IPeerFactoryBuilder builder;
         private readonly IServiceProvider serviceProvider;
 
-        public ProtocolStack? Root { get; private set; }
+        public ProtocolStack? Root { get; set; }
         public ProtocolStack? Parent { get; private set; }
         public ProtocolStack? PrevSwitch { get; private set; }
         public IProtocol Protocol { get; }

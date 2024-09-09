@@ -5,9 +5,9 @@ using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class TestLocalPeer : ILocalPeer
+public class LocalPeerStub : ILocalPeer
 {
-    public TestLocalPeer()
+    public LocalPeerStub()
     {
         Identity = new(Enumerable.Repeat((byte)42, 32).ToArray());
         Address = $"/p2p/{Identity.PeerId}";
@@ -29,10 +29,10 @@ public class TestLocalPeer : ILocalPeer
 
 public class TestRemotePeer : IRemotePeer
 {
-    public TestRemotePeer(Multiaddress addr)
+    public TestRemotePeer(int testPeerIndex)
     {
-        Identity = TestPeers.Identity(addr);
-        Address = addr;
+        Identity = TestPeers.Identity(testPeerIndex);
+        Address = TestPeers.Multiaddr(testPeerIndex);
     }
 
     public Identity Identity { get; set; }

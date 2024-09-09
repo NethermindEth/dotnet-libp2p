@@ -1,0 +1,16 @@
+syntax = "proto2";
+option csharp_namespace = "Libp2p.Core.TestsBase.Dto";
+
+enum MuxerPacketType {
+  NewStreamRequest = 0;
+  NewStreamResponse = 1;
+  Data = 2;
+  CloseWrite = 3;
+}
+
+message MuxerPacket {
+  required MuxerPacketType Type = 1;
+  required uint32 ChannelId = 2;
+  optional bytes Data = 4;
+  repeated string Protocols = 3;
+}
