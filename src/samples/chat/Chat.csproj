@@ -6,7 +6,6 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Chat</RootNamespace>
-    <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
