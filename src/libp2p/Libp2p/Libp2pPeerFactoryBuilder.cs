@@ -8,7 +8,6 @@ using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
-[RequiresPreviewFeatures]
 public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
 {
@@ -39,9 +38,12 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
         return
             Over<MultiaddressBasedSelectorProtocol>()
-            .Over<QuicProtocol>().Or(tcpStack)
+            // Quic is not working well, and requires consumers to mark projects with preview
+            //.Over<QuicProtocol>().Or(tcpStack)
+            .Over(tcpStack)
             .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()
+            .AddAppLayerProtocol<PingProtocol>()
             //.AddAppLayerProtocol<GossipsubProtocolV12>()
             //.AddAppLayerProtocol<GossipsubProtocolV11>()
             .AddAppLayerProtocol<GossipsubProtocol>()

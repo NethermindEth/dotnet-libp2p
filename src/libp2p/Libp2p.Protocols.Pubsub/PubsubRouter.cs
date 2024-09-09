@@ -379,7 +379,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 if (msgsInTopic is not null)
                 {
                     ControlIHave ihave = new() { TopicID = topic };
-                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.GetId().Bytes)));
+                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(settings.GetMessageId(m).Bytes)));
 
                     foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(settings.LazyDegree))
                     {
@@ -593,12 +593,12 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 {
                     if (rpc.Publish.Any())
                     {
-                        logger?.LogDebug($"Messages received: {rpc.Publish.Select(message => message.GetId()).Count(messageId => limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))}/{rpc.Publish.Count}: {rpc.Publish.Count}");
+                        logger?.LogDebug($"Messages received: {rpc.Publish.Select(settings.GetMessageId).Count(messageId => limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))}/{rpc.Publish.Count}: {rpc.Publish.Count}");
                     }
 
                     foreach (Message? message in rpc.Publish)
                     {
-                        MessageId messageId = message.GetId();
+                        MessageId messageId = settings.GetMessageId(message);
 
                         if (limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))
                         {

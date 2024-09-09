@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
@@ -19,9 +19,9 @@
     <RepositoryUrl>https://github.com/nethermindeth/dotnet-libp2p</RepositoryUrl>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Product>Nethermind libp2p</Product>
-    <SourceRevisionId Condition="'$(Commit)' != ''">$(Commit.Substring(0, 8))</SourceRevisionId>
-    <VersionPrefix>1.0.0</VersionPrefix>
-    <VersionSuffix></VersionSuffix>
+    <SourceRevisionId Condition="'$(Commit)' != ''">$(Commit)</SourceRevisionId>
+    <!--<VersionPrefix>1.0.0</VersionPrefix>
+    <VersionSuffix></VersionSuffix>-->
   </PropertyGroup>
 
 </Project>

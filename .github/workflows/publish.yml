@@ -11,6 +11,11 @@ on:
         options:
           - Production
           - Staging
+      version:
+        description: Library version
+        required: true
+        default: 1.0.0-preview.30
+        type: string
 
 jobs:
   publish:
@@ -27,7 +32,7 @@ jobs:
           submodules: true
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -38,7 +43,7 @@ jobs:
         run: |
           dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
             -p:Commit=${{ github.sha }} \
-            -p:VersionSuffix=preview.${{ github.run_number }}
+            -p:Version=${{ github.event.inputs.version }}
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
@@ -54,7 +59,7 @@ jobs:
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:VersionSuffix=preview.${{ github.run_number }}
+          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ github.event.inputs.version }}
         run: |
           dotnet pack Libp2p ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}

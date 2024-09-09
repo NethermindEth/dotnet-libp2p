@@ -10,7 +10,7 @@
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <Version>3.25.1</Version>
+    <Version>$(ProtobufVersion)</Version>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -47,7 +47,7 @@
 
   <ItemGroup>
     <AssemblyAttribute Include="Nethermind.Libp2p.Generators.Protobuf.ProtocLocation">
-      <_Parameter1>$(NuGetPackageRoot)google.protobuf.tools\3.25.1\tools\$(protoc)</_Parameter1>
+      <_Parameter1>$(NuGetPackageRoot)google.protobuf.tools\$(ProtobufVersion)\tools\$(protoc)</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 
