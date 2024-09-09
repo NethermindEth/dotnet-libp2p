@@ -10,6 +10,7 @@ using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -26,6 +27,12 @@ internal interface IRoutingStateContainer
 
 public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
 {
+    static int ctr = 0;
+    int _ctr = Interlocked.Increment(ref ctr);
+    public override string ToString()
+    {
+        return $"Router#{_ctr}: {localPeer?.Address.GetPeerId() ?? "null"}";
+    }
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
@@ -74,6 +81,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             get => _sendRpc; set
             {
+                Debug.WriteLine($"Set SENDRPC for {this.PeerId}: {value}");
                 _sendRpc = value;
                 if (_sendRpc is not null)
                     lock (SendRpcQueue)
@@ -172,6 +180,10 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
         store.OnNewPeer += (addrs) =>
         {
+            if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+            {
+                return;
+            }
             _ = Task.Run(async () =>
             {
                 try
@@ -218,7 +230,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         limboMessageCache.Dispose();
     }
 
-    
+
     private async Task Reconnect(CancellationToken token)
     {
         while (reconnections.TryTake(out Reconnection? rec))
@@ -456,7 +468,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         {
             if (peerState[peerId].SendRpc is null)
             {
-                peer.SendRpc = sendRpc;
+                peerState[peerId].SendRpc = sendRpc;
             }
             else
             {
@@ -497,7 +509,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         PubsubPeer? remotePeer;
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null)
+        if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
             return Canceled;
         }
@@ -506,7 +518,7 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         logger?.LogDebug("Inbound {peerId}", peerId);
         if (peerState.TryAdd(peerId, remotePeer))
         {
-            logger?.LogDebug("Inbound, lets dial {peerId} via remotely initiated connection", peerId);
+            logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
             listTask.ContinueWith(t =>
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();

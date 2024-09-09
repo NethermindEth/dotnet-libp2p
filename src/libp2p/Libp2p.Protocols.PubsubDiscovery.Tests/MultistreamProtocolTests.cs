@@ -4,10 +4,12 @@
 using Libp2p.Protocols.PubSubDiscovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using System.Diagnostics.Metrics;
 
 namespace Libp2p.Protocols.Multistream.Tests;
 
@@ -51,11 +53,12 @@ public class MultistreamProtocolTests
     [Test]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
+        int totalCount = 10;
         // There is common communication point
         ChannelBus commonBus = new();
-        ILocalPeer[] peers = new ILocalPeer[10];
-        PeerStore[] peerStores = new PeerStore[10];
-        PubsubRouter[] routers = new PubsubRouter[10];
+        ILocalPeer[] peers = new ILocalPeer[totalCount];
+        PeerStore[] peerStores = new PeerStore[totalCount];
+        PubsubRouter[] routers = new PubsubRouter[totalCount];
 
 
         for (int i = 0; i < peers.Length; i++)
@@ -81,39 +84,9 @@ public class MultistreamProtocolTests
 
         for (int i = 0; i < peers.Length; i++)
         {
-            peerStores[i].Discover([peers[(i + 1) % 10].Address]);
+            peerStores[i].Discover([peers[(i + 1) % totalCount].Address]);
         }
-        await Task.Delay(1500000);
-        await Task.Delay(2000);
-        //IChannel downChannel = new TestChannel();
-        //IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        //IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        //IPeerContext peerContext = Substitute.For<IPeerContext>();
-        //peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
 
-        //IProtocol? proto1 = Substitute.For<IProtocol>();
-        //proto1.Id.Returns("proto1");
-        //channelFactory.SubProtocols.Returns(new[] { proto1 });
-        //IChannel upChannel = new TestChannel();
-        //channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-        //    .Returns(Task.CompletedTask);
-
-        //MultistreamProtocol proto = new();
-        //Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-        //_ = Task.Run(async () =>
-        //{
-        //    await downChannel.WriteLineAsync(proto.Id);
-        //    await downChannel.WriteLineAsync("proto1");
-        //});
-
-        //Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
-        //Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
-
-        //await dialTask;
-
-        //_ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
-        //await downChannel.CloseAsync();
+        await Task.Delay(5000);
     }
-
-
 }

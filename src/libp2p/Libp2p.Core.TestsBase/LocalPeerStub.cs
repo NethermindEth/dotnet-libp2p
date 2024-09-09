@@ -29,10 +29,10 @@ public class LocalPeerStub : ILocalPeer
 
 public class TestRemotePeer : IRemotePeer
 {
-    public TestRemotePeer(int testPeerIndex)
+    public TestRemotePeer(Multiaddress addr)
     {
-        Identity = TestPeers.Identity(testPeerIndex);
-        Address = TestPeers.Multiaddr(testPeerIndex);
+        Identity = TestPeers.Identity(addr);
+        Address = addr;
     }
 
     public Identity Identity { get; set; }

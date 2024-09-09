@@ -28,62 +28,73 @@ public abstract class PubsubProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
-
-        TaskCompletionSource dialTcs = new();
-        CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
+        try
         {
-            var t = channel.WriteSizeAndProtobufAsync(rpc);
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
-            t.AsTask().ContinueWith((t) =>
+            string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
+            _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
+
+            TaskCompletionSource dialTcs = new();
+            CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
             {
-                if (!t.IsCompletedSuccessfully)
+                var t = channel.WriteSizeAndProtobufAsync(rpc);
+                t.AsTask().ContinueWith((t) =>
                 {
-                    _logger?.LogWarning($"Sending RPC failed message to {peerId}: {rpc}");
-                }
+                    if (!t.IsCompletedSuccessfully)
+                    {
+                        _logger?.LogWarning($"Sending RPC failed message to {peerId}: {rpc}");
+                    }
+                });
+                _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
             });
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
-        });
 
-        await channel;
-        dialTcs.SetResult();
-        _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
+            await channel;
+            dialTcs.SetResult();
+            _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
+        }
+        catch
+        {
 
+        }
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
-
-        TaskCompletionSource listTcs = new();
-        TaskCompletionSource dialTcs = new();
-
-        CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
+        try
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
-            return dialTcs.Task;
-        });
+            string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
+            _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
-        while (!token.IsCancellationRequested)
-        {
-            Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
-            if (rpc is null)
+            TaskCompletionSource listTcs = new();
+            TaskCompletionSource dialTcs = new();
+
+            CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
             {
-                _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
-                break;
-            }
-            else
+                context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+                return dialTcs.Task;
+            });
+
+            while (!token.IsCancellationRequested)
             {
-                _logger?.LogTrace($"Received message from {peerId}: {rpc}");
-                _ = router.OnRpc(peerId, rpc);
+                Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
+                if (rpc is null)
+                {
+                    _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
+                    break;
+                }
+                else
+                {
+                    _logger?.LogTrace($"Received message from {peerId}: {rpc}");
+                    _ = router.OnRpc(peerId, rpc);
+                }
             }
+            listTcs.SetResult();
+            _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
         }
-        listTcs.SetResult();
-        _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
+        catch
+        {
+
+        }
     }
 
     public override string ToString()

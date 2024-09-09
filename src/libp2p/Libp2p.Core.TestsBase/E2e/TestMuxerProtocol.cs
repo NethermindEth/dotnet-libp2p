@@ -6,7 +6,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers;
-using System.Threading.Channels;
 
 class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : IProtocol
 {
@@ -45,15 +44,15 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
             peer = await downChannel.ReadLineAsync();
             await downChannel.WriteLineAsync(context.LocalPeer.Identity.PeerId!.ToString());
             logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Listener handles remote {peer}");
-            context.RemotePeer.Address = $"/p2p/{peer}";
         }
         else
         {
             await downChannel.WriteLineAsync(context.LocalPeer.Identity.PeerId!.ToString());
             peer = await downChannel.ReadLineAsync();
             logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Dialer handles remote {peer}");
-            context.RemotePeer.Address = $"/p2p/{peer}";
         }
+
+        context.RemotePeer.Address = $"/p2p/{peer}";
 
         string logPrefix = $"{context.LocalPeer.Identity.PeerId}<>{peer}";
 

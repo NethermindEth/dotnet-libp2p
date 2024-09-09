@@ -5,11 +5,18 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Nethermind.Libp2p.Core;
 
-public static class PeerFactoryBuilderBase
+public interface ICreateProtocolInstance
 {
-    private static HashSet<IProtocol> protocols = new();
+    IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol;
+}
 
-    internal static IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder, ICreateProtocolInstance
+    where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
+    where TPeerFactory : PeerFactory
+{
+    private HashSet<IProtocol> protocols = new();
+
+    public IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
     {
         if (instance is not null)
         {
@@ -24,12 +31,7 @@ public static class PeerFactoryBuilderBase
         }
         return existing;
     }
-}
 
-public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
-    where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
-    where TPeerFactory : PeerFactory
-{
     private readonly List<IProtocol> _appLayerProtocols = new();
     public IEnumerable<IProtocol> AppLayerProtocols { get => _appLayerProtocols; }
 
@@ -44,14 +46,14 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
-        ProtocolStack result = new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
+        ProtocolStack result = new ProtocolStack(this, ServiceProvider, CreateProtocolInstance(ServiceProvider, instance), this);
         result.Root = result;
         return result;
     }
 
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
     {
-        _appLayerProtocols.Add(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance));
+        _appLayerProtocols.Add(CreateProtocolInstance(ServiceProvider!, instance));
         return (TBuilder)this;
     }
 
@@ -59,6 +61,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
     {
         private readonly IPeerFactoryBuilder builder;
         private readonly IServiceProvider serviceProvider;
+        private readonly ICreateProtocolInstance createProtocolInstance;
 
         public ProtocolStack? Root { get; set; }
         public ProtocolStack? Parent { get; private set; }
@@ -67,11 +70,12 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         public HashSet<ProtocolStack> TopProtocols { get; } = new();
         public ChannelFactory UpChannelsFactory { get; }
 
-        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
+        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol, ICreateProtocolInstance createProtocolInstance)
         {
             this.builder = builder;
             this.serviceProvider = serviceProvider;
             Protocol = protocol;
+            this.createProtocolInstance = createProtocolInstance;
             UpChannelsFactory = ActivatorUtilities.GetServiceOrCreateInstance<ChannelFactory>(serviceProvider);
         }
 
@@ -83,7 +87,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
         public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
         {
-            ProtocolStack nextNode = new(builder, serviceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance));
+            ProtocolStack nextNode = new(builder, serviceProvider, createProtocolInstance.CreateProtocolInstance(serviceProvider!, instance), createProtocolInstance);
             return Over(nextNode);
         }
 
@@ -93,8 +97,8 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
             {
                 throw new NotImplementedException();
             }
-            IProtocol protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
-            ProtocolStack stack = new(builder, serviceProvider, protocol);
+            IProtocol protocol = createProtocolInstance.CreateProtocolInstance(serviceProvider!, instance);
+            ProtocolStack stack = new(builder, serviceProvider, protocol, createProtocolInstance);
             return Or(stack);
         }
 

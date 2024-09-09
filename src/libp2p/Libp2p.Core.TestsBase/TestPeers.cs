@@ -21,5 +21,7 @@ public class TestPeers
 
     public static PeerId PeerId(int i) => Identity(i).PeerId;
     public static Multiaddress Multiaddr(int i) => $"/p2p/{Identity(i).PeerId}";
+    public static Identity Identity(Multiaddress addr) => testPeerIdentities.First(i => $"/p2p/{i}" == addr.ToString()).Value;
+
 
 }

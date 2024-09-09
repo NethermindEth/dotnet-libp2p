@@ -18,10 +18,12 @@ public class PubSubDiscoverySettings
 public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, PeerStore peerStore, ILocalPeer peer) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
+    private Multiaddress? _localPeerAddr;
     private readonly PubSubDiscoverySettings _settings = settings;
 
     public async Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
     {
+        _localPeerAddr = localPeerAddr;
         ITopicSubscription[] topics = _settings.Topics.Select(topic =>
         {
             ITopicSubscription subscription = _pubSubRouter.Subscribe(topic);
@@ -48,15 +50,27 @@ public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoveryS
                     {
                         PublicKey = peer.Identity.PublicKey.ToByteString(),
                         Addrs = { ByteString.CopyFrom(peer.Address.ToBytes()) },
-                    }.ToByteArray());
+                    });
                 }
             }
         }
     }
+
     private void OnPeerMessage(byte[] msg)
     {
-        Peer peer = Peer.Parser.ParseFrom(msg);
-        peerStore.Discover([.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))]);
+        try
+        {
+            Peer peer = Peer.Parser.ParseFrom(msg);
+            ByteString? addr = peer.Addrs.FirstOrDefault();
+            if (addr is not null && Multiaddress.Decode(addr.ToByteArray()) != _localPeerAddr)
+            {
+                peerStore.Discover([.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))]);
+            }
+        }
+        catch
+        {
+
+        }
     }
 }
 
