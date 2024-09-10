@@ -24,11 +24,24 @@ public class ShutterP2P
     public static void Main()
     {
         IEnumerable<string> p2pAddresses = [
-            "/ip4/207.154.243.191/tcp/23000/p2p/12D3KooWPjX9v7FWmPvAUSTMpG7j2jXWxNnUxyDZrXPqmK29QNEd",
-            "/ip4/207.154.243.191/tcp/23001/p2p/12D3KooWJGopzaxs5G2FCPPMAy9zUoEdp5X7VebANvHGwiKW61Ck",
-            "/ip4/207.154.243.191/tcp/23002/p2p/12D3KooWPV5c2K5oHugFFArAwaJfxUrrTEjjwJgCQ44LNTsi7p68",
-            "/ip4/207.154.243.191/tcp/23003/p2p/12D3KooWKZBm2JvZE9SyPy3bQupgxtHzJC4y3E7xaHX5aRVewspC"
-                ];
+            // gnosis test
+            // "/ip4/207.154.243.191/tcp/23000/p2p/12D3KooWPjX9v7FWmPvAUSTMpG7j2jXWxNnUxyDZrXPqmK29QNEd",
+            // "/ip4/207.154.243.191/tcp/23001/p2p/12D3KooWJGopzaxs5G2FCPPMAy9zUoEdp5X7VebANvHGwiKW61Ck",
+            // "/ip4/207.154.243.191/tcp/23002/p2p/12D3KooWPV5c2K5oHugFFArAwaJfxUrrTEjjwJgCQ44LNTsi7p68",
+            // "/ip4/207.154.243.191/tcp/23003/p2p/12D3KooWKZBm2JvZE9SyPy3bQupgxtHzJC4y3E7xaHX5aRVewspC",
+            // chiado
+            "/ip4/164.92.188.205/tcp/23000/p2p/12D3KooWPjX9v7FWmPvAUSTMpG7j2jXWxNnUxyDZrXPqmK29QNEd",
+            "/ip4/164.92.188.205/tcp/23001/p2p/12D3KooWJGopzaxs5G2FCPPMAy9zUoEdp5X7VebANvHGwiKW61Ck",
+            "/ip4/164.92.188.205/tcp/23002/p2p/12D3KooWPV5c2K5oHugFFArAwaJfxUrrTEjjwJgCQ44LNTsi7p68",
+            "/ip4/164.92.188.205/tcp/23003/p2p/12D3KooWKZBm2JvZE9SyPy3bQupgxtHzJC4y3E7xaHX5aRVewspC",
+            // gnosis prod
+            // "/ip4/139.59.130.109/tcp/23003/p2p/12D3KooWRZoofMsnpsjkgvfPQUyGXZQnn7EVnb4tw4ghNfwMnnsj",
+            // "/ip4/167.71.169.248/tcp/23003/p2p/12D3KooWGH3VxoSQXZ6wUuCmsv5caGQnhwfGejbkXH6uS2r7sehA",
+            // "/ip4/139.59.130.109/tcp/23003/p2p/12D3KooWNxTiw7CvD1fuyye5P8qPhKTTrRBW6wwZwMdqdTxjYF2H",
+            // "/ip4/178.128.192.239/tcp/23003/p2p/12D3KooWCdpkipTiuzVMfkV7yLLgqbFeAL8WmEP78hCoBGBYLugN",
+            // "/ip4/45.55.192.248/tcp/23003/p2p/12D3KooWMPuubKqksfMxvLwEBDScaopTdvPLr5J5SMmBEo2zkcMz",
+            // "/ip4/178.128.126.237/tcp/23003/p2p/12D3KooWAg1pGUDAfFWSZftpN3JjBfLUCGLQcZApJHv2VntdMS9U"
+        ];
 
         new ShutterP2P().Start(p2pAddresses);
 
@@ -66,10 +79,9 @@ public class ShutterP2P
         ITopic topic = _router.Subscribe("decryptionKeys");
 
         topic.OnMessage += (byte[] msg) =>
-                {
-                    _msgQueue.Writer.TryWrite(msg);
-                    Console.WriteLine($"Received Shutter P2P message.");
-                };
+        {
+            _msgQueue.Writer.TryWrite(msg);
+        };
 
         MyProto proto = new();
         _cancellationTokenSource = new();
@@ -87,7 +99,7 @@ public class ShutterP2P
 
                         while (_msgQueue.Reader.TryRead(out var msg))
                         {
-                            ProcessP2PMessage(msg);
+                            Console.WriteLine($"received decryption keys!");
                             lastMessageProcessed = DateTimeOffset.Now.ToUnixTimeSeconds();
                         }
 
@@ -118,20 +130,6 @@ public class ShutterP2P
         {
             return Task.Delay(int.MaxValue);
         }
-    }
-
-    internal void ProcessP2PMessage(byte[] msg)
-    {
-        Console.WriteLine("Processing Shutter P2P message.");
-
-        //Dto.Envelope envelope = Dto.Envelope.Parser.ParseFrom(msg);
-        //if (!envelope.Message.TryUnpack(out Dto.DecryptionKeys decryptionKeys))
-        //{
-        //    Console.WriteLine("Could not parse Shutter decryption keys...");
-        //    return;
-        //}
-
-        Console.WriteLine($"slot: {msg.Length}");
     }
 
     internal void ConnectToPeers(MyProto proto, IEnumerable<string> p2pAddresses)
