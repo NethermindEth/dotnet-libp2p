@@ -8,6 +8,8 @@ using Nethermind.Libp2p.Core;
 internal class ChatProtocol : SymmetricProtocol, IProtocol
 {
     private static readonly ConsoleReader Reader = new();
+    private readonly ConsoleColor defautConsoleColor = Console.ForegroundColor;
+
     public string Id => "/chat/1.0.0";
 
     protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
@@ -19,7 +21,10 @@ internal class ChatProtocol : SymmetricProtocol, IProtocol
             for (; ; )
             {
                 ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
-                Console.Write(Encoding.UTF8.GetString(read).Replace("\n\n", "\n> "));
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("{0}", Encoding.UTF8.GetString(read).Replace("\r", "").Replace("\n\n", ""));
+                Console.ForegroundColor = defautConsoleColor;
+                Console.Write("> ");
             }
         });
         for (; ; )

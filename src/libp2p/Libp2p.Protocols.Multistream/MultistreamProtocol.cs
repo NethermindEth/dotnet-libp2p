@@ -53,15 +53,10 @@ public class MultistreamProtocol : IProtocol
             selected = context.SpecificProtocolRequest.SubProtocol;
 
             context.SpecificProtocolRequest = null;
-            await channel.WriteLineAsync(selected.Id);
-
-            _ = channel.ReadLineAsync().ContinueWith(async t =>
+            if (await DialProtocol(selected) != true)
             {
-                if (t.Result != selected.Id)
-                {
-                    await channel.CloseAsync();
-                }
-            });
+                return;
+            }
         }
         else
         {
