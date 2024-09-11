@@ -12,9 +12,6 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
-using System.Runtime.Loader;
-using System.Reflection;
-using System.Runtime.InteropServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
