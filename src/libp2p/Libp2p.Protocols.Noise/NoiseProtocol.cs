@@ -22,38 +22,6 @@ namespace Nethermind.Libp2p.Protocols;
 /// </summary>
 public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IProtocol
 {
-    static NoiseProtocol() => AssemblyLoadContext.Default.ResolvingUnmanagedDll += LoadNativeLibrary;
-
-    private static IntPtr LoadNativeLibrary(Assembly _, string path)
-    {
-        Console.WriteLine($"!!!! REQUEST FOR LOADING {path}");
-        path = Path.GetFileNameWithoutExtension(path);
-
-        if (!path.Equals("libsodium", StringComparison.OrdinalIgnoreCase))
-        {
-            return IntPtr.Zero;
-        }
-
-        string platform =
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "linux" :
-            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" :
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win" : "";
-
-        string arch = RuntimeInformation.ProcessArchitecture switch
-        {
-            Architecture.X64 => "x64",
-            Architecture.Arm64 => "arm64",
-            _ => "",
-        };
-
-        string extension =
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "so" :
-            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "dylib" :
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "dll" : "";
-
-        return NativeLibrary.Load(Path.Combine(AppContext.BaseDirectory, $"runtimes/{platform}-{arch}/native/{path}.{extension}"));
-    }
-
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,
             CipherFunction.ChaChaPoly,
