@@ -26,6 +26,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
     private static IntPtr LoadNativeLibrary(Assembly _, string path)
     {
+        Console.WriteLine($"!!!! REQUEST FOR LOADING {path}");
         path = Path.GetFileNameWithoutExtension(path);
 
         if (!path.Equals("libsodium", StringComparison.OrdinalIgnoreCase))
