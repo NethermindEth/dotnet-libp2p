@@ -110,15 +110,14 @@ public class ReaderWriterTests
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ok));
         ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow();
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
-
     }
 
     [TestCase(new byte[0])]
@@ -149,10 +148,10 @@ public class ReaderWriterTests
 
         Assert.That(res1, Has.Length.EqualTo(3));
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());

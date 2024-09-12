@@ -5,7 +5,9 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Dto;
+using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Multiformats.Address.Net;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -57,14 +59,24 @@ public class IdentifyProtocol : IProtocol
             ProtocolVersion = _protocolVersion,
             AgentVersion = _agentVersion,
             PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
-            ListenAddrs = { ByteString.CopyFrom(context.LocalEndpoint.Get<IP>().ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(context.RemoteEndpoint.Get<IP>().ToBytes()),
+            ListenAddrs = { ByteString.CopyFrom(ToEndpoint(context.LocalEndpoint).ToBytes()) },
+            ObservedAddr = ByteString.CopyFrom(ToEndpoint(context.RemoteEndpoint).ToBytes()),
             Protocols = { _peerFactoryBuilder.AppLayerProtocols.Select(p => p.Id) }
         };
+
         byte[] ar = new byte[identify.CalculateSize()];
         identify.WriteTo(ar);
 
         await channel.WriteSizeAndDataAsync(ar);
         _logger?.LogDebug("Sent peer info {identify}", identify);
     }
+
+    private static Multiaddress ToEndpoint(Multiaddress addr) => new()
+    {
+        Protocols =
+            {
+                addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>(),
+                addr.Has<TCP>() ? addr.Get<TCP>() : addr.Get<UDP>()
+            }
+    };
 }

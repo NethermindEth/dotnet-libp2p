@@ -23,6 +23,7 @@ public class PubsubProtocolTests
 
         TestDiscoveryProtocol discovery = new();
         CancellationToken token = default;
+        TaskCompletionSource taskCompletionSource = new();
 
         _ = router.RunAsync(peer, discovery, token: token);
         discovery.OnAddPeer!([discoveredPeer]);
@@ -30,7 +31,8 @@ public class PubsubProtocolTests
         await Task.Delay(100);
         _ = peer.Received().DialAsync(discoveredPeer, Arg.Any<CancellationToken>());
 
-        router.OutboundConnection(discoveredPeer, PubsubRouter.FloodsubProtocolVersion, Task.CompletedTask, (rpc) => { });
+        router.OutboundConnection(discoveredPeer, PubsubRouter.FloodsubProtocolVersion, taskCompletionSource.Task, (rpc) => { });
         Assert.That(state.ConnectedPeers, Has.Member(peerId));
+        taskCompletionSource.SetResult();
     }
 }

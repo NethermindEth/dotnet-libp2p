@@ -24,6 +24,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             CipherFunction.ChaChaPoly,
             HashFunction.Sha256
         );
+
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
     private readonly NoiseExtensions _extensions = new NoiseExtensions()
     {
@@ -61,10 +62,10 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
         //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
         List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
-    .Where(m => !string.IsNullOrEmpty(m))
-    .ToList();
-        IProtocol commonMuxer = multiplexerSettings.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
-        if (commonMuxer != null)
+            .Where(m => !string.IsNullOrEmpty(m))
+            .ToList();
+        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
+        if (commonMuxer is not null)
         {
             context.SpecificProtocolRequest = new ChannelRequest
             {
@@ -158,11 +159,10 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         PeerId remotePeerId = new(msg2KeyDecoded);
 
-        List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers
-     .Where(m => !string.IsNullOrEmpty(m))
-     .ToList();
-        IProtocol commonMuxer = multiplexerSettings.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
-        if (commonMuxer != null)
+        List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
+        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
+
+        if (commonMuxer is not null)
         {
             context.SpecificProtocolRequest = new ChannelRequest
             {

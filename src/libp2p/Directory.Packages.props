@@ -1,14 +1,16 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <ProtobufVersion>3.28.0</ProtobufVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.13.11" />
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.13.11" />
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.4.0" />
     <PackageVersion Include="coverlet.collector" Version="6.0.0" />
-    <PackageVersion Include="Google.Protobuf" Version="3.25.1" />
-    <PackageVersion Include="Google.Protobuf.Tools" Version="3.25.1" />
+    <PackageVersion Include="Google.Protobuf" Version="$(ProtobufVersion)" />
+    <PackageVersion Include="Google.Protobuf.Tools" Version="$(ProtobufVersion)" />
+    <PackageVersion Include="libsodium" Version="1.0.20" />
     <PackageVersion Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis" Version="4.8.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="4.5.0" />
