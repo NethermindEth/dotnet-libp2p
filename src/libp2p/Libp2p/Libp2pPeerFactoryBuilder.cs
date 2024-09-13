@@ -27,7 +27,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     {
         ProtocolStack tcpEncryptionStack = enforcePlaintext ?
             Over<PlainTextProtocol>() :
-            Over<NoiseProtocol>();
+            Over<TlsProtocol>();
 
         ProtocolStack tcpStack =
             Over<IpTcpProtocol>()
