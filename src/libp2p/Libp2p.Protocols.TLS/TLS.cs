@@ -67,7 +67,7 @@ public class TlsProtocol : IProtocol
 
         SslServerAuthenticationOptions serverAuthenticationOptions = new()
         {
-            ApplicationProtocols = [ new SslApplicationProtocol("/yamux/1.0.0")],
+            ApplicationProtocols = [new SslApplicationProtocol("/yamux/1.0.0")],
             RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.RemotePeer.Address, certificate),
             ServerCertificate = certificate,
             ClientCertificateRequired = true,
@@ -112,7 +112,7 @@ public class TlsProtocol : IProtocol
 
 
         await ExchangeData(sslStream, upChannel, _logger);
-      
+
     }
 
 
@@ -272,7 +272,7 @@ public class TlsProtocol : IProtocol
             {
                 RevocationMode = X509RevocationMode.NoCheck,   // Disable certificate revocation check
                 VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority // Allow self-signed certificates
-               
+
             },
             TargetHost = ipAddress.ToString(),
             ApplicationProtocols = _protocols,
@@ -288,7 +288,7 @@ public class TlsProtocol : IProtocol
         _logger?.LogTrace("Sslstream initialized.");
         try
         {
-            
+
             await sslStream.AuthenticateAsClientAsync(clientAuthenticationOptions);
             _logger?.LogTrace("Successfully authenticated as client.");
             if (sslStream.NegotiatedApplicationProtocol == SslApplicationProtocol.Http2)
@@ -317,11 +317,11 @@ public class TlsProtocol : IProtocol
         LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
 
-        _logger?.LogDebug($"Subdialing with {string.Join(", ", channelFactory.SubProtocols.Select(x=>x.Id))}");
+        _logger?.LogDebug($"Subdialing with {string.Join(", ", channelFactory.SubProtocols.Select(x => x.Id))}");
 
 
         IChannel upChannel = channelFactory.SubDial(context);
-       
+
         await ExchangeData(sslStream, upChannel, _logger);
         _logger?.LogDebug($"Close");
 
@@ -346,15 +346,15 @@ public class TlsProtocol : IProtocol
                 logger?.LogDebug("Starting to write to sslStream");
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-               
+
                     logger.LogDebug($"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!");
 
                     await sslStream.WriteAsync(data.ToArray());
                     await sslStream.FlushAsync();
-                   
+
                     logger.LogDebug($"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!!");
                 }
-              
+
             }
             catch (Exception ex)
             {
@@ -383,11 +383,11 @@ public class TlsProtocol : IProtocol
                         {
                             logger?.LogError(ex, "Error while reading from sslStream");
                         }
-                       
+
                         logger.LogDebug($"Data received from sslStream, {len}");
                     }
 
-                
+
                 }
                 await upChannel.WriteEofAsync();
             }
