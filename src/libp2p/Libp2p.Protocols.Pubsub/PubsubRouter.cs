@@ -31,7 +31,13 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     int _ctr = Interlocked.Increment(ref ctr);
     public override string ToString()
     {
-        return $"Router#{_ctr}: {localPeer?.Address.GetPeerId() ?? "null"}";
+        //{string.Join("|", peerState.Select(x => $"{x.Key}:{x.Value.SendRpc is not null}"))}
+        return $"Router#{_ctr}: {localPeer?.Address.GetPeerId() ?? "null"}, " +
+            $"peers: {peerState.Count(x=>x.Value.SendRpc is not null)}/{peerState.Count}, " +
+            $"mesh: {string.Join("|", mesh.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"fanout: {string.Join("|", fanout.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"fPeers: {string.Join("|", fPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"gPeers: {string.Join("|", gPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}";
     }
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
@@ -454,25 +460,35 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
     {
-        PubsubPeer peer;
+        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out");
         PeerId? peerId = addr.GetPeerId();
 
         if (peerId is null)
         {
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 1 peerid null");
             return Canceled;
         }
 
-        peer = new PubsubPeer(peerId, protocolId) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local };
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
 
-        if (!peerState.TryAdd(peerId, peer))
+        lock (peer)
         {
-            if (peerState[peerId].SendRpc is null)
+            if (peer.SendRpc == sendRpc)
             {
-                peerState[peerId].SendRpc = sendRpc;
+                logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 2 Peer created in outbound");
             }
             else
             {
-                return Canceled;
+                if (peer.SendRpc is null)
+                {
+                    logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 3 Peer created in inbound");
+                    peer.SendRpc = sendRpc;
+                }
+                else
+                {
+                    logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 3 Peer created in another outbound");
+                    return Canceled;
+                }
             }
         }
 
@@ -498,27 +514,37 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             }
             reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
         });
+        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 4 send hello {string.Join(",", topicState.Keys)}");
+
         Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
         peer.Send(helloMessage);
         logger?.LogDebug("Outbound {peerId}", peerId);
+
+        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 5 return token {peer.TokenSource.Token}");
+
         return peer.TokenSource.Token;
     }
 
     internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Task dialTask, Func<Task> subDial)
     {
-        PubsubPeer? remotePeer;
         PeerId? peerId = addr.GetPeerId();
+        logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1 remote peer {peerId}");
 
         if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.1 remote cancel {peerId}");
+
             return Canceled;
         }
 
-        remotePeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote };
         logger?.LogDebug("Inbound {peerId}", peerId);
-        if (peerState.TryAdd(peerId, remotePeer))
+
+        PubsubPeer? newPeer = null;
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
+        if (newPeer is not null)
         {
-            logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: Created in inbound {peerId}");
+            //logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
             listTask.ContinueWith(t =>
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
@@ -543,11 +569,16 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             });
 
             subDial();
-            return remotePeer.TokenSource.Token;
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 3 subdialed");
+
+            return newPeer.TokenSource.Token;
         }
         else
         {
-            return peerState[peerId].TokenSource.Token;
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: Already created, no inbound {peerId}");
+
+            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.2 new peer null");
+            return existingPeer.TokenSource.Token;
         }
     }
 
@@ -577,6 +608,13 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                             else if (state.IsFloodSub)
                             {
                                 fPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
+                            }
+                            if (mesh.ContainsKey(sub.Topicid))
+                            {
+                                mesh[sub.Topicid].Add(peerId);
+                            }else                            
+                            {
+                                fanout.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
                             }
                         }
                         else

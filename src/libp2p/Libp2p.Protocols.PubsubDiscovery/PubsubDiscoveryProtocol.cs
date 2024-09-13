@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Google.Protobuf;
+using System.Diagnostics;
 
 namespace Libp2p.Protocols.PubSubDiscovery;
 public class PubSubDiscoverySettings
@@ -61,11 +62,13 @@ public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoveryS
         try
         {
             Peer peer = Peer.Parser.ParseFrom(msg);
-            ByteString? addr = peer.Addrs.FirstOrDefault();
-            if (addr is not null && Multiaddress.Decode(addr.ToByteArray()) != _localPeerAddr)
+            Multiaddress[] addrs = [.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))];
+            PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
+            if (remotePeerId is not null && remotePeerId != _localPeerAddr?.GetPeerId()!)
             {
-                peerStore.Discover([.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))]);
+                peerStore.Discover(addrs);
             }
+            Debug.WriteLine($"{_localPeerAddr}: New peer discovered {peer}");
         }
         catch
         {

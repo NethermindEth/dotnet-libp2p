@@ -1,15 +1,18 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
-public class ChannelBus
+public class ChannelBus(TestContextLoggerFactory? fac = null)
 {
+    ILogger? logger = fac?.CreateLogger("bus");
+
     Dictionary<PeerId, Channel<IChannel>> channels = [];
 
-    public IAsyncEnumerable<IChannel> GetIncomingRequests(PeerId serverId)
+    public async IAsyncEnumerable<IChannel> GetIncomingRequests(PeerId serverId)
     {
         Channel<IChannel> col = System.Threading.Channels.Channel.CreateUnbounded<IChannel>();
 
@@ -17,8 +20,14 @@ public class ChannelBus
         {
             throw new Exception("Test listener with such peer id alread exists.");
         }
+        logger?.LogDebug($"Listen {serverId}");
 
-        return col.Reader.ReadAllAsync();
+        await foreach (var item in col.Reader.ReadAllAsync())
+        {
+            logger?.LogDebug($"New request to {serverId}");
+            yield return item;
+        }
+        logger?.LogDebug($"Listen end {serverId}");
     }
 
     public IChannel Dial(PeerId self, PeerId serverId)
@@ -27,6 +36,8 @@ public class ChannelBus
         {
             throw new Exception("Test listener with such peer id does not exist.");
         }
+
+        logger?.LogDebug($"Dial {self} -> {serverId}");
 
         Channel channel = new();
         _ = col.Writer.WriteAsync(channel.Reverse);
