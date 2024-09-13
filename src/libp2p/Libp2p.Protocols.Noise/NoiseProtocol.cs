@@ -24,6 +24,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             CipherFunction.ChaChaPoly,
             HashFunction.Sha256
         );
+
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
     private readonly NoiseExtensions _extensions = new NoiseExtensions()
     {

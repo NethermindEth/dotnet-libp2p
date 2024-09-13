@@ -60,10 +60,11 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         env:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ github.event.inputs.version }}
+          NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
           dotnet pack Libp2p ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Generators.Protobuf ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Generators.Protobuf ${{ env.NO_VERSION_PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
@@ -77,4 +78,5 @@ jobs:
           
           dotnet nuget push **/*.nupkg \
             -k ${{ github.event.inputs.feed == 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
-            -s ${{ github.event.inputs.feed == 'Production' && 'https://api.nuget.org/v3/index.json' || 'https://apiint.nugettest.org/v3/index.json' }}
+            -s ${{ github.event.inputs.feed == 'Production' && 'https://api.nuget.org/v3/index.json' || 'https://apiint.nugettest.org/v3/index.json' }} \
+            --skip-duplicate

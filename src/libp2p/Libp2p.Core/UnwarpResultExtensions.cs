@@ -13,7 +13,9 @@ public static class UnwarpResultExtensions
         {
             throw new ChannelClosedException();
         }
-        var result = await self.AsTask();
+
+        IOResult result = await self.AsTask();
+
         if (result != IOResult.Ok)
         {
             throw new ChannelClosedException();
@@ -25,7 +27,9 @@ public static class UnwarpResultExtensions
         {
             throw new ChannelClosedException();
         }
-        var result = await self.AsTask();
+
+        ReadResult result = await self.AsTask();
+
         if (result.Result != IOResult.Ok)
         {
             throw new ChannelClosedException();
