@@ -1,14 +1,13 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-
-using Libp2p.Protocols.PubSubDiscovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
+using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
 
@@ -65,13 +64,13 @@ for (int i = 0; i < peerStores.Length; i++)
 
 for (int i = 0; i < routers.Length; i++)
 {
-    routers[i].Subscribe("test");
+    routers[i].GetTopic("test");
 }
 
 await Task.Delay(5000);
 
-var testTopic = routers[1].Subscribe("test");
-var testTopicEnd = routers[totalCount - 1].Subscribe("test");
+var testTopic = routers[1].GetTopic("test");
+var testTopicEnd = routers[totalCount - 1].GetTopic("test");
 testTopicEnd.OnMessage += (s) => Console.WriteLine(Encoding.UTF8.GetString(s));
 
 testTopic.Publish(Encoding.UTF8.GetBytes("test"));

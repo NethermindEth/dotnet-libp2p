@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
@@ -33,7 +32,7 @@ string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
-ITopicSubscription topic = router.Subscribe("chat-room:awesome-chat-room");
+ITopic topic = router.GetTopic("chat-room:awesome-chat-room");
 topic.OnMessage += (byte[] msg) =>
 {
     try

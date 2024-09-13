@@ -5,13 +5,14 @@ using Google.Protobuf;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-public interface ITopicSubscription
+public interface ITopic
 {
     event Action<byte[]>? OnMessage;
+
     void Publish(byte[] bytes);
-    void Publish(IMessage msg)
-    {
-        Publish(msg.ToByteArray());
-    }
+    void Publish(IMessage msg) => Publish(msg.ToByteArray());
+
+    bool IsSubscribed { get; }
+    void Subscribe();
     void Unsubscribe();
 }

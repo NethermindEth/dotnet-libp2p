@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 

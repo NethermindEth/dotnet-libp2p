@@ -4,7 +4,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 

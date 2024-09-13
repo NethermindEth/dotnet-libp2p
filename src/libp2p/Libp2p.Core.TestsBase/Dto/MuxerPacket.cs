@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Libp2p.Core.TestsBase.Dto {
+namespace Nethermind.Libp2p.Core.TestsBase.Dto {
 
   /// <summary>Holder for reflection information generated from MuxerPacket.proto</summary>
   public static partial class MuxerPacketReflection {
@@ -28,12 +28,12 @@ namespace Libp2p.Core.TestsBase.Dto {
             "AigOMhAuTXV4ZXJQYWNrZXRUeXBlEhEKCUNoYW5uZWxJZBgCIAIoDRIMCgRE",
             "YXRhGAQgASgMEhEKCVByb3RvY29scxgDIAMoCSpYCg9NdXhlclBhY2tldFR5",
             "cGUSFAoQTmV3U3RyZWFtUmVxdWVzdBAAEhUKEU5ld1N0cmVhbVJlc3BvbnNl",
-            "EAESCAoERGF0YRACEg4KCkNsb3NlV3JpdGUQA0IcqgIZTGlicDJwLkNvcmUu",
-            "VGVzdHNCYXNlLkR0bw=="));
+            "EAESCAoERGF0YRACEg4KCkNsb3NlV3JpdGUQA0InqgIkTmV0aGVybWluZC5M",
+            "aWJwMnAuQ29yZS5UZXN0c0Jhc2UuRHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
-          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Libp2p.Core.TestsBase.Dto.MuxerPacketType), }, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Libp2p.Core.TestsBase.Dto.MuxerPacket), global::Libp2p.Core.TestsBase.Dto.MuxerPacket.Parser, new[]{ "Type", "ChannelId", "Data", "Protocols" }, null, null, null, null)
+          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType), }, null, new pbr::GeneratedClrTypeInfo[] {
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacket), global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacket.Parser, new[]{ "Type", "ChannelId", "Data", "Protocols" }, null, null, null, null)
           }));
     }
     #endregion
@@ -66,7 +66,7 @@ namespace Libp2p.Core.TestsBase.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Libp2p.Core.TestsBase.Dto.MuxerPacketReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -102,12 +102,12 @@ namespace Libp2p.Core.TestsBase.Dto {
 
     /// <summary>Field number for the "Type" field.</summary>
     public const int TypeFieldNumber = 1;
-    private readonly static global::Libp2p.Core.TestsBase.Dto.MuxerPacketType TypeDefaultValue = global::Libp2p.Core.TestsBase.Dto.MuxerPacketType.NewStreamRequest;
+    private readonly static global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType TypeDefaultValue = global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType.NewStreamRequest;
 
-    private global::Libp2p.Core.TestsBase.Dto.MuxerPacketType type_;
+    private global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType type_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Libp2p.Core.TestsBase.Dto.MuxerPacketType Type {
+    public global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType Type {
       get { if ((_hasBits0 & 1) != 0) { return type_; } else { return TypeDefaultValue; } }
       set {
         _hasBits0 |= 1;
@@ -337,7 +337,7 @@ namespace Libp2p.Core.TestsBase.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.TestsBase.Dto.MuxerPacketType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType) input.ReadEnum();
             break;
           }
           case 16: {
@@ -372,7 +372,7 @@ namespace Libp2p.Core.TestsBase.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 8: {
-            Type = (global::Libp2p.Core.TestsBase.Dto.MuxerPacketType) input.ReadEnum();
+            Type = (global::Nethermind.Libp2p.Core.TestsBase.Dto.MuxerPacketType) input.ReadEnum();
             break;
           }
           case 16: {

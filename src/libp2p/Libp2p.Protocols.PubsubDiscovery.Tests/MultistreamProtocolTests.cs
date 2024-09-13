@@ -1,27 +1,21 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Libp2p.Protocols.PubSubDiscovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Multiformats.Address;
-using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using NUnit.Framework.Internal;
-using System.Data.Common;
-using System.Diagnostics.Metrics;
 
-namespace Libp2p.Protocols.Multistream.Tests;
+namespace Nethermind.Libp2p.Protocols.PubsubDiscovery.Tests;
 
 [TestFixture]
 [Parallelizable(scope: ParallelScope.All)]
 public class MultistreamProtocolTests
 {
     [Test]
-    public async Task Test_ConnectionEstablished_AfterHandshake2()
+    public async Task Test_PeersConnect()
     {
         IPeerFactory peerFactory = new TestBuilder().Build();
         ChannelBus commonBus = new();
@@ -54,26 +48,15 @@ public class MultistreamProtocolTests
     }
 
     [Test]
-    public async Task Test_Bus()
-    {
-        int totalCount = 3;
-        TestContextLoggerFactory fac = new TestContextLoggerFactory();
-        // There is common communication point
-        ChannelBus bus = new(fac);
-        //bus.GetIncomingRequests();
-    }
-
-    [Test]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
-        int totalCount = 20;
+        int totalCount = 5;
         TestContextLoggerFactory fac = new TestContextLoggerFactory();
         // There is common communication point
         ChannelBus commonBus = new(fac);
         ILocalPeer[] peers = new ILocalPeer[totalCount];
         PeerStore[] peerStores = new PeerStore[totalCount];
         PubsubRouter[] routers = new PubsubRouter[totalCount];
-
 
         for (int i = 0; i < totalCount; i++)
         {
@@ -83,7 +66,7 @@ public class MultistreamProtocolTests
                    .AddSingleton<ILoggerFactory>(sp => fac)
                    .AddSingleton<PubsubRouter>()
                    .AddSingleton<PeerStore>()
-                   .AddSingleton(sp=> sp.GetService<IPeerFactoryBuilder>()!.Build())
+                   .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                    .BuildServiceProvider();
 
             IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
@@ -103,133 +86,50 @@ public class MultistreamProtocolTests
             peerStores[i].Discover([peers[(i + 1) % totalCount].Address]);
         }
 
-        await Task.Delay(50000);
+        await Task.Delay(30000);
+
+        foreach (var router in routers)
+        {
+            Assert.That(((IRoutingStateContainer)router).ConnectedPeers.Count, Is.EqualTo(totalCount - 1));
+        }
     }
 
-    //[Test]
-    //public async Task Derp()
-    //{
+    [Test]
+    public async Task Test_ConnectionEstablished_AfterHandshak3e()
+    {
+        int totalCount = 5;
 
+        PubSubTestSetup setup = new();
+        Dictionary<int, PubSubDiscoveryProtocol> discoveries = [];
 
-    //    internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
-    //    {
-    //        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out");
-    //        PeerId? peerId = addr.GetPeerId();
+        setup.Add(totalCount);
 
-    //        if (peerId is null)
-    //        {
-    //            logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 1 peerid null");
-    //            return Canceled;
-    //        }
+        // discover in circle
+        for (int i = 0; i < setup.Peers.Count; i++)
+        {
+            setup.PeerStores[i].Discover([setup.Peers[(i + 1) % setup.Peers.Count].Address]);
+        }
 
-    //        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
+        for (int i = 0; i < setup.Peers.Count; i++)
+        {
+            discoveries[i] = new(setup.Routers[i], new PubSubDiscoverySettings() { Interval = int.MaxValue }, setup.PeerStores[i], setup.Peers[i]);
+            _ = discoveries[i].DiscoverAsync(setup.Peers[i].Address);
+        }
 
-    //        lock (peer)
-    //        {
-    //            if (peer.SendRpc == sendRpc)
-    //            {
-    //                logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 2 SendRpc null");
-    //            }
-    //            else
-    //            {
-    //                if (peer.SendRpc is null)
-    //                {
-    //                    peer.SendRpc = sendRpc;
-    //                }
-    //                else
-    //                {
-    //                    logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 3 SendRpc not null, cancelled");
-    //                    return Canceled;
-    //                }
-    //            }
-    //        }
+        await Task.Delay(100);
 
-    //        dialTask.ContinueWith(t =>
-    //        {
-    //            peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-    //            peerState.TryRemove(peerId, out _);
-    //            foreach (var topicPeers in fPeers)
-    //            {
-    //                topicPeers.Value.Remove(peerId);
-    //            }
-    //            foreach (var topicPeers in gPeers)
-    //            {
-    //                topicPeers.Value.Remove(peerId);
-    //            }
-    //            foreach (var topicPeers in fanout)
-    //            {
-    //                topicPeers.Value.Remove(peerId);
-    //            }
-    //            foreach (var topicPeers in mesh)
-    //            {
-    //                topicPeers.Value.Remove(peerId);
-    //            }
-    //            reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
-    //        });
-    //        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 4 send hello {string.Join(",", topicState.Keys)}");
+        await setup.Heartbeat();
+        await setup.Heartbeat();
+        await setup.Heartbeat();
 
-    //        Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
-    //        peer.Send(helloMessage);
-    //        logger?.LogDebug("Outbound {peerId}", peerId);
+        for (int i = 0; i < setup.Peers.Count; i++)
+        {
+            discoveries[i].BroadcastPeerInfo();
+        }
 
-    //        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 5 return token {peer.TokenSource.Token}");
-
-    //        return peer.TokenSource.Token;
-    //    }
-
-    //    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Task dialTask, Func<Task> subDial)
-    //    {
-    //        PeerId? peerId = addr.GetPeerId();
-    //        logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1 remote peer {peerId}");
-
-    //        if (peerId is null || peerId == localPeer!.Identity.PeerId)
-    //        {
-    //            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.1 remote cancel {peerId}");
-
-    //            return Canceled;
-    //        }
-
-    //        logger?.LogDebug("Inbound {peerId}", peerId);
-
-    //        PubsubPeer? newPeer = null;
-    //        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
-    //        if (newPeer is not null)
-    //        {
-    //            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 2 new peer {peerId}");
-    //            //logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
-    //            listTask.ContinueWith(t =>
-    //            {
-    //                peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-    //                peerState.TryRemove(peerId, out _);
-    //                foreach (var topicPeers in fPeers)
-    //                {
-    //                    topicPeers.Value.Remove(peerId);
-    //                }
-    //                foreach (var topicPeers in gPeers)
-    //                {
-    //                    topicPeers.Value.Remove(peerId);
-    //                }
-    //                foreach (var topicPeers in fanout)
-    //                {
-    //                    topicPeers.Value.Remove(peerId);
-    //                }
-    //                foreach (var topicPeers in mesh)
-    //                {
-    //                    topicPeers.Value.Remove(peerId);
-    //                }
-    //                reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
-    //            });
-
-    //            subDial();
-    //            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 3 subdialed");
-
-    //            return newPeer.TokenSource.Token;
-    //        }
-    //        else
-    //        {
-    //            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.2 new peer null");
-    //            return existingPeer.TokenSource.Token;
-    //        }
-    //    }
-    //}
+        foreach (var router in setup.Routers.Values)
+        {
+            Assert.That(((IRoutingStateContainer)router).ConnectedPeers.Count, Is.EqualTo(totalCount - 1));
+        }
+    }
 }

@@ -1,14 +1,8 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Multiformats.Address;
-using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols.Pubsub;
-using Google.Protobuf;
-using System.Diagnostics;
+namespace Nethermind.Libp2p.Protocols;
 
-namespace Libp2p.Protocols.PubSubDiscovery;
 public class PubSubDiscoverySettings
 {
     public string[] Topics { get; set; } = ["_peer-discovery._p2p._pubsub"];
@@ -16,18 +10,20 @@ public class PubSubDiscoverySettings
     public bool ListenOnly { get; set; }
 }
 
-public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, PeerStore peerStore, ILocalPeer peer) : IDiscoveryProtocol
+public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, PeerStore peerStore, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
     private Multiaddress? _localPeerAddr;
+    private ITopic[]? topics;
     private readonly PubSubDiscoverySettings _settings = settings;
+    private ILogger? logger = loggerFactory?.CreateLogger<PubSubDiscoveryProtocol>();
 
     public async Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
     {
         _localPeerAddr = localPeerAddr;
-        ITopicSubscription[] topics = _settings.Topics.Select(topic =>
+        topics = _settings.Topics.Select(topic =>
         {
-            ITopicSubscription subscription = _pubSubRouter.Subscribe(topic);
+            ITopic subscription = _pubSubRouter.GetTopic(topic);
             subscription.OnMessage += OnPeerMessage;
             return subscription;
         }).ToArray();
@@ -45,15 +41,25 @@ public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoveryS
             while (!token.IsCancellationRequested)
             {
                 await Task.Delay(_settings.Interval, token);
-                foreach (var topic in topics)
-                {
-                    topic.Publish(new Peer
-                    {
-                        PublicKey = peer.Identity.PublicKey.ToByteString(),
-                        Addrs = { ByteString.CopyFrom(peer.Address.ToBytes()) },
-                    });
-                }
+                BroadcastPeerInfo();
             }
+        }
+    }
+
+    internal void BroadcastPeerInfo()
+    {
+        if (topics is null)
+        {
+            throw new NullReferenceException($"{nameof(topics)} should be previously set in ${nameof(DiscoverAsync)}");
+        }
+
+        foreach (var topic in topics)
+        {
+            topic.Publish(new Peer
+            {
+                PublicKey = peer.Identity.PublicKey.ToByteString(),
+                Addrs = { ByteString.CopyFrom(peer.Address.ToBytes()) },
+            });
         }
     }
 
@@ -68,11 +74,11 @@ public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoveryS
             {
                 peerStore.Discover(addrs);
             }
-            Debug.WriteLine($"{_localPeerAddr}: New peer discovered {peer}");
+            logger?.LogDebug($"{_localPeerAddr}: New peer discovered {peer}");
         }
-        catch
+        catch (Exception ex)
         {
-
+            logger?.LogError(ex, "Peer message handling caused an exception");
         }
     }
 }

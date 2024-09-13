@@ -29,7 +29,7 @@ public class FloodsubProtocolTests
         List<Rpc> sentRpcs = new();
 
         _ = router.RunAsync(peer, new Core.Discovery.PeerStore(), token: token);
-        router.Subscribe(commonTopic);
+        router.GetTopic(commonTopic);
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
 
         discovery.OnAddPeer!([discoveredPeer]);

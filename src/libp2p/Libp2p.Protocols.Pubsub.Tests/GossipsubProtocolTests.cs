@@ -25,7 +25,7 @@ public class GossipsubProtocolTests
         List<Rpc> sentRpcs = new();
 
         _ = router.RunAsync(peer, new Core.Discovery.PeerStore(), token: token);
-        router.Subscribe(commonTopic);
+        router.GetTopic(commonTopic);
         Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
         Assert.That(state.GossipsubPeers.Keys, Has.Member(commonTopic));
 

@@ -1,11 +1,9 @@
 
 using Google.Protobuf;
-using Libp2p.Core.TestsBase.Dto;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase.Dto;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
-using NUnit.Framework.Constraints;
-using Org.BouncyCastle.Ocsp;
 using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers;
 
@@ -83,8 +81,9 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
         while (true)
         {
-            try {
-                logger?.LogDebug($"{logPrefix}: < READY({(isListen?"list":"dial")})");
+            try
+            {
+                logger?.LogDebug($"{logPrefix}: < READY({(isListen ? "list" : "dial")})");
 
                 var packet = await downChannel.ReadPrefixedProtobufAsync(MuxerPacket.Parser);
 
@@ -146,7 +145,8 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SubProtocol}");
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);
                         }
-                        else{
+                        else
+                        {
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): No protocols = no upchanel");
                         }
                         break;

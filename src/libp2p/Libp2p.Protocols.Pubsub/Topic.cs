@@ -1,11 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Protocols.Pubsub.Dto;
-
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-class Topic : ITopicSubscription
+internal class Topic : ITopic
 {
     private readonly PubsubRouter router;
     private readonly string topicName;
@@ -27,6 +25,8 @@ class Topic : ITopicSubscription
 
     public DateTime LastPublished { get; set; }
 
+    public bool IsSubscribed { get; internal set; }
+
     public event Action<byte[]>? OnMessage;
 
     public void Publish(byte[] value)
@@ -36,7 +36,11 @@ class Topic : ITopicSubscription
 
     public void Unsubscribe()
     {
-        router.OnMessage -= OnRouterMessage;
-        OnMessage = null;
+        if (!IsSubscribed) router.Unsubscribe(topicName);
+    }
+
+    public void Subscribe()
+    {
+        if (!IsSubscribed) router.Subscribe(topicName);
     }
 }
