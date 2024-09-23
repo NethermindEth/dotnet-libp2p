@@ -15,15 +15,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
-     <ProjectReference Include="..\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    
     <PackageReference Include="Microsoft.Extensions.Logging" />
-   
-
-
   </ItemGroup>
 
   <ItemGroup>
