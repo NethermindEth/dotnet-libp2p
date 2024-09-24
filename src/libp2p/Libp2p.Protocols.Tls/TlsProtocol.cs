@@ -16,7 +16,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
 {
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
-    
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
 
     private readonly List<SslApplicationProtocol> _protocols = multiplexerSettings is null ?
