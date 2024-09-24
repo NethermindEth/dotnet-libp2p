@@ -20,7 +20,7 @@
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
-    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.TLS\Libp2p.Protocols.TLS.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p\Libp2p.csproj" />
   </ItemGroup>
 

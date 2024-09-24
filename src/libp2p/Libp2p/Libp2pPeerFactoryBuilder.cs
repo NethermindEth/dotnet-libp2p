@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using System.Net.Security;
 using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
@@ -12,6 +14,8 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
+    private readonly ILoggerFactory? _loggerFactory;
+    private readonly MultiplexerSettings? _multiplexerSettings;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -21,13 +25,17 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
     public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
     {
+        _loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory)) as ILoggerFactory;
+        _multiplexerSettings = serviceProvider?.GetService(typeof(MultiplexerSettings)) as MultiplexerSettings;
+
     }
 
     protected override ProtocolStack BuildStack()
     {
+
         ProtocolStack tcpEncryptionStack = enforcePlaintext ?
             Over<PlainTextProtocol>() :
-            Over<TlsProtocol>();
+         Over<NoiseProtocol>().Or(new TlsProtocol(_multiplexerSettings, _loggerFactory));
 
         ProtocolStack tcpStack =
             Over<IpTcpProtocol>()
