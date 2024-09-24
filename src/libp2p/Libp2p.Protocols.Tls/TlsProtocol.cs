@@ -16,8 +16,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
 {
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
-    private readonly ILogger<ChannelStream>? _logger1 = loggerFactory?.CreateLogger<ChannelStream>();
-
+    
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
 
     private readonly List<SslApplicationProtocol> _protocols = multiplexerSettings is null ?
@@ -35,7 +34,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         {
             throw new ArgumentException("Protocol is not properly instantiated");
         }
-        Stream str = new ChannelStream(downChannel, _logger1);
+        Stream str = new ChannelStream(downChannel);
         X509Certificate certificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
         _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.LocalPeer.Address.Get<P2P>(), certificate.Subject, certificate.Issuer);
         SslServerAuthenticationOptions serverAuthenticationOptions = new()
@@ -93,7 +92,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
         };
         _logger?.LogTrace("SslClientAuthenticationOptions initialized for PeerId {RemotePeerId}.", context.RemotePeer.Address.Get<P2P>());
-        Stream str = new ChannelStream(downChannel, _logger1);
+        Stream str = new ChannelStream(downChannel);
         SslStream sslStream = new(str, false, clientAuthenticationOptions.RemoteCertificateValidationCallback);
         _logger?.LogTrace("Sslstream initialized.");
         try

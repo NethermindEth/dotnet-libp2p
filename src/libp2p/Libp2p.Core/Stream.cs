@@ -7,17 +7,16 @@ using System.Buffers;
 
 public class ChannelStream : Stream
 {
-    private readonly IChannel chan;
+    private readonly IChannel _chan;
     private readonly ILogger<ChannelStream> logger;
     private bool _disposed = false;
     private bool _canRead = true;
     private bool _canWrite = true;
 
     // Constructor
-    public ChannelStream(IChannel _chan, ILogger<ChannelStream> _logger = null)
+    public ChannelStream(IChannel chan)
     {
-        chan = _chan ?? throw new ArgumentNullException(nameof(chan));
-        logger = _logger;
+        _chan = chan ?? throw new ArgumentNullException(nameof(_chan));
     }
 
     public override bool CanRead => _canRead;
@@ -39,7 +38,7 @@ public class ChannelStream : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        var result = chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
+        var result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -52,7 +51,7 @@ public class ChannelStream : Stream
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        if (chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).Result != IOResult.Ok)
+        if (_chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).Result != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -60,7 +59,7 @@ public class ChannelStream : Stream
 
     public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if ((await chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
+        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -73,7 +72,7 @@ public class ChannelStream : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        var result = await chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        var result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -97,7 +96,7 @@ public class ChannelStream : Stream
         {
             if (disposing)
             {
-                _ = chan.CloseAsync();
+                _ = _chan.CloseAsync();
             }
             _disposed = true;
         }

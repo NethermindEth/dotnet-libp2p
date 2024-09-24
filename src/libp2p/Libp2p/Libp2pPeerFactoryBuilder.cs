@@ -10,12 +10,9 @@ using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
-    ILibp2pPeerFactoryBuilder
+public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>, ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
-    private readonly ILoggerFactory? _loggerFactory;
-    private readonly MultiplexerSettings? _multiplexerSettings;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -23,29 +20,19 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
-    {
-        _loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory)) as ILoggerFactory;
-        _multiplexerSettings = serviceProvider?.GetService(typeof(MultiplexerSettings)) as MultiplexerSettings;
-
-    }
+    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider) { }
 
     protected override ProtocolStack BuildStack()
     {
+        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>().Or<TlsProtocol>();
 
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ?
-            Over<PlainTextProtocol>() :
-         Over<NoiseProtocol>().Or(new TlsProtocol(_multiplexerSettings, _loggerFactory));
-
-        ProtocolStack tcpStack =
-            Over<IpTcpProtocol>()
+        ProtocolStack tcpStack = Over<IpTcpProtocol>()
             .Over<MultistreamProtocol>()
             .Over(tcpEncryptionStack)
             .Over<MultistreamProtocol>()
             .Over<YamuxProtocol>();
 
-        return
-            Over<MultiaddressBasedSelectorProtocol>()
+        return Over<MultiaddressBasedSelectorProtocol>()
             // Quic is not working well, and requires consumers to mark projects with preview
             //.Over<QuicProtocol>().Or(tcpStack)
             .Over(tcpStack)
