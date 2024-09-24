@@ -34,10 +34,8 @@ for (int i = 0; i < totalCount; i++)
     IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
     ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
     PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
-    PeerStore peerStore = sp.GetService<PeerStore>()!;
-    PubSubDiscoveryProtocol disc = new(router, new PubSubDiscoverySettings() { Interval = 300 }, peerStore, peer);
-    _ = router.RunAsync(peer, peerStore);
-    peerStores[i] = peerStore;
+    PubSubDiscoveryProtocol disc = new(router, peerStores[i] = sp.GetService<PeerStore>()!, new PubSubDiscoverySettings() { Interval = 300 }, peer);
+    _ = router.RunAsync(peer);
     _ = disc.DiscoverAsync(peers[i].Address);
 }
 

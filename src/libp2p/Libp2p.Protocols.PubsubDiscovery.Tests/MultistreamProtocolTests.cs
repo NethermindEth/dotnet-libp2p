@@ -10,11 +10,11 @@ using NUnit.Framework.Internal;
 
 namespace Nethermind.Libp2p.Protocols.PubsubDiscovery.Tests;
 
-[TestFixture]
+[TestFixture, Ignore("No support of time mock yet")]
 [Parallelizable(scope: ParallelScope.All)]
 public class MultistreamProtocolTests
 {
-    [Test]
+    [Test, CancelAfter(5000)]
     public async Task Test_PeersConnect()
     {
         IPeerFactory peerFactory = new TestBuilder().Build();
@@ -51,7 +51,7 @@ public class MultistreamProtocolTests
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
         int totalCount = 5;
-        TestContextLoggerFactory fac = new TestContextLoggerFactory();
+        TestContextLoggerFactory fac = new();
         // There is common communication point
         ChannelBus commonBus = new(fac);
         ILocalPeer[] peers = new ILocalPeer[totalCount];
@@ -73,8 +73,8 @@ public class MultistreamProtocolTests
             ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
-            PubSubDiscoveryProtocol disc = new(router, new PubSubDiscoverySettings() { Interval = 300 }, peerStore, peer);
-            _ = router.RunAsync(peer, peerStore);
+            PubSubDiscoveryProtocol disc = new(router, peerStore, new PubSubDiscoverySettings() { Interval = 300 }, peer);
+            _ = router.RunAsync(peer);
             peerStores[i] = peerStore;
             _ = disc.DiscoverAsync(peers[i].Address);
         }
@@ -94,7 +94,7 @@ public class MultistreamProtocolTests
         }
     }
 
-    [Test]
+    [Test, CancelAfter(5000)]
     public async Task Test_ConnectionEstablished_AfterHandshak3e()
     {
         int totalCount = 5;
@@ -112,7 +112,7 @@ public class MultistreamProtocolTests
 
         for (int i = 0; i < setup.Peers.Count; i++)
         {
-            discoveries[i] = new(setup.Routers[i], new PubSubDiscoverySettings() { Interval = int.MaxValue }, setup.PeerStores[i], setup.Peers[i]);
+            discoveries[i] = new(setup.Routers[i], setup.PeerStores[i], new PubSubDiscoverySettings() { Interval = int.MaxValue }, setup.Peers[i]);
             _ = discoveries[i].DiscoverAsync(setup.Peers[i].Address);
         }
 

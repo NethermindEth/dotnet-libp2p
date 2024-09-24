@@ -9,6 +9,9 @@ using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Multiformats.Address.Protocols;
 using Multiformats.Address;
+using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Core.Discovery;
+using Noise;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder)
@@ -50,9 +53,11 @@ topic.OnMessage += (byte[] msg) =>
     }
 };
 
-_ = router.RunAsync(peer, new Nethermind.Libp2p.Core.Discovery.PeerStore(), token: ts.Token);
+await peer.ListenAsync(addr, ts.Token);
 
+_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: ts.Token);
 
+_ = router.RunAsync(peer, token: ts.Token);
 
 string peerId = peer.Address.Get<P2P>().ToString();
 

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>Nethermind.Libp2p.Protocols.Multistream.Tests</RootNamespace>
+    <RootNamespace>Nethermind.Libp2p.Protocols.Pubsub.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

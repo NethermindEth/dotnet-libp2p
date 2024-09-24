@@ -23,7 +23,7 @@ internal interface IRoutingStateContainer
     Task Heartbeat();
 }
 
-public partial class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
+public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
 {
     static int ctr = 0;
     int _ctr = Interlocked.Increment(ref ctr);
@@ -124,7 +124,6 @@ public partial class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRo
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
     private Settings settings;
-    private PeerStore store;
     private TtlCache<MessageId, Message> messageCache;
     private TtlCache<MessageId, Message> limboMessageCache;
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
@@ -161,7 +160,7 @@ public partial class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRo
         Canceled = cts.Token;
     }
 
-    public async Task RunAsync(ILocalPeer localPeer, PeerStore store, Settings? settings = null, CancellationToken token = default)
+    public async Task RunAsync(ILocalPeer localPeer, Settings? settings = null, CancellationToken token = default)
     {
         if (this.localPeer is not null)
         {
@@ -170,12 +169,10 @@ public partial class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRo
         this.localPeer = localPeer;
         peer = new ManagedPeer(localPeer);
         this.settings = settings ?? Settings.Default;
-        this.store = store;
         messageCache = new(this.settings.MessageCacheTtl);
         limboMessageCache = new(this.settings.MessageCacheTtl);
         dontWantMessages = new(this.settings.MessageCacheTtl);
 
-        _ = localPeer.ListenAsync(localPeer.Address, token);
         logger?.LogInformation("Started");
 
         store.OnNewPeer += (addrs) =>

@@ -41,7 +41,7 @@ class PubSubTestSetup
             ILocalPeer peer = Peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = Routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
-            _ = router.RunAsync(peer, peerStore);
+            _ = router.RunAsync(peer);
             PeerStores[i] = peerStore;
         }
     }

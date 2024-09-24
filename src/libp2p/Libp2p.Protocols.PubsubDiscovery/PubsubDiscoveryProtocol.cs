@@ -10,7 +10,7 @@ public class PubSubDiscoverySettings
     public bool ListenOnly { get; set; }
 }
 
-public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PubSubDiscoverySettings settings, PeerStore peerStore, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
+public class PubSubDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubSubDiscoverySettings settings, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
     private Multiaddress? _localPeerAddr;
