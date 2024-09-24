@@ -17,13 +17,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
-
-    private readonly List<SslApplicationProtocol> _protocols = multiplexerSettings is null ?
-        new List<SslApplicationProtocol> { } :
-        !multiplexerSettings.Multiplexers.Any() ?
-        new List<SslApplicationProtocol> { } :
-        multiplexerSettings.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList();
-
     public string Id => "/tls/1.0.0";
 
     public async Task ListenAsync(IChannel downChannel, IChannelFactory? channelFactory, IPeerContext context)
@@ -36,6 +29,13 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         Stream str = new ChannelStream(downChannel);
         X509Certificate certificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
         _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.LocalPeer.Address.Get<P2P>(), certificate.Subject, certificate.Issuer);
+
+        var _protocols = multiplexerSettings is null ?
+            new List<SslApplicationProtocol> { } :
+            !multiplexerSettings.Multiplexers.Any() ?
+            new List<SslApplicationProtocol> { } :
+            multiplexerSettings.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList();
+
         SslServerAuthenticationOptions serverAuthenticationOptions = new()
         {
             ApplicationProtocols = _protocols,
@@ -77,6 +77,13 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         bool isIP4 = addr.Has<IP4>();
         MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
+
+        var _protocols = multiplexerSettings is null ?
+            new List<SslApplicationProtocol> { } :
+            !multiplexerSettings.Multiplexers.Any() ?
+            new List<SslApplicationProtocol> { } :
+            multiplexerSettings.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList();
+
         SslClientAuthenticationOptions clientAuthenticationOptions = new()
         {
             CertificateChainPolicy = new X509ChainPolicy
