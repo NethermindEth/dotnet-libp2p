@@ -15,7 +15,7 @@ class PubSubTestSetup
     public Dictionary<int, PeerStore> PeerStores { get; } = new();
     public Dictionary<int, PubsubRouter> Routers { get; } = new();
 
-    public void Add(int count)
+    public async Task AddAsync(int count)
     {
         int initialCount = Peers.Count;
         // There is common communication point
@@ -41,6 +41,7 @@ class PubSubTestSetup
             ILocalPeer peer = Peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = Routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
+            await peer.ListenAsync(TestPeers.Multiaddr(i));
             _ = router.RunAsync(peer);
             PeerStores[i] = peerStore;
         }

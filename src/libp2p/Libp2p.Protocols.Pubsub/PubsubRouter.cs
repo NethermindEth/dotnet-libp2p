@@ -130,7 +130,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
     private ILocalPeer? localPeer;
     private ManagedPeer peer;
-    private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
+    private readonly ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
     // all floodsub peers in topics
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();

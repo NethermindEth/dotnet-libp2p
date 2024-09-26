@@ -74,6 +74,7 @@ public class MultistreamProtocolTests
             PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
             PubSubDiscoveryProtocol disc = new(router, peerStore, new PubSubDiscoverySettings() { Interval = 300 }, peer);
+            await peer.ListenAsync(TestPeers.Multiaddr(i));
             _ = router.RunAsync(peer);
             peerStores[i] = peerStore;
             _ = disc.DiscoverAsync(peers[i].Address);
@@ -102,7 +103,7 @@ public class MultistreamProtocolTests
         PubSubTestSetup setup = new();
         Dictionary<int, PubSubDiscoveryProtocol> discoveries = [];
 
-        setup.Add(totalCount);
+        await setup.AddAsync(totalCount);
 
         // discover in circle
         for (int i = 0; i < setup.Peers.Count; i++)

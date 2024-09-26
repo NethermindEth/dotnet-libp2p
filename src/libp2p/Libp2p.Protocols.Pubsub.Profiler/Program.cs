@@ -10,9 +10,17 @@ using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
+using System.Text.RegularExpressions;
+using static Org.BouncyCastle.Bcpg.Attr.ImageAttrib;
+using static System.Net.Mime.MediaTypeNames;
+
+TaskScheduler.UnobservedTaskException += (s, e) => Console.WriteLine(e.Exception);
+
+AppDomain.CurrentDomain.UnhandledException += (s, e) => Console.WriteLine(e);
+
 
 int totalCount = 5;
-TestContextLoggerFactory fac = new TestContextLoggerFactory();
+TestContextLoggerFactory fac = new();
 // There is common communication point
 ChannelBus commonBus = new(fac);
 ILocalPeer[] peers = new ILocalPeer[totalCount];
@@ -35,8 +43,10 @@ for (int i = 0; i < totalCount; i++)
     ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
     PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
     PubSubDiscoveryProtocol disc = new(router, peerStores[i] = sp.GetService<PeerStore>()!, new PubSubDiscoverySettings() { Interval = 300 }, peer);
+
+    await peer.ListenAsync(TestPeers.Multiaddr(i));
     _ = router.RunAsync(peer);
-    _ = disc.DiscoverAsync(peers[i].Address);
+    _ = disc.DiscoverAsync(peer.Address);
 }
 
 for (int i = 0; i < peers.Length; i++)

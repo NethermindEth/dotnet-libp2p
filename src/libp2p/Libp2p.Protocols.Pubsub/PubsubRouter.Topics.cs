@@ -129,7 +129,7 @@ public partial class PubsubRouter
 
         if (mesh.ContainsKey(topicId))
         {
-            foreach (PeerId peerId in mesh[topicId])
+            foreach (PeerId peerId in mesh[topicId].ToList())
             {
                 peerState.GetValueOrDefault(peerId)?.Send(rpc);
             }
