@@ -10,9 +10,6 @@ using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
-using System.Text.RegularExpressions;
-using static Org.BouncyCastle.Bcpg.Attr.ImageAttrib;
-using static System.Net.Mime.MediaTypeNames;
 
 TaskScheduler.UnobservedTaskException += (s, e) => Console.WriteLine(e.Exception);
 

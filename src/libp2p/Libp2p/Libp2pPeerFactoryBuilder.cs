@@ -7,8 +7,7 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
-    ILibp2pPeerFactoryBuilder
+public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>, ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
 
@@ -18,25 +17,19 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
-    {
-    }
+    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider) { }
 
     protected override ProtocolStack BuildStack()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ?
-            Over<PlainTextProtocol>() :
-            Over<NoiseProtocol>();
+        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>().Or<TlsProtocol>();
 
-        ProtocolStack tcpStack =
-            Over<IpTcpProtocol>()
+        ProtocolStack tcpStack = Over<IpTcpProtocol>()
             .Over<MultistreamProtocol>()
             .Over(tcpEncryptionStack)
             .Over<MultistreamProtocol>()
             .Over<YamuxProtocol>();
 
-        return
-            Over<MultiaddressBasedSelectorProtocol>()
+        return Over<MultiaddressBasedSelectorProtocol>()
             // Quic is not working well, and requires consumers to mark projects with preview
             //.Over<QuicProtocol>().Or(tcpStack)
             .Over(tcpStack)

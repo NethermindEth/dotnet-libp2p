@@ -71,6 +71,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubDisc
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Profiler", "Libp2p.Protocols.Pubsub.Profiler\Libp2p.Protocols.Pubsub.Profiler.csproj", "{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Tls", "Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj", "{C3CDBAAE-C790-443A-A293-D6E2330160F7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -193,6 +195,10 @@ Global
 		{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3CDBAAE-C790-443A-A293-D6E2330160F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3CDBAAE-C790-443A-A293-D6E2330160F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3CDBAAE-C790-443A-A293-D6E2330160F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3CDBAAE-C790-443A-A293-D6E2330160F7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

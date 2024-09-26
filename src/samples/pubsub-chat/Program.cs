@@ -10,8 +10,6 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 using Multiformats.Address.Protocols;
 using Multiformats.Address;
 using Nethermind.Libp2p.Protocols;
-using Nethermind.Libp2p.Core.Discovery;
-using Noise;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder)

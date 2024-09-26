@@ -3,7 +3,6 @@
 
 using Multiformats.Address;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.Discovery;
 

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Discovery;
 using NUnit.Framework;
 
