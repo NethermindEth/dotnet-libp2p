@@ -11,11 +11,6 @@ using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
 
-TaskScheduler.UnobservedTaskException += (s, e) => Console.WriteLine(e.Exception);
-
-AppDomain.CurrentDomain.UnhandledException += (s, e) => Console.WriteLine(e);
-
-
 int totalCount = 5;
 TestContextLoggerFactory fac = new();
 // There is common communication point
