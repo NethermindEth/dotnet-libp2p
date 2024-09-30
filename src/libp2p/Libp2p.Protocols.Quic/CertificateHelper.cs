@@ -4,17 +4,22 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using System.Formats.Asn1;
+using System.Net;
+using System.Net.Security;
+using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Xml.Linq;
 
 namespace Nethermind.Libp2p.Protocols.Quic;
 public class CertificateHelper
 {
     private const string PubkeyExtensionOidString = "1.3.6.1.4.1.53594.1.1";
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
-
-    public static X509Certificate CertificateFromIdentity(ECDsa sessionKey, Identity identity)
+    static X509Certificate2 res = null;
+    public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
     {
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls13;
         byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(sessionKey.ExportSubjectPublicKeyInfo()));
 
         AsnWriter asnWrtier = new(AsnEncodingRules.DER);
@@ -25,10 +30,111 @@ public class CertificateHelper
         byte[] pubkeyExtension = new byte[asnWrtier.GetEncodedLength()];
         asnWrtier.Encode(pubkeyExtension);
 
-        CertificateRequest certRequest = new("", sessionKey, HashAlgorithmName.SHA256);
+        CertificateRequest certRequest = new($"cn={new Random().Next()}", sessionKey, HashAlgorithmName.SHA256);
+        
         certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
+        var result = certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
+        var result0 = result;
+        //result = new X509Certificate2(result.Export(X509ContentType.Pfx));
+        var result2 = result;
 
-        return certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
+        X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.MaxAllowed);
+        var d = store.Certificates.Count;
+        
+        store.Add(result);
+
+        var d2 = store.Certificates.Count;
+
+        store.Close();
+        store.Dispose();
+
+        try
+        {
+            store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+            X509Certificate2Collection cers = store.Certificates;
+            if (cers.Count > 0)
+            {
+                foreach (X509Certificate2 c in cers)
+                {
+                    if (c.SerialNumber == result.SerialNumber)
+                    {
+                        result = c;
+                    }
+                }
+            }
+            store.Close();
+
+        }
+        catch
+        {
+            throw;
+        }
+        res = result;
+
+        return result;// new X509Certificate2(result.Export(X509ContentType.Pkcs7));
+    }
+
+
+    public static (X509Certificate2, X509Certificate2) CertificateFromIdentity2(ECDsa sessionKey, Identity identity)
+    {
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls13;
+        byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(sessionKey.ExportSubjectPublicKeyInfo()));
+
+        AsnWriter asnWrtier = new(AsnEncodingRules.DER);
+        asnWrtier.PushSequence();
+        asnWrtier.WriteOctetString(identity.PublicKey.ToByteArray());
+        asnWrtier.WriteOctetString(signature);
+        asnWrtier.PopSequence();
+        byte[] pubkeyExtension = new byte[asnWrtier.GetEncodedLength()];
+        asnWrtier.Encode(pubkeyExtension);
+
+        CertificateRequest certRequest = new($"cn={new Random().Next()}", sessionKey, HashAlgorithmName.SHA256);
+
+        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
+        var result = certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
+        var result0 = result;
+        result = new X509Certificate2(result.Export(X509ContentType.Pfx), (string?)null, X509KeyStorageFlags.PersistKeySet);
+        var result2 = result;
+
+        X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.MaxAllowed);
+        var d = store.Certificates.Count;
+
+        store.Add(result);
+
+        var d2 = store.Certificates.Count;
+        store.Close();
+        store.Dispose();
+
+        try
+        {
+            store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+            X509Certificate2Collection cers = store.Certificates;
+            if (cers.Count > 0)
+            {
+                foreach (X509Certificate2 c in cers)
+                {
+                    if (c.SerialNumber == result.SerialNumber)
+                    {
+                        result = c;
+                    }
+                }
+            }
+            
+            store.Close();
+
+        }
+        catch
+        {
+            throw;
+        }
+        res = result;
+
+        
+        return (result, result0);// new X509Certificate2(result.Export(X509ContentType.Pkcs7));
     }
 
     public static bool ValidateCertificate(X509Certificate2? certificate, string? peerId)

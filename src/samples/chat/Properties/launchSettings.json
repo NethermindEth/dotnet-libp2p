@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Chat": {
+      "commandName": "Project",
+      "commandLineArgs": " -d /ip4/127.0.0.1/tcp/9001/p2p/QmcMpnf39qfJcXssHrFFw7nvAioLd4SXKhzBZ4XMcLDoSU"
+    }
+  }
+}

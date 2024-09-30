@@ -22,66 +22,83 @@ public class MultistreamProtocol : IProtocol
     public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-        if (!await SendHello(channel))
+        try
         {
-            await channel.CloseAsync();
-            return;
-        }
+            _logger?.LogTrace($"MS Dials");
 
-        async Task<bool?> DialProtocol(IProtocol selector)
-        {
-            await channel.WriteLineAsync(selector.Id);
-            string selectorLine = await channel.ReadLineAsync();
-            _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
-            if (selectorLine == selector.Id)
+            if (!await SendHello(channel))
             {
-                return true;
-            }
-
-            if (selectorLine != ProtocolNotSupported)
-            {
-                return false;
-            }
-
-            return null;
-        }
-
-        IProtocol? selected = null;
-
-        if (context.SpecificProtocolRequest?.SubProtocol is not null)
-        {
-            selected = context.SpecificProtocolRequest.SubProtocol;
-
-            context.SpecificProtocolRequest = null;
-            if (await DialProtocol(selected) != true)
-            {
+                await channel.CloseAsync();
                 return;
             }
-        }
-        else
-        {
-            foreach (IProtocol selector in channelFactory!.SubProtocols)
+
+            async Task<bool?> DialProtocol(IProtocol selector)
             {
-                bool? dialResult = await DialProtocol(selector);
-                if (dialResult == true)
+                _logger?.LogTrace($"Trying 1");
+
+                await channel.WriteLineAsync(selector.Id);
+                _logger?.LogTrace($"Trying 2");
+                string selectorLine = await channel.ReadLineAsync();
+                _logger?.LogTrace($"Trying 3 {selectorLine}");
+                _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
+                if (selectorLine == selector.Id)
                 {
-                    selected = selector;
-                    break;
+                    return true;
                 }
-                else if (dialResult == false)
+
+                if (selectorLine != ProtocolNotSupported)
                 {
-                    break;
+                    return false;
+                }
+
+                return null;
+            }
+
+            IProtocol? selected = null;
+
+            if (context.SpecificProtocolRequest?.SubProtocol is not null)
+            {
+                selected = context.SpecificProtocolRequest.SubProtocol;
+
+                context.SpecificProtocolRequest = null;
+                if (await DialProtocol(selected) != true)
+                {
+                    return;
                 }
             }
-        }
+            else
+            {
+                _logger?.LogTrace($"Selecting proto");
 
-        if (selected is null)
-        {
-            _logger?.LogDebug($"Negotiation failed");
-            return;
+                foreach (IProtocol selector in channelFactory!.SubProtocols)
+                {
+                    _logger?.LogTrace($"Trying  {selector}");
+
+                    bool? dialResult = await DialProtocol(selector);
+                    if (dialResult == true)
+                    {
+                        selected = selector;
+                        break;
+                    }
+                    else if (dialResult == false)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (selected is null)
+            {
+                _logger?.LogDebug($"Negotiation failed");
+                return;
+            }
+            _logger?.LogDebug($"Protocol selected during dialing: {selected}");
+            await channelFactory.SubDialAndBind(channel, context, selected);
         }
-        _logger?.LogDebug($"Protocol selected during dialing: {selected}");
-        await channelFactory.SubDialAndBind(channel, context, selected);
+        catch
+        {
+            _logger?.LogError($"Negotiation failed");
+        }
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
