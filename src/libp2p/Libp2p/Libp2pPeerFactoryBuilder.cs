@@ -21,7 +21,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
     protected override ProtocolStack BuildStack()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>().Or<TlsProtocol>();
+        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>();
 
         ProtocolStack tcpStack = Over<IpTcpProtocol>()
             .Over<MultistreamProtocol>()
