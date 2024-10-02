@@ -73,6 +73,8 @@ jobs:
           dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.PubsubDiscovery ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
           

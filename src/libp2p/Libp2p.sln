@@ -59,6 +59,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		Directory.Build.props = Directory.Build.props
 		Directory.Packages.props = Directory.Packages.props
+		..\..\.github\workflows\format.yml = ..\..\.github\workflows\format.yml
+		..\..\.github\workflows\publish.yml = ..\..\.github\workflows\publish.yml
+		..\..\.github\workflows\test.yml = ..\..\.github\workflows\test.yml
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux.Tests", "Libp2p.Protocols.Yamux.Tests\Libp2p.Protocols.Yamux.Tests.csproj", "{D9003366-1562-49CA-B32D-087BBE3973ED}"
@@ -71,7 +74,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubDisc
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Profiler", "Libp2p.Protocols.Pubsub.Profiler\Libp2p.Protocols.Pubsub.Profiler.csproj", "{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Tls", "Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj", "{C3CDBAAE-C790-443A-A293-D6E2330160F7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Tls", "Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj", "{C3CDBAAE-C790-443A-A293-D6E2330160F7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
