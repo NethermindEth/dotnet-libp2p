@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Dto;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
-using Multiformats.Address.Net;
 
 namespace Nethermind.Libp2p.Protocols;
 

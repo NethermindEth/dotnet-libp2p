@@ -3,12 +3,13 @@
 
 using Microsoft.Extensions.Logging;
 using NUnit.Framework;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class DebugLoggerFactory : ILoggerFactory
+public class TestContextLoggerFactory : ILoggerFactory
 {
-    class DebugLogger(string categoryName) : ILogger, IDisposable
+    class TestContextLogger(string categoryName) : ILogger, IDisposable
     {
         private readonly string _categoryName = categoryName;
 
@@ -29,6 +30,7 @@ public class DebugLoggerFactory : ILoggerFactory
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             TestContext.Out.WriteLine($"{logLevel} {_categoryName}:{eventId}: {(exception is null ? state?.ToString() : formatter(state, exception))}");
+            Debug.WriteLine($"{logLevel} {_categoryName}:{eventId}: {(exception is null ? state?.ToString() : formatter(state, exception))}");
         }
     }
 
@@ -39,7 +41,7 @@ public class DebugLoggerFactory : ILoggerFactory
 
     public ILogger CreateLogger(string categoryName)
     {
-        return new DebugLogger(categoryName);
+        return new TestContextLogger(categoryName);
     }
 
     public void Dispose()

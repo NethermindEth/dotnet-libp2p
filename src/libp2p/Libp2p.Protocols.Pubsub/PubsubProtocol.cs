@@ -35,7 +35,6 @@ public abstract class PubsubProtocol : IProtocol
         CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
         {
             var t = channel.WriteSizeAndProtobufAsync(rpc);
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
             t.AsTask().ContinueWith((t) =>
             {
                 if (!t.IsCompletedSuccessfully)
@@ -49,13 +48,11 @@ public abstract class PubsubProtocol : IProtocol
         await channel;
         dialTcs.SetResult();
         _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
-
     }
 
     public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
         IPeerContext context)
     {
-
         string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
         _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
 
