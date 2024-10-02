@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+option csharp_namespace = "Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Dto";
+
 message Peer {
   bytes publicKey = 1;
   repeated bytes addrs = 2;

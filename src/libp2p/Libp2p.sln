@@ -68,9 +68,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Yamux.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TransportInterop", "..\samples\transport-interop\TransportInterop.csproj", "{EC505F21-FC69-4432-88A8-3CD5F7899B08}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubDiscovery", "Libp2p.Protocols.PubsubDiscovery\Libp2p.Protocols.PubsubDiscovery.csproj", "{F14C0226-D2B1-48B8-BC6A-163BE2C8A4C6}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubPeerDiscovery", "Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj", "{F14C0226-D2B1-48B8-BC6A-163BE2C8A4C6}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubDiscovery.Tests", "Libp2p.Protocols.PubsubDiscovery.Tests\Libp2p.Protocols.PubsubDiscovery.Tests.csproj", "{5883B53B-2BA5-4444-8E65-DA4B69EB8B2F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubPeerDiscovery.Tests", "Libp2p.Protocols.PubsubPeerDiscovery.Tests\Libp2p.Protocols.PubsubPeerDiscovery.Tests.csproj", "{5883B53B-2BA5-4444-8E65-DA4B69EB8B2F}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Profiler", "Libp2p.Protocols.Pubsub.Profiler\Libp2p.Protocols.Pubsub.Profiler.csproj", "{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}"
 EndProject

@@ -4,9 +4,9 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols.Pubsub;
 
-namespace Nethermind.Libp2p.Protocols.PubsubDiscovery.Tests;
+namespace Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Tests;
 
-class PubSubTestSetup
+class PubsubTestSetup
 {
     static TestContextLoggerFactory fac = new TestContextLoggerFactory();
 

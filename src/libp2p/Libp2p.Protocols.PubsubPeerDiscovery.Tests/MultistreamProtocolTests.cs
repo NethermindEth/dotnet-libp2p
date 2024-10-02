@@ -8,7 +8,7 @@ using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework.Internal;
 
-namespace Nethermind.Libp2p.Protocols.PubsubDiscovery.Tests;
+namespace Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Tests;
 
 [TestFixture, Ignore("No support of time mock yet")]
 [Parallelizable(scope: ParallelScope.All)]
@@ -73,7 +73,7 @@ public class MultistreamProtocolTests
             ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
-            PubSubDiscoveryProtocol disc = new(router, peerStore, new PubSubDiscoverySettings() { Interval = 300 }, peer);
+            PubsubPeerDiscoveryProtocol disc = new(router, peerStore, new PubsubPeerDiscoverySettings() { Interval = 300 }, peer);
             await peer.ListenAsync(TestPeers.Multiaddr(i));
             _ = router.RunAsync(peer);
             peerStores[i] = peerStore;
@@ -100,8 +100,8 @@ public class MultistreamProtocolTests
     {
         int totalCount = 5;
 
-        PubSubTestSetup setup = new();
-        Dictionary<int, PubSubDiscoveryProtocol> discoveries = [];
+        PubsubTestSetup setup = new();
+        Dictionary<int, PubsubPeerDiscoveryProtocol> discoveries = [];
 
         await setup.AddAsync(totalCount);
 
@@ -113,7 +113,7 @@ public class MultistreamProtocolTests
 
         for (int i = 0; i < setup.Peers.Count; i++)
         {
-            discoveries[i] = new(setup.Routers[i], setup.PeerStores[i], new PubSubDiscoverySettings() { Interval = int.MaxValue }, setup.Peers[i]);
+            discoveries[i] = new(setup.Routers[i], setup.PeerStores[i], new PubsubPeerDiscoverySettings() { Interval = int.MaxValue }, setup.Peers[i]);
             _ = discoveries[i].DiscoverAsync(setup.Peers[i].Address);
         }
 
