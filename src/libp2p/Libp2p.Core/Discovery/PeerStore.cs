@@ -64,10 +64,11 @@ public class PeerStore
     {
         return store.GetOrAdd(peerId, id => new PeerInfo());
     }
+
+    public class PeerInfo
+    {
+        public ByteString? SignedPeerRecord { get; set; }
+        public HashSet<Multiaddress>? Addrs { get; set; }
+    }
 }
 
-public class PeerInfo
-{
-    public ByteString SignedPeerRecord { get; set; }
-    public HashSet<Multiaddress>? Addrs { get; set; }
-}
