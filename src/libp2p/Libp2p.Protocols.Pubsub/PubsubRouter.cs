@@ -6,7 +6,10 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Protocols.Identify.Dto;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Org.BouncyCastle.Tls;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -49,19 +52,24 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
             PeerId = peerId;
             Protocol = protocolId switch
             {
-                FloodsubProtocolVersion => PubsubProtocol.Floodsub,
-                _ => PubsubProtocol.Gossipsub,
+                GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
+                GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
+                GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+                _ => PubsubProtocol.Floodsub,
             };
             TokenSource = new CancellationTokenSource();
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
         }
 
-        private enum PubsubProtocol
+        public enum PubsubProtocol
         {
-            Unknown,
-            Floodsub,
-            Gossipsub,
+            None = 0,
+            Floodsub = 1,
+            GossipsubV10 = 2,
+            GossipsubV11 = 4,
+            GossipsubV12 = 8,
+            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
         }
 
         public void Send(Rpc rpc)
@@ -100,8 +108,8 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         public CancellationTokenSource TokenSource { get; init; }
         public PeerId PeerId { get; set; }
 
-        private PubsubProtocol Protocol { get; set; }
-        public bool IsGossipSub => Protocol == PubsubProtocol.Gossipsub;
+        public PubsubProtocol Protocol { get; set; }
+        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
 
         public ConnectionInitiation InititatedBy { get; internal set; }
@@ -162,6 +170,8 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
     public async Task RunAsync(ILocalPeer localPeer, Settings? settings = null, CancellationToken token = default)
     {
+        logger?.LogDebug($"Running pubsub for {localPeer.Address}");
+
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
@@ -254,6 +264,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         {
             foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
             {
+                Console.WriteLine($"MESH({localPeer!.Address.GetPeerId()}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
                 if (mesh.Value.Count < settings.LowestDegree)
                 {
                     PeerId[] peersToGraft = gPeers[mesh.Key]
@@ -274,9 +285,15 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                     foreach (PeerId? peerId in peerstoPrune)
                     {
                         mesh.Value.Remove(peerId);
+                        var prune = new ControlPrune { TopicID = mesh.Key, Backoff = 60 };
+                        prune.Peers.AddRange(mesh.Value.ToArray().Select(pid => (PeerId: pid, Record: store.GetPeerInfo(pid)?.SignedPeerRecord)).Where(pid => pid.Record is not null).Select(pid => new PeerInfo
+                        {
+                            PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                            SignedPeerRecord = pid.Record,
+                        }));
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
-                             .Add(new ControlPrune { TopicID = mesh.Key, Peers = { }, Backoff = 60 });
+                             .Add(prune);
                     }
                 }
             }
@@ -330,12 +347,10 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
     {
-        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out");
         PeerId? peerId = addr.GetPeerId();
 
         if (peerId is null)
         {
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 1 peerid null");
             return Canceled;
         }
 
@@ -343,20 +358,14 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
         lock (peer)
         {
-            if (peer.SendRpc == sendRpc)
-            {
-                logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 2 Peer created in outbound");
-            }
-            else
+            if (peer.SendRpc != sendRpc)
             {
                 if (peer.SendRpc is null)
                 {
-                    logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 3 Peer created in inbound");
                     peer.SendRpc = sendRpc;
                 }
                 else
                 {
-                    logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 3 Peer created in another outbound");
                     return Canceled;
                 }
             }
@@ -384,37 +393,35 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
             }
             reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
         });
-        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 4 send hello {string.Join(",", topicState.Keys)}");
 
-        Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
-        peer.Send(helloMessage);
+        string[] topics = topicState.Keys.ToArray();
+
+        if (topics.Any())
+        {
+            logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
+
+            Rpc helloMessage = new Rpc().WithTopics(topics, []);
+            peer.Send(helloMessage);
+        }
+
         logger?.LogDebug("Outbound {peerId}", peerId);
-
-        logger?.LogDebug($"{localPeer?.Identity.PeerId}-out: 5 return token {peer.TokenSource.Token}");
-
         return peer.TokenSource.Token;
     }
 
     internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Task dialTask, Func<Task> subDial)
     {
         PeerId? peerId = addr.GetPeerId();
-        logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1 remote peer {peerId}");
 
         if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.1 remote cancel {peerId}");
-
             return Canceled;
         }
-
-        logger?.LogDebug("Inbound {peerId}", peerId);
 
         PubsubPeer? newPeer = null;
         PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
         if (newPeer is not null)
         {
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: Created in inbound {peerId}");
-            //logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+            logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
             listTask.ContinueWith(t =>
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
@@ -439,15 +446,11 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
             });
 
             subDial();
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 3 subdialed");
 
             return newPeer.TokenSource.Token;
         }
         else
         {
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: Already created, no inbound {peerId}");
-
-            logger?.LogDebug($"{localPeer?.Identity.PeerId}-in: 1.2 new peer null");
             return existingPeer.TokenSource.Token;
         }
     }
@@ -472,26 +475,18 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                         {
                             if (state.IsGossipSub)
                             {
-                                gPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
+                                gPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
                             }
                             else if (state.IsFloodSub)
                             {
-                                fPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
-                            }
-                            if (mesh.ContainsKey(sub.Topicid))
-                            {
-                                mesh[sub.Topicid].Add(peerId);
-                            }
-                            else
-                            {
-                                fanout.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
-                            }
+                                fPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
+                            }                            
                         }
                         else
                         {
                             if (state.IsGossipSub)
                             {
-                                gPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Remove(peerId);
+                                gPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);
                                 if (mesh.ContainsKey(sub.Topicid))
                                 {
                                     mesh[sub.Topicid].Remove(peerId);
@@ -503,7 +498,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                             }
                             else if (state.IsFloodSub)
                             {
-                                fPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Remove(peerId);
+                                fPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);
                             }
                         }
                     }
@@ -585,10 +580,33 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                             }
                             else
                             {
-                                mesh[graft.TopicID].Add(peerId);
-                                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                                    .Ensure(r => r.Control.Graft)
-                                    .Add(new ControlGraft { TopicID = graft.TopicID });
+                                HashSet<PeerId> topicMesh = mesh[graft.TopicID];
+
+                                if (topicMesh.Count >= settings.HighestDegree)
+                                {
+                                    ControlPrune prune = new() { TopicID = graft.TopicID };
+
+                                    if (peerState.TryGetValue(peerId, out PubsubPeer? state) && state.IsGossipSub && state.Protocol >= PubsubPeer.PubsubProtocol.GossipsubV11)
+                                    {
+                                        state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(prune.Backoff == 0 ? 60 : prune.Backoff);
+                                        prune.Peers.AddRange(topicMesh.ToArray().Select(pid => (PeerId: pid, Record: store.GetPeerInfo(pid)?.SignedPeerRecord)).Where(pid => pid.Record is not null).Select(pid => new PeerInfo
+                                        {
+                                            PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                                            SignedPeerRecord = pid.Record,
+                                        }));
+                                    }
+
+                                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                                        .Ensure(r => r.Control.Prune)
+                                        .Add(prune);
+                                }
+                                else
+                                {
+                                    topicMesh.Add(peerId);
+                                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                                        .Ensure(r => r.Control.Graft)
+                                        .Add(new ControlGraft { TopicID = graft.TopicID });
+                                }
                             }
                         }
                     }
@@ -608,6 +626,12 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                                     .Ensure(r => r.Control.Prune)
                                     .Add(new ControlPrune { TopicID = prune.TopicID });
 
+                                foreach(var peer in prune.Peers)
+                                {
+                                    // TODO verify payload type, signature, etc
+                                    // TODO check if it's working
+                                    reconnections.Add(new Reconnection(PeerRecord.Parser.ParseFrom(SignedEnvelope.Parser.ParseFrom(peer.SignedPeerRecord).Payload).Addresses.Select(ai => Multiaddress.Decode(ai.Multiaddr.ToByteArray())).ToArray(), 5));
+                                }
                             }
                         }
                     }

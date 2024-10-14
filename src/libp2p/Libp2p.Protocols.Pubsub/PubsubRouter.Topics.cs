@@ -40,7 +40,7 @@ public partial class PubsubRouter
 
         if (fanout.TryGetValue(topicId, out HashSet<PeerId>? fanoutPeers))
         {
-            foreach (PeerId peerId in fanoutPeers)
+            foreach (PeerId peerId in fanoutPeers.ToList())
             {
                 meshPeers.Add(peerId);
             }

@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Dto;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core.Discovery;
 
 public class PeerStore
 {
-    ConcurrentDictionary<PeerId, Multiaddress[]> store = [];
+    ConcurrentDictionary<PeerId, PeerInfo> store = [];
 
     public void Discover(Multiaddress[] addrs)
     {
@@ -19,8 +21,13 @@ public class PeerStore
 
         PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
 
-        if (peerId is not null && store.TryAdd(peerId, addrs))
+        if (peerId is not null)
         {
+            PeerInfo peerInfo = store.GetOrAdd(peerId, new PeerInfo { Addrs = [.. addrs] });
+            if(peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
+            {
+                return;
+            }
             onNewPeer?.Invoke(addrs);
         }
     }
@@ -39,7 +46,7 @@ public class PeerStore
             onNewPeer += value;
             foreach (var item in store.Select(x => x.Value).ToArray())
             {
-                value.Invoke(item);
+                if(item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
             }
         }
         remove
@@ -50,6 +57,17 @@ public class PeerStore
 
     public override string ToString()
     {
-        return $"peerStore({store.Count}):{string.Join(",", store.Select(x => x.Key.ToString() ?? "null"))})";
+        return $"peerStore({store.Count}):{string.Join(",", store.Select(x => x.Key.ToString() ?? "null"))}";
     }
+
+    public PeerInfo GetPeerInfo(PeerId peerId)
+    {
+        return store.GetOrAdd(peerId, id => new PeerInfo());
+    }
+}
+
+public class PeerInfo
+{
+    public ByteString SignedPeerRecord { get; set; }
+    public HashSet<Multiaddress>? Addrs { get; set; }
 }

@@ -11,7 +11,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 {
     private const string id = "test-muxer";
 
-    private readonly ILogger? logger = null;// loggerFactory?.CreateLogger(id);
+    private readonly ILogger? logger = loggerFactory?.CreateLogger(id);
 
     public string Id => id;
 
@@ -39,6 +39,8 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         Dictionary<uint, MuxerChannel> chans = [];
 
         string peer = "";
+        context = context.Fork();
+
         if (isListen)
         {
             peer = await downChannel.ReadLineAsync();

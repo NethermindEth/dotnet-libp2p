@@ -2,37 +2,45 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
 public class ChannelBus(TestContextLoggerFactory? fac = null)
 {
-    ILogger? logger = fac?.CreateLogger("bus");
+    private readonly ILogger? logger = fac?.CreateLogger("bus");
 
-    Dictionary<PeerId, Channel<IChannel>> channels = [];
+    class ClientChannel
+    {
+        public required PeerId Client { get; set; }
+        public required IChannel Channel { get; set; }
+    }
+
+    Dictionary<PeerId, Channel<ClientChannel>> channels = [];
 
     public async IAsyncEnumerable<IChannel> GetIncomingRequests(PeerId serverId)
     {
-        Channel<IChannel> col = System.Threading.Channels.Channel.CreateUnbounded<IChannel>();
+        Channel<ClientChannel> col = System.Threading.Channels.Channel.CreateUnbounded<ClientChannel>();
 
         if (!channels.TryAdd(serverId, col))
         {
             throw new Exception("Test listener with such peer id alread exists.");
         }
+
         logger?.LogDebug($"Listen {serverId}");
 
         await foreach (var item in col.Reader.ReadAllAsync())
         {
-            logger?.LogDebug($"New request to {serverId}");
-            yield return item;
+            logger?.LogDebug($"New request from {item.Client} to {serverId}");
+            yield return item.Channel;
         }
         logger?.LogDebug($"Listen end {serverId}");
     }
 
     public IChannel Dial(PeerId self, PeerId serverId)
     {
-        if (!channels.TryGetValue(serverId, out Channel<IChannel>? col))
+        if (!channels.TryGetValue(serverId, out Channel<ClientChannel>? col))
         {
             throw new Exception("Test listener with such peer id does not exist.");
         }
@@ -40,7 +48,7 @@ public class ChannelBus(TestContextLoggerFactory? fac = null)
         logger?.LogDebug($"Dial {self} -> {serverId}");
 
         Channel channel = new();
-        _ = col.Writer.WriteAsync(channel.Reverse);
+        _ = col.Writer.WriteAsync(new ClientChannel { Channel = channel.Reverse, Client = self });
         return channel;
     }
 }

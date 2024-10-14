@@ -11,7 +11,7 @@ using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
 
-int totalCount = 5;
+int totalCount = 7;
 TestContextLoggerFactory fac = new();
 // There is common communication point
 ChannelBus commonBus = new(fac);
@@ -28,6 +28,7 @@ for (int i = 0; i < totalCount; i++)
            .AddSingleton<ILoggerFactory>(sp => fac)
            .AddSingleton<PubsubRouter>()
            .AddSingleton<PeerStore>()
+           .AddSingleton(sp => new Settings { LowestDegree = 1, Degree = 2, LazyDegree = 2, HighestDegree = 3 })
            .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
            .BuildServiceProvider();
 
@@ -37,13 +38,22 @@ for (int i = 0; i < totalCount; i++)
     PubsubPeerDiscoveryProtocol disc = new(router, peerStores[i] = sp.GetService<PeerStore>()!, new PubsubPeerDiscoverySettings() { Interval = 300 }, peer);
 
     await peer.ListenAsync(TestPeers.Multiaddr(i));
-    _ = router.RunAsync(peer);
-    _ = disc.DiscoverAsync(peer.Address);
+    _ = router.RunAsync(peer, sp.GetService<Settings>());
+    //_ = disc.DiscoverAsync(peer.Address);
 }
 
-for (int i = 0; i < peers.Length; i++)
+Console.WriteLine($"Emulate peer exchange with one bootstrap peer");
+
+for (int i = 0; i < routers.Length; i++)
 {
-    peerStores[i].Discover([peers[(i + 1) % totalCount].Address]);
+    routers[i].GetTopic("test");
+}
+
+Console.WriteLine($"Center: {peers[0].Address}");
+
+for (int i = 1; i < peers.Length; i++)
+{
+    peerStores[i].Discover([peers[0].Address]);
 }
 
 await Task.Delay(10000);
@@ -62,10 +72,6 @@ for (int i = 0; i < peerStores.Length; i++)
     Console.WriteLine(peerStores[i].ToString());
 }
 
-for (int i = 0; i < routers.Length; i++)
-{
-    routers[i].GetTopic("test");
-}
 
 await Task.Delay(5000);
 
