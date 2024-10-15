@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
@@ -118,7 +118,7 @@ public partial class PubsubRouter
         topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
         ulong seqNo = this.seqNo++;
-        byte[] seqNoBytes = new byte[8];
+        byte[] seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Address.GetPeerId()!.Bytes, message, localPeer.Identity);
 

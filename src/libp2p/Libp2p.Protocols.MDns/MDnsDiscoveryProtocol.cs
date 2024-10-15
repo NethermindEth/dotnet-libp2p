@@ -18,9 +18,9 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     public static string Id => "mdns";
 
-    private readonly string ServiceName = "_p2p._udp.local";
+    private const string ServiceName = "_p2p._udp.local";
 
-    private readonly string? ServiceNameOverride = "pubsub-chat-example";
+    private const string? ServiceNameOverride = "pubsub-chat-example";
 
     private string PeerName = null!;
 
