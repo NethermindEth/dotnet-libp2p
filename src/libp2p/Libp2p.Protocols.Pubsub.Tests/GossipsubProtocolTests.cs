@@ -17,7 +17,7 @@ public class GossipsubProtocolTests
         PubsubRouter router = new(peerStore);
         Settings settings = new() { HeartbeatInterval = int.MaxValue };
         IRoutingStateContainer state = router;
-        int peerCount = Settings.Default.Degree * 2;
+        int peerCount = Settings.Default.HighestDegree + 1;
         const string commonTopic = "topic1";
 
         ILocalPeer peer = new LocalPeerStub();
@@ -47,7 +47,7 @@ public class GossipsubProtocolTests
         Assert.Multiple(() =>
         {
             Assert.That(state.GossipsubPeers[commonTopic], Has.Count.EqualTo(peerCount));
-            Assert.That(state.Mesh[commonTopic], Has.Count.EqualTo(Settings.Default.HighestDegree));
+            Assert.That(state.Mesh[commonTopic], Has.Count.EqualTo(Settings.Default.Degree));
         });
 
         tcs.SetResult();

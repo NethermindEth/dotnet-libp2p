@@ -23,8 +23,9 @@ public class PeerStore
 
         if (peerId is not null)
         {
-            PeerInfo peerInfo = store.GetOrAdd(peerId, new PeerInfo { Addrs = [.. addrs] });
-            if(peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
+            PeerInfo? newOne = null;
+            PeerInfo peerInfo = store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
+            if(peerInfo != newOne && peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
             {
                 return;
             }
