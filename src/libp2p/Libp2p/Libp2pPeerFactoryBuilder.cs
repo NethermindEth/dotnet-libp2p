@@ -1,12 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using System.Net.Security;
-using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
@@ -24,7 +21,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 
     protected override ProtocolStack BuildStack()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>().Or<TlsProtocol>();
+        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>();
 
         ProtocolStack tcpStack = Over<IpTcpProtocol>()
             .Over<MultistreamProtocol>()
@@ -39,8 +36,8 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
             .Over<MultistreamProtocol>()
             .AddAppLayerProtocol<IdentifyProtocol>()
             .AddAppLayerProtocol<PingProtocol>()
-            //.AddAppLayerProtocol<GossipsubProtocolV12>()
-            //.AddAppLayerProtocol<GossipsubProtocolV11>()
+            .AddAppLayerProtocol<GossipsubProtocolV12>()
+            .AddAppLayerProtocol<GossipsubProtocolV11>()
             .AddAppLayerProtocol<GossipsubProtocol>()
             .AddAppLayerProtocol<FloodsubProtocol>();
     }

@@ -49,11 +49,11 @@ message ControlPrune {
 	optional uint64 backoff = 3; // gossipsub v1.1 backoff time (in seconds)
 }
 
-message PeerInfo {
-	optional bytes peerID = 1;
-	optional bytes signedPeerRecord = 2;
-}
-
 message ControlIDontWant {
     repeated bytes messageIDs = 1;
+}
+
+message PeerInfo {
+	optional bytes peerID = 1;
+	optional SignedPeerRecordEnvelope signedPeerRecord = 2;
 }

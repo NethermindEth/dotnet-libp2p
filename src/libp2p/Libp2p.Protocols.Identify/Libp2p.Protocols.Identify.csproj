@@ -13,6 +13,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Dto\PeerRecord.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Dto\PeerRecord.proto">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </AdditionalFiles>
     <AdditionalFiles Include="Dto\Identify.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 

@@ -23,7 +23,7 @@ public class NoiseProtocolTests
         IProtocol? proto2 = Substitute.For<IProtocol>();
         proto2.Id.Returns("proto2");
 
-        channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
+        channelFactory.SubProtocols.Returns([proto1, proto2]);
 
         TestChannel upChannel = new TestChannel();
         channelFactory.SubDial(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
