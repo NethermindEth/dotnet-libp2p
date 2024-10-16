@@ -118,7 +118,7 @@ public partial class PubsubRouter
         topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
         ulong seqNo = this.seqNo++;
-        byte[] seqNoBytes = stackalloc byte[8];
+        Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Address.GetPeerId()!.Bytes, message, localPeer.Identity);
 
