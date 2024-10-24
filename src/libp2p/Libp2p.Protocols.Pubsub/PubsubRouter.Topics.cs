@@ -84,26 +84,26 @@ public partial class PubsubRouter
     {
         foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
         {
-            Rpc msg = new Rpc()
-                .WithTopics(Enumerable.Empty<string>(), topicState.Keys);
+            Rpc msg = new Rpc().WithTopics([], topicState.Keys);
 
             peerState.GetValueOrDefault(peerId)?.Send(msg);
         }
-        ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
+
+        Dictionary<PeerId, Rpc> peerMessages = new();
 
         foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
         {
-            peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                .WithTopics(Enumerable.Empty<string>(), topicState.Keys);
+            (peerMessages[peerId] ??= new Rpc())
+                .WithTopics([], topicState.Keys);
         }
 
         foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh)
         {
             foreach (PeerId peerId in topicMesh.Value)
             {
-                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                    .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = topicMesh.Key });
+                (peerMessages[peerId] ??= new Rpc())
+                   .Ensure(r => r.Control.Prune)
+                   .Add(new ControlPrune { TopicID = topicMesh.Key });
             }
         }
 

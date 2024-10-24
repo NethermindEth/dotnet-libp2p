@@ -15,9 +15,7 @@ namespace Nethermind.Libp2p.Protocols;
 public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
-
-    public static string Id => "mdns";
-
+    private const int MdnsQueryInterval = 5000;
     private const string ServiceName = "_p2p._udp.local";
 
     private const string? ServiceNameOverride = "pubsub-chat-example";
@@ -94,9 +92,9 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error setting up mDNS");
+                _logger?.LogError(ex, "Error querying network");
             }
-            await Task.Delay(5000, token);
+            await Task.Delay(MdnsQueryInterval, token);
         }
 
     }
