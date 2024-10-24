@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using System.Runtime.CompilerServices;
@@ -100,7 +101,7 @@ public class PeerFactory : IPeerFactory
         TaskCompletionSource cts = new(token);
         peerContext.SubDialRequests.Add(new ChannelRequest
         {
-            SubProtocol = PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(_serviceProvider),
+            SubProtocol = (_serviceProvider.GetService<IPeerFactoryBuilder>() as ICreateProtocolInstance)!.CreateProtocolInstance<TProtocol>(_serviceProvider),
             CompletionSource = cts
         });
         return cts.Task;

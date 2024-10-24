@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 
@@ -10,20 +9,17 @@ namespace Nethermind.Libp2p.Core.TestsBase;
 
 public class TestPeers
 {
-    private static readonly ConcurrentDictionary<int, Multiaddress> testPeerAddrs = new();
-    private static readonly ConcurrentDictionary<int, PeerId> testPeerIds = new();
+    private static readonly ConcurrentDictionary<int, Identity> testPeerIdentities = new();
 
-    public static Multiaddress Multiaddr(int i) => testPeerAddrs.GetOrAdd(i, i =>
+    public static Identity Identity(int i) => testPeerIdentities.GetOrAdd(i, i =>
     {
         byte[] key = new byte[32];
         BinaryPrimitives.WriteInt32BigEndian(key.AsSpan(32 - 4, 4), i);
-        return Multiaddress.Decode($"/p2p/{new Identity(key).PeerId}");
+        return new Identity(key);
     });
 
-    public static PeerId PeerId(int i) => testPeerIds.GetOrAdd(i, i => new PeerId(testPeerAddrs[i].Get<P2P>().ToString()));
-
-    public static PeerId PeerId(Multiaddress addr) => new PeerId(addr.Get<P2P>().ToString());
-
-    public static Identity Identity(Multiaddress addr) => new(Core.PeerId.ExtractPublicKey(PeerId(addr).Bytes));
-
+    public static Identity Identity(Multiaddress addr) => testPeerIdentities.First(i => $"/p2p/{i.Value.PeerId}" == addr.ToString()).Value;
+    public static PeerId PeerId(int i) => Identity(i).PeerId;
+    public static Multiaddress Multiaddr(Identity id) => $"/p2p/{id.PeerId}";
+    public static Multiaddress Multiaddr(int i) => $"/p2p/{Identity(i).PeerId}";
 }

@@ -24,15 +24,16 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
     static IdentifyReflection() {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
-            "Cg5JZGVudGlmeS5wcm90byKKAQoISWRlbnRpZnkSFwoPcHJvdG9jb2xWZXJz",
+            "Cg5JZGVudGlmeS5wcm90byKkAQoISWRlbnRpZnkSFwoPcHJvdG9jb2xWZXJz",
             "aW9uGAUgASgJEhQKDGFnZW50VmVyc2lvbhgGIAEoCRIRCglwdWJsaWNLZXkY",
             "ASABKAwSEwoLbGlzdGVuQWRkcnMYAiADKAwSFAoMb2JzZXJ2ZWRBZGRyGAQg",
-            "ASgMEhEKCXByb3RvY29scxgDIAMoCUIrqgIoTmV0aGVybWluZC5MaWJwMnAu",
-            "UHJvdG9jb2xzLklkZW50aWZ5LkR0bw=="));
+            "ASgMEhEKCXByb3RvY29scxgDIAMoCRIYChBzaWduZWRQZWVyUmVjb3JkGAgg",
+            "ASgMQiuqAihOZXRoZXJtaW5kLkxpYnAycC5Qcm90b2NvbHMuSWRlbnRpZnku",
+            "RHRv"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Identify.Dto.Identify), global::Nethermind.Libp2p.Protocols.Identify.Dto.Identify.Parser, new[]{ "ProtocolVersion", "AgentVersion", "PublicKey", "ListenAddrs", "ObservedAddr", "Protocols" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Identify.Dto.Identify), global::Nethermind.Libp2p.Protocols.Identify.Dto.Identify.Parser, new[]{ "ProtocolVersion", "AgentVersion", "PublicKey", "ListenAddrs", "ObservedAddr", "Protocols", "SignedPeerRecord" }, null, null, null, null)
           }));
     }
     #endregion
@@ -80,6 +81,7 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
       listenAddrs_ = other.listenAddrs_.Clone();
       observedAddr_ = other.observedAddr_;
       protocols_ = other.protocols_.Clone();
+      signedPeerRecord_ = other.signedPeerRecord_;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -215,6 +217,32 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
       get { return protocols_; }
     }
 
+    /// <summary>Field number for the "signedPeerRecord" field.</summary>
+    public const int SignedPeerRecordFieldNumber = 8;
+    private readonly static pb::ByteString SignedPeerRecordDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString signedPeerRecord_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString SignedPeerRecord {
+      get { return signedPeerRecord_ ?? SignedPeerRecordDefaultValue; }
+      set {
+        signedPeerRecord_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "signedPeerRecord" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasSignedPeerRecord {
+      get { return signedPeerRecord_ != null; }
+    }
+    /// <summary>Clears the value of the "signedPeerRecord" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearSignedPeerRecord() {
+      signedPeerRecord_ = null;
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -236,6 +264,7 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
       if(!listenAddrs_.Equals(other.listenAddrs_)) return false;
       if (ObservedAddr != other.ObservedAddr) return false;
       if(!protocols_.Equals(other.protocols_)) return false;
+      if (SignedPeerRecord != other.SignedPeerRecord) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -249,6 +278,7 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
       hash ^= listenAddrs_.GetHashCode();
       if (HasObservedAddr) hash ^= ObservedAddr.GetHashCode();
       hash ^= protocols_.GetHashCode();
+      if (HasSignedPeerRecord) hash ^= SignedPeerRecord.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -285,6 +315,10 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
         output.WriteRawTag(50);
         output.WriteString(AgentVersion);
       }
+      if (HasSignedPeerRecord) {
+        output.WriteRawTag(66);
+        output.WriteBytes(SignedPeerRecord);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -313,6 +347,10 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
         output.WriteRawTag(50);
         output.WriteString(AgentVersion);
       }
+      if (HasSignedPeerRecord) {
+        output.WriteRawTag(66);
+        output.WriteBytes(SignedPeerRecord);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -337,6 +375,9 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
         size += 1 + pb::CodedOutputStream.ComputeBytesSize(ObservedAddr);
       }
       size += protocols_.CalculateSize(_repeated_protocols_codec);
+      if (HasSignedPeerRecord) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(SignedPeerRecord);
+      }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
       }
@@ -363,6 +404,9 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
         ObservedAddr = other.ObservedAddr;
       }
       protocols_.Add(other.protocols_);
+      if (other.HasSignedPeerRecord) {
+        SignedPeerRecord = other.SignedPeerRecord;
+      }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
 
@@ -406,6 +450,10 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
             AgentVersion = input.ReadString();
             break;
           }
+          case 66: {
+            SignedPeerRecord = input.ReadBytes();
+            break;
+          }
         }
       }
     #endif
@@ -447,6 +495,10 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
           }
           case 50: {
             AgentVersion = input.ReadString();
+            break;
+          }
+          case 66: {
+            SignedPeerRecord = input.ReadBytes();
             break;
           }
         }

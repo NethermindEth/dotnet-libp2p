@@ -16,6 +16,8 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
 {
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
+
+    public Lazy<List<SslApplicationProtocol>> ApplicationProtocols = new Lazy<List<SslApplicationProtocol>>(() => multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ?? []);
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     public string Id => "/tls/1.0.0";
 
@@ -26,24 +28,20 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         {
             throw new ArgumentException("Protocol is not properly instantiated");
         }
+
         Stream str = new ChannelStream(downChannel);
         X509Certificate certificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
         _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.LocalPeer.Address.Get<P2P>(), certificate.Subject, certificate.Issuer);
 
-        var _protocols = multiplexerSettings is null ?
-            new List<SslApplicationProtocol> { } :
-            !multiplexerSettings.Multiplexers.Any() ?
-            new List<SslApplicationProtocol> { } :
-            multiplexerSettings.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList();
 
         SslServerAuthenticationOptions serverAuthenticationOptions = new()
         {
-            ApplicationProtocols = _protocols,
+            ApplicationProtocols = ApplicationProtocols.Value,
             RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.RemotePeer.Address, certificate),
             ServerCertificate = certificate,
             ClientCertificateRequired = true,
         };
-        _logger?.LogTrace("SslServerAuthenticationOptions initialized with ApplicationProtocols: {Protocols}.", string.Join(", ", _protocols.Select(p => p.Protocol)));
+        _logger?.LogTrace("SslServerAuthenticationOptions initialized with ApplicationProtocols: {Protocols}.", string.Join(", ", ApplicationProtocols.Value));
         SslStream sslStream = new(str, false, serverAuthenticationOptions.RemoteCertificateValidationCallback);
         _logger?.LogTrace("SslStream initialized.");
         try
@@ -78,12 +76,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
 
-        var _protocols = multiplexerSettings is null ?
-            new List<SslApplicationProtocol> { } :
-            !multiplexerSettings.Multiplexers.Any() ?
-            new List<SslApplicationProtocol> { } :
-            multiplexerSettings.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList();
-
         SslClientAuthenticationOptions clientAuthenticationOptions = new()
         {
             CertificateChainPolicy = new X509ChainPolicy
@@ -92,7 +84,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority
             },
             TargetHost = ipAddress.ToString(),
-            ApplicationProtocols = _protocols,
+            ApplicationProtocols = ApplicationProtocols.Value,
             EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
             RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.RemotePeer.Address, certificate),
             ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity) },
@@ -135,10 +127,10 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 logger?.LogDebug("Starting to write to sslStream");
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    logger.LogDebug($"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!");
+                    logger?.LogDebug($"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
                     await sslStream.WriteAsync(data.ToArray());
                     await sslStream.FlushAsync();
-                    logger.LogDebug($"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!!");
+                    logger?.LogDebug($"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
                 }
             }
             catch (Exception ex)
@@ -156,19 +148,21 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 {
                     byte[] data = new byte[1024];
                     int len = await sslStream.ReadAtLeastAsync(data, 1, false);
-                    if (len != 0)
+                    if (len == 0)
                     {
-                        logger?.LogDebug($"Received {len} bytes from sslStream: {{{Encoding.UTF8.GetString(data, 0, len).Replace("\r", "\\r").Replace("\n", "\\n")}}}");
-                        try
-                        {
-                            await upChannel.WriteAsync(new ReadOnlySequence<byte>(data.ToArray()[..len]));
-                        }
-                        catch (Exception ex)
-                        {
-                            logger?.LogError(ex, "Error while reading from sslStream");
-                        }
-                        logger.LogDebug($"Data received from sslStream, {len}");
+                        break;
                     }
+
+                    logger?.LogDebug($"Received {len} bytes from sslStream: {{{Encoding.UTF8.GetString(data, 0, len).Replace("\r", "\\r").Replace("\n", "\\n")}}}");
+                    try
+                    {
+                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(data.ToArray()[..len]));
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogError(ex, "Error while reading from sslStream");
+                    }
+                    logger?.LogDebug($"Data received from sslStream, {len}");
                 }
                 await upChannel.WriteEofAsync();
             }
