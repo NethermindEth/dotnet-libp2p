@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -126,9 +127,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                 }
             });
         }
-        catch
+        catch (Exception ex)
         {
-
+            _logger?.LogError(ex, $"Listener error");
+            throw;
         }
     }
 
@@ -238,9 +240,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             await Task.WhenAll(receiveTask, sendTask);
             _ = upChannel.CloseAsync();
         }
-        catch
+        catch (Exception ex)
         {
-
+            _logger?.LogError(ex, $"Listener error");
+            throw;
         }
     }
 }

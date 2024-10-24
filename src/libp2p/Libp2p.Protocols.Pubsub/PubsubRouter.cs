@@ -28,12 +28,13 @@ internal interface IRoutingStateContainer
 
 public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
 {
-    static int ctr = 0;
-    int _ctr = Interlocked.Increment(ref ctr);
+    static int routerCounter = 0;
+    readonly int routerId = Interlocked.Increment(ref routerCounter);
+
     public override string ToString()
     {
         //{string.Join("|", peerState.Select(x => $"{x.Key}:{x.Value.SendRpc is not null}"))}
-        return $"Router#{_ctr}: {localPeer?.Address.GetPeerId() ?? "null"}, " +
+        return $"Router#{routerId}: {localPeer?.Address.GetPeerId() ?? "null"}, " +
             $"peers: {peerState.Count(x => x.Value.SendRpc is not null)}/{peerState.Count}, " +
             $"mesh: {string.Join("|", mesh.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
             $"fanout: {string.Join("|", fanout.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
