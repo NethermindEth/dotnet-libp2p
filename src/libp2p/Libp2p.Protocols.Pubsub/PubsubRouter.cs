@@ -481,7 +481,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                             else if (state.IsFloodSub)
                             {
                                 fPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
-                            }                            
+                            }
                         }
                         else
                         {
@@ -627,7 +627,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                                     .Ensure(r => r.Control.Prune)
                                     .Add(new ControlPrune { TopicID = prune.TopicID });
 
-                                foreach(var peer in prune.Peers)
+                                foreach (var peer in prune.Peers)
                                 {
                                     // TODO verify payload type, signature, etc
                                     // TODO check if it's working

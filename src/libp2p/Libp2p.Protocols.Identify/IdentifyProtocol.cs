@@ -50,7 +50,7 @@ public class IdentifyProtocol : IProtocol
 
         if (_peerStore is not null && identify.SignedPeerRecord is not null)
         {
-            if(!VerifyPeerRecord(identify.SignedPeerRecord, context.RemotePeer.Identity))
+            if (!VerifyPeerRecord(identify.SignedPeerRecord, context.RemotePeer.Identity))
             {
                 throw new PeerConnectionException();
             }

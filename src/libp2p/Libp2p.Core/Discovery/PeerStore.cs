@@ -25,7 +25,7 @@ public class PeerStore
         {
             PeerInfo? newOne = null;
             PeerInfo peerInfo = store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
-            if(peerInfo != newOne && peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
+            if (peerInfo != newOne && peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
             {
                 return;
             }
@@ -47,7 +47,7 @@ public class PeerStore
             onNewPeer += value;
             foreach (var item in store.Select(x => x.Value).ToArray())
             {
-                if(item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
+                if (item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
             }
         }
         remove
