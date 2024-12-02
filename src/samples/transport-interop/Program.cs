@@ -9,6 +9,7 @@ using StackExchange.Redis;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 
 
 try
@@ -127,6 +128,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport"];
 
+    [RequiresPreviewFeatures]
     protected override ProtocolStack BuildStack()
     {
         ProtocolStack stack = transport switch
