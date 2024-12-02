@@ -12,17 +12,21 @@ public class PubsubPeerDiscoverySettings
     public bool ListenOnly { get; set; }
 }
 
-public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
+public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, IPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
-    private Multiaddress? _localPeerAddr;
+    private IReadOnlyList<Multiaddress>? _localPeerAddrs;
+    private PeerId? localPeerId;
     private ITopic[]? topics;
     private readonly PubsubPeerDiscoverySettings _settings = settings;
     private ILogger? logger = loggerFactory?.CreateLogger<PubsubPeerDiscoveryProtocol>();
 
-    public async Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
+    public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
-        _localPeerAddr = localPeerAddr;
+        _localPeerAddrs = localPeerAddrs;
+        localPeerId = localPeerAddrs.First().GetPeerId();
+
+
         topics = _settings.Topics.Select(topic =>
         {
             ITopic subscription = _pubSubRouter.GetTopic(topic);
@@ -60,7 +64,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
             topic.Publish(new Peer
             {
                 PublicKey = peer.Identity.PublicKey.ToByteString(),
-                Addrs = { ByteString.CopyFrom(peer.Address.ToBytes()) },
+                Addrs = { peer.ListenAddresses.Select(a => ByteString.CopyFrom(a.ToBytes())) },
             });
         }
     }
@@ -72,11 +76,11 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
             Peer peer = Peer.Parser.ParseFrom(msg);
             Multiaddress[] addrs = [.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))];
             PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
-            if (remotePeerId is not null && remotePeerId != _localPeerAddr?.GetPeerId()!)
+            if (remotePeerId is not null && remotePeerId != localPeerId!)
             {
                 peerStore.Discover(addrs);
             }
-            logger?.LogDebug($"{_localPeerAddr}: New peer discovered {peer}");
+            logger?.LogDebug($"New peer discovered {peer}");
         }
         catch (Exception ex)
         {

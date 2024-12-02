@@ -3,11 +3,18 @@
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
-public class TestBuilder(ChannelBus? commmonBus = null, IServiceProvider? serviceProvider = null) : PeerFactoryBuilderBase<TestBuilder, PeerFactory>(serviceProvider)
+public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactoryBuilderBase<TestBuilder, PeerFactory>(serviceProvider)
 {
-    protected override ProtocolStack BuildStack()
+    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
-        return Over(new TestMuxerProtocol(commmonBus ?? new ChannelBus(), new TestContextLoggerFactory()))
-            .AddAppLayerProtocol<TestPingProtocol>();
+        var root = Get<TestMuxerProtocol>();
+
+        Connect([root],
+            [
+                Get<TestPingProtocol>(),
+                .. additionalProtocols
+            ]);
+
+        return [root];
     }
 }

@@ -64,12 +64,14 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             .Where(m => !string.IsNullOrEmpty(m))
             .ToList();
         IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
+
+        UpgradeOptions? upgradeOptions = null;
+
         if (commonMuxer is not null)
         {
-            context.SpecificProtocolRequest = new ChannelRequest
+            upgradeOptions = new UpgradeOptions
             {
-                SubProtocol = commonMuxer,
-                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+                SelectedProtocol = commonMuxer,
             };
         }
 
@@ -105,7 +107,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
-        IChannel upChannel = context.Upgrade();
+        IChannel upChannel = context.Upgrade(upgradeOptions);
 
         await ExchangeData(transport, downChannel, upChannel);
 
@@ -159,12 +161,13 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
         IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
 
+        UpgradeOptions? upgradeOptions = null;
+
         if (commonMuxer is not null)
         {
-            context.SpecificProtocolRequest = new ChannelRequest
+            upgradeOptions = new UpgradeOptions
             {
-                SubProtocol = commonMuxer,
-                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+                SelectedProtocol = commonMuxer,
             };
         }
 
@@ -175,7 +178,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
-        IChannel upChannel = context.Upgrade();
+        IChannel upChannel = context.Upgrade(upgradeOptions);
 
         await ExchangeData(transport, downChannel, upChannel);
 

@@ -1,12 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace Nethermind.Libp2p.Core;
 
 //public class ConnectionContext(LocalPeer localPeer, ITransportProtocol transportProtocol) : ITransportConnectionContext

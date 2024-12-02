@@ -3,7 +3,6 @@
 
 using Google.Protobuf;
 using Multiformats.Address;
-using Nethermind.Libp2p.Core.Dto;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core.Discovery;

@@ -7,8 +7,6 @@ using Nethermind.Libp2p.Core;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using Multiformats.Address.Protocols;
-using Multiformats.Address;
 using Nethermind.Libp2p.Protocols;
 using System.Text.RegularExpressions;
 
@@ -21,7 +19,7 @@ ServiceProvider serviceProvider = new ServiceCollection()
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
-                l.TimestampFormat = "[HH:mm:ss.FFF]";
+                l.TimestampFormat = "[HH:mm:ss.fff]";
             }).AddFilter((_, type, lvl) => !omittedLogs.IsMatch(type!)))
     .BuildServiceProvider();
 
@@ -57,7 +55,7 @@ topic.OnMessage += (byte[] msg) =>
 _ = peer.StartListenAsync([addr], ts.Token);
 
 string peerId = peer.Identity.PeerId.ToString();
-_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: ts.Token);
+_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.ListenAddresses, token: ts.Token);
 
 _ = router.RunAsync(peer, token: ts.Token);
 

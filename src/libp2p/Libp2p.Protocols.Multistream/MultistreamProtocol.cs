@@ -50,14 +50,10 @@ public class MultistreamProtocol : IConnectionProtocol
 
         if (context.UpgradeOptions?.SelectedProtocol is not null)
         {
-            selected = context.SpecificProtocolRequest.SubProtocol;
-
-            context.SpecificProtocolRequest = null;
             _logger?.LogDebug($"Proposing just {context.UpgradeOptions.SelectedProtocol}");
             if (await DialProtocol(context.UpgradeOptions.SelectedProtocol) == true)
             {
                 selected = context.UpgradeOptions.SelectedProtocol;
-                return;
             }
         }
         else

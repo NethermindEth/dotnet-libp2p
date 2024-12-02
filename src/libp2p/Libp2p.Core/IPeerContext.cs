@@ -50,4 +50,5 @@ public class State
     public Multiaddress? LocalAddress { get; set; }
     public Multiaddress? RemoteAddress { get; set; }
     public PublicKey? RemotePublicKey { get; set; }
+    public PeerId? RemotePeerId => RemoteAddress?.GetPeerId();
 }

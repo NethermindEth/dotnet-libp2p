@@ -19,7 +19,7 @@ public class LocalPeerStub : IPeer
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
-    public event OnConnection? OnConnection;
+    public event Connected? OnConnected;
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {

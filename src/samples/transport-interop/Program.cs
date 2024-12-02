@@ -85,7 +85,7 @@ try
 
         CancellationTokenSource listennTcs = new();
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
-        localPeer.OnConnection += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
+        localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
         db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
@@ -161,7 +161,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];
         Connect(selector, apps);
 
-        return transportStack; 
+        return transportStack;
     }
 
     public string MakeAddress(string ip = "0.0.0.0", string port = "0") => transport switch

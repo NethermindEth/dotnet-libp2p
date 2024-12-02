@@ -19,7 +19,7 @@ public class ChannelClosedException : Libp2pException
 {
     public ChannelClosedException()
     {
-        
+
     }
 }
 

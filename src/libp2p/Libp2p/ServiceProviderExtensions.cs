@@ -11,7 +11,6 @@ namespace Nethermind.Libp2p.Stack;
 
 public static class ServiceProviderExtensions
 {
-    [RequiresPreviewFeatures]
     public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
     {
         return services

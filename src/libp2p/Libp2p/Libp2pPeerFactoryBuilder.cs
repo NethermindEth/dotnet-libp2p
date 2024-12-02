@@ -7,7 +7,6 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Nethermind.Libp2p.Stack;
 
-[RequiresPreviewFeatures]
 public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
     ILibp2pPeerFactoryBuilder
 {
@@ -46,10 +45,10 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         ProtocolRef[] commonSelector = [Get<MultistreamProtocol>()];
         Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonSelector);
 
-        ProtocolRef quic = Get<QuicProtocol>();
-        Connect([quic], commonSelector);
+        //ProtocolRef quic = Get<QuicProtocol>();
+        //Connect([quic], commonSelector);
 
-        ProtocolRef[] relay = addRelay ?  [Get<RelayHopProtocol>(), Get<RelayHopProtocol>()] : [];
+        ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
             Get<GossipsubProtocolV12>(),
             Get<GossipsubProtocolV11>(),
@@ -59,6 +58,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
         ProtocolRef[] apps = [
             Get<IdentifyProtocol>(),
+            Get<PingProtocol>(),
             .. additionalProtocols,
             .. relay,
             .. pubsub,
@@ -72,6 +72,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
             Connect(relaySelector, apps.Where(a => !relay.Contains(a)).ToArray());
         }
 
-        return [tcp, quic];
+        //return [tcp, quic];
+        return [tcp];
     }
 }

@@ -4,11 +4,11 @@
 using NUnit.Framework;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
-class TestPingProtocol : IProtocol
+class TestPingProtocol : ISessionProtocol
 {
     public string Id => "test-ping";
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel downChannel, ISessionContext context)
     {
         string str = "hello";
         await downChannel.WriteLineAsync(str);
@@ -16,7 +16,7 @@ class TestPingProtocol : IProtocol
         Assert.That(res, Is.EqualTo(str + " there"));
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel downChannel, ISessionContext context)
     {
         string str = await downChannel.ReadLineAsync();
         await downChannel.WriteLineAsync(str + " there");

@@ -9,7 +9,6 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Protocols.Identify.Dto;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
-using Org.BouncyCastle.Tls;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -34,7 +33,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
     public override string ToString()
     {
         //{string.Join("|", peerState.Select(x => $"{x.Key}:{x.Value.SendRpc is not null}"))}
-        return $"Router#{routerId}: {localPeer?.Address.GetPeerId() ?? "null"}, " +
+        return $"Router#{routerId}: {localPeer?.Identity.PeerId ?? "null"}, " +
             $"peers: {peerState.Count(x => x.Value.SendRpc is not null)}/{peerState.Count}, " +
             $"mesh: {string.Join("|", mesh.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
             $"fanout: {string.Join("|", fanout.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
@@ -138,7 +137,6 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
     private TtlCache<(PeerId, MessageId)> dontWantMessages;
 
     private IPeer? localPeer;
-    private ManagedPeer peer;
     private readonly ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
 
     // all floodsub peers in topics
@@ -171,7 +169,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
     public async Task RunAsync(IPeer localPeer, Settings? settings = null, CancellationToken token = default)
     {
-        logger?.LogDebug($"Running pubsub for {localPeer.Address}");
+        logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
 
         if (this.localPeer is not null)
         {
@@ -183,7 +181,6 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         limboMessageCache = new(this.settings.MessageCacheTtl);
         dontWantMessages = new(this.settings.MessageCacheTtl);
 
-        LocalPeerId = localPeer.Identity.PeerId;
         logger?.LogInformation("Started");
 
         store.OnNewPeer += (addrs) =>
@@ -265,7 +262,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         {
             foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
             {
-                logger?.LogDebug($"MESH({localPeer!.Address.GetPeerId()}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
+                logger?.LogDebug($"MESH({localPeer!.Identity.PeerId}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
                 if (mesh.Value.Count < settings.LowestDegree)
                 {
                     PeerId[] peersToGraft = gPeers[mesh.Key]

@@ -12,19 +12,20 @@ internal class TestMuxerTests
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
         ServiceProvider sp = new ServiceCollection()
-                  .AddSingleton<IPeerFactoryBuilder>(sp => new TestBuilder(null, sp))
+                  .AddSingleton<IPeerFactoryBuilder>(sp => new TestBuilder(sp))
                   .AddSingleton<PeerStore>()
+                  .AddSingleton<ChannelBus>()
                   .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                   .BuildServiceProvider();
 
         IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
 
-        ILocalPeer peerA = peerFactory.Create(TestPeers.Identity(1));
-        await peerA.ListenAsync(TestPeers.Multiaddr(1));
-        ILocalPeer peerB = peerFactory.Create(TestPeers.Identity(2));
-        await peerB.ListenAsync(TestPeers.Multiaddr(2));
+        IPeer peerA = peerFactory.Create(TestPeers.Identity(1));
+        await peerA.StartListenAsync([TestPeers.Multiaddr(1)]);
+        IPeer peerB = peerFactory.Create(TestPeers.Identity(2));
+        await peerB.StartListenAsync([TestPeers.Multiaddr(2)]);
 
-        IRemotePeer remotePeerB = await peerA.DialAsync(peerB.Address);
+        ISession remotePeerB = await peerA.DialAsync(TestPeers.Multiaddr(1));
         await remotePeerB.DialAsync<TestPingProtocol>();
     }
 }

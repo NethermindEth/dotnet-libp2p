@@ -12,10 +12,7 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
 
 int totalCount = 7;
-TestContextLoggerFactory fac = new();
-// There is common communication point
-ChannelBus commonBus = new(fac);
-ILocalPeer[] peers = new ILocalPeer[totalCount];
+IPeer[] peers = new IPeer[totalCount];
 PeerStore[] peerStores = new PeerStore[totalCount];
 PubsubRouter[] routers = new PubsubRouter[totalCount];
 
@@ -24,20 +21,21 @@ for (int i = 0; i < totalCount; i++)
 {
     // But we create a seprate setup for every peer
     ServiceProvider sp = new ServiceCollection()
-           .AddSingleton(sp => new TestBuilder(commonBus, sp).AddAppLayerProtocol<GossipsubProtocol>())
-           .AddSingleton<ILoggerFactory>(sp => fac)
+           .AddSingleton(sp => new TestBuilder(sp).AddAppLayerProtocol<GossipsubProtocol>())
+           .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
            .AddSingleton<PubsubRouter>()
            .AddSingleton<PeerStore>()
+           .AddSingleton<ChannelBus>()
            .AddSingleton(sp => new Settings { LowestDegree = 1, Degree = 2, LazyDegree = 2, HighestDegree = 3 })
            .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
            .BuildServiceProvider();
 
     IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
-    ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
+    IPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
     PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
     PubsubPeerDiscoveryProtocol disc = new(router, peerStores[i] = sp.GetService<PeerStore>()!, new PubsubPeerDiscoverySettings() { Interval = 300 }, peer);
 
-    await peer.ListenAsync(TestPeers.Multiaddr(i));
+    await peer.StartListenAsync([TestPeers.Multiaddr(i)]);
     _ = router.RunAsync(peer, sp.GetService<Settings>());
     //_ = disc.DiscoverAsync(peer.Address);
 }
@@ -49,11 +47,11 @@ for (int i = 0; i < routers.Length; i++)
     routers[i].GetTopic("test");
 }
 
-Console.WriteLine($"Center: {peers[0].Address}");
+Console.WriteLine($"Center: {string.Join(",", peers[0].ListenAddresses)}");
 
 for (int i = 1; i < peers.Length; i++)
 {
-    peerStores[i].Discover([peers[0].Address]);
+    peerStores[i].Discover(peers[0].ListenAddresses.ToArray());
 }
 
 await Task.Delay(10000);

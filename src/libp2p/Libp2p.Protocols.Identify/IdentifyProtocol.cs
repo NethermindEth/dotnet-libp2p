@@ -13,6 +13,7 @@ using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Identify.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -51,20 +52,24 @@ public class IdentifyProtocol : ISessionProtocol
         Identify.Dto.Identify identify = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
 
         _logger?.LogInformation("Received peer info: {identify}", identify);
-        context.RemotePeer.Identity = new Identity(PublicKey.Parser.ParseFrom(identify.PublicKey));
 
         if (_peerStore is not null && identify.SignedPeerRecord is not null)
         {
-            if (!VerifyPeerRecord(identify.SignedPeerRecord, context.RemotePeer.Identity))
+            if (!VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey))
             {
                 throw new PeerConnectionException();
             }
-            _peerStore.GetPeerInfo(context.RemotePeer.Identity.PeerId).SignedPeerRecord = identify.SignedPeerRecord;
-        }
-        _logger?.LogInformation("Received peer info: {identify}", identity);
-        context.State.RemotePublicKey = PublicKey.Parser.ParseFrom(identity.PublicKey);
 
-        if (context.State.RemotePublicKey.ToByteString() != identity.PublicKey)
+            if (context.State.RemotePeerId is null)
+            {
+                throw new Libp2pException("No remote peer id is set");
+            }
+            _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
+
+            _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+        }
+
+        if (context.State.RemotePublicKey.ToByteString() != identify.PublicKey)
         {
             throw new PeerConnectionException();
         }
@@ -78,11 +83,11 @@ public class IdentifyProtocol : ISessionProtocol
         {
             ProtocolVersion = _protocolVersion,
             AgentVersion = _agentVersion,
-            PublicKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
-            ListenAddrs = { ByteString.CopyFrom(ToEndpoint(context.LocalEndpoint).ToBytes()) },
-            ObservedAddr = ByteString.CopyFrom(State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),
+            PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
+            ListenAddrs = { context.Peer.ListenAddresses.Select(x => ByteString.CopyFrom(x.ToBytes())) },
+            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),
             Protocols = { _protocolStackSettings.Protocols!.Select(r => r.Key.Protocol).OfType<ISessionProtocol>().Select(p => p.Id) },
-            SignedPeerRecord = CreateSignedEnvelope(context.LocalPeer.Identity, [context.LocalPeer.Address], 1),
+            SignedPeerRecord = CreateSignedEnvelope(context.Peer.Identity, context.Peer.ListenAddresses.ToArray(), 1),
         };
 
         ByteString[] endpoints = context.Peer.ListenAddresses.Where(a => !a.ToEndPoint().Address.IsPrivate()).Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto)).Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
@@ -95,8 +100,9 @@ public class IdentifyProtocol : ISessionProtocol
         _logger?.LogDebug("Sent peer info {identify}", identify);
     }
 
-    private static bool VerifyPeerRecord(ByteString signedPeerRecordBytes, Identity identity)
+    private static bool VerifyPeerRecord(ByteString signedPeerRecordBytes, PublicKey remotePublicKey)
     {
+        Identity identity = new(remotePublicKey);
         SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecordBytes);
 
         if (envelope.PayloadType?.Take(2).SequenceEqual(Libp2pPeerRecordAsArray) is not true)

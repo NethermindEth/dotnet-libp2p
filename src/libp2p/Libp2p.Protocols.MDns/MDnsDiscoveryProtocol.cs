@@ -10,6 +10,7 @@ using Makaretu.Dns;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -23,17 +24,23 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     private string PeerName = null!;
 
-    public async Task DiscoverAsync(IPeer peer, CancellationToken token = default)
+    public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
         ObservableCollection<Multiaddress> peers = [];
         ServiceDiscovery sd = new();
+        string? localPeerId = localPeerAddrs.First().GetPeerId()?.ToString();
+
+        if (localPeerId is null)
+        {
+            throw new Libp2pException();
+        }
 
         try
         {
             PeerName = RandomString(32);
             ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
-            foreach (var localPeerAddr in peer.ListenAddresses)
+            foreach (Multiaddress localPeerAddr in localPeerAddrs)
             {
                 if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
                 {
@@ -50,10 +57,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     service.Resources.Add(new TXTRecord()
                     {
                         Name = service.FullyQualifiedName,
-                        Strings = new List<string>
-                    {
-                        $"dnsaddr={localPeerAddr}"
-                    }
+                        Strings = [$"dnsaddr={localPeerAddr}"]
                     });
                 }
             }
@@ -72,7 +76,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
                     .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
-                if (records.Length != 0 && !peers.Contains(records[0]) && peer.Identity.PeerId.ToString() != records[0].Get<P2P>().ToString())
+                if (records.Length != 0 && !peers.Contains(records[0]) && localPeerId != records[0].Get<P2P>().ToString())
                 {
                     List<string> peerAddresses = new();
                     foreach (Multiaddress peer in records)

@@ -1,16 +1,16 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Multiformats.Address;
+using Nethermind.Libp2p.Stack;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
-internal class TestPeerFactory(IServiceProvider serviceProvider) : PeerFactory(serviceProvider)
+internal class TestPeerFactory(IProtocolStackSettings protocolStackSettings) : PeerFactory(protocolStackSettings)
 {
-    ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
+    ConcurrentDictionary<PeerId, IPeer> peers = new();
 
-    public override ILocalPeer Create(Identity? identity = null, Multiaddress? localAddr = null)
+    public override IPeer Create(Identity? identity = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
         return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity));

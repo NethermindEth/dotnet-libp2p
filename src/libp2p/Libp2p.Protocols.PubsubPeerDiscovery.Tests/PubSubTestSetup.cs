@@ -11,7 +11,7 @@ class PubsubTestSetup
     static TestContextLoggerFactory fac = new TestContextLoggerFactory();
 
     public ChannelBus CommonBus { get; } = new(fac);
-    public Dictionary<int, ILocalPeer> Peers { get; } = new();
+    public Dictionary<int, IPeer> Peers { get; } = new();
     public Dictionary<int, PeerStore> PeerStores { get; } = new();
     public Dictionary<int, PubsubRouter> Routers { get; } = new();
 
@@ -29,19 +29,20 @@ class PubsubTestSetup
             };
 
             ServiceProvider sp = new ServiceCollection()
-                   .AddSingleton(sp => new TestBuilder(CommonBus, sp).AddAppLayerProtocol<GossipsubProtocol>())
+                   .AddSingleton(sp => new TestBuilder(sp).AddAppLayerProtocol<GossipsubProtocol>())
                    .AddSingleton((Func<IServiceProvider, ILoggerFactory>)(sp => fac))
                    .AddSingleton<PubsubRouter>()
                    .AddSingleton(settings)
+                   .AddSingleton(CommonBus)
                    .AddSingleton<PeerStore>()
                    .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                    .BuildServiceProvider();
 
             IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
-            ILocalPeer peer = Peers[i] = peerFactory.Create(TestPeers.Identity(i));
+            IPeer peer = Peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = Routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
-            await peer.ListenAsync(TestPeers.Multiaddr(i));
+            await peer.StartListenAsync([TestPeers.Multiaddr(i)]);
             _ = router.RunAsync(peer);
             PeerStores[i] = peerStore;
         }

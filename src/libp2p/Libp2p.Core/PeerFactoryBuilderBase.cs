@@ -1,13 +1,12 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface ICreateProtocolInstance
+public static class PeerFactoryBuilderBase
 {
     private static readonly HashSet<IProtocol> protocols = [];
 
@@ -26,6 +25,7 @@ public interface ICreateProtocolInstance
         }
         return (TProtocol)existing;
     }
+}
 
 public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {
@@ -41,6 +41,7 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
         return $"ref#{RefId}({Protocol.Id})";
     }
 }
+
 
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder

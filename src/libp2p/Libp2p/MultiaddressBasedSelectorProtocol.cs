@@ -1,12 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.Logging;
-using Multiformats.Address;
-using Multiformats.Address.Protocols;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Stack;
-
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>

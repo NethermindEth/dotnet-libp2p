@@ -1,13 +1,14 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase.Dto;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Org.BouncyCastle.Utilities.Encoders;
 using System.Buffers;
 
-class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : IProtocol
+class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
     private const string id = "test-muxer";
 
@@ -15,69 +16,77 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
     public string Id => id;
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Dial async");
-        context.Connected(context.RemotePeer);
-        await Task.Run(() => HandleRemote(bus.Dial(context.LocalPeer.Identity.PeerId, context.RemotePeer.Address.GetPeerId()!), upChannelFactory!, context));
+        logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dial async");
+
+        await Task.Run(async () =>
+        {
+            IChannel chan = bus.Dial(context.Peer.Identity.PeerId, remoteAddr.GetPeerId()!);
+            using INewConnectionContext connection = context.CreateConnection();
+            connection.State.RemoteAddress = remoteAddr;
+
+            await HandleRemote(chan, connection, context);
+        });
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        context.ListenerReady();
-        logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Listen async");
-        await foreach (var item in bus.GetIncomingRequests(context.LocalPeer.Identity.PeerId))
+        context.ListenerReady(listenAddr);
+        logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listen async");
+        await foreach (var item in bus.GetIncomingRequests(context.Peer.Identity.PeerId))
         {
-            logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Listener handles new con");
-            _ = HandleRemote(item, upChannelFactory!, context, true);
+            using INewConnectionContext connection = context.CreateConnection();
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles new con");
+            _ = HandleRemote(item, connection, context, true);
         }
     }
 
-    private async Task HandleRemote(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context, bool isListen = false)
+    private async Task HandleRemote(IChannel downChannel, INewConnectionContext connection, ITransportContext context, bool isListen = false)
     {
         uint counter = isListen ? 1u : 0u;
         Dictionary<uint, MuxerChannel> chans = [];
 
         string peer = "";
-        context = context.Fork();
 
         if (isListen)
         {
             peer = await downChannel.ReadLineAsync();
-            await downChannel.WriteLineAsync(context.LocalPeer.Identity.PeerId!.ToString());
-            logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Listener handles remote {peer}");
+            await downChannel.WriteLineAsync(context.Peer.Identity.PeerId!.ToString());
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles remote {peer}");
         }
         else
         {
-            await downChannel.WriteLineAsync(context.LocalPeer.Identity.PeerId!.ToString());
+            await downChannel.WriteLineAsync(context.Peer.Identity.PeerId!.ToString());
             peer = await downChannel.ReadLineAsync();
-            logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: Dialer handles remote {peer}");
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dialer handles remote {peer}");
         }
 
-        context.RemotePeer.Address = $"/p2p/{peer}";
+        using INewSessionContext session = connection.UpgradeToSession();
+        connection.State.RemoteAddress = $"/p2p/{peer}";
 
-        string logPrefix = $"{context.LocalPeer.Identity.PeerId}<>{peer}";
+        string logPrefix = $"{context.Peer.Identity.PeerId}<>{peer}";
 
         _ = Task.Run(async () =>
         {
-            foreach (var item in context.SubDialRequests.GetConsumingEnumerable())
+            foreach (var item in session.DialRequests)
             {
                 uint chanId = Interlocked.Add(ref counter, 2);
-                logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}({chanId}): Sub-request {item.SubProtocol} {item.CompletionSource is not null} from {context.RemotePeer.Address.GetPeerId()}");
+                logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} from {connection.State.RemoteAddress.GetPeerId()}");
 
                 chans[chanId] = new MuxerChannel { Tcs = item.CompletionSource };
                 var response = new MuxerPacket()
                 {
                     ChannelId = chanId,
                     Type = MuxerPacketType.NewStreamRequest,
-                    Protocols = { item.SubProtocol!.Id }
+                    Protocols = { item.SelectedProtocol!.Id }
                 };
 
                 logger?.LogDebug($"{logPrefix}({response.ChannelId}): > Packet {response.Type} {string.Join(",", response.Protocols)} {response.Data?.Length ?? 0}");
 
                 _ = downChannel.WriteSizeAndProtobufAsync(response);
             }
-            logger?.LogDebug($"{context.LocalPeer.Identity.PeerId}: SubDialRequests End");
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: SubDialRequests End");
 
         });
 
@@ -87,7 +96,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
             {
                 logger?.LogDebug($"{logPrefix}: < READY({(isListen ? "list" : "dial")})");
 
-                var packet = await downChannel.ReadPrefixedProtobufAsync(MuxerPacket.Parser);
+                MuxerPacket packet = await downChannel.ReadPrefixedProtobufAsync(MuxerPacket.Parser);
 
                 logger?.LogDebug($"{logPrefix}({packet.ChannelId}): < Packet {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
 
@@ -97,7 +106,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                         IProtocol? selected = null;
                         foreach (var proto in packet.Protocols)
                         {
-                            selected = upChannelFactory.SubProtocols.FirstOrDefault(x => x.Id == proto);
+                            selected = session.SubProtocols.FirstOrDefault(x => x.Id == proto);
                             if (selected is not null) break;
                         }
                         if (selected is not null)
@@ -113,9 +122,9 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             }
                             };
 
-                            var req = new ChannelRequest { SubProtocol = selected };
+                            var req = new UpgradeOptions { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Dial };
 
-                            IChannel upChannel = upChannelFactory.SubListen(context, req);
+                            IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId] = new MuxerChannel { UpChannel = upChannel };
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);
 
@@ -141,10 +150,10 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                     case MuxerPacketType.NewStreamResponse:
                         if (packet.Protocols.Any())
                         {
-                            var req = new ChannelRequest { SubProtocol = upChannelFactory.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()) };
-                            IChannel upChannel = upChannelFactory.SubDial(context, req);
+                            var req = new UpgradeOptions { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), ModeOverride = UpgradeModeOverride.Dial };
+                            IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId].UpChannel = upChannel;
-                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SubProtocol}");
+                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SelectedProtocol}");
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);
                         }
                         else

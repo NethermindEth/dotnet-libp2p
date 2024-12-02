@@ -1,9 +1,6 @@
 //// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 //// SPDX-License-Identifier: MIT
 
-using Multiformats.Address;
-using Nethermind.Libp2p.Core.Discovery;
-
 //namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]

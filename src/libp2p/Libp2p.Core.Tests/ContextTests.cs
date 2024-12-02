@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Stack;
-using Nethermind.Libp2p.Core;
-using NUnit.Framework.Constraints;
-using System.Net;
 
 namespace Nethermind.Libp2p.Core.Tests;
 public class ContextTests

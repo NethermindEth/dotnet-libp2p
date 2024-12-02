@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;

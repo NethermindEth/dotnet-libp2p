@@ -49,7 +49,7 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
-    peer.OnConnection += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
+    peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
     await peer.StartListenAsync(
         [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],

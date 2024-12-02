@@ -10,7 +10,6 @@ using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core.Exceptions;
-using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Protocols;
 

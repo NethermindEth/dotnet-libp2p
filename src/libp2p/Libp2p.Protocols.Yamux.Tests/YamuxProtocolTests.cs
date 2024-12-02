@@ -1,11 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.TestsBase;
-using NSubstitute;
 using NUnit.Framework.Internal;
-using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 

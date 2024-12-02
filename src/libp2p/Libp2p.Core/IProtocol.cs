@@ -6,14 +6,14 @@ using Multiformats.Address;
 namespace Nethermind.Libp2p.Core;
 
 public interface IProtocol
-{    
+{
     string Id { get; }
 }
 
 public interface ITransportProtocol : IProtocol
 {
     Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token);
-    Task DialAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token);
+    Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token);
 }
 
 public interface IConnectionProtocol : IProtocol

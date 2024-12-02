@@ -21,29 +21,31 @@ public class MultistreamProtocolTests
         ChannelBus commonBus = new();
 
         ServiceProvider sp1 = new ServiceCollection()
-             .AddSingleton(sp => new TestBuilder(commonBus, sp).AddAppLayerProtocol<GossipsubProtocol>())
+             .AddSingleton(sp => new TestBuilder(sp).AddAppLayerProtocol<GossipsubProtocol>())
              .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
              .AddSingleton<PubsubRouter>()
              .AddSingleton<PeerStore>()
+             .AddSingleton(commonBus)
              .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
              .BuildServiceProvider();
 
 
         ServiceProvider sp2 = new ServiceCollection()
-             .AddSingleton(sp => new TestBuilder(commonBus, sp).AddAppLayerProtocol<GossipsubProtocol>())
+             .AddSingleton(sp => new TestBuilder(sp).AddAppLayerProtocol<GossipsubProtocol>())
              .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
              .AddSingleton<PubsubRouter>()
              .AddSingleton<PeerStore>()
+             .AddSingleton(commonBus)
              .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
              .BuildServiceProvider();
 
 
-        ILocalPeer peerA = sp1.GetService<IPeerFactory>()!.Create(TestPeers.Identity(1));
-        await peerA.ListenAsync(TestPeers.Multiaddr(1));
-        ILocalPeer peerB = sp2.GetService<IPeerFactory>()!.Create(TestPeers.Identity(2));
-        await peerB.ListenAsync(TestPeers.Multiaddr(2));
+        IPeer peerA = sp1.GetService<IPeerFactory>()!.Create(TestPeers.Identity(1));
+        await peerA.StartListenAsync([TestPeers.Multiaddr(1)]);
+        IPeer peerB = sp2.GetService<IPeerFactory>()!.Create(TestPeers.Identity(2));
+        await peerB.StartListenAsync([TestPeers.Multiaddr(2)]);
 
-        IRemotePeer remotePeerB = await peerA.DialAsync(peerB.Address);
+        ISession remotePeerB = await peerA.DialAsync(peerB.ListenAddresses.ToArray());
         await remotePeerB.DialAsync<GossipsubProtocol>();
     }
 
@@ -54,7 +56,7 @@ public class MultistreamProtocolTests
         TestContextLoggerFactory fac = new();
         // There is common communication point
         ChannelBus commonBus = new(fac);
-        ILocalPeer[] peers = new ILocalPeer[totalCount];
+        IPeer[] peers = new IPeer[totalCount];
         PeerStore[] peerStores = new PeerStore[totalCount];
         PubsubRouter[] routers = new PubsubRouter[totalCount];
 
@@ -62,29 +64,29 @@ public class MultistreamProtocolTests
         {
             // But we create a seprate setup for every peer
             ServiceProvider sp = new ServiceCollection()
-                   .AddSingleton(sp => new TestBuilder(commonBus, sp).AddAppLayerProtocol<GossipsubProtocol>())
                    .AddSingleton<ILoggerFactory>(sp => fac)
                    .AddSingleton<PubsubRouter>()
                    .AddSingleton<PeerStore>()
+                   .AddSingleton(commonBus)
                    .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                    .BuildServiceProvider();
 
             IPeerFactory peerFactory = sp.GetService<IPeerFactory>()!;
-            ILocalPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
+            IPeer peer = peers[i] = peerFactory.Create(TestPeers.Identity(i));
             PubsubRouter router = routers[i] = sp.GetService<PubsubRouter>()!;
             PeerStore peerStore = sp.GetService<PeerStore>()!;
             PubsubPeerDiscoveryProtocol disc = new(router, peerStore, new PubsubPeerDiscoverySettings() { Interval = 300 }, peer);
-            await peer.ListenAsync(TestPeers.Multiaddr(i));
+            await peer.StartListenAsync([TestPeers.Multiaddr(i)]);
             _ = router.RunAsync(peer);
             peerStores[i] = peerStore;
-            _ = disc.DiscoverAsync(peers[i].Address);
+            _ = disc.DiscoverAsync(peers[i].ListenAddresses);
         }
 
         await Task.Delay(1000);
 
         for (int i = 0; i < peers.Length; i++)
         {
-            peerStores[i].Discover([peers[(i + 1) % totalCount].Address]);
+            peerStores[i].Discover(peers[(i + 1) % totalCount].ListenAddresses.ToArray());
         }
 
         await Task.Delay(30000);
@@ -108,13 +110,13 @@ public class MultistreamProtocolTests
         // discover in circle
         for (int i = 0; i < setup.Peers.Count; i++)
         {
-            setup.PeerStores[i].Discover([setup.Peers[(i + 1) % setup.Peers.Count].Address]);
+            setup.PeerStores[i].Discover(setup.Peers[(i + 1) % setup.Peers.Count].ListenAddresses.ToArray());
         }
 
         for (int i = 0; i < setup.Peers.Count; i++)
         {
             discoveries[i] = new(setup.Routers[i], setup.PeerStores[i], new PubsubPeerDiscoverySettings() { Interval = int.MaxValue }, setup.Peers[i]);
-            _ = discoveries[i].DiscoverAsync(setup.Peers[i].Address);
+            _ = discoveries[i].DiscoverAsync(setup.Peers[i].ListenAddresses);
         }
 
         await Task.Delay(100);

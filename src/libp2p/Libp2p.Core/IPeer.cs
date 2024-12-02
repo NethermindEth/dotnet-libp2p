@@ -19,10 +19,10 @@ public interface IPeer
 
     ObservableCollection<Multiaddress> ListenAddresses { get; }
 
-    event OnConnection? OnConnection;
+    event Connected? OnConnected;
 }
 
-public delegate Task OnConnection(ISession newSession);
+public delegate Task Connected(ISession newSession);
 
 public interface ISession
 {

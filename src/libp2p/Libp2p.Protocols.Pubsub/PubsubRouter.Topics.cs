@@ -120,7 +120,7 @@ public partial class PubsubRouter
         ulong seqNo = this.seqNo++;
         Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Address.GetPeerId()!.Bytes, message, localPeer.Identity);
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Identity.PeerId.Bytes, message, localPeer.Identity);
 
         foreach (PeerId peerId in fPeers[topicId])
         {
