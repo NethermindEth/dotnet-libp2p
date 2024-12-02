@@ -50,7 +50,7 @@ public class YamuxProtocolTests
         //listenerUpchannelFactory.SubListen(Arg.Any<IChannelRequest>())
         //   .Returns(listenerUpChannel);
 
-        //YamuxProtocol proto = new(loggerFactory: new DebugLoggerFactory());
+        //YamuxProtocol proto = new(loggerFactory: new TestContextLoggerFactory());
 
         //_ = proto.ListenAsync(listenerDownChannel, listenerUpchannelFactory, listenerPeerContext);
 

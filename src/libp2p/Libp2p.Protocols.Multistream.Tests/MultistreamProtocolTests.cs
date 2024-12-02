@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Protocols;
-
-namespace Libp2p.Protocols.Multistream.Tests;
+namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
 
 [TestFixture]
 [Parallelizable(scope: ParallelScope.All)]

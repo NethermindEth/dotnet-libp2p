@@ -13,29 +13,20 @@ using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class MDnsDiscoveryProtocol : IDiscoveryProtocol
+public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
+    private const int MdnsQueryInterval = 5000;
+    private const string ServiceName = "_p2p._udp.local";
 
-    public MDnsDiscoveryProtocol(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
-    }
-
-    public string Id => "mdns";
-
-    private string ServiceName = "_p2p._udp.local";
-
-    private string? ServiceNameOverride = "pubsub-chat-example";
-
-    public Func<Multiaddress[], bool>? OnAddPeer { get; set; }
-    public Func<Multiaddress[], bool>? OnRemovePeer { get; set; }
+    private const string? ServiceNameOverride = "pubsub-chat-example";
 
     private string PeerName = null!;
 
     public async Task DiscoverAsync(IPeer peer, CancellationToken token = default)
     {
-        ObservableCollection<Multiaddress> peers = new();
+        ObservableCollection<Multiaddress> peers = [];
+        ServiceDiscovery sd = new();
 
         try
         {
@@ -69,7 +60,7 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
 
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
 
-            ServiceDiscovery sd = new();
+
 
             sd.ServiceDiscovered += (s, serviceName) =>
             {
@@ -88,23 +79,31 @@ public class MDnsDiscoveryProtocol : IDiscoveryProtocol
                     {
                         peers.Add(peer);
                     }
-                    OnAddPeer?.Invoke(records);
+                    peerStore.Discover(records);
                 }
             };
 
             sd.Advertise(service);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error setting up mDNS");
+        }
 
-            while (!token.IsCancellationRequested)
+        while (!token.IsCancellationRequested)
+        {
+            try
             {
                 _logger?.LogTrace("Querying {0}", ServiceNameOverride ?? ServiceName);
                 sd.QueryServiceInstances(ServiceNameOverride ?? ServiceName);
-                await Task.Delay(5000, token);
             }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error querying network");
+            }
+            await Task.Delay(MdnsQueryInterval, token);
         }
-        catch
-        {
 
-        }
     }
 
     private static string RandomString(int length)

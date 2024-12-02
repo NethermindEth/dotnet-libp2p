@@ -6,9 +6,9 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class TestLocalPeer : IPeer
+public class LocalPeerStub : IPeer
 {
-    public TestLocalPeer()
+    public LocalPeerStub()
     {
         Identity = new(Enumerable.Repeat((byte)42, 32).ToArray());
         Address = $"/p2p/{Identity.PeerId}";

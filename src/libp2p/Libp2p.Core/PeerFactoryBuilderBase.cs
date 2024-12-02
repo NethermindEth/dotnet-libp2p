@@ -7,7 +7,7 @@ using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 
-public static class PeerFactoryBuilderBase
+public interface ICreateProtocolInstance
 {
     private static readonly HashSet<IProtocol> protocols = [];
 
@@ -26,7 +26,6 @@ public static class PeerFactoryBuilderBase
         }
         return (TProtocol)existing;
     }
-}
 
 public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {

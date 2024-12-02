@@ -3,8 +3,9 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using System.Runtime.Versioning;
 
 namespace Nethermind.Libp2p.Stack;
 
@@ -19,8 +20,10 @@ public static class ServiceProviderExtensions
             .AddSingleton(sp => factorySetup is null ? sp.GetRequiredService<Libp2pPeerFactoryBuilder>() : factorySetup(sp.GetRequiredService<Libp2pPeerFactoryBuilder>()))
             .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>())
             .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
-            .AddScoped<PubsubRouter>()
             .AddScoped<MultiplexerSettings>()
+            .AddScoped<PubsubRouter>()
+            .AddScoped<PeerStore>()
+            .AddScoped<MDnsDiscoveryProtocol>()
             ;
     }
 }

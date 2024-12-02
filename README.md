@@ -44,7 +44,7 @@ The target is to provide a performant well-tested implementation of a wide range
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
-| tls                | /tls/1.0.0         | ⬜ help wanted |
+| tls                | /tls/1.0.0         | 🚧             |
 | WebTransport       |                    | ⬜ help wanted |
 | yamux              | /yamux/1.0.0       | ✅             |
 | Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |

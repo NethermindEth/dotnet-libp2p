@@ -6,14 +6,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Chat</RootNamespace>
-    <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
-    <PackageReference Include="Google.Protobuf" Version="3.25.1" />
-    <PackageReference Include="Google.Protobuf.Tools" Version="3.25.1" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" />
   </ItemGroup>
@@ -23,6 +20,7 @@
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p\Libp2p.csproj" />
   </ItemGroup>
 

@@ -4,10 +4,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Protocols;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using Multiformats.Address.Protocols;
+using Multiformats.Address;
+using Nethermind.Libp2p.Protocols;
 using System.Text.RegularExpressions;
 
 Regex omittedLogs = new Regex(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
@@ -34,7 +36,7 @@ string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 IPeer peer = peerFactory.Create(localPeerIdentity);
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
-ITopic topic = router.Subscribe("chat-room:awesome-chat-room");
+ITopic topic = router.GetTopic("chat-room:awesome-chat-room");
 topic.OnMessage += (byte[] msg) =>
 {
     try
@@ -53,9 +55,11 @@ topic.OnMessage += (byte[] msg) =>
 };
 
 _ = peer.StartListenAsync([addr], ts.Token);
-_ = router.RunAsync(peer, new MDnsDiscoveryProtocol(serviceProvider.GetService<ILoggerFactory>()), token: ts.Token);
 
 string peerId = peer.Identity.PeerId.ToString();
+_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: ts.Token);
+
+_ = router.RunAsync(peer, token: ts.Token);
 
 string nickName = "libp2p-dotnet";
 

@@ -14,6 +14,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Dto\SignedEnvelope.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AdditionalFiles Include="Dto\KeyPair.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
@@ -38,6 +42,10 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Dto\SignedEnvelope.proto" />
   </ItemGroup>
 
 </Project>

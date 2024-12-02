@@ -1,0 +1,20 @@
+syntax = "proto2";
+option csharp_namespace = "Nethermind.Libp2p.Core.Dto";
+
+message SignedEnvelope {
+  // public_key is the public key of the keypair the enclosed payload was
+  // signed with.
+  required bytes public_key = 1;
+
+  // payload_type encodes the type of payload, so that it can be deserialized
+  // deterministically.
+  required bytes payload_type = 2;
+
+  // payload is the actual payload carried inside this envelope.
+  required bytes payload = 3;
+
+  // signature is the signature produced by the private key corresponding to
+  // the enclosed public key, over the payload, prefixing a domain string for
+  // additional security.
+  required bytes signature = 5;
+}

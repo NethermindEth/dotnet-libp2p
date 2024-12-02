@@ -25,6 +25,7 @@
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" />
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="libsodium" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

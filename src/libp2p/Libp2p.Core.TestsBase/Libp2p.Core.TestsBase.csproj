@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -7,6 +7,16 @@
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
     <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Dto\MuxerPacket.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Dto\MuxerPacket.proto">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </AdditionalFiles>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -22,6 +32,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Generators.Protobuf\Libp2p.Generators.Protobuf.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -3,7 +3,7 @@
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-class Topic : ITopic
+internal class Topic : ITopic
 {
     private readonly PubsubRouter router;
     private readonly string topicName;
@@ -12,21 +12,35 @@ class Topic : ITopic
     {
         this.router = router;
         this.topicName = topicName;
-        router.OnMessage += (topicName, message) =>
+        router.OnMessage += OnRouterMessage;
+    }
+
+    private void OnRouterMessage(string topicName, byte[] message)
+    {
+        if (OnMessage is not null && this.topicName == topicName)
         {
-            if (OnMessage is not null && this.topicName == topicName)
-            {
-                OnMessage(message);
-            }
-        };
+            OnMessage(message);
+        }
     }
 
     public DateTime LastPublished { get; set; }
+
+    public bool IsSubscribed { get; internal set; }
 
     public event Action<byte[]>? OnMessage;
 
     public void Publish(byte[] value)
     {
         router.Publish(topicName, value);
+    }
+
+    public void Unsubscribe()
+    {
+        if (!IsSubscribed) router.Unsubscribe(topicName);
+    }
+
+    public void Subscribe()
+    {
+        if (!IsSubscribed) router.Subscribe(topicName);
     }
 }
