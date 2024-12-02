@@ -147,7 +147,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
     // all gossipsub peers in topics
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> gPeers = new();
 
-    // gossip peers in mesh, which is subnet for message exchange 
+    // gossip peers in mesh, which is subnet for message exchange
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> mesh = new();
 
     // gossip peers in mesh, which is subnet for message exchange for topics that we did not subscribe to, but we sent messages recently
@@ -265,7 +265,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         {
             foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
             {
-                Console.WriteLine($"MESH({localPeer!.Address.GetPeerId()}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
+                logger?.LogDebug($"MESH({localPeer!.Address.GetPeerId()}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
                 if (mesh.Value.Count < settings.LowestDegree)
                 {
                     PeerId[] peersToGraft = gPeers[mesh.Key]
