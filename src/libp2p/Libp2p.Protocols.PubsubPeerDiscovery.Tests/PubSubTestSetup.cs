@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Tests;
 
 class PubsubTestSetup
 {
-    static TestContextLoggerFactory fac = new TestContextLoggerFactory();
+    static TestContextLoggerFactory fac = new();
 
     public ChannelBus CommonBus { get; } = new(fac);
     public Dictionary<int, IPeer> Peers { get; } = new();
@@ -23,7 +23,7 @@ class PubsubTestSetup
         for (int i = initialCount; i < initialCount + count; i++)
         {
             // But we create a seprate setup for every peer
-            Settings settings = new Settings
+            Settings settings = new()
             {
                 HeartbeatInterval = int.MaxValue,
             };

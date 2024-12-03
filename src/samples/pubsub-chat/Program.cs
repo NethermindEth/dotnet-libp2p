@@ -10,7 +10,7 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols;
 using System.Text.RegularExpressions;
 
-Regex omittedLogs = new Regex(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
+Regex omittedLogs = new(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.WithPubsub())

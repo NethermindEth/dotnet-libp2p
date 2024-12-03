@@ -7,7 +7,7 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
 {
     protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
-        var root = Get<TestMuxerProtocol>();
+        ProtocolRef root = Get<TestMuxerProtocol>();
 
         Connect([root],
             [

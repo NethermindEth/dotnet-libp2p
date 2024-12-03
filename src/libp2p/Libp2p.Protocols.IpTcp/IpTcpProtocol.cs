@@ -189,7 +189,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
     public static Multiaddress ToMultiaddress(EndPoint ep, ProtocolType protocolType)
     {
-        Multiaddress multiaddress = new Multiaddress();
+        Multiaddress multiaddress = new();
         IPEndPoint iPEndPoint = (IPEndPoint)ep;
         if (iPEndPoint != null)
         {

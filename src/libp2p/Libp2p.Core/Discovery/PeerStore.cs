@@ -44,7 +44,7 @@ public class PeerStore
             }
 
             onNewPeer += value;
-            foreach (var item in store.Select(x => x.Value).ToArray())
+            foreach (PeerInfo? item in store.Select(x => x.Value).ToArray())
             {
                 if (item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
             }

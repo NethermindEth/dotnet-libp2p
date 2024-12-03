@@ -212,7 +212,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
-        Task timeoutTask = Task.Delay(15_000, token);
+        Task timeoutTask = Task.Delay(15000_000, token);
         Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
 
         if (wait == timeoutTask)
@@ -261,19 +261,21 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
         return session;
     }
 
-    internal IChannel Upgrade(Session session, ProtocolRef protocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
+    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
     {
         if (protocolStackSettings.Protocols is null)
         {
             throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
         }
 
-        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
+        if (!protocolStackSettings.Protocols.ContainsKey(parentProtocol))
         {
-            throw new Libp2pSetupException($"{protocol} is not added");
+            throw new Libp2pSetupException($"{parentProtocol} is not added");
         }
 
-        ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) : protocolStackSettings.Protocols[protocol].Single();
+        ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) :
+                          options?.SelectedProtocol is not null ? protocolStackSettings.Protocols[parentProtocol].SingleOrDefault(x => x.Protocol == options.SelectedProtocol) ?? new ProtocolRef(options.SelectedProtocol) :
+                          protocolStackSettings.Protocols[parentProtocol].Single();
 
         Channel downChannel = new();
 
@@ -281,20 +283,20 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
         Task upgradeTask;
 
-        _logger?.LogInformation($"Upgrade {protocol} to {top}, listen={isListener}");
+        _logger?.LogInformation($"Upgrade {parentProtocol} to {top}, listen={isListener}");
 
         switch (top.Protocol)
         {
             case IConnectionProtocol tProto:
                 {
-                    var ctx = new ConnectionContext(this, session, top, isListener, options);
+                    ConnectionContext ctx = new(this, session, top, isListener, options);
                     upgradeTask = isListener ? tProto.ListenAsync(downChannel.Reverse, ctx) : tProto.DialAsync(downChannel.Reverse, ctx);
 
                     break;
                 }
             case ISessionProtocol sProto:
                 {
-                    var ctx = new SessionContext(this, session, top, isListener, options);
+                    SessionContext ctx = new(this, session, top, isListener, options);
                     upgradeTask = isListener ? sProto.ListenAsync(downChannel.Reverse, ctx) : sProto.DialAsync(downChannel.Reverse, ctx);
                     break;
                 }
@@ -362,13 +364,13 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
         {
             case IConnectionProtocol tProto:
                 {
-                    var ctx = new ConnectionContext(this, session, top, isListener, options);
+                    ConnectionContext ctx = new(this, session, top, isListener, options);
                     upgradeTask = isListener ? tProto.ListenAsync(parentChannel, ctx) : tProto.DialAsync(parentChannel, ctx);
                     break;
                 }
             case ISessionProtocol sProto:
                 {
-                    var ctx = new SessionContext(this, session, top, isListener, options);
+                    SessionContext ctx = new(this, session, top, isListener, options);
                     upgradeTask = isListener ? sProto.ListenAsync(parentChannel, ctx) : sProto.DialAsync(parentChannel, ctx);
                     break;
                 }

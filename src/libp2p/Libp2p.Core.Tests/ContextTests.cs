@@ -7,29 +7,29 @@ using Nethermind.Libp2p.Stack;
 namespace Nethermind.Libp2p.Core.Tests;
 public class ContextTests
 {
-    public static Channel tcp = new Channel();
+    public static Channel tcp = new();
 
 
     [Test]
     public async Task E2e()
     {
-        ProtocolRef tProto = new ProtocolRef(new TProto());
-        ProtocolRef cProto = new ProtocolRef(new CProto());
-        ProtocolRef sProto = new ProtocolRef(new SProto());
+        ProtocolRef tProto = new(new TProto());
+        ProtocolRef cProto = new(new CProto());
+        ProtocolRef sProto = new(new SProto());
+        ProtocolRef sProto2 = new(new SProto2());
 
         ProtocolStackSettings protocolStackSettings = new()
         {
             Protocols = new Dictionary<ProtocolRef, ProtocolRef[]>
             {
                 { tProto, [ cProto] },
-                { cProto, [sProto] },
-                { sProto, [] },
+                { cProto, [sProto, sProto2] },
             },
             TopProtocols = [tProto]
         };
 
-        LocalPeer peer1 = new LocalPeer(new Identity(), protocolStackSettings);
-        LocalPeer peer2 = new LocalPeer(new Identity(), protocolStackSettings);
+        LocalPeer peer1 = new(new Identity(), protocolStackSettings);
+        LocalPeer peer2 = new(new Identity(), protocolStackSettings);
 
         await peer1.StartListenAsync([new Multiaddress()]);
         await peer2.StartListenAsync([new Multiaddress()]);
@@ -90,7 +90,7 @@ class TProto : ITransportProtocol
                     break;
                 }
 
-                var sent = await topChan.WriteAsync(received.Data);
+                IOResult sent = await topChan.WriteAsync(received.Data);
 
                 if (sent != IOResult.Ok)
                 {
@@ -121,7 +121,7 @@ class TProto : ITransportProtocol
                 break;
             }
 
-            var sent = await ContextTests.tcp.WriteAsync(received.Data);
+            IOResult sent = await ContextTests.tcp.WriteAsync(received.Data);
 
             if (sent != IOResult.Ok)
             {
@@ -138,64 +138,54 @@ class CProto : IConnectionProtocol
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
-        try
-        {
-            using INewSessionContext session = context.UpgradeToSession();
-            IChannel topChan = context.Upgrade();
 
-            ReadResult received;
-            while (true)
+        using INewSessionContext session = context.UpgradeToSession();
+        IChannel topChan = context.Upgrade();
+
+        ReadResult received;
+        while (true)
+        {
+            received = await topChan.ReadAsync(1, ReadBlockingMode.WaitAny);
+            if (received.Result != IOResult.Ok)
             {
-                received = await topChan.ReadAsync(1, ReadBlockingMode.WaitAny);
-                if (received.Result != IOResult.Ok)
-                {
-                    break;
-                }
-
-                var sent = await downChannel.WriteAsync(received.Data);
-
-                if (sent != IOResult.Ok)
-                {
-                    break;
-                }
+                break;
             }
-            await topChan.CloseAsync();
-        }
-        catch
-        {
 
+            IOResult sent = await downChannel.WriteAsync(received.Data);
+
+            if (sent != IOResult.Ok)
+            {
+                break;
+            }
         }
+        await topChan.CloseAsync();
+
     }
 
     public async Task ListenAsync(IChannel downChannel, IConnectionContext context)
     {
-        try
-        {
-            using INewSessionContext session = context.UpgradeToSession();
-            IChannel topChan = context.Upgrade();
 
-            ReadResult received;
-            while (true)
+        using INewSessionContext session = context.UpgradeToSession();
+        IChannel topChan = context.Upgrade();
+
+        ReadResult received;
+        while (true)
+        {
+            received = await downChannel.ReadAsync(1, ReadBlockingMode.WaitAny);
+            if (received.Result != IOResult.Ok)
             {
-                received = await downChannel.ReadAsync(1, ReadBlockingMode.WaitAny);
-                if (received.Result != IOResult.Ok)
-                {
-                    break;
-                }
-
-                var sent = await topChan.WriteAsync(received.Data);
-
-                if (sent != IOResult.Ok)
-                {
-                    break;
-                }
+                break;
             }
-            await topChan.CloseAsync();
-        }
-        catch
-        {
 
+            IOResult sent = await topChan.WriteAsync(received.Data);
+
+            if (sent != IOResult.Ok)
+            {
+                break;
+            }
         }
+        await topChan.CloseAsync();
+
     }
 }
 
@@ -205,26 +195,12 @@ class SProto : ISessionProtocol
 
     public async Task DialAsync(IChannel downChannel, ISessionContext context)
     {
-        try
-        {
-            await downChannel.WriteLineAsync("Oh hi there");
-        }
-        catch
-        {
-
-        }
+        await downChannel.WriteLineAsync("Oh hi there");
     }
 
     public async Task ListenAsync(IChannel downChannel, ISessionContext context)
     {
-        try
-        {
-            var line = await downChannel.ReadLineAsync();
-        }
-        catch
-        {
-
-        }
+        string line = await downChannel.ReadLineAsync();
     }
 }
 

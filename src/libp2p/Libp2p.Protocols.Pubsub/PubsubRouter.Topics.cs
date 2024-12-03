@@ -49,7 +49,7 @@ public partial class PubsubRouter
         }
 
         Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
-        foreach (var peer in peerState)
+        foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
         {
             peer.Value.Send(topicUpdate);
         }

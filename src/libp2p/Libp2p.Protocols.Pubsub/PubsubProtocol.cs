@@ -33,7 +33,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         TaskCompletionSource dialTcs = new();
         CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
         {
-            var t = channel.WriteSizeAndProtobufAsync(rpc);
+            ValueTask t = channel.WriteSizeAndProtobufAsync(rpc);
             t.AsTask().ContinueWith((t) =>
             {
                 if (!t.IsCompletedSuccessfully)

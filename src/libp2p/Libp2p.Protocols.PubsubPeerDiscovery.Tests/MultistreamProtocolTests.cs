@@ -91,7 +91,7 @@ public class MultistreamProtocolTests
 
         await Task.Delay(30000);
 
-        foreach (var router in routers)
+        foreach (PubsubRouter router in routers)
         {
             Assert.That(((IRoutingStateContainer)router).ConnectedPeers.Count, Is.EqualTo(totalCount - 1));
         }
@@ -130,7 +130,7 @@ public class MultistreamProtocolTests
             discoveries[i].BroadcastPeerInfo();
         }
 
-        foreach (var router in setup.Routers.Values)
+        foreach (PubsubRouter router in setup.Routers.Values)
         {
             Assert.That(((IRoutingStateContainer)router).ConnectedPeers.Count, Is.EqualTo(totalCount - 1));
         }

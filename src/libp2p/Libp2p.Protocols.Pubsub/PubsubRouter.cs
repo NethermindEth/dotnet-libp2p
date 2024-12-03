@@ -10,7 +10,6 @@ using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Protocols.Identify.Dto;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -34,7 +33,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
     {
         //{string.Join("|", peerState.Select(x => $"{x.Key}:{x.Value.SendRpc is not null}"))}
         return $"Router#{routerId}: {localPeer?.Identity.PeerId ?? "null"}, " +
-            $"peers: {peerState.Count(x => x.Value.SendRpc is not null)}/{peerState.Count}, " +
+            $"peers: {peerState.Count(x => x.Value.SendRpc is not null)}/{peerState.Count} ({string.Join(",", peerState.Keys)}), " +
             $"mesh: {string.Join("|", mesh.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
             $"fanout: {string.Join("|", fanout.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
             $"fPeers: {string.Join("|", fPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
@@ -47,9 +46,10 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
 
     class PubsubPeer
     {
-        public PubsubPeer(PeerId peerId, string protocolId)
+        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger)
         {
             PeerId = peerId;
+            _logger = logger;
             Protocol = protocolId switch
             {
                 GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
@@ -89,11 +89,13 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         public Dictionary<string, DateTime> Backoff { get; internal set; }
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
+        private readonly ILogger? _logger;
+
         public Action<Rpc>? SendRpc
         {
             get => _sendRpc; set
             {
-                Debug.WriteLine($"Set SENDRPC for {this.PeerId}: {value}");
+                _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
                 _sendRpc = value;
                 if (_sendRpc is not null)
                     lock (SendRpcQueue)
@@ -262,7 +264,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         {
             foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
             {
-                logger?.LogDebug($"MESH({localPeer!.Identity.PeerId}) {mesh.Key}: {mesh.Value.Count} ({mesh.Value})");
+                logger?.LogDebug($"MESH({localPeer!.Identity.PeerId}) {mesh.Key}: {mesh.Value.Count} ({string.Join(",", mesh.Value)})");
                 if (mesh.Value.Count < settings.LowestDegree)
                 {
                     PeerId[] peersToGraft = gPeers[mesh.Key]
@@ -283,7 +285,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                     foreach (PeerId? peerId in peerstoPrune)
                     {
                         mesh.Value.Remove(peerId);
-                        var prune = new ControlPrune { TopicID = mesh.Key, Backoff = 60 };
+                        ControlPrune prune = new() { TopicID = mesh.Key, Backoff = 60 };
                         prune.Peers.AddRange(mesh.Value.ToArray().Select(pid => (PeerId: pid, Record: store.GetPeerInfo(pid)?.SignedPeerRecord)).Where(pid => pid.Record is not null).Select(pid => new PeerInfo
                         {
                             PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
@@ -352,7 +354,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
             return Canceled;
         }
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
 
         lock (peer)
         {
@@ -373,19 +375,19 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         {
             peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
             peerState.TryRemove(peerId, out _);
-            foreach (var topicPeers in fPeers)
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
             {
                 topicPeers.Value.Remove(peerId);
             }
-            foreach (var topicPeers in gPeers)
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
             {
                 topicPeers.Value.Remove(peerId);
             }
-            foreach (var topicPeers in fanout)
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
             {
                 topicPeers.Value.Remove(peerId);
             }
-            foreach (var topicPeers in mesh)
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
             {
                 topicPeers.Value.Remove(peerId);
             }
@@ -416,7 +418,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
         }
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
         if (newPeer is not null)
         {
             logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
@@ -424,19 +426,19 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
             {
                 peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
                 peerState.TryRemove(peerId, out _);
-                foreach (var topicPeers in fPeers)
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
                 {
                     topicPeers.Value.Remove(peerId);
                 }
-                foreach (var topicPeers in gPeers)
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
                 {
                     topicPeers.Value.Remove(peerId);
                 }
-                foreach (var topicPeers in fanout)
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
                 {
                     topicPeers.Value.Remove(peerId);
                 }
-                foreach (var topicPeers in mesh)
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
                 {
                     topicPeers.Value.Remove(peerId);
                 }
@@ -464,7 +466,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                 {
                     foreach (Rpc.Types.SubOpts? sub in rpc.Subscriptions)
                     {
-                        var state = peerState.GetValueOrDefault(peerId);
+                        PubsubPeer? state = peerState.GetValueOrDefault(peerId);
                         if (state is null)
                         {
                             return;
@@ -624,7 +626,7 @@ public partial class PubsubRouter(PeerStore store, ILoggerFactory? loggerFactory
                                     .Ensure(r => r.Control.Prune)
                                     .Add(new ControlPrune { TopicID = prune.TopicID });
 
-                                foreach (var peer in prune.Peers)
+                                foreach (PeerInfo? peer in prune.Peers)
                                 {
                                     // TODO verify payload type, signature, etc
                                     // TODO check if it's working

@@ -9,9 +9,10 @@ using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using Nethermind.Libp2p.Stack;
 using System.Text;
 
-int totalCount = 7;
+int totalCount = 2;
 IPeer[] peers = new IPeer[totalCount];
 PeerStore[] peerStores = new PeerStore[totalCount];
 PubsubRouter[] routers = new PubsubRouter[totalCount];
@@ -24,6 +25,7 @@ for (int i = 0; i < totalCount; i++)
            .AddSingleton(sp => new TestBuilder(sp).AddAppLayerProtocol<GossipsubProtocol>())
            .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
            .AddSingleton<PubsubRouter>()
+           .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
            .AddSingleton<PeerStore>()
            .AddSingleton<ChannelBus>()
            .AddSingleton(sp => new Settings { LowestDegree = 1, Degree = 2, LazyDegree = 2, HighestDegree = 3 })
@@ -73,16 +75,16 @@ for (int i = 0; i < peerStores.Length; i++)
 
 await Task.Delay(5000);
 
-var testTopic = routers[1].GetTopic("test");
-var testTopicEnd = routers[totalCount - 1].GetTopic("test");
+ITopic testTopic = routers[1].GetTopic("test");
+ITopic testTopicEnd = routers[totalCount - 1].GetTopic("test");
 testTopicEnd.OnMessage += (s) => Console.WriteLine(Encoding.UTF8.GetString(s));
 
 testTopic.Publish(Encoding.UTF8.GetBytes("test"));
 
-for (int i = 0; i < 20; i++)
+for (int i = 0; i < 8; i++)
 {
     Console.WriteLine(i * 100);
-    await Task.Delay(100);
+    await Task.Delay(1000000);
 }
 
 Console.WriteLine("Routers");

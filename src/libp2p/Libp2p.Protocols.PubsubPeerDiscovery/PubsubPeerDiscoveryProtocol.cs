@@ -36,7 +36,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
 
         token.Register(() =>
         {
-            foreach (var topic in topics)
+            foreach (ITopic topic in topics)
             {
                 topic.Unsubscribe();
             }
@@ -59,7 +59,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
             throw new NullReferenceException($"{nameof(topics)} should be previously set in ${nameof(DiscoverAsync)}");
         }
 
-        foreach (var topic in topics)
+        foreach (ITopic topic in topics)
         {
             topic.Publish(new Peer
             {

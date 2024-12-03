@@ -252,7 +252,7 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: New stream request acknowledged", contextId, streamId);
                         }
 
-                        await foreach (var upData in upChannel.ReadAllAsync())
+                        await foreach (ReadOnlySequence<byte> upData in upChannel.ReadAllAsync())
                         {
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Receive from upchannel, length={length}", contextId, streamId, upData.Length);
 

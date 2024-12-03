@@ -29,12 +29,13 @@ public static class PeerFactoryBuilderBase
 
 public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {
-    static int IdCounter = 0;
-    private readonly bool l;
+    static int RefIdCounter = 0;
 
-    public string RefId { get; } = Interlocked.Increment(ref IdCounter).ToString();
+    public string RefId { get; } = Interlocked.Increment(ref RefIdCounter).ToString();
     public IProtocol Protocol => protocol;
     public bool IsExposed => isExposed;
+
+    public string Id => Protocol.Id;
 
     public override string ToString()
     {

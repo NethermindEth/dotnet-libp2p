@@ -17,7 +17,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
 
-    public Lazy<List<SslApplicationProtocol>> ApplicationProtocols = new Lazy<List<SslApplicationProtocol>>(() => multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ?? []);
+    public Lazy<List<SslApplicationProtocol>> ApplicationProtocols = new(() => multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ?? []);
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     public string Id => "/tls/1.0.0";
 

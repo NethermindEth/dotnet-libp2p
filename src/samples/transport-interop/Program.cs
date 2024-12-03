@@ -24,7 +24,7 @@ try
 
     int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("test_timeout_seconds") ?? "180");
 
-    TestPlansPeerFactoryBuilder builder = new TestPlansPeerFactoryBuilder(transport, muxer, security);
+    TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();
 
     Log($"Connecting to redis at {redisAddr}...");
@@ -62,7 +62,7 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            var d = NetworkInterface.GetAllNetworkInterfaces()!
+            List<NetworkInterface> d = NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();

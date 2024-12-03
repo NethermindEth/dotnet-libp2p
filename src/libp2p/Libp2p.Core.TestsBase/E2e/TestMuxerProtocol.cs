@@ -34,7 +34,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
     {
         context.ListenerReady(listenAddr);
         logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listen async");
-        await foreach (var item in bus.GetIncomingRequests(context.Peer.Identity.PeerId))
+        await foreach (IChannel item in bus.GetIncomingRequests(context.Peer.Identity.PeerId))
         {
             using INewConnectionContext connection = context.CreateConnection();
             logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles new con");
@@ -62,20 +62,20 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
             logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dialer handles remote {peer}");
         }
 
-        using INewSessionContext session = connection.UpgradeToSession();
         connection.State.RemoteAddress = $"/p2p/{peer}";
+        using INewSessionContext session = connection.UpgradeToSession();
 
         string logPrefix = $"{context.Peer.Identity.PeerId}<>{peer}";
 
-        _ = Task.Run(async () =>
+        _ = Task.Run(() =>
         {
-            foreach (var item in session.DialRequests)
+            foreach (UpgradeOptions item in session.DialRequests)
             {
                 uint chanId = Interlocked.Add(ref counter, 2);
                 logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} from {connection.State.RemoteAddress.GetPeerId()}");
 
                 chans[chanId] = new MuxerChannel { Tcs = item.CompletionSource };
-                var response = new MuxerPacket()
+                MuxerPacket response = new()
                 {
                     ChannelId = chanId,
                     Type = MuxerPacketType.NewStreamRequest,
@@ -87,7 +87,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 _ = downChannel.WriteSizeAndProtobufAsync(response);
             }
             logger?.LogDebug($"{context.Peer.Identity.PeerId}: SubDialRequests End");
-
+            return Task.CompletedTask;
         });
 
         while (true)
@@ -104,7 +104,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 {
                     case MuxerPacketType.NewStreamRequest:
                         IProtocol? selected = null;
-                        foreach (var proto in packet.Protocols)
+                        foreach (string? proto in packet.Protocols)
                         {
                             selected = session.SubProtocols.FirstOrDefault(x => x.Id == proto);
                             if (selected is not null) break;
@@ -112,7 +112,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                         if (selected is not null)
                         {
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Matched {selected}");
-                            var response = new MuxerPacket()
+                            MuxerPacket response = new()
                             {
                                 ChannelId = packet.ChannelId,
                                 Type = MuxerPacketType.NewStreamResponse,
@@ -122,7 +122,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             }
                             };
 
-                            var req = new UpgradeOptions { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Dial };
+                            UpgradeOptions req = new() { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Dial };
 
                             IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId] = new MuxerChannel { UpChannel = upChannel };
@@ -136,7 +136,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                         {
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): No match {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
 
-                            var response = new MuxerPacket()
+                            MuxerPacket response = new()
                             {
                                 ChannelId = packet.ChannelId,
                                 Type = MuxerPacketType.NewStreamResponse,
@@ -150,7 +150,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                     case MuxerPacketType.NewStreamResponse:
                         if (packet.Protocols.Any())
                         {
-                            var req = new UpgradeOptions { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), ModeOverride = UpgradeModeOverride.Dial };
+                            UpgradeOptions req = new() { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), ModeOverride = UpgradeModeOverride.Dial };
                             IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId].UpChannel = upChannel;
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SelectedProtocol}");
@@ -190,12 +190,12 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         {
             try
             {
-                await foreach (var item in upChannel.ReadAllAsync())
+                await foreach (ReadOnlySequence<byte> item in upChannel.ReadAllAsync())
                 {
-                    var data = item.ToArray();
+                    byte[] data = item.ToArray();
                     logger?.LogDebug($"{logPrefix}({channelId}): Upchannel data {data.Length} {Hex.ToHexString(data, false)}");
 
-                    var packet = new MuxerPacket()
+                    MuxerPacket packet = new()
                     {
                         ChannelId = channelId,
                         Type = MuxerPacketType.Data,
@@ -214,7 +214,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 logger?.LogDebug($"{logPrefix}({channelId}): Upchannel write close");
 
                 {
-                    var packet = new MuxerPacket()
+                    MuxerPacket packet = new()
                     {
                         ChannelId = channelId,
                         Type = MuxerPacketType.CloseWrite,

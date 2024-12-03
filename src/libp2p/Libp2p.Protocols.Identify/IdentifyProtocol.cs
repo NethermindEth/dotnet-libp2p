@@ -131,7 +131,7 @@ public class IdentifyProtocol : ISessionProtocol
             Seq = seq
         };
 
-        foreach (var address in addresses)
+        foreach (Multiaddress address in addresses)
         {
             paylaod.Addresses.Add(new AddressInfo
             {
