@@ -23,17 +23,17 @@ class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity
 
     protected override ProtocolRef SelectProtocol(Multiaddress addr)
     {
-        ArgumentNullException.ThrowIfNull(protocolStackSettings.TopProtocols);
+        ArgumentNullException.ThrowIfNull(_protocolStackSettings.TopProtocols);
 
         ProtocolRef? protocol;
 
         if (addr.Has<QUICv1>())
         {
-            protocol = protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Protocol.Id == "quic-v1") ?? throw new ApplicationException("QUICv1 is not supported");
+            protocol = _protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Protocol.Id == "quic-v1") ?? throw new ApplicationException("QUICv1 is not supported");
         }
         else if (addr.Has<TCP>())
         {
-            protocol = protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Protocol.Id == "ip-tcp") ?? throw new ApplicationException("TCP is not supported");
+            protocol = _protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Protocol.Id == "ip-tcp") ?? throw new ApplicationException("TCP is not supported");
         }
         else
         {

@@ -15,15 +15,15 @@ public class Libp2pException : Exception
     }
 }
 
-public class ChannelClosedException : Libp2pException
-{
-    public ChannelClosedException()
-    {
+public class ChannelClosedException : Libp2pException;
 
-    }
-}
+/// <summary>
+/// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
+/// </summary>
+/// <param name="message"></param>
+public class Libp2pSetupException(string? message = null) : Libp2pException(message);
 
-public class Libp2pSetupException(string? message = null) : Libp2pException(message)
-{
-
-}
+/// <summary>
+/// Appears when there is already active session for the given peer
+/// </summary>
+public class SessionExistsException(PeerId remotePeerId) : Libp2pException($"Session is already established with {remotePeerId}");

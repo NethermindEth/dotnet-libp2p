@@ -6,9 +6,9 @@ using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-public class Settings
+public class PubsubSettings
 {
-    public static Settings Default { get; } = new();
+    public static PubsubSettings Default { get; } = new();
 
     public int ReconnectionAttempts { get; set; } = 10;
     public int ReconnectionPeriod { get; set; } = 15_000;
@@ -17,6 +17,9 @@ public class Settings
     public int LowestDegree { get; set; } = 4; //Lower bound for outbound degree 	4
     public int HighestDegree { get; set; } = 12;//Upper bound for outbound degree 	12
     public int LazyDegree { get; set; } = 6;//(Optional) the outbound degree for gossip emission D
+
+    public int MaxConnections { get; set; }
+
     public int HeartbeatInterval { get; set; } = 1_000;//Time between heartbeats 	1 second
     public int FanoutTtl { get; set; } = 60 * 1000;//Time-to-live for each topic's fanout state 	60 seconds
     public int mcache_len { get; set; } = 5;//Number of history windows in message cache 	5

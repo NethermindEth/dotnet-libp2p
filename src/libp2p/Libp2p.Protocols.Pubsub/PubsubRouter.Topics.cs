@@ -144,7 +144,7 @@ public partial class PubsubRouter
                 HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
                 if (topicPeers is { Count: > 0 })
                 {
-                    foreach (PeerId peer in topicPeers.Take(settings.Degree))
+                    foreach (PeerId peer in topicPeers.Take(_settings.Degree))
                     {
                         topicFanout.Add(peer);
                     }

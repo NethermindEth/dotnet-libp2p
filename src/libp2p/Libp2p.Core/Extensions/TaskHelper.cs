@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Exceptions;
+
 namespace Nethermind.Libp2p.Core.Extensions;
 
 internal static class TaskHelper
@@ -12,6 +14,10 @@ internal static class TaskHelper
         Task all = Task.WhenAll(tasks.Select(t => t.ContinueWith(t =>
         {
             if (t.IsCompletedSuccessfully)
+            {
+                tcs.TrySetResult(t);
+            }
+            if (t.IsFaulted && t.Exception.InnerException is SessionExistsException)
             {
                 tcs.TrySetResult(t);
             }

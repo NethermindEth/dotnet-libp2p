@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <AdditionalFiles Include="Dto\KeyPair.proto" CopyToOutputDirectory="Never" />
+    <AdditionalFiles Include="Dto\PeerRecord.proto">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </AdditionalFiles>
   </ItemGroup>
 
   <ItemGroup>

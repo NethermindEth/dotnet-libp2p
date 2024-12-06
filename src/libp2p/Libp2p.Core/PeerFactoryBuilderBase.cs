@@ -6,27 +6,6 @@ using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 
-public static class PeerFactoryBuilderBase
-{
-    private static readonly HashSet<IProtocol> protocols = [];
-
-    internal static TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
-    {
-        if (instance is not null)
-        {
-            protocols.Add(instance);
-        }
-
-        IProtocol? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
-        if (existing is null)
-        {
-            existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
-            protocols.Add(existing);
-        }
-        return (TProtocol)existing;
-    }
-}
-
 public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {
     static int RefIdCounter = 0;
@@ -48,6 +27,25 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : IPeerFactory
 {
+    private readonly HashSet<IProtocol> protocolInstances = [];
+
+    private TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+    {
+        if (instance is not null)
+        {
+            protocolInstances.Add(instance);
+        }
+
+        IProtocol? existing = instance ?? protocolInstances.OfType<TProtocol>().FirstOrDefault();
+        if (existing is null)
+        {
+            existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
+            protocolInstances.Add(existing);
+        }
+        return (TProtocol)existing;
+    }
+
+
     private readonly List<ProtocolRef> _appLayerProtocols = new();
     public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
@@ -60,7 +58,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
-        _appLayerProtocols.Add(new ProtocolRef(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance), isExposed));
+        _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
     }
 
@@ -90,7 +88,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     protected ProtocolRef Get<TProtocol>() where TProtocol : IProtocol
     {
-        return new ProtocolRef(PeerFactoryBuilderBase.CreateProtocolInstance<TProtocol>(ServiceProvider));
+        return new ProtocolRef(CreateProtocolInstance<TProtocol>(ServiceProvider));
     }
 
     public IPeerFactory Build()

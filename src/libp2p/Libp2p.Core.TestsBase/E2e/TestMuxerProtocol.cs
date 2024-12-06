@@ -3,6 +3,8 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase.Dto;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Org.BouncyCastle.Utilities.Encoders;
@@ -20,14 +22,14 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
     {
         logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dial async");
 
-        await Task.Run(async () =>
-        {
-            IChannel chan = bus.Dial(context.Peer.Identity.PeerId, remoteAddr.GetPeerId()!);
-            using INewConnectionContext connection = context.CreateConnection();
-            connection.State.RemoteAddress = remoteAddr;
+        //await Task.Run(async () =>
+        //{
+        IChannel chan = bus.Dial(context.Peer.Identity.PeerId, remoteAddr.GetPeerId()!);
+        using INewConnectionContext connection = context.CreateConnection();
+        connection.State.RemoteAddress = remoteAddr;
 
-            await HandleRemote(chan, connection, context);
-        });
+        await HandleRemote(chan, connection, context);
+        //});
     }
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
@@ -36,9 +38,23 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listen async");
         await foreach (IChannel item in bus.GetIncomingRequests(context.Peer.Identity.PeerId))
         {
-            using INewConnectionContext connection = context.CreateConnection();
-            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles new con");
-            _ = HandleRemote(item, connection, context, true);
+            _ = Task.Run(async () =>
+            {
+                INewConnectionContext connection = context.CreateConnection();
+                logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles new con");
+                try
+                {
+                    await HandleRemote(item, connection, context, true);
+                }
+                catch (SessionExistsException)
+                {
+                    logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener rejected inititation of a redundant session");
+                }
+                catch (Exception e)
+                {
+                    logger?.LogError(e, $"{context.Peer.Identity.PeerId}: Listener exception");
+                }
+            }, token);
         }
     }
 
@@ -47,32 +63,36 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         uint counter = isListen ? 1u : 0u;
         Dictionary<uint, MuxerChannel> chans = [];
 
-        string peer = "";
+        PublicKey? remotePublicKey;
+        PeerId? remotePeerId;
 
         if (isListen)
         {
-            peer = await downChannel.ReadLineAsync();
-            await downChannel.WriteLineAsync(context.Peer.Identity.PeerId!.ToString());
-            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles remote {peer}");
+            remotePublicKey = await downChannel.ReadPrefixedProtobufAsync(PublicKey.Parser);
+            remotePeerId = new PeerId(remotePublicKey);
+            await downChannel.WriteSizeAndProtobufAsync(context.Peer.Identity.PublicKey);
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener handles remote {remotePeerId}");
         }
         else
         {
-            await downChannel.WriteLineAsync(context.Peer.Identity.PeerId!.ToString());
-            peer = await downChannel.ReadLineAsync();
-            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dialer handles remote {peer}");
+            await downChannel.WriteSizeAndProtobufAsync(context.Peer.Identity.PublicKey);
+            remotePublicKey = await downChannel.ReadPrefixedProtobufAsync(PublicKey.Parser);
+            remotePeerId = new PeerId(remotePublicKey);
+            logger?.LogDebug($"{context.Peer.Identity.PeerId}: Dialer handles remote {remotePeerId}");
         }
 
-        connection.State.RemoteAddress = $"/p2p/{peer}";
-        using INewSessionContext session = connection.UpgradeToSession();
+        connection.State.RemotePublicKey = remotePublicKey;
+        connection.State.RemoteAddress = $"/p2p/{remotePeerId}";
+        using INewSessionContext? session = connection.UpgradeToSession();
 
-        string logPrefix = $"{context.Peer.Identity.PeerId}<>{peer}";
+        string logPrefix = $"{context.Peer.Identity.PeerId}<>{remotePeerId}";
 
         _ = Task.Run(() =>
         {
             foreach (UpgradeOptions item in session.DialRequests)
             {
                 uint chanId = Interlocked.Add(ref counter, 2);
-                logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} from {connection.State.RemoteAddress.GetPeerId()}");
+                logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} to call {connection.State.RemoteAddress.GetPeerId()}");
 
                 chans[chanId] = new MuxerChannel { Tcs = item.CompletionSource };
                 MuxerPacket response = new()
@@ -122,7 +142,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             }
                             };
 
-                            UpgradeOptions req = new() { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Dial };
+                            UpgradeOptions req = new() { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Listen };
 
                             IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId] = new MuxerChannel { UpChannel = upChannel };
@@ -162,23 +182,38 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                         }
                         break;
                     case MuxerPacketType.Data:
-                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Data to upchanel {packet.Data?.Length ?? 0} {Hex.ToHexString(packet.Data?.ToByteArray() ?? [])}");
-                        _ = chans[packet.ChannelId].UpChannel!.WriteAsync(new ReadOnlySequence<byte>(packet.Data.ToByteArray()));
+                        if (packet.Data is null or [])
+                        {
+                            logger?.LogWarning($"{logPrefix}({packet.ChannelId}): Empty data received");
+                            break;
+                        }
+                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Data to upchanel {packet.Data.Length} {Hex.ToHexString(packet.Data.ToByteArray())}");
+                        _ = chans.GetValueOrDefault(packet.ChannelId)?.UpChannel?.WriteAsync(new ReadOnlySequence<byte>(packet.Data.ToByteArray()));
                         break;
                     case MuxerPacketType.CloseWrite:
                         logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Remote EOF");
 
-                        chans[packet.ChannelId].RemoteClosedWrites = true;
-                        _ = chans[packet.ChannelId].UpChannel!.WriteEofAsync();
+                        lock (chans[packet.ChannelId])
+                        {
+                            chans[packet.ChannelId].RemoteClosedWrites = true;
+
+                            _ = chans[packet.ChannelId].UpChannel?.WriteEofAsync();
+
+                            if (chans[packet.ChannelId].LocalClosedWrites)
+                            {
+                                chans[packet.ChannelId].Tcs?.SetResult();
+                                _ = chans[packet.ChannelId].UpChannel?.CloseAsync();
+                                chans.Remove(packet.ChannelId);
+                            }
+                        }
                         break;
                     default:
                         break;
                 }
             }
-            catch
+            catch (Exception e)
             {
-
-
+                logger?.LogError(e, $"{logPrefix}: Muxer listener exception");
             }
 
         }
@@ -206,23 +241,31 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
                     _ = downChannel.WriteSizeAndProtobufAsync(packet);
                 }
-                if (chans[channelId].RemoteClosedWrites)
+                lock (chans[channelId])
                 {
-                    logger?.LogDebug($"{logPrefix}({channelId}): Upchannel dial/listen complete");
-                    chans[channelId].Tcs?.SetResult();
-                }
-                logger?.LogDebug($"{logPrefix}({channelId}): Upchannel write close");
+                    chans[channelId].LocalClosedWrites = true;
 
-                {
-                    MuxerPacket packet = new()
+                    if (chans[channelId].RemoteClosedWrites)
                     {
-                        ChannelId = channelId,
-                        Type = MuxerPacketType.CloseWrite,
-                    };
+                        logger?.LogDebug($"{logPrefix}({channelId}): Upchannel dial/listen complete");
+                        chans[channelId].Tcs?.SetResult();
+                        _ = upChannel.CloseAsync();
+                        chans.Remove(channelId);
+                    }
 
-                    logger?.LogDebug($"{logPrefix}({packet.ChannelId}): > Packet {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
+                    logger?.LogDebug($"{logPrefix}({channelId}): Upchannel write close");
 
-                    _ = downChannel.WriteSizeAndProtobufAsync(packet);
+                    {
+                        MuxerPacket packet = new()
+                        {
+                            ChannelId = channelId,
+                            Type = MuxerPacketType.CloseWrite,
+                        };
+
+                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): > Packet {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
+
+                        _ = downChannel.WriteSizeAndProtobufAsync(packet);
+                    }
                 }
             }
             catch
@@ -237,5 +280,6 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         public IChannel? UpChannel { get; set; }
         public TaskCompletionSource? Tcs { get; set; }
         public bool RemoteClosedWrites { get; set; }
+        public bool LocalClosedWrites { get; set; }
     }
 }

@@ -7,11 +7,11 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Noise;
 using System.Text;
-using Org.BouncyCastle.Math.EC.Rfc8032;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -40,6 +40,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
+        if (context.State.RemoteAddress is null)
+        {
+            throw new Libp2pException();
+        }
+
         KeyPair? clientStatic = KeyPair.Generate();
         using HandshakeState? handshakeState = _protocol.Create(true, s: clientStatic.PrivateKey);
         byte[] buffer = new byte[Protocol.MaxMessageLength];
@@ -82,8 +87,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         }
 
         byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(clientStatic.PublicKey)];
-        byte[] sig = new byte[64];
-        Ed25519.Sign([.. context.Peer.Identity.PrivateKey!.Data], 0, msg, 0, msg.Length, sig, 0);
+        byte[] sig = context.Peer.Identity.Sign(msg);
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.Peer.Identity.PublicKey.ToByteString(),
@@ -117,6 +121,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
     public async Task ListenAsync(IChannel downChannel, IConnectionContext context)
     {
+        if (context.State.RemoteAddress is null)
+        {
+            throw new Libp2pException();
+        }
+
         KeyPair? serverStatic = KeyPair.Generate();
         using HandshakeState? handshakeState =
             _protocol.Create(false,
@@ -131,8 +140,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
             .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
             .ToArray();
-        byte[] sig = new byte[64];
-        Ed25519.Sign(context.Peer.Identity.PrivateKey!.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
+        byte[] sig = context.Peer.Identity.Sign(msg);
+
         NoiseHandshakePayload payload = new()
         {
             IdentityKey = context.Peer.Identity.PublicKey.ToByteString(),
@@ -171,9 +180,9 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             };
         }
 
-        if (!(context.State.RemoteAddress?.Has<P2P>() ?? false))
+        if (context.State.RemotePeerId is null)
         {
-            context.State.RemoteAddress!.Add(new P2P(remotePeerId.ToString()));
+            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);

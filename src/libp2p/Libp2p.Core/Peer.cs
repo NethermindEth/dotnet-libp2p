@@ -12,17 +12,31 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core;
 
-public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : IPeer
+public class LocalPeer : IPeer
 {
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<LocalPeer>();
+    protected readonly ILogger? _logger;
+    protected readonly IProtocolStackSettings _protocolStackSettings;
 
-    protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
+    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = new();
+    private ObservableCollection<Session> sessions { get; } = [];
 
-    public Identity Identity { get; } = identity;
+
+    public LocalPeer(Identity identity, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null)
+    {
+        Identity = identity;
+        _protocolStackSettings = protocolStackSettings;
+        _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
+    }
+
+    public override string ToString()
+    {
+        return $"peer({Identity.PeerId}): sessions {string.Join("|", sessions.Select(x => $"{x.State.RemotePeerId}"))}";
+    }
+
+    public Identity Identity { get; }
 
     public ObservableCollection<Multiaddress> ListenAddresses { get; } = [];
 
-    private ObservableCollection<Session> sessions { get; } = [];
 
     protected virtual Task ConnectedTo(ISession peer, bool isDialer) => Task.CompletedTask;
 
@@ -72,18 +86,18 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
     protected virtual ProtocolRef SelectProtocol(Multiaddress addr)
     {
-        if (protocolStackSettings.TopProtocols is null)
+        if (_protocolStackSettings.TopProtocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        if (protocolStackSettings.TopProtocols.Length is not 1)
+        if (_protocolStackSettings.TopProtocols.Length is not 1)
         {
             throw new Libp2pSetupException("Top protocol should be single one by default");
 
         }
 
-        return protocolStackSettings.TopProtocols.Single();
+        return _protocolStackSettings.TopProtocols.Single();
     }
 
     protected virtual IEnumerable<Multiaddress> PrepareAddresses(Multiaddress[] addrs)
@@ -101,7 +115,6 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
         }
     }
 
-    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = new();
 
     public event Connected? OnConnected;
 
@@ -154,19 +167,17 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
     public INewSessionContext UpgradeToSession(Session session, ProtocolRef proto, bool isListener)
     {
-        if (session.State.RemoteAddress?.GetPeerId() is null)
-        {
+        PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialiazed before session creation");
-        }
 
         lock (sessions)
         {
-            if (sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == session.State.RemoteAddress?.GetPeerId()))
+            if (sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == remotePeerId))
             {
                 _ = session.DisconnectAsync();
-                throw new Libp2pException("Session is already established");
+                throw new SessionExistsException(remotePeerId);
             }
-
+            _logger?.LogDebug($"New session with {remotePeerId}");
             sessions.Add(session);
         }
 
@@ -176,6 +187,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             if (t.IsFaulted)
             {
                 _ = session.DisconnectAsync();
+                _logger?.LogError(t.Exception.InnerException, $"Disconnecting due to exception");
                 return;
             }
             session.ConnectedTcs.SetResult();
@@ -186,33 +198,41 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
     internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
     {
-        if (protocolStackSettings.Protocols is null)
+        if (_protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        if (!protocolStackSettings.Protocols.ContainsKey(protocol))
+        if (!_protocolStackSettings.Protocols.ContainsKey(protocol))
         {
             throw new Libp2pSetupException($"{protocol} is not added");
         }
 
-        return protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
+        return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
     }
 
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
-        return protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
+        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
     public async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
+        PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
+        ISession? existingSession = sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
+
+        if (existingSession is not null)
+        {
+            return existingSession;
+        }
+
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = new();
         foreach (Multiaddress addr in addrs)
         {
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
-        Task timeoutTask = Task.Delay(15000_000, token);
+        Task timeoutTask = Task.Delay(15_000, token);
         Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
 
         if (wait == timeoutTask)
@@ -263,19 +283,19 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
     internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
     {
-        if (protocolStackSettings.Protocols is null)
+        if (_protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        if (!protocolStackSettings.Protocols.ContainsKey(parentProtocol))
+        if (!_protocolStackSettings.Protocols.ContainsKey(parentProtocol))
         {
             throw new Libp2pSetupException($"{parentProtocol} is not added");
         }
 
         ProtocolRef top = upgradeProtocol is not null ? new ProtocolRef(upgradeProtocol) :
-                          options?.SelectedProtocol is not null ? protocolStackSettings.Protocols[parentProtocol].SingleOrDefault(x => x.Protocol == options.SelectedProtocol) ?? new ProtocolRef(options.SelectedProtocol) :
-                          protocolStackSettings.Protocols[parentProtocol].Single();
+                          options?.SelectedProtocol is not null ? _protocolStackSettings.Protocols[parentProtocol].SingleOrDefault(x => x.Protocol == options.SelectedProtocol) ?? new ProtocolRef(options.SelectedProtocol) :
+                          _protocolStackSettings.Protocols[parentProtocol].Single();
 
         Channel downChannel = new();
 
@@ -319,6 +339,7 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             {
                 _logger?.LogError($"Upgrade task failed for {top} with {t.Exception}");
             }
+            _ = downChannel.CloseAsync();
         });
 
         return downChannel;
@@ -341,19 +362,19 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
 
     internal async Task Upgrade(Session session, IChannel parentChannel, ProtocolRef protocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
     {
-        if (protocolStackSettings.Protocols is null)
+        if (_protocolStackSettings.Protocols is null)
         {
-            throw new Libp2pSetupException($"Protocols are not set in {nameof(protocolStackSettings)}");
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        if (upgradeProtocol is not null && !protocolStackSettings.Protocols[protocol].Any(p => p.Protocol == upgradeProtocol))
+        if (upgradeProtocol is not null && !_protocolStackSettings.Protocols[protocol].Any(p => p.Protocol == upgradeProtocol))
         {
-            protocolStackSettings.Protocols.Add(new ProtocolRef(upgradeProtocol, false), []);
+            _protocolStackSettings.Protocols.Add(new ProtocolRef(upgradeProtocol, false), []);
         }
 
         ProtocolRef top = upgradeProtocol is not null ?
-            protocolStackSettings.Protocols[protocol].FirstOrDefault(p => p.Protocol == upgradeProtocol, protocolStackSettings.Protocols.Keys.First(k => k.Protocol == upgradeProtocol)) :
-            protocolStackSettings.Protocols[protocol].Single();
+            _protocolStackSettings.Protocols[protocol].FirstOrDefault(p => p.Protocol == upgradeProtocol, _protocolStackSettings.Protocols.Keys.First(k => k.Protocol == upgradeProtocol)) :
+            _protocolStackSettings.Protocols[protocol].Single();
 
         isListener = options?.ModeOverride switch { UpgradeModeOverride.Dial => false, UpgradeModeOverride.Listen => true, _ => isListener };
 
@@ -393,10 +414,11 @@ public class LocalPeer(Identity identity, IProtocolStackSettings protocolStackSe
             {
                 _logger?.LogError($"Upgrade task failed with {t.Exception}");
             }
+            _ = parentChannel.CloseAsync();
         });
     }
 
-    public Task DisconnectAsync() => Task.WhenAll(sessions.Select(s => s.DisconnectAsync()));
+    public Task DisconnectAsync() => Task.WhenAll(sessions.ToArray().Select(s => s.DisconnectAsync()));
 }
 
 public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions) : ContextBase(localPeer, session, protocol, isListener, upgradeOptions), INewSessionContext

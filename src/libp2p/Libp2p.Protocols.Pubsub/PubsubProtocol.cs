@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
@@ -27,7 +27,13 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        PeerId? remotePeerId = context.State.RemotePeerId ?? throw new Libp2pException();
+
+        if (context.State.RemoteAddress is null)
+        {
+            throw new Libp2pException();
+        }
+
         _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
 
         TaskCompletionSource dialTcs = new();
@@ -38,10 +44,10 @@ public abstract class PubsubProtocol : ISessionProtocol
             {
                 if (!t.IsCompletedSuccessfully)
                 {
-                    _logger?.LogWarning($"Sending RPC failed message to {peerId}: {rpc}");
+                    _logger?.LogWarning($"Sending RPC failed message to {remotePeerId}: {rpc}");
                 }
             });
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
+            _logger?.LogTrace($"Sent message to {remotePeerId}: {rpc}");
         });
 
         await channel;
@@ -52,8 +58,13 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
+        PeerId? remotePeerId = context.State.RemotePeerId ?? throw new Libp2pException();
 
-        string peerId = context.State.RemoteAddress.Get<P2P>().ToString()!;
+        if (context.State.RemoteAddress is null)
+        {
+            throw new Libp2pException();
+        }
+
         _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
 
         TaskCompletionSource listTcs = new();
@@ -70,23 +81,21 @@ public abstract class PubsubProtocol : ISessionProtocol
             Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
             if (rpc is null)
             {
-                _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
+                _logger?.LogDebug($"Received a broken message or EOF from {remotePeerId}");
                 break;
             }
             else
             {
-                _logger?.LogTrace($"Received message from {peerId}: {rpc}");
-                _ = router.OnRpc(peerId, rpc);
+                _logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
+                _ = router.OnRpc(remotePeerId, rpc);
             }
         }
+
         listTcs.SetResult();
         _logger?.LogDebug($"Finished({context.Id}) list {context.State.RemoteAddress}");
     }
 
-    public override string ToString()
-    {
-        return Id;
-    }
+    public override string ToString() => Id;
 }
 
 public class FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.FloodsubProtocolVersion, router, loggerFactory);
