@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using StackExchange.Redis;
@@ -46,7 +47,7 @@ try
 
         Log($"Dialing {listenerAddr}...");
         Stopwatch handshakeStartInstant = Stopwatch.StartNew();
-        ISession remotePeer = await localPeer.DialAsync(listenerAddr);
+        ISession remotePeer = await localPeer.DialAsync((Multiaddress)listenerAddr);
 
         Stopwatch pingIstant = Stopwatch.StartNew();
         await remotePeer.DialAsync<PingProtocol>();

@@ -18,7 +18,8 @@ public record UpgradeOptions
 {
     public IProtocol? SelectedProtocol { get; init; }
     public UpgradeModeOverride ModeOverride { get; init; }
-    public TaskCompletionSource? CompletionSource { get; init; }
+    public TaskCompletionSource<object?>? CompletionSource { get; init; }
+    public object? Argument { get; set; }
 }
 
 public enum UpgradeModeOverride

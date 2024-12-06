@@ -9,7 +9,6 @@ using Nethermind.Libp2p.Protocols.Identify;
 using Nethermind.Libp2p.Stack;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -43,6 +42,7 @@ public class IdentifyProtocol : ISessionProtocol
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
+        ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
         _logger?.LogInformation("Dial");
 
@@ -50,20 +50,21 @@ public class IdentifyProtocol : ISessionProtocol
 
         _logger?.LogInformation("Received peer info: {identify}", identify);
 
-        if (_peerStore is not null && identify.SignedPeerRecord is not null)
+        if (_peerStore is not null)
         {
-            if (!SigningHelper.VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey))
-            {
-                throw new PeerConnectionException();
-            }
+            _peerStore.GetPeerInfo(context.State.RemotePeerId).SupportedProtocols = identify.Protocols.ToArray();
 
-            if (context.State.RemotePeerId is null)
+            if (identify.SignedPeerRecord is not null)
             {
-                throw new Libp2pException("No remote peer id is set");
-            }
-            _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
+                if (!SigningHelper.VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey))
+                {
+                    throw new PeerConnectionException();
+                }
 
-            _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+                _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
+
+                _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+            }
         }
 
         if (context.State.RemotePublicKey.ToByteString() != identify.PublicKey)

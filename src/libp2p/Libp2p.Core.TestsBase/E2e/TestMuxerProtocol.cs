@@ -94,7 +94,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 uint chanId = Interlocked.Add(ref counter, 2);
                 logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} to call {connection.State.RemoteAddress.GetPeerId()}");
 
-                chans[chanId] = new MuxerChannel { Tcs = item.CompletionSource };
+                chans[chanId] = new MuxerChannel { Tcs = item.CompletionSource, Argument = item.Argument };
                 MuxerPacket response = new()
                 {
                     ChannelId = chanId,
@@ -170,7 +170,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                     case MuxerPacketType.NewStreamResponse:
                         if (packet.Protocols.Any())
                         {
-                            UpgradeOptions req = new() { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), ModeOverride = UpgradeModeOverride.Dial };
+                            UpgradeOptions req = new() { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), CompletionSource = chans[packet.ChannelId].Tcs, Argument = chans[packet.ChannelId].Argument, ModeOverride = UpgradeModeOverride.Dial };
                             IChannel upChannel = session.Upgrade(req);
                             chans[packet.ChannelId].UpChannel = upChannel;
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SelectedProtocol}");
@@ -201,7 +201,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
                             if (chans[packet.ChannelId].LocalClosedWrites)
                             {
-                                chans[packet.ChannelId].Tcs?.SetResult();
+                                //chans[packet.ChannelId].Tcs?.SetResult(null);
                                 _ = chans[packet.ChannelId].UpChannel?.CloseAsync();
                                 chans.Remove(packet.ChannelId);
                             }
@@ -248,7 +248,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                     if (chans[channelId].RemoteClosedWrites)
                     {
                         logger?.LogDebug($"{logPrefix}({channelId}): Upchannel dial/listen complete");
-                        chans[channelId].Tcs?.SetResult();
+                        //chans[channelId].Tcs?.SetResult(null);
                         _ = upChannel.CloseAsync();
                         chans.Remove(channelId);
                     }
@@ -278,8 +278,9 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
     class MuxerChannel
     {
         public IChannel? UpChannel { get; set; }
-        public TaskCompletionSource? Tcs { get; set; }
+        public TaskCompletionSource<object?>? Tcs { get; set; }
         public bool RemoteClosedWrites { get; set; }
         public bool LocalClosedWrites { get; set; }
+        public object? Argument { get; internal set; }
     }
 }

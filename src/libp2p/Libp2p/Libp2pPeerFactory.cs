@@ -5,16 +5,17 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, loggerFactory)
+public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, loggerFactory)
 {
-    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, identity ?? new Identity(), loggerFactory);
+    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, peerStore, identity ?? new Identity(), loggerFactory);
 }
 
-class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, protocolStackSettings, loggerFactory)
+class Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, peerStore, protocolStackSettings, loggerFactory)
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {

@@ -22,8 +22,20 @@ public interface IConnectionProtocol : IProtocol
     Task DialAsync(IChannel downChannel, IConnectionContext context);
 }
 
-public interface ISessionProtocol : IProtocol
+
+public interface ISessionListenerProtocol : IProtocol
 {
     Task ListenAsync(IChannel downChannel, ISessionContext context);
+}
+
+public interface ISessionProtocol : ISessionListenerProtocol
+{
     Task DialAsync(IChannel downChannel, ISessionContext context);
+}
+
+public class Void;
+
+public interface ISessionProtocol<TRequest, TResponse> : ISessionListenerProtocol
+{
+    Task<TResponse> DialAsync(IChannel downChannel, ISessionContext context, TRequest request);
 }

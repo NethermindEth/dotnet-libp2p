@@ -10,6 +10,24 @@ using System.Text;
 
 namespace Libp2p.Protocols.Pubsub.E2eTests;
 
+
+public class TestRequestResponseProtocol : ISessionProtocol<int, int>
+{
+    public string Id => "1";
+
+    public async Task<int> DialAsync(IChannel downChannel, ISessionContext context, int request)
+    {
+        await downChannel.WriteVarintAsync(request);
+        return await downChannel.ReadVarintAsync();
+    }
+
+    public async Task ListenAsync(IChannel downChannel, ISessionContext context)
+    {
+        var request = await downChannel.ReadVarintAsync();
+        await downChannel.WriteVarintAsync(request + 1);
+    }
+}
+
 public class PubsubTestSetup
 {
     protected static TestContextLoggerFactory loggerFactory = new();
@@ -33,6 +51,7 @@ public class PubsubTestSetup
                    .AddSingleton(sp => new TestBuilder(sp)
                         .AddAppLayerProtocol<GossipsubProtocol>()
                         .AddAppLayerProtocol<GossipsubProtocolV11>()
+                        .AddAppLayerProtocol<TestRequestResponseProtocol>()
                         .AddAppLayerProtocol<GossipsubProtocolV12>()
                         .AddAppLayerProtocol<FloodsubProtocol>())
                    .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())

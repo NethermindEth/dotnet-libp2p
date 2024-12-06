@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Stack;
 using System.Collections.Concurrent;
@@ -25,18 +26,18 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
     }
 }
 
-public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings)
+public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore)
 {
     ConcurrentDictionary<PeerId, IPeer> peers = new();
 
     public override IPeer Create(Identity? identity = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, loggerFactory));
+        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, peerStore, loggerFactory));
     }
 }
 
-internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : LocalPeer(id, protocolStackSettings, loggerFactory)
+internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : LocalPeer(id, peerStore, protocolStackSettings, loggerFactory)
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {

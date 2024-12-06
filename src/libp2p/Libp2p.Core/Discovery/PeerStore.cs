@@ -90,6 +90,7 @@ public class PeerStore
     public class PeerInfo
     {
         public ByteString? SignedPeerRecord { get; set; }
+        public string[]? SupportedProtocols { get; set; }
         public HashSet<Multiaddress>? Addrs { get; set; }
     }
 }

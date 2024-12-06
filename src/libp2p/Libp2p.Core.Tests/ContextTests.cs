@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -28,8 +29,8 @@ public class ContextTests
             TopProtocols = [tProto]
         };
 
-        LocalPeer peer1 = new(new Identity(), protocolStackSettings);
-        LocalPeer peer2 = new(new Identity(), protocolStackSettings);
+        LocalPeer peer1 = new(new Identity(), new PeerStore(), protocolStackSettings);
+        LocalPeer peer2 = new(new Identity(), new PeerStore(), protocolStackSettings);
 
         await peer1.StartListenAsync([new Multiaddress()]);
         await peer2.StartListenAsync([new Multiaddress()]);

@@ -31,6 +31,11 @@ public class LocalPeerStub : IPeer
         return Task.FromResult<ISession>(new TestRemotePeer(samePeerAddrs.First()));
     }
 
+    public Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default)
+    {
+        throw new NotImplementedException();
+    }
+
     public Task DisconnectAsync()
     {
         return Task.CompletedTask;
@@ -58,6 +63,11 @@ public class TestRemotePeer : ISession
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {
         return Task.CompletedTask;
+    }
+
+    public Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
+    {
+        throw new NotImplementedException();
     }
 
     public Task DisconnectAsync()
