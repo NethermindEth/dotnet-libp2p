@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
@@ -8,25 +9,37 @@ using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactory : PeerFactory
+public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, loggerFactory)
 {
-    public Libp2pPeerFactory(IServiceProvider serviceProvider) : base(serviceProvider)
+    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, identity ?? new Identity(), loggerFactory);
+}
+
+class Libp2pPeer(IProtocolStackSettings protocolStackSettings, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, protocolStackSettings, loggerFactory)
+{
+    protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
+        await session.DialAsync<IdentifyProtocol>();
     }
 
-    protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
+    protected override ProtocolRef SelectProtocol(Multiaddress addr)
     {
-        await peer.DialAsync<IdentifyProtocol>();
-    }
+        ArgumentNullException.ThrowIfNull(_protocolStackSettings.TopProtocols);
 
-    public override ILocalPeer Create(Identity? identity = null, Multiaddress? localAddr = null)
-    {
-        identity ??= new Identity();
-        localAddr ??= $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}";
-        if (localAddr.Get<P2P>() is null)
+        ProtocolRef? protocol;
+
+        if (addr.Has<QUICv1>())
         {
-            localAddr.Add<P2P>(identity.PeerId.ToString());
+            protocol = _protocolStackSettings.TopProtocols.FirstOrDefault(proto => proto.Protocol.Id == "quic-v1") ?? throw new ApplicationException("QUICv1 is not supported");
         }
-        return base.Create(identity, localAddr);
+        else if (addr.Has<TCP>())
+        {
+            protocol = _protocolStackSettings.TopProtocols!.FirstOrDefault(proto => proto.Protocol.Id == "ip-tcp") ?? throw new ApplicationException("TCP is not supported");
+        }
+        else
+        {
+            throw new NotImplementedException($"No transport protocol found for the given address: {addr}");
+        }
+
+        return protocol;
     }
 }

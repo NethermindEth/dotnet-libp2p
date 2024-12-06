@@ -5,15 +5,14 @@ using System.Buffers;
 using System.Text;
 using Nethermind.Libp2p.Core;
 
-internal class ChatProtocol : SymmetricProtocol, IProtocol
+internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
     private static readonly ConsoleReader Reader = new();
     private readonly ConsoleColor defautConsoleColor = Console.ForegroundColor;
 
     public string Id => "/chat/1.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context, bool isListener)
+    protected override async Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener)
     {
         Console.Write("> ");
         _ = Task.Run(async () =>

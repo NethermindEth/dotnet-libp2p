@@ -16,8 +16,8 @@ public class NoStackPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactor
 
     public static Libp2pPeerFactoryBuilder Create => new();
 
-    protected override ProtocolStack BuildStack()
+    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
-        return Over<IpTcpProtocol>();
+        return [Get<IpTcpProtocol>()];
     }
 }

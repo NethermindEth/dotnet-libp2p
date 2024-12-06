@@ -9,6 +9,8 @@ using Nethermind.Libp2p.Core.Discovery;
 using Makaretu.Dns;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -22,33 +24,42 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     private string PeerName = null!;
 
-    public async Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
+    public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
         ObservableCollection<Multiaddress> peers = [];
         ServiceDiscovery sd = new();
+        string? localPeerId = localPeerAddrs.First().GetPeerId()?.ToString();
+
+        if (localPeerId is null)
+        {
+            throw new Libp2pException();
+        }
 
         try
         {
             PeerName = RandomString(32);
             ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
-            if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
+            foreach (Multiaddress localPeerAddr in localPeerAddrs)
             {
-                service.Resources.Add(new TXTRecord()
+                if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
                 {
-                    Name = service.FullyQualifiedName,
-                    Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
-                        .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                        .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}"))
-                });
-            }
-            else
-            {
-                service.Resources.Add(new TXTRecord()
+                    service.Resources.Add(new TXTRecord()
+                    {
+                        Name = service.FullyQualifiedName,
+                        Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
+                            .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
+                            .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}"))
+                    });
+                }
+                else
                 {
-                    Name = service.FullyQualifiedName,
-                    Strings = [$"dnsaddr={localPeerAddr}"]
-                });
+                    service.Resources.Add(new TXTRecord()
+                    {
+                        Name = service.FullyQualifiedName,
+                        Strings = [$"dnsaddr={localPeerAddr}"]
+                    });
+                }
             }
 
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
@@ -65,7 +76,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
                     .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
-                if (Enumerable.Any(records) && !peers.Contains(Enumerable.First(records)) && localPeerAddr.Get<P2P>().ToString() != Enumerable.First(records).Get<P2P>().ToString())
+                if (records.Length != 0 && !peers.Contains(records[0]) && localPeerId != records[0].Get<P2P>().ToString())
                 {
                     List<string> peerAddresses = new();
                     foreach (Multiaddress peer in records)

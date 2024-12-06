@@ -49,7 +49,7 @@ public partial class PubsubRouter
         }
 
         Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
-        foreach (var peer in peerState)
+        foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
         {
             peer.Value.Send(topicUpdate);
         }
@@ -120,7 +120,7 @@ public partial class PubsubRouter
         ulong seqNo = this.seqNo++;
         Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Address.GetPeerId()!.Bytes, message, localPeer.Identity);
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Identity.PeerId.Bytes, message, localPeer.Identity);
 
         foreach (PeerId peerId in fPeers[topicId])
         {
@@ -144,7 +144,7 @@ public partial class PubsubRouter
                 HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
                 if (topicPeers is { Count: > 0 })
                 {
-                    foreach (PeerId peer in topicPeers.Take(settings.Degree))
+                    foreach (PeerId peer in topicPeers.Take(_settings.Degree))
                     {
                         topicFanout.Add(peer);
                     }

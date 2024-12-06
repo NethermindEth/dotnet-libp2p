@@ -38,7 +38,7 @@ public class ChannelStream : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        var result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
+        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -72,7 +72,7 @@ public class ChannelStream : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        var result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;

@@ -72,7 +72,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubPeer
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.PubsubPeerDiscovery.Tests", "Libp2p.Protocols.PubsubPeerDiscovery.Tests\Libp2p.Protocols.PubsubPeerDiscovery.Tests.csproj", "{5883B53B-2BA5-4444-8E65-DA4B69EB8B2F}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.Profiler", "Libp2p.Protocols.Pubsub.Profiler\Libp2p.Protocols.Pubsub.Profiler.csproj", "{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Pubsub.E2eTests", "Libp2p.Protocols.Pubsub.E2eTests\Libp2p.Protocols.Pubsub.E2eTests.csproj", "{BFE1CCB2-59A3-4A69-B543-EBC9C16E39F7}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Libp2p.Protocols.Tls", "Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj", "{C3CDBAAE-C790-443A-A293-D6E2330160F7}"
 EndProject

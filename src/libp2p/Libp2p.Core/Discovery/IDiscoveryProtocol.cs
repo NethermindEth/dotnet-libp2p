@@ -7,5 +7,5 @@ namespace Nethermind.Libp2p.Core.Discovery;
 
 public interface IDiscoveryProtocol
 {
-    Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default);
+    Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddr, CancellationToken token = default);
 }

@@ -13,39 +13,32 @@ public class TestContextLoggerFactory : ILoggerFactory
     {
         private readonly string _categoryName = categoryName;
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
-        {
-            return this;
-        }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => this;
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
+        public bool IsEnabled(LogLevel logLevel) => true;
 
-        public bool IsEnabled(LogLevel logLevel)
+        private static string ToString(LogLevel level) => level switch
         {
-            return true;
-        }
+            LogLevel.Trace => "TRAC",
+            LogLevel.Debug => "DEBG",
+            LogLevel.Information => "INFO",
+            LogLevel.Warning => "WARN",
+            LogLevel.Error => "EROR",
+            LogLevel.Critical => "CRIT",
+            LogLevel.None => "NONE",
+            _ => throw new NotImplementedException()
+        };
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            TestContext.Out.WriteLine($"{logLevel} {_categoryName}:{eventId}: {(exception is null ? state?.ToString() : formatter(state, exception))}");
-            Debug.WriteLine($"{logLevel} {_categoryName}:{eventId}: {(exception is null ? state?.ToString() : formatter(state, exception))}");
+            string log = $"{ToString(logLevel)} {_categoryName}: {(exception is null ? state?.ToString() : formatter(state, exception))}";
+            TestContext.Out.WriteLine(log);
+            Debug.WriteLine(log);
         }
     }
 
-    public void AddProvider(ILoggerProvider provider)
-    {
-
-    }
-
-    public ILogger CreateLogger(string categoryName)
-    {
-        return new TestContextLogger(categoryName);
-    }
-
-    public void Dispose()
-    {
-
-    }
+    public void AddProvider(ILoggerProvider provider) { }
+    public ILogger CreateLogger(string categoryName) => new TestContextLogger(categoryName);
+    public void Dispose() { }
 }

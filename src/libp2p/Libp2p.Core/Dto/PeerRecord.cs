@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Nethermind.Libp2p.Protocols.Identify.Dto {
+namespace Nethermind.Libp2p.Core.Dto {
 
   /// <summary>Holder for reflection information generated from PeerRecord.proto</summary>
   public static partial class PeerRecordReflection {
@@ -26,13 +26,13 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
           string.Concat(
             "ChBQZWVyUmVjb3JkLnByb3RvIiAKC0FkZHJlc3NJbmZvEhEKCW11bHRpYWRk",
             "chgBIAIoDCJLCgpQZWVyUmVjb3JkEg8KB3BlZXJfaWQYASACKAwSCwoDc2Vx",
-            "GAIgAigEEh8KCWFkZHJlc3NlcxgDIAMoCzIMLkFkZHJlc3NJbmZvQiuqAihO",
-            "ZXRoZXJtaW5kLkxpYnAycC5Qcm90b2NvbHMuSWRlbnRpZnkuRHRv"));
+            "GAIgAigEEh8KCWFkZHJlc3NlcxgDIAMoCzIMLkFkZHJlc3NJbmZvQh2qAhpO",
+            "ZXRoZXJtaW5kLkxpYnAycC5Db3JlLkR0bw=="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo), global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo.Parser, new[]{ "Multiaddr" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Identify.Dto.PeerRecord), global::Nethermind.Libp2p.Protocols.Identify.Dto.PeerRecord.Parser, new[]{ "PeerId", "Seq", "Addresses" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Core.Dto.AddressInfo), global::Nethermind.Libp2p.Core.Dto.AddressInfo.Parser, new[]{ "Multiaddr" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Core.Dto.PeerRecord), global::Nethermind.Libp2p.Core.Dto.PeerRecord.Parser, new[]{ "PeerId", "Seq", "Addresses" }, null, null, null, null)
           }));
     }
     #endregion
@@ -54,7 +54,7 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.Identify.Dto.PeerRecordReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Nethermind.Libp2p.Core.Dto.PeerRecordReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -267,7 +267,7 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Nethermind.Libp2p.Protocols.Identify.Dto.PeerRecordReflection.Descriptor.MessageTypes[1]; }
+      get { return global::Nethermind.Libp2p.Core.Dto.PeerRecordReflection.Descriptor.MessageTypes[1]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -361,15 +361,15 @@ namespace Nethermind.Libp2p.Protocols.Identify.Dto {
 
     /// <summary>Field number for the "addresses" field.</summary>
     public const int AddressesFieldNumber = 3;
-    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo> _repeated_addresses_codec
-        = pb::FieldCodec.ForMessage(26, global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo.Parser);
-    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo> addresses_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo>();
+    private static readonly pb::FieldCodec<global::Nethermind.Libp2p.Core.Dto.AddressInfo> _repeated_addresses_codec
+        = pb::FieldCodec.ForMessage(26, global::Nethermind.Libp2p.Core.Dto.AddressInfo.Parser);
+    private readonly pbc::RepeatedField<global::Nethermind.Libp2p.Core.Dto.AddressInfo> addresses_ = new pbc::RepeatedField<global::Nethermind.Libp2p.Core.Dto.AddressInfo>();
     /// <summary>
     /// addresses is a list of public listen addresses for the peer.
     /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Nethermind.Libp2p.Protocols.Identify.Dto.AddressInfo> Addresses {
+    public pbc::RepeatedField<global::Nethermind.Libp2p.Core.Dto.AddressInfo> Addresses {
       get { return addresses_; }
     }
 

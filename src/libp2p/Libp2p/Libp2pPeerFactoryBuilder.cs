@@ -7,9 +7,12 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Nethermind.Libp2p.Stack;
 
-public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>, ILibp2pPeerFactoryBuilder
+public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
+    ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
+    private bool addPubsub;
+    private bool addRelay;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -17,28 +20,59 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider) { }
-
-    protected override ProtocolStack BuildStack()
+    public ILibp2pPeerFactoryBuilder WithPubsub()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>();
+        addPubsub = true;
+        return this;
+    }
 
-        ProtocolStack tcpStack = Over<IpTcpProtocol>()
-            .Over<MultistreamProtocol>()
-            .Over(tcpEncryptionStack)
-            .Over<MultistreamProtocol>()
-            .Over<YamuxProtocol>();
+    public ILibp2pPeerFactoryBuilder WithRelay()
+    {
+        addRelay = true;
+        return this;
+    }
 
-        return Over<MultiaddressBasedSelectorProtocol>()
-            // Quic is not working well, and requires consumers to mark projects with preview
-            //.Over<QuicProtocol>().Or(tcpStack)
-            .Over(tcpStack)
-            .Over<MultistreamProtocol>()
-            .AddAppLayerProtocol<IdentifyProtocol>()
-            .AddAppLayerProtocol<PingProtocol>()
-            .AddAppLayerProtocol<GossipsubProtocolV12>()
-            .AddAppLayerProtocol<GossipsubProtocolV11>()
-            .AddAppLayerProtocol<GossipsubProtocol>()
-            .AddAppLayerProtocol<FloodsubProtocol>();
+    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
+    {
+        ProtocolRef tcp = Get<IpTcpProtocol>();
+
+        ProtocolRef[] encryption = [enforcePlaintext ?
+            Get<PlainTextProtocol>() :
+            Get<NoiseProtocol>()];
+
+        ProtocolRef[] muxers = [Get<YamuxProtocol>()];
+
+        ProtocolRef[] commonSelector = [Get<MultistreamProtocol>()];
+        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonSelector);
+
+        //ProtocolRef quic = Get<QuicProtocol>();
+        //Connect([quic], commonSelector);
+
+        ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
+        ProtocolRef[] pubsub = addPubsub ? [
+            Get<GossipsubProtocolV12>(),
+            Get<GossipsubProtocolV11>(),
+            Get<GossipsubProtocol>(),
+            Get<FloodsubProtocol>()
+            ] : [];
+
+        ProtocolRef[] apps = [
+            Get<IdentifyProtocol>(),
+            Get<PingProtocol>(),
+            .. additionalProtocols,
+            .. relay,
+            .. pubsub,
+        ];
+        Connect(commonSelector, apps);
+
+        if (addRelay)
+        {
+            ProtocolRef[] relaySelector = [Get<MultistreamProtocol>()];
+            Connect(relay, relaySelector);
+            Connect(relaySelector, apps.Where(a => !relay.Contains(a)).ToArray());
+        }
+
+        //return [tcp, quic];
+        return [tcp];
     }
 }

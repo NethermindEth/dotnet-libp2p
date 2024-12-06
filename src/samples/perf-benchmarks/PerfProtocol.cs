@@ -8,7 +8,7 @@ using Nethermind.Libp2p.Core;
 namespace DataTransferBenchmark;
 
 // TODO: Align with perf protocol
-public class PerfProtocol : IProtocol
+public class PerfProtocol : ISessionProtocol
 {
     private readonly ILogger? _logger;
     public string Id => "/perf/1.0.0";
@@ -21,7 +21,7 @@ public class PerfProtocol : IProtocol
     public const long TotalLoad = 1024L * 1024 * 100;
     private Random rand = new();
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel downChannel, ISessionContext context)
     {
 
         await downChannel.WriteVarintAsync(TotalLoad);
@@ -60,7 +60,7 @@ public class PerfProtocol : IProtocol
         }
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel downChannel, ISessionContext context)
     {
         ulong total = await downChannel.ReadVarintUlongAsync();
         ulong bytesRead = 0;

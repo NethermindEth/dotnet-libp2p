@@ -7,19 +7,20 @@ using Nethermind.Libp2p.Core;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using Multiformats.Address.Protocols;
-using Multiformats.Address;
 using Nethermind.Libp2p.Protocols;
+using System.Text.RegularExpressions;
+
+Regex omittedLogs = new(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder)
+    .AddLibp2p(builder => builder.WithPubsub())
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
-                l.TimestampFormat = "[HH:mm:ss.FFF]";
-            }))
+                l.TimestampFormat = "[HH:mm:ss.fff]";
+            }).AddFilter((_, type, lvl) => !omittedLogs.IsMatch(type!)))
     .BuildServiceProvider();
 
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
@@ -30,7 +31,7 @@ CancellationTokenSource ts = new();
 Identity localPeerIdentity = new();
 string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 
-ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
+IPeer peer = peerFactory.Create(localPeerIdentity);
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.GetTopic("chat-room:awesome-chat-room");
@@ -51,13 +52,12 @@ topic.OnMessage += (byte[] msg) =>
     }
 };
 
-await peer.ListenAsync(addr, ts.Token);
+_ = peer.StartListenAsync([addr], ts.Token);
 
-_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: ts.Token);
+string peerId = peer.Identity.PeerId.ToString();
+_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.ListenAddresses, token: ts.Token);
 
 _ = router.RunAsync(peer, token: ts.Token);
-
-string peerId = peer.Address.Get<P2P>().ToString();
 
 string nickName = "libp2p-dotnet";
 

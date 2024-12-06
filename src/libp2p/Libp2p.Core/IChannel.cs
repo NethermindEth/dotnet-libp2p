@@ -14,7 +14,7 @@ public interface IChannel : IReader, IWriter
     {
         get
         {
-            var token = new CancellationTokenSource();
+            CancellationTokenSource token = new();
             GetAwaiter().OnCompleted(token.Cancel);
             return token.Token;
         }

@@ -12,7 +12,6 @@ public interface IReader
 {
     ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default);
 
-
     #region Read helpers
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
