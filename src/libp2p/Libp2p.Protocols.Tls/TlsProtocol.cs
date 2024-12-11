@@ -81,7 +81,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             ApplicationProtocols = ApplicationProtocols.Value,
             EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
             RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.State.RemoteAddress, certificate),
-            ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity) },
+            ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
         };
         _logger?.LogTrace("SslClientAuthenticationOptions initialized for PeerId {RemotePeerId}.", context.State.RemotePeerId);
         Stream str = new ChannelStream(downChannel);

@@ -26,7 +26,7 @@ internal static class TaskHelper
         Task result = await Task.WhenAny(tcs.Task, all);
         if (result == all)
         {
-            throw new AggregateException(tasks.Select(t => t.Exception).Where(ex => ex is not null)!);
+            throw new AggregateException(tasks.Select(t => t.Exception?.InnerException).Where(ex => ex is not null)!);
         }
         return tcs.Task.Result;
     }

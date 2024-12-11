@@ -85,16 +85,13 @@ public class IdentifyProtocol : ISessionProtocol
             ListenAddrs = { context.Peer.ListenAddresses.Select(x => ByteString.CopyFrom(x.ToBytes())) },
             ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),
             Protocols = { _protocolStackSettings.Protocols!.Select(r => r.Key.Protocol).OfType<ISessionProtocol>().Select(p => p.Id) },
-            SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, context.Peer.ListenAddresses.ToArray(), 1),
+            SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, [.. context.Peer.ListenAddresses], 1),
         };
 
         ByteString[] endpoints = context.Peer.ListenAddresses.Where(a => !a.ToEndPoint().Address.IsPrivate()).Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto)).Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
         identify.ListenAddrs.AddRange(endpoints);
 
-        byte[] ar = new byte[identify.CalculateSize()];
-        identify.WriteTo(ar);
-
-        await channel.WriteSizeAndDataAsync(ar);
+        await channel.WriteSizeAndProtobufAsync(identify);
         _logger?.LogDebug("Sent peer info {identify}", identify);
     }
 }

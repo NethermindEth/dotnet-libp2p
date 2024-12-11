@@ -26,11 +26,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         );
 
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
-    private readonly NoiseExtensions _extensions = new()
+    private NoiseExtensions _extensions => new()
     {
         StreamMuxers =
         {
-           multiplexerSettings is null ? ["na"] : !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+           multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
         }
     };
 
@@ -63,8 +63,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
+
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
-        //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
+        context.State.RemotePublicKey = msg1KeyDecoded;
+        // TODO: verify signature
+
         List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
             .Where(m => !string.IsNullOrEmpty(m))
             .ToList();
@@ -163,10 +166,10 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
         PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
+        context.State.RemotePublicKey = msg2KeyDecoded;
+        // TODO: verify signature
+
         Transport? transport = msg2.Transport;
-
-        PeerId remotePeerId = new(msg2KeyDecoded);
-
         List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
         IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
 
@@ -180,8 +183,9 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             };
         }
 
-        if (context.State.RemotePeerId is null)
+        if (!context.State.RemoteAddress.Has<P2P>())
         {
+            PeerId remotePeerId = new(msg2KeyDecoded);
             context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
 
@@ -249,7 +253,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
 
-        return Task.WhenAny(t, t2).ContinueWith((t) =>
+        return Task.WhenAll(t, t2).ContinueWith((t) =>
         {
 
         });

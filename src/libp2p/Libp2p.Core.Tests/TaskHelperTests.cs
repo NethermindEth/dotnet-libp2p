@@ -20,8 +20,15 @@ internal class TaskHelperTests
         tcs2.SetException(new Exception());
         tcs3.SetException(new Exception());
 
-
-        Task r = await t;
+        await t.ContinueWith((t) =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(t.IsFaulted, Is.True);
+                Assert.That(t.Exception?.InnerException, Is.TypeOf<AggregateException>());
+                Assert.That((t.Exception?.InnerException as AggregateException)?.InnerExceptions, Has.Count.EqualTo(3));
+            });
+        });
     }
 
     [Test]
@@ -40,5 +47,6 @@ internal class TaskHelperTests
         Task result = await t;
 
         Assert.That(result, Is.EqualTo(tcs3.Task));
+        Assert.That((result as Task<bool>)!.Result, Is.EqualTo(true));
     }
 }

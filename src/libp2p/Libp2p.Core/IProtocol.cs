@@ -12,6 +12,9 @@ public interface IProtocol
 
 public interface ITransportProtocol : IProtocol
 {
+    static abstract Multiaddress[] GetDefaultAddresses(PeerId peerId);
+    static abstract bool IsAddressMatch(Multiaddress addr);
+
     Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token);
     Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token);
 }

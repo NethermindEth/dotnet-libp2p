@@ -89,7 +89,7 @@ public partial class PubsubRouter
             peerState.GetValueOrDefault(peerId)?.Send(msg);
         }
 
-        Dictionary<PeerId, Rpc> peerMessages = new();
+        Dictionary<PeerId, Rpc> peerMessages = [];
 
         foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
         {
@@ -137,7 +137,7 @@ public partial class PubsubRouter
         else
         {
             fanoutLastPublished[topicId] = DateTime.Now;
-            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => new HashSet<PeerId>());
+            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
 
             if (topicFanout.Count == 0)
             {

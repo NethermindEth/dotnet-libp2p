@@ -41,13 +41,6 @@ internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSe
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        try
-        {
-            await session.DialAsync<IdentifyProtocol>();
-        }
-        catch
-        {
-
-        }
+        await session.DialAsync<IdentifyProtocol>();
     }
 }

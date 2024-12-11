@@ -1,16 +1,10 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery;
 using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
-
-public class PubsubPeerDiscoverySettings
-{
-    public string[] Topics { get; set; } = ["_peer-discovery._p2p._pubsub"];
-    public int Interval { get; set; } = 10_000;
-    public bool ListenOnly { get; set; }
-}
 
 public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, IPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
@@ -19,7 +13,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     private PeerId? localPeerId;
     private ITopic[]? topics;
     private readonly PubsubPeerDiscoverySettings _settings = settings;
-    private ILogger? logger = loggerFactory?.CreateLogger<PubsubPeerDiscoveryProtocol>();
+    private readonly ILogger? logger = loggerFactory?.CreateLogger<PubsubPeerDiscoveryProtocol>();
 
     public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {

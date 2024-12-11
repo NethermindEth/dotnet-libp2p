@@ -3,7 +3,6 @@
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
-using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Nethermind.Libp2p.Stack;
 
@@ -13,6 +12,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool enforcePlaintext;
     private bool addPubsub;
     private bool addRelay;
+    private bool addQuic;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -32,21 +32,22 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    public ILibp2pPeerFactoryBuilder WithQuic()
+    {
+        addQuic = true;
+        return this;
+    }
+
     protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
 
-        ProtocolRef[] encryption = [enforcePlaintext ?
-            Get<PlainTextProtocol>() :
-            Get<NoiseProtocol>()];
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 
-        ProtocolRef[] commonSelector = [Get<MultistreamProtocol>()];
-        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonSelector);
-
-        //ProtocolRef quic = Get<QuicProtocol>();
-        //Connect([quic], commonSelector);
+        ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
+        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
 
         ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
@@ -63,16 +64,20 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
             .. relay,
             .. pubsub,
         ];
-        Connect(commonSelector, apps);
+        Connect(commonAppProtocolSelector, apps);
 
         if (addRelay)
         {
-            ProtocolRef[] relaySelector = [Get<MultistreamProtocol>()];
-            Connect(relay, relaySelector);
-            Connect(relaySelector, apps.Where(a => !relay.Contains(a)).ToArray());
+            Connect(relay, [Get<MultistreamProtocol>()], apps.Where(a => !relay.Contains(a)).ToArray());
         }
 
-        //return [tcp, quic];
+        if (addQuic)
+        {
+            ProtocolRef quic = Get<QuicProtocol>();
+            Connect([quic], commonAppProtocolSelector);
+            return [tcp, quic];
+        }
+
         return [tcp];
     }
 }

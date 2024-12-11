@@ -5,42 +5,39 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Utils;
 using Nethermind.Libp2p.Protocols.Quic;
 using System.Buffers;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Nethermind.Libp2p.Protocols;
 
 #pragma warning disable CA1416 // Do not inform about platform compatibility
+#pragma warning disable CA2252 // Do not inform about platform compatibility
 
 /// <summary>
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
-[RequiresPreviewFeatures]
-public class QuicProtocol : ITransportProtocol
+public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
-    private readonly ILogger<QuicProtocol>? _logger;
-    private readonly ECDsa _sessionKey;
+    private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
+    private readonly ECDsa _sessionKey = ECDsa.Create();
 
-    public QuicProtocol(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<QuicProtocol>();
-        _sessionKey = ECDsa.Create();
-    }
-
-    private static readonly List<SslApplicationProtocol> protocols = new()
-    {
+    private static readonly List<SslApplicationProtocol> protocols =
+    [
         new SslApplicationProtocol("libp2p"),
         // SslApplicationProtocol.Http3, // webtransport
-    };
+    ];
 
     public string Id => "quic-v1";
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => IpHelper.GetListenerAddresses()
+        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/udp/0/quic-v1/p2p/{peerId}")).ToArray();
+    public static bool IsAddressMatch(Multiaddress addr) => addr.Has<QUICv1>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress localAddr, CancellationToken token)
     {
@@ -90,7 +87,7 @@ public class QuicProtocol : ITransportProtocol
         {
             try
             {
-                QuicConnection connection = await listener.AcceptConnectionAsync();
+                QuicConnection connection = await listener.AcceptConnectionAsync(token);
                 INewConnectionContext clientContext = context.CreateConnection();
 
                 _ = ProcessStreams(clientContext, connection, token).ContinueWith(t => clientContext.Dispose());
@@ -130,7 +127,7 @@ public class QuicProtocol : ITransportProtocol
                 TargetHost = null,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(remoteAddr, c),
-                ClientCertificates = new X509CertificateCollection { CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity) },
+                ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
             },
             RemoteEndPoint = remoteEndpoint,
         };

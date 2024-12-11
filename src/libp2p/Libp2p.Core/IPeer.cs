@@ -18,7 +18,7 @@ public interface IPeer
     /// </summary>
     Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default);
 
-    Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default);
+    Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default);
 
     Task DisconnectAsync();
 

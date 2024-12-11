@@ -52,12 +52,12 @@ topic.OnMessage += (byte[] msg) =>
     }
 };
 
-_ = peer.StartListenAsync([addr], ts.Token);
+await peer.StartListenAsync([addr], ts.Token);
 
 string peerId = peer.Identity.PeerId.ToString();
 _ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.ListenAddresses, token: ts.Token);
 
-_ = router.RunAsync(peer, token: ts.Token);
+await router.StartAsync(peer, token: ts.Token);
 
 string nickName = "libp2p-dotnet";
 

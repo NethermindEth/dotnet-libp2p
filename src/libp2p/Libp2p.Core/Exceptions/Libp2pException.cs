@@ -15,7 +15,7 @@ public class Libp2pException : Exception
     }
 }
 
-public class ChannelClosedException : Libp2pException;
+public class ChannelClosedException() : Libp2pException("Channel closed");
 
 /// <summary>
 /// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.

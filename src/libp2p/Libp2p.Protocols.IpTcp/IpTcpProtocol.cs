@@ -10,6 +10,7 @@ using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Utils;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -18,6 +19,9 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
 
     public string Id => "ip-tcp";
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => IpHelper.GetListenerAddresses()
+        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}")).Where(x => x.Has<IP4>()).Take(1).ToArray();
+    public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
@@ -27,6 +31,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         listener.Bind(endpoint);
         listener.Listen();
+
 
         if (endpoint.Port is 0)
         {
@@ -48,6 +53,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
                 INewConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
+                connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
 
                 IChannel upChannel = connectionCtx.Upgrade();
 
@@ -91,7 +97,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                             }
                         }
                     }
-                    catch (SocketException)
+                    catch (SocketException e)
                     {
                         _logger?.LogInformation($"Disconnected due to a socket exception");
                         await upChannel.CloseAsync();
@@ -131,8 +137,8 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         }
 
         INewConnectionContext connectionCtx = context.CreateConnection();
-        connectionCtx.State.RemoteAddress = ToMultiaddress(client.RemoteEndPoint, ProtocolType.Tcp);
-        connectionCtx.State.LocalAddress = ToMultiaddress(client.LocalEndPoint, ProtocolType.Tcp);
+        connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+        connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
 
         connectionCtx.Token.Register(client.Close);
         token.Register(client.Close);
@@ -141,11 +147,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         Task receiveTask = Task.Run(async () =>
         {
-            byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
                 for (; client.Connected;)
                 {
+                    byte[] buf = new byte[client.ReceiveBufferSize];
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
                     _logger?.LogDebug("Ctx{0}: receive, length={1}", connectionCtx.Id, dataLength);
 
@@ -178,42 +184,14 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             catch (SocketException)
             {
                 _ = upChannel.CloseAsync();
+                return;
             }
+
+            client.Close();
         });
 
         await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
 
         _ = upChannel.CloseAsync();
-    }
-
-
-    public static Multiaddress ToMultiaddress(EndPoint ep, ProtocolType protocolType)
-    {
-        Multiaddress multiaddress = new();
-        IPEndPoint iPEndPoint = (IPEndPoint)ep;
-        if (iPEndPoint != null)
-        {
-            if (iPEndPoint.AddressFamily == AddressFamily.InterNetwork)
-            {
-                multiaddress.Add<IP4>(iPEndPoint.Address.MapToIPv4());
-            }
-
-            if (iPEndPoint.AddressFamily == AddressFamily.InterNetworkV6)
-            {
-                multiaddress.Add<IP6>(iPEndPoint.Address.MapToIPv6());
-            }
-
-            if (protocolType == ProtocolType.Tcp)
-            {
-                multiaddress.Add<TCP>(iPEndPoint.Port);
-            }
-
-            if (protocolType == ProtocolType.Udp)
-            {
-                multiaddress.Add<UDP>(iPEndPoint.Port);
-            }
-        }
-
-        return multiaddress;
     }
 }

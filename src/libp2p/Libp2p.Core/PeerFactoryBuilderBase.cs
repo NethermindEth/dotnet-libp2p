@@ -46,7 +46,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
     }
 
 
-    private readonly List<ProtocolRef> _appLayerProtocols = new();
+    private readonly List<ProtocolRef> _appLayerProtocols = [];
     public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
     internal readonly IServiceProvider ServiceProvider;

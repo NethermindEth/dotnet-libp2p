@@ -17,6 +17,8 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
     private readonly ILogger? logger = loggerFactory?.CreateLogger(id);
 
     public string Id => id;
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => [$"/p2p/{peerId}"];
+    public static bool IsAddressMatch(Multiaddress addr) => true;
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
@@ -144,7 +146,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
                             UpgradeOptions req = new() { SelectedProtocol = selected, ModeOverride = UpgradeModeOverride.Listen };
 
-                            IChannel upChannel = session.Upgrade(req);
+                            IChannel upChannel = session.Upgrade(selected, req);
                             chans[packet.ChannelId] = new MuxerChannel { UpChannel = upChannel };
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);
 
@@ -171,7 +173,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                         if (packet.Protocols.Any())
                         {
                             UpgradeOptions req = new() { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), CompletionSource = chans[packet.ChannelId].Tcs, Argument = chans[packet.ChannelId].Argument, ModeOverride = UpgradeModeOverride.Dial };
-                            IChannel upChannel = session.Upgrade(req);
+                            IChannel upChannel = session.Upgrade(session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First())!, req);
                             chans[packet.ChannelId].UpChannel = upChannel;
                             logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SelectedProtocol}");
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);

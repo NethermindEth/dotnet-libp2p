@@ -23,9 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
-    <ProjectReference Include="..\Libp2p.E2eTests\Libp2p.E2eTests.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Pubsub.E2eTests\Libp2p.Protocols.Pubsub.E2eTests.csproj" />
     <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
   </ItemGroup>
 

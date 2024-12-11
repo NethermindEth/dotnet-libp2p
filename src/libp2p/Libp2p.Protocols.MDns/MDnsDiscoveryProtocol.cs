@@ -78,7 +78,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
                 if (records.Length != 0 && !peers.Contains(records[0]) && localPeerId != records[0].Get<P2P>().ToString())
                 {
-                    List<string> peerAddresses = new();
+                    List<string> peerAddresses = [];
                     foreach (Multiaddress peer in records)
                     {
                         peers.Add(peer);

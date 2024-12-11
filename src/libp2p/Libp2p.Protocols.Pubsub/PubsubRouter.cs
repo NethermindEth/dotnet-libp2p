@@ -19,10 +19,11 @@ public interface IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
     ConcurrentDictionary<string, DateTime> FanoutLastPublished { get; }
     ICollection<PeerId> ConnectedPeers { get; }
+    bool Started { get; }
     Task Heartbeat();
 }
 
-public partial class PubsubRouter : IRoutingStateContainer
+public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
     static int routerCounter = 0;
     readonly int routerId = Interlocked.Increment(ref routerCounter);
@@ -124,6 +125,7 @@ public partial class PubsubRouter : IRoutingStateContainer
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Mesh => mesh;
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Fanout => fanout;
     ConcurrentDictionary<string, DateTime> IRoutingStateContainer.FanoutLastPublished => fanoutLastPublished;
+    bool IRoutingStateContainer.Started => localPeer is not null;
     ICollection<PeerId> IRoutingStateContainer.ConnectedPeers => peerState.Keys;
     Task IRoutingStateContainer.Heartbeat() => Heartbeat();
     #endregion
@@ -155,7 +157,7 @@ public partial class PubsubRouter : IRoutingStateContainer
     // all peers with their connection status
     private readonly ConcurrentDictionary<PeerId, PubsubPeer> peerState = new();
 
-    private readonly ConcurrentBag<Reconnection> reconnections = new();
+    private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
     private ulong seqNo = 1;
 
@@ -179,7 +181,7 @@ public partial class PubsubRouter : IRoutingStateContainer
         _dontWantMessages = new(_settings.MessageCacheTtl);
     }
 
-    public async Task RunAsync(IPeer localPeer, CancellationToken token = default)
+    public async Task StartAsync(IPeer localPeer, CancellationToken token = default)
     {
         logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
 
@@ -190,7 +192,6 @@ public partial class PubsubRouter : IRoutingStateContainer
         this.localPeer = localPeer;
 
 
-        logger?.LogInformation("Started");
 
         _peerStore.OnNewPeer += (addrs) =>
         {
@@ -239,11 +240,14 @@ public partial class PubsubRouter : IRoutingStateContainer
             }
         }, token);
 
-        await Task.Delay(Timeout.Infinite, token);
+        logger?.LogInformation("Started");
+    }
+
+    public void Dispose()
+    {
         _messageCache.Dispose();
         _limboMessageCache.Dispose();
     }
-
 
     private async Task Reconnect(CancellationToken token)
     {
@@ -652,7 +656,7 @@ public partial class PubsubRouter : IRoutingStateContainer
 
                     if (rpc.Control.Ihave.Any())
                     {
-                        List<MessageId> messageIds = new();
+                        List<MessageId> messageIds = [];
 
                         foreach (ControlIHave? ihave in rpc.Control.Ihave
                             .Where(iw => topicState.ContainsKey(iw.TopicID)))
@@ -677,7 +681,7 @@ public partial class PubsubRouter : IRoutingStateContainer
                     if (rpc.Control.Iwant.Any())
                     {
                         IEnumerable<MessageId> messageIds = rpc.Control.Iwant.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray()));
-                        List<Message> messages = new();
+                        List<Message> messages = [];
                         foreach (MessageId? mId in messageIds)
                         {
                             Message message = _messageCache.Get(mId);

@@ -11,8 +11,11 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
 {
     protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
 
+    protected PeerStore PeerStore { get; } = peerStore;
+    protected ILoggerFactory? LoggerFactory { get; } = loggerFactory;
+
     public virtual IPeer Create(Identity? identity = default)
     {
-        return new LocalPeer(identity ?? new Identity(), peerStore, protocolStackSettings, loggerFactory);
+        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, LoggerFactory);
     }
 }
