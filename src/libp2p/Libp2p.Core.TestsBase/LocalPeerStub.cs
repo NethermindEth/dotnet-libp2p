@@ -58,7 +58,7 @@ public class TestRemotePeer : ISession
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
 
-    public Multiaddress RemoteAddress => new();
+    public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
 
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {

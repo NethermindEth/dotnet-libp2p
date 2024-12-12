@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols;
 
 namespace Nethermind.Libp2p.Stack;
 
@@ -16,6 +17,6 @@ class Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerSto
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        //await session.DialAsync<IdentifyProtocol>();
+        await session.DialAsync<IdentifyProtocol>();
     }
 }
