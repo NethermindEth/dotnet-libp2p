@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Protocols.Identify;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -57,12 +58,14 @@ public class IdentifyProtocol : ISessionProtocol
             {
                 if (!SigningHelper.VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey))
                 {
-                    throw new PeerConnectionException();
+                    //throw new PeerConnectionException();
+                    _logger?.LogError("Peer record is not valid: {peerId}", context.State.RemotePeerId);
                 }
-
-                _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
-
-                _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+                else
+                {
+                    _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
+                    _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+                }
             }
         }
 

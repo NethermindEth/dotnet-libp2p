@@ -52,15 +52,15 @@ public class LocalPeer : IPeer
 
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
-            TaskCompletionSource<object> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>() }, token);
+            TaskCompletionSource<object?> tcs = new();
+            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs!, SelectedProtocol = peer.GetProtocolInstance<TProtocol>() }, token);
             await tcs.Task;
             MarkAsConnected();
         }
 
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
-            TaskCompletionSource<object> tcs = new();
+            TaskCompletionSource<object?> tcs = new();
             SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = protocol }, token);
             await tcs.Task;
             MarkAsConnected();
@@ -68,7 +68,7 @@ public class LocalPeer : IPeer
 
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
-            TaskCompletionSource<object> tcs = new();
+            TaskCompletionSource<object?> tcs = new();
             SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>(), Argument = request }, token);
             await tcs.Task;
             MarkAsConnected();
@@ -247,6 +247,8 @@ public class LocalPeer : IPeer
         return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
     }
 
+
+    // TODO: Remove lloking in the entire stack, look only on level for the given parent protocol
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;

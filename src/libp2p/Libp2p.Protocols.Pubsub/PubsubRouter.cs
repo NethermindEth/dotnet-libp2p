@@ -207,7 +207,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
                     {
-                        await session.DialAsync<GossipsubProtocolV12>(token);
+                        await session.DialAsync<GossipsubProtocolV11>(token);
                         if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
                             _ = session.DisconnectAsync();

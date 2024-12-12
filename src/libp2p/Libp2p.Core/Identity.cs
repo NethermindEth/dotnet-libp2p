@@ -149,10 +149,7 @@ public class Identity
 
     public bool VerifySignature(byte[] message, byte[] signature)
     {
-        if (PublicKey is null)
-        {
-            throw new ArgumentNullException(nameof(PublicKey));
-        }
+        ArgumentNullException.ThrowIfNull(PublicKey);
 
         switch (PublicKey.Type)
         {
@@ -164,6 +161,7 @@ public class Identity
                 {
                     using RSA rsa = RSA.Create();
                     rsa.ImportSubjectPublicKeyInfo(PublicKey.Data.Span, out _);
+
                     return rsa.VerifyData(message, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
             case KeyType.Secp256K1:
@@ -219,7 +217,7 @@ public class Identity
                 {
                     using RSA rsa = RSA.Create();
                     rsa.ImportRSAPrivateKey(PrivateKey.Data.Span, out _);
-                    return rsa.SignData(message, 0, message.Length, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                    return rsa.SignData(message, 0, message.Length, HashAlgorithmName.SHA3_256, RSASignaturePadding.Pkcs1);
                 }
             case KeyType.Secp256K1:
                 {

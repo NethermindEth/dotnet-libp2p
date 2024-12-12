@@ -27,3 +27,6 @@ public class Libp2pSetupException(string? message = null) : Libp2pException(mess
 /// Appears when there is already active session for the given peer
 /// </summary>
 public class SessionExistsException(PeerId remotePeerId) : Libp2pException($"Session is already established with {remotePeerId}");
+
+
+public class PeerConnectionException : Libp2pException;

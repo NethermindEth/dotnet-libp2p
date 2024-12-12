@@ -54,7 +54,6 @@ public abstract class PubsubProtocol : ISessionProtocol
         await channel;
         dialTcs.SetResult();
         _logger?.LogDebug($"Finished dial({context.Id}) {context.State.RemoteAddress}");
-
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)

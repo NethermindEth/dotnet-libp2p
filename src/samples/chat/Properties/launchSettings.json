@@ -2,7 +2,7 @@
   "profiles": {
     "Chat": {
       "commandName": "Project",
-      "commandLineArgs": "-d /ip4/127.0.0.1/tcp/9001/p2p/QmcJcjTEp33VYj4FjsyM9G7NTYW76HCrTvKWqoJmzXucJk --trace"
+      "commandLineArgs": "-d /ip4/127.0.0.1/tcp/9001/p2p/QmbbX5NgFcQgEWuHiQHKob1oQyhAUNncYpT3D9ZSkBQyFx --trace "
     },
     "Chat server": {
       "commandName": "Project",

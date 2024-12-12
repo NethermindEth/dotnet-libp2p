@@ -28,10 +28,10 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
     private NoiseExtensions _extensions => new()
     {
-        StreamMuxers =
-        {
-           multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
-        }
+        StreamMuxers = { } // TODO: return the following after go question resolution:
+        //{
+        //   multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+        //}
     };
 
     public string Id => "/noise";
