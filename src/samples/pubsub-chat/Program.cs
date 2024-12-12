@@ -2,13 +2,13 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using System.Text;
 using System.Text.Json;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols;
 using System.Text.RegularExpressions;
+using Nethermind.Libp2p;
 
 Regex omittedLogs = new(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
 

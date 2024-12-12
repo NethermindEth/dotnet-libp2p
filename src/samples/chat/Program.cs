@@ -3,10 +3,10 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())

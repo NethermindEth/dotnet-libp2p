@@ -14,7 +14,7 @@ namespace Nethermind.Libp2p.Protocols.TLS.Tests;
 public class TlsProtocolTests
 {
     [Test]
-    [Ignore("Infinite loop")]
+    [Ignore("Needs a fix on Windows")]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
         // Arrange

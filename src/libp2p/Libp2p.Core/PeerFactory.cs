@@ -3,7 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 

@@ -7,7 +7,6 @@ using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
-using Nethermind.Libp2p.Stack;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 

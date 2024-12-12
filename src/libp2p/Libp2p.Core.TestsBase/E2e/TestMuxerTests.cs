@@ -3,7 +3,6 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core.Discovery;
-using Nethermind.Libp2p.Stack;
 using NUnit.Framework;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;

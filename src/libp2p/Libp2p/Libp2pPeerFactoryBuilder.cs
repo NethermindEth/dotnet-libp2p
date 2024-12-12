@@ -4,7 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
 public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
     ILibp2pPeerFactoryBuilder
@@ -42,7 +42,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
 
-        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>()/*, Get<TlsProtocol>()*/];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 

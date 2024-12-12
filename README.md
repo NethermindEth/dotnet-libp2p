@@ -40,14 +40,14 @@ The target is to provide a performant well-tested implementation of a wide range
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
 | TCP                | tcp                | ✅             |
-| QUIC               | quic-v1            | ✅             |
+| QUIC               | quic-v1            | 🚧             |
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
 | tls                | /tls/1.0.0         | 🚧             |
 | WebTransport       |                    | ⬜ help wanted |
 | yamux              | /yamux/1.0.0       | ✅             |
-| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |
+| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
 | hole punching      |                    | ⬜ help wanted |
 | **Application layer**
 | Identify           | /ipfs/id/1.0.0     | ✅             |
@@ -55,11 +55,11 @@ The target is to provide a performant well-tested implementation of a wide range
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
-|                    | /meshsub/1.2.0     | ⬜             |
+|                    | /meshsub/1.2.0     | 🚧             |
 | **Discovery**
 | mDns               | basic              | ✅             |
 |                    | DNS-SD             | 🚧             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) | 5.1 | 🚧 help wanted |
+| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧 help wanted |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>

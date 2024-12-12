@@ -4,9 +4,9 @@
 using System.Diagnostics;
 using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Multiformats.Address;
+using Nethermind.Libp2p;
 
 await Task.Delay(1000);
 {

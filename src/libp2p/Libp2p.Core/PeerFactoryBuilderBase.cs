@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
-using Nethermind.Libp2p.Stack;
 
 namespace Nethermind.Libp2p.Core;
 

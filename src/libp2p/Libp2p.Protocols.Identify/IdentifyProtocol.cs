@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Identify;
-using Nethermind.Libp2p.Stack;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;

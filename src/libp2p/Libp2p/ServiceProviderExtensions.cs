@@ -7,7 +7,7 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
 public static class ServiceProviderExtensions
 {
