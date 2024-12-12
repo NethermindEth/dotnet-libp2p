@@ -71,7 +71,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
             .Where(m => !string.IsNullOrEmpty(m))
             .ToList();
-        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
+        IProtocol? commonMuxer = null;// multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;
 
@@ -171,7 +171,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         Transport? transport = msg2.Transport;
         List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
-        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
+        IProtocol? commonMuxer = null; // multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;
 
