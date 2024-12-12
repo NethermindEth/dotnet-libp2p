@@ -50,7 +50,7 @@ public class MultistreamProtocolTests
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
-        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions { SelectedProtocol = proto1 });
 
         peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
 
