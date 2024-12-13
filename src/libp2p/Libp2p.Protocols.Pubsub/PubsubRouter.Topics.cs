@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Buffers.Binary;
@@ -82,34 +83,41 @@ public partial class PubsubRouter
 
     public void UnsubscribeAll()
     {
-        foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
+        try
         {
-            Rpc msg = new Rpc().WithTopics([], topicState.Keys);
+            foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
+            {
+                Rpc msg = new Rpc().WithTopics([], topicState.Keys);
 
-            peerState.GetValueOrDefault(peerId)?.Send(msg);
-        }
+                peerState.GetValueOrDefault(peerId)?.Send(msg);
+            }
 
-        Dictionary<PeerId, Rpc> peerMessages = [];
+            Dictionary<PeerId, Rpc> peerMessages = [];
 
-        foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
-        {
-            (peerMessages[peerId] ??= new Rpc())
-                .WithTopics([], topicState.Keys);
-        }
-
-        foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh)
-        {
-            foreach (PeerId peerId in topicMesh.Value)
+            foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
             {
                 (peerMessages[peerId] ??= new Rpc())
-                   .Ensure(r => r.Control.Prune)
-                   .Add(new ControlPrune { TopicID = topicMesh.Key });
+                    .WithTopics([], topicState.Keys);
+            }
+
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh.ToDictionary())
+            {
+                foreach (PeerId peerId in topicMesh.Value)
+                {
+                    (peerMessages[peerId] ??= new Rpc())
+                       .Ensure(r => r.Control.Prune)
+                       .Add(new ControlPrune { TopicID = topicMesh.Key });
+                }
+            }
+
+            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+            {
+                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
             }
         }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        catch (Exception e)
         {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            logger?.LogError(e, $"Error during {nameof(UnsubscribeAll)}");
         }
     }
 
