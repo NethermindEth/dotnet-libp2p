@@ -34,7 +34,7 @@ try
 
     if (isDialer)
     {
-        IPeer localPeer = peerFactory.Create();
+        ILocalPeer localPeer = peerFactory.Create();
 
         Log($"Picking an address to dial...");
 
@@ -82,7 +82,7 @@ try
             ip = addresses.First().Address.ToString()!;
         }
         Log("Starting to listen...");
-        IPeer localPeer = peerFactory.Create();
+        ILocalPeer localPeer = peerFactory.Create();
 
         CancellationTokenSource listennTcs = new();
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
@@ -130,7 +130,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport"];
 
-    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         ProtocolRef[] transportStack = [transport switch
         {

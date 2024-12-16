@@ -6,7 +6,7 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class LocalPeerStub : IPeer
+public class LocalPeerStub : ILocalPeer
 {
     public LocalPeerStub()
     {

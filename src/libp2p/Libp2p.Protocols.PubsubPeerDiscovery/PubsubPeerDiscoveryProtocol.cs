@@ -6,7 +6,7 @@ using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, IPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
+public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
     private IReadOnlyList<Multiaddress>? _localPeerAddrs;
@@ -15,11 +15,10 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     private readonly PubsubPeerDiscoverySettings _settings = settings;
     private readonly ILogger? logger = loggerFactory?.CreateLogger<PubsubPeerDiscoveryProtocol>();
 
-    public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
+    public Task StartDiscoveryAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
         _localPeerAddrs = localPeerAddrs;
         localPeerId = localPeerAddrs.First().GetPeerId();
-
 
         topics = _settings.Topics.Select(topic =>
         {
@@ -38,11 +37,18 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
 
         if (!_settings.ListenOnly)
         {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(_settings.Interval, token);
-                BroadcastPeerInfo();
-            }
+            _ = RunAsync(token);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(_settings.Interval, token);
+            BroadcastPeerInfo();
         }
     }
 
@@ -50,7 +56,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     {
         if (topics is null)
         {
-            throw new NullReferenceException($"{nameof(topics)} should be previously set in ${nameof(DiscoverAsync)}");
+            throw new NullReferenceException($"{nameof(topics)} should be previously set in ${nameof(StartDiscoveryAsync)}");
         }
 
         foreach (ITopic topic in topics)

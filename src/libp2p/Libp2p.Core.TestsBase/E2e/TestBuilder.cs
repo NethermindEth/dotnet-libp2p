@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
 public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactoryBuilderBase<TestBuilder, TestPeerFactory>(serviceProvider)
 {
-    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         ProtocolRef root = Get<TestMuxerProtocol>();
 
@@ -27,9 +27,9 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
 
 public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore)
 {
-    ConcurrentDictionary<PeerId, IPeer> peers = new();
+    ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
 
-    public override IPeer Create(Identity? identity = default)
+    public override ILocalPeer Create(Identity? identity = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
         return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, peerStore, loggerFactory));

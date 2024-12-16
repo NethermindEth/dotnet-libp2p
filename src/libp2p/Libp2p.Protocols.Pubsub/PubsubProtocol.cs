@@ -3,7 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -28,12 +27,10 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        PeerId? remotePeerId = context.State.RemotePeerId ?? throw new Libp2pException();
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+        ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        PeerId? remotePeerId = context.State.RemotePeerId;
 
         _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
 
@@ -58,12 +55,10 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
-        PeerId? remotePeerId = context.State.RemotePeerId ?? throw new Libp2pException();
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+        ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        PeerId? remotePeerId = context.State.RemotePeerId;
 
         _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
 

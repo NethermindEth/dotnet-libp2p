@@ -24,7 +24,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     private string PeerName = null!;
 
-    public async Task DiscoverAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
+    public Task StartDiscoveryAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
         ObservableCollection<Multiaddress> peers = [];
         ServiceDiscovery sd = new();
@@ -64,12 +64,11 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
 
-
-
             sd.ServiceDiscovered += (s, serviceName) =>
             {
                 _logger?.LogTrace("Srv disc {0}", serviceName);
             };
+
             sd.ServiceInstanceDiscovered += (s, e) =>
             {
                 Multiaddress[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
@@ -94,6 +93,12 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             _logger?.LogError(ex, "Error setting up mDNS");
         }
 
+        _ = RunAsync(sd, token);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunAsync(ServiceDiscovery sd, CancellationToken token)
+    {
         while (!token.IsCancellationRequested)
         {
             try
@@ -107,7 +112,6 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             }
             await Task.Delay(MdnsQueryInterval, token);
         }
-
     }
 
     private static string RandomString(int length)

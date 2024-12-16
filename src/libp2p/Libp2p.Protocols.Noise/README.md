@@ -1,4 +1,4 @@
-# TLS protocol
+# Noise protocol
 
 - [libp2p spec](https://github.com/libp2p/specs/blob/master/noise)
 - [The Noise Protocol Framework](https://www.noiseprotocol.org/noise.html)

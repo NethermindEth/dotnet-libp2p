@@ -13,7 +13,7 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
     protected PeerStore PeerStore { get; } = peerStore;
     protected ILoggerFactory? LoggerFactory { get; } = loggerFactory;
 
-    public virtual IPeer Create(Identity? identity = default)
+    public virtual ILocalPeer Create(Identity? identity = default)
     {
         return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, LoggerFactory);
     }

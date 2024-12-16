@@ -31,6 +31,6 @@ public class PubsubDiscoveryE2eTestSetup : PubsubE2eTestSetup
         base.AddAt(index);
         Discovery[index] = new PubsubPeerDiscoveryProtocol(Routers[index], PeerStores[index], DefaultDiscoverySettings, Peers[index], loggerFactory);
 
-        _ = Discovery[index].DiscoverAsync(Peers[index].ListenAddresses, Token);
+        _ = Discovery[index].StartDiscoveryAsync(Peers[index].ListenAddresses, Token);
     }
 }

@@ -18,13 +18,10 @@ namespace Nethermind.Libp2p.Protocols;
 /// </summary>
 public class IdentifyProtocol : ISessionProtocol
 {
-    private readonly string _agentVersion;
-    private readonly string _protocolVersion;
-
     private readonly ILogger? _logger;
     private readonly PeerStore? _peerStore;
     private readonly IProtocolStackSettings _protocolStackSettings;
-
+    private readonly IdentifyProtocolSettings _settings;
 
     public string Id => "/ipfs/id/1.0.0";
 
@@ -33,9 +30,7 @@ public class IdentifyProtocol : ISessionProtocol
         _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
         _peerStore = peerStore;
         _protocolStackSettings = protocolStackSettings;
-
-        _agentVersion = settings?.AgentVersion ?? IdentifyProtocolSettings.Default.AgentVersion!;
-        _protocolVersion = settings?.ProtocolVersion ?? IdentifyProtocolSettings.Default.ProtocolVersion!;
+        _settings = settings ?? new IdentifyProtocolSettings();
     }
 
 
@@ -58,20 +53,30 @@ public class IdentifyProtocol : ISessionProtocol
             {
                 if (!SigningHelper.VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey))
                 {
-                    //throw new PeerConnectionException();
-                    _logger?.LogError("Peer record is not valid: {peerId}", context.State.RemotePeerId);
+                    if (_settings?.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
+                    {
+                        throw new PeerConnectionException("Malformed peer identity: peer record signature is not valid");
+                    }
+                    else
+                    {
+                        _logger?.LogWarning("Malformed peer identity: peer record signature is not valid");
+                    }
                 }
                 else
                 {
                     _peerStore.GetPeerInfo(context.State.RemotePeerId).SignedPeerRecord = identify.SignedPeerRecord;
-                    _logger?.LogInformation("Confirmed peer record: {peerId}", context.State.RemotePeerId);
+                    _logger?.LogDebug("Confirmed peer record: {peerId}", context.State.RemotePeerId);
                 }
+            }
+            else if (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.DoesNotRequire)
+            {
+                throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
             }
         }
 
         if (context.State.RemotePublicKey.ToByteString() != identify.PublicKey)
         {
-            throw new PeerConnectionException();
+            throw new PeerConnectionException("Malformed peer identity: the remote public key corresponds to a different peer id");
         }
     }
 
@@ -81,8 +86,8 @@ public class IdentifyProtocol : ISessionProtocol
 
         Identify.Dto.Identify identify = new()
         {
-            ProtocolVersion = _protocolVersion,
-            AgentVersion = _agentVersion,
+            ProtocolVersion = _settings.ProtocolVersion,
+            AgentVersion = _settings.AgentVersion,
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
             ListenAddrs = { context.Peer.ListenAddresses.Select(x => ByteString.CopyFrom(x.ToBytes())) },
             ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),

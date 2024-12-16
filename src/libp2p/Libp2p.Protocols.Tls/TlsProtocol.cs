@@ -57,9 +57,10 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             await ExchangeData(sslStream, upChannel, _logger);
             _ = upChannel.CloseAsync();
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-
+            _logger?.LogError(ex, "Error during TLS protocol negotiation.");
+            throw;
         }
     }
 
@@ -112,9 +113,10 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             _ = upChannel.CloseAsync();
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-
+            _logger?.LogError(ex, "Error during TLS protocol negotiation.");
+            throw;
         }
     }
 
@@ -145,6 +147,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 await upChannel.CloseAsync();
             }
         });
+
         Task readTask = Task.Run(async () =>
         {
             try
@@ -177,6 +180,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 logger?.LogError(ex, "Error while reading from sslStream");
             }
         });
+
         await Task.WhenAll(writeTask, readTask);
     }
 }

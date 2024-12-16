@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface ITransportContext
 {
-    IPeer Peer { get; }
+    ILocalPeer Peer { get; }
     void ListenerReady(Multiaddress addr);
     INewConnectionContext CreateConnection();
 }
@@ -35,7 +35,7 @@ public interface ISessionContext : IConnectionContext
 
 public interface INewConnectionContext : IDisposable, IChannelFactory, IContextState
 {
-    IPeer Peer { get; }
+    ILocalPeer Peer { get; }
     CancellationToken Token { get; }
     INewSessionContext UpgradeToSession();
 }

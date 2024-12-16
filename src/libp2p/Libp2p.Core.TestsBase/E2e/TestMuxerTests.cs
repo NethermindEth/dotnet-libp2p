@@ -20,9 +20,9 @@ internal class TestMuxerTests
                   .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                   .BuildServiceProvider();
 
-        IPeer peerA = MakeServiceProvider().GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(1));
+        ILocalPeer peerA = MakeServiceProvider().GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(1));
         await peerA.StartListenAsync();
-        IPeer peerB = MakeServiceProvider().GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(2));
+        ILocalPeer peerB = MakeServiceProvider().GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(2));
         await peerB.StartListenAsync();
 
         ISession remotePeerB = await peerA.DialAsync(TestPeers.Multiaddr(2));

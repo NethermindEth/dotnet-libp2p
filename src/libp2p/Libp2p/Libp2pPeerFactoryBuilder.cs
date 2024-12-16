@@ -38,7 +38,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
-    protected override ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols)
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
 

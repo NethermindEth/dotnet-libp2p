@@ -80,6 +80,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.E2eTests", "Libp2p.E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.PubsubPeerDiscovery.E2eTests", "Libp2p.Protocols.PubsubPeerDiscovery.E2eTests\Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj", "{EC0B1626-C006-4138-A119-FE61CDAB824D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Relay", "Libp2p.Protocols.Relay\Libp2p.Protocols.Relay.csproj", "{F29F5376-4F93-486F-B933-3278177704DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -214,6 +216,10 @@ Global
 		{EC0B1626-C006-4138-A119-FE61CDAB824D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EC0B1626-C006-4138-A119-FE61CDAB824D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EC0B1626-C006-4138-A119-FE61CDAB824D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F29F5376-4F93-486F-B933-3278177704DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F29F5376-4F93-486F-B933-3278177704DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F29F5376-4F93-486F-B933-3278177704DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F29F5376-4F93-486F-B933-3278177704DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -243,6 +249,7 @@ Global
 		{C3CDBAAE-C790-443A-A293-D6E2330160F7} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{89BD907E-1399-4BE7-98CC-E541EAB21842} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 		{EC0B1626-C006-4138-A119-FE61CDAB824D} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
+		{F29F5376-4F93-486F-B933-3278177704DE} = {6F3D9AA9-C92D-4998-BC4E-D5EA068E8D0D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E337E37C-3DB8-42FA-9A83-AC4E3B2557B4}

@@ -20,7 +20,7 @@ public class GossipsubProtocolTests
         int peerCount = PubsubSettings.Default.HighestDegree + 1;
         const string commonTopic = "topic1";
 
-        IPeer peer = new LocalPeerStub();
+        ILocalPeer peer = new LocalPeerStub();
         List<Rpc> sentRpcs = [];
 
         router.GetTopic(commonTopic);
@@ -37,7 +37,7 @@ public class GossipsubProtocolTests
             peerStore.Discover([discoveredPeer]);
             router.OutboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, sentRpcs.Add);
             router.InboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, tcs.Task, () => Task.CompletedTask);
-            await router.OnRpc(peerId, new Rpc().WithTopics([commonTopic], []));
+            router.OnRpc(peerId, new Rpc().WithTopics([commonTopic], []));
         }
 
         await router.Heartbeat();

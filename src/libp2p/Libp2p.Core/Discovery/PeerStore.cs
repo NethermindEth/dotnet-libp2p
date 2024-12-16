@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Extensions;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core.Discovery;
@@ -49,7 +50,7 @@ public class PeerStore
         {
             PeerInfo? newOne = null;
             PeerInfo peerInfo = _store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
-            if (peerInfo != newOne && peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(a => peerInfo.Addrs.Any(a2 => a2.ToString() == a.ToString())))
+            if (peerInfo != newOne && peerInfo.Addrs is not null && addrs.UnorderedSequenceEqual(peerInfo.Addrs))
             {
                 return;
             }

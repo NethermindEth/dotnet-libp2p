@@ -5,5 +5,5 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IPeerFactory
 {
-    IPeer Create(Identity? identity = default);
+    ILocalPeer Create(Identity? identity = default);
 }

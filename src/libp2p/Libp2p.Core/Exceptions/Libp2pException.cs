@@ -5,16 +5,13 @@ namespace Nethermind.Libp2p.Core.Exceptions;
 
 public class Libp2pException : Exception
 {
-    public Libp2pException(string? message) : base(message)
-    {
-
-    }
-    public Libp2pException() : base()
-    {
-
-    }
+    public Libp2pException(string? message) : base(message) { }
+    public Libp2pException() : base() { }
 }
 
+/// <summary>
+/// Exception instead of IOResult to signal a channel cannot send or receive data anymore
+/// </summary>
 public class ChannelClosedException() : Libp2pException("Channel closed");
 
 /// <summary>
@@ -29,4 +26,12 @@ public class Libp2pSetupException(string? message = null) : Libp2pException(mess
 public class SessionExistsException(PeerId remotePeerId) : Libp2pException($"Session is already established with {remotePeerId}");
 
 
-public class PeerConnectionException : Libp2pException;
+/// <summary>
+/// Appears if connection to peer failed or declined
+/// </summary>
+public class PeerConnectionException(string? message = null) : Libp2pException(message);
+
+public class DLibp2pException : Libp2pException
+{
+
+}

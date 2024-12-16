@@ -4,7 +4,6 @@
 using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
-using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Ping;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -27,10 +26,7 @@ public class PingProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         byte[] ping = new byte[PayloadLength];
         _random.NextBytes(ping.AsSpan(0, PayloadLength));
@@ -56,10 +52,7 @@ public class PingProtocol : ISessionProtocol
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         _logger?.PingListenStarted(context.State.RemoteAddress);
 

@@ -24,7 +24,7 @@ public class E2eTestSetup : IDisposable
 
     protected ILogger TestLogger { get; set; } = loggerFactory.CreateLogger("test-setup");
 
-    public Dictionary<int, IPeer> Peers { get; } = [];
+    public Dictionary<int, ILocalPeer> Peers { get; } = [];
     public Dictionary<int, PeerStore> PeerStores { get; } = [];
     public Dictionary<int, ServiceProvider> ServiceProviders { get; } = [];
 
@@ -79,7 +79,7 @@ public class E2eTestSetup : IDisposable
         StringBuilder reportBuilder = new();
         reportBuilder.AppendLine($"Test state#{stateCounter++}");
 
-        foreach ((int index, IPeer peer) in Peers)
+        foreach ((int index, ILocalPeer peer) in Peers)
         {
             AddToPrintState(reportBuilder, index);
             reportBuilder.AppendLine(peer.ToString());

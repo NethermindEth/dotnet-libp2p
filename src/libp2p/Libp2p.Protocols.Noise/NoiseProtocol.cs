@@ -11,7 +11,6 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
-using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -40,10 +39,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         KeyPair? clientStatic = KeyPair.Generate();
         using HandshakeState? handshakeState = _protocol.Create(true, s: clientStatic.PrivateKey);
@@ -124,10 +120,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
     public async Task ListenAsync(IChannel downChannel, IConnectionContext context)
     {
-        if (context.State.RemoteAddress is null)
-        {
-            throw new Libp2pException();
-        }
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         KeyPair? serverStatic = KeyPair.Generate();
         using HandshakeState? handshakeState =
@@ -253,9 +246,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
 
-        return Task.WhenAll(t, t2).ContinueWith((t) =>
-        {
-
-        });
+        return Task.WhenAll(t, t2);
     }
 }

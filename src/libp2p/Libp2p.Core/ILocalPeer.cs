@@ -6,7 +6,7 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IPeer
+public interface ILocalPeer
 {
     Identity Identity { get; }
 
@@ -28,11 +28,3 @@ public interface IPeer
 }
 
 public delegate Task Connected(ISession newSession);
-
-public interface ISession
-{
-    Multiaddress RemoteAddress { get; }
-    Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol;
-    Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
-    Task DisconnectAsync();
-}

@@ -12,6 +12,12 @@ public interface IProtocol
 
 public interface ITransportProtocol : IProtocol
 {
+    static bool IsAddressMatch(IProtocol proto, Multiaddress addr) => (bool)proto.GetType()
+          .GetMethod(nameof(IsAddressMatch))!.Invoke(null, [addr])!;
+    static Multiaddress[] GetDefaultAddresses(IProtocol proto, PeerId peerId) => (Multiaddress[])proto.GetType()
+          .GetMethod(nameof(GetDefaultAddresses))!.Invoke(null, [peerId])!;
+
+
     static abstract Multiaddress[] GetDefaultAddresses(PeerId peerId);
     static abstract bool IsAddressMatch(Multiaddress addr);
 
@@ -35,8 +41,6 @@ public interface ISessionProtocol : ISessionListenerProtocol
 {
     Task DialAsync(IChannel downChannel, ISessionContext context);
 }
-
-public class Void;
 
 public interface ISessionProtocol<TRequest, TResponse> : ISessionListenerProtocol
 {

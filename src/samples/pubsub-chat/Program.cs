@@ -31,7 +31,7 @@ CancellationTokenSource ts = new();
 Identity localPeerIdentity = new();
 string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
 
-IPeer peer = peerFactory.Create(localPeerIdentity);
+ILocalPeer peer = peerFactory.Create(localPeerIdentity);
 
 PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
 ITopic topic = router.GetTopic("chat-room:awesome-chat-room");
@@ -55,7 +55,7 @@ topic.OnMessage += (byte[] msg) =>
 await peer.StartListenAsync([addr], ts.Token);
 
 string peerId = peer.Identity.PeerId.ToString();
-_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.ListenAddresses, token: ts.Token);
+_ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.StartDiscoveryAsync(peer.ListenAddresses, token: ts.Token);
 
 await router.StartAsync(peer, token: ts.Token);
 

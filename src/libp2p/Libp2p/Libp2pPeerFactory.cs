@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p;
 
 public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, loggerFactory)
 {
-    public override IPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), LoggerFactory);
+    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), LoggerFactory);
 }
 
 class Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, peerStore, protocolStackSettings, loggerFactory)

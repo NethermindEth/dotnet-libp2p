@@ -24,7 +24,7 @@ public class FloodsubProtocolTests
 
         const string commonTopic = "topic1";
 
-        IPeer peer = Substitute.For<IPeer>();
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
         peer.ListenAddresses.Returns([localPeerAddr]);
         peer.Identity.Returns(TestPeers.Identity(2));
         peer.DialAsync(discoveredPeerAddress, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeerAddress));
@@ -44,7 +44,7 @@ public class FloodsubProtocolTests
 
         router.OutboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, sentRpcs.Add);
         router.InboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, tcs.Task, () => Task.CompletedTask);
-        await router.OnRpc(discoveredPeer.PeerId, new Rpc().WithTopics(new[] { commonTopic }, []));
+        router.OnRpc(discoveredPeer.PeerId, new Rpc().WithTopics(new[] { commonTopic }, []));
 
         Assert.Multiple(() =>
         {

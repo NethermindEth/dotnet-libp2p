@@ -19,7 +19,7 @@ public class PubsubProtocolTests
         Multiaddress localPeerAddr = TestPeers.Multiaddr(1);
         Multiaddress[] discoveredPeerAddrs = [TestPeers.Multiaddr(2)];
 
-        IPeer peer = Substitute.For<IPeer>();
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
         peer.ListenAddresses.Returns([localPeerAddr]);
         peer.Identity.Returns(TestPeers.Identity(1));
         peer.DialAsync(discoveredPeerAddrs, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeerAddrs[0]));

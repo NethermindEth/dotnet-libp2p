@@ -61,7 +61,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         return (TBuilder)this;
     }
 
-    protected abstract ProtocolRef[] BuildStack(ProtocolRef[] additionalProtocols);
+    protected abstract ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols);
 
     private Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
 
