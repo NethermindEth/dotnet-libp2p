@@ -127,7 +127,7 @@ public class PeerId
         return hashCode ??= ComputeHash(Bytes);
     }
 
-    public static bool operator ==(PeerId left, PeerId right)
+    public static bool operator ==(PeerId? left, PeerId? right)
     {
         if (left is null)
         {
@@ -141,7 +141,7 @@ public class PeerId
         return left.Equals(right);
     }
 
-    public static bool operator !=(PeerId left, PeerId right) => !(left == right);
+    public static bool operator !=(PeerId? left, PeerId? right) => !(left == right);
     #endregion
 }
 

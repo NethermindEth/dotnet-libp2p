@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.MDns\Libp2p.Protocols.MDns.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
@@ -22,6 +23,7 @@
     <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Relay\Libp2p.Protocols.Relay.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
      <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
   </ItemGroup>

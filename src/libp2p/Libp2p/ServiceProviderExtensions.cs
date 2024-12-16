@@ -7,20 +7,22 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
 public static class ServiceProviderExtensions
 {
-    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder> factorySetup)
+    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
     {
         return services
-            .AddScoped(sp => factorySetup(new Libp2pPeerFactoryBuilder(sp)))
-            .AddScoped(sp => (ILibp2pPeerFactoryBuilder)factorySetup(new Libp2pPeerFactoryBuilder(sp)))
-            .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
-            .AddScoped<MultiplexerSettings>()
-            .AddScoped<PubsubRouter>()
-            .AddScoped<PeerStore>()
-            .AddScoped<MDnsDiscoveryProtocol>()
+            .AddSingleton(sp => new Libp2pPeerFactoryBuilder(sp))
+            .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>())
+            .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
+            .AddSingleton(sp => factorySetup is null ? sp.GetRequiredService<Libp2pPeerFactoryBuilder>() : factorySetup(sp.GetRequiredService<Libp2pPeerFactoryBuilder>()))
+            .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
+            .AddSingleton<MultiplexerSettings>()
+            .AddSingleton<PubsubRouter>()
+            .AddSingleton<PeerStore>()
+            .AddSingleton<MDnsDiscoveryProtocol>()
             ;
     }
 }

@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
-// SPDX-License-Identifier: MIT
+//// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+//// SPDX-License-Identifier: MIT
+
+//namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
-
-namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
+using Nethermind.Libp2p.Protocols.Pubsub;
 
 [TestFixture]
 public class PubsubProtocolTests
@@ -15,25 +16,25 @@ public class PubsubProtocolTests
         PeerStore peerStore = new();
         PubsubRouter router = new(peerStore);
         IRoutingStateContainer state = router;
-        Multiaddress discoveredPeerAddr = TestPeers.Multiaddr(1);
-        Multiaddress localPeer = TestPeers.Multiaddr(2);
+        Multiaddress localPeerAddr = TestPeers.Multiaddr(1);
+        Multiaddress[] discoveredPeerAddrs = [TestPeers.Multiaddr(2)];
 
         ILocalPeer peer = Substitute.For<ILocalPeer>();
-        peer.Address.Returns(localPeer);
-        peer.Identity.Returns(TestPeers.Identity(2));
-        peer.DialAsync(discoveredPeerAddr, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeerAddr));
+        peer.ListenAddresses.Returns([localPeerAddr]);
+        peer.Identity.Returns(TestPeers.Identity(1));
+        peer.DialAsync(discoveredPeerAddrs, Arg.Any<CancellationToken>()).Returns(new TestRemotePeer(discoveredPeerAddrs[0]));
 
         CancellationToken token = default;
         TaskCompletionSource taskCompletionSource = new();
 
-        _ = router.RunAsync(peer, token: token);
-        peerStore.Discover([discoveredPeerAddr]);
+        await router.StartAsync(peer, token: token);
+        peerStore.Discover(discoveredPeerAddrs);
 
         await Task.Delay(100);
-        _ = peer.Received().DialAsync(discoveredPeerAddr, Arg.Any<CancellationToken>());
+        _ = peer.Received().DialAsync(discoveredPeerAddrs, Arg.Any<CancellationToken>());
 
-        router.OutboundConnection(discoveredPeerAddr, PubsubRouter.FloodsubProtocolVersion, taskCompletionSource.Task, (rpc) => { });
-        Assert.That(state.ConnectedPeers, Has.Member(discoveredPeerAddr.GetPeerId()));
+        router.OutboundConnection(discoveredPeerAddrs[0], PubsubRouter.FloodsubProtocolVersion, taskCompletionSource.Task, (rpc) => { });
+        Assert.That(state.ConnectedPeers, Has.Member(discoveredPeerAddrs[0].GetPeerId()));
         taskCompletionSource.SetResult();
     }
 }

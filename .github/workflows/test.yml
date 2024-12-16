@@ -36,7 +36,11 @@ jobs:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-restore
         run: |
           dotnet test Libp2p.Core.Tests ${{ env.PACK_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Multistream.Tests ${{ env.PACK_OPTS }}
           dotnet test Libp2p.Protocols.Noise.Tests ${{ env.PACK_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.Tests ${{ env.PACK_OPTS }}
           dotnet test Libp2p.Protocols.Quic.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Yamux.Tests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.E2eTests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Pubsub.E2eTests ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests ${{ env.PACK_OPTS }}

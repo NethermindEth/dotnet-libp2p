@@ -3,13 +3,16 @@
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
-using Nethermind.Libp2p.Protocols.Pubsub;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
-public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>, ILibp2pPeerFactoryBuilder
+public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
+    ILibp2pPeerFactoryBuilder
 {
     private bool enforcePlaintext;
+    private bool addPubsub;
+    private bool addRelay;
+    private bool addQuic;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -17,28 +20,64 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider) { }
-
-    protected override ProtocolStack BuildStack()
+    public ILibp2pPeerFactoryBuilder WithPubsub()
     {
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ? Over<PlainTextProtocol>() : Over<NoiseProtocol>();
+        addPubsub = true;
+        return this;
+    }
 
-        ProtocolStack tcpStack = Over<IpTcpProtocol>()
-            .Over<MultistreamProtocol>()
-            .Over(tcpEncryptionStack)
-            .Over<MultistreamProtocol>()
-            .Over<YamuxProtocol>();
+    public ILibp2pPeerFactoryBuilder WithRelay()
+    {
+        addRelay = true;
+        return this;
+    }
 
-        return Over<MultiaddressBasedSelectorProtocol>()
-            // Quic is not working well, and requires consumers to mark projects with preview
-            //.Over<QuicProtocol>().Or(tcpStack)
-            .Over(tcpStack)
-            .Over<MultistreamProtocol>()
-            .AddAppLayerProtocol<IdentifyProtocol>()
-            .AddAppLayerProtocol<PingProtocol>()
-            .AddAppLayerProtocol<GossipsubProtocolV12>()
-            .AddAppLayerProtocol<GossipsubProtocolV11>()
-            .AddAppLayerProtocol<GossipsubProtocol>()
-            .AddAppLayerProtocol<FloodsubProtocol>();
+    public ILibp2pPeerFactoryBuilder WithQuic()
+    {
+        addQuic = true;
+        return this;
+    }
+
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+    {
+        ProtocolRef tcp = Get<IpTcpProtocol>();
+
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>()/*, Get<TlsProtocol>()*/];
+
+        ProtocolRef[] muxers = [Get<YamuxProtocol>()];
+
+        ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
+        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
+
+        ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
+        ProtocolRef[] pubsub = addPubsub ? [
+            Get<GossipsubProtocolV12>(),
+            Get<GossipsubProtocolV11>(),
+            Get<GossipsubProtocol>(),
+            Get<FloodsubProtocol>()
+            ] : [];
+
+        ProtocolRef[] apps = [
+            Get<IdentifyProtocol>(),
+            Get<PingProtocol>(),
+            .. additionalProtocols,
+            .. relay,
+            .. pubsub,
+        ];
+        Connect(commonAppProtocolSelector, apps);
+
+        if (addRelay)
+        {
+            Connect(relay, [Get<MultistreamProtocol>()], apps.Where(a => !relay.Contains(a)).ToArray());
+        }
+
+        if (addQuic)
+        {
+            ProtocolRef quic = Get<QuicProtocol>();
+            Connect([quic], commonAppProtocolSelector);
+            return [tcp, quic];
+        }
+
+        return [tcp];
     }
 }

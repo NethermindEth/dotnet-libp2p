@@ -4,13 +4,38 @@
 using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Extensions;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Core.Discovery;
 
 public class PeerStore
 {
-    ConcurrentDictionary<PeerId, PeerInfo> store = [];
+    private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
+
+    public void Discover(ByteString signedPeerRecord)
+    {
+        SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
+        PublicKey publicKey = PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey);
+        PeerId peerId = new Identity(publicKey).PeerId;
+
+        if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey))
+        {
+            return;
+        }
+
+        Multiaddress[] addresses = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload).Addresses
+            .Select(ai => Multiaddress.Decode(ai.Multiaddr.ToByteArray()))
+            .Where(a => a.GetPeerId() == peerId)
+            .ToArray();
+
+        if (addresses.Length == 0)
+        {
+            return;
+        }
+
+        Discover(addresses);
+    }
 
     public void Discover(Multiaddress[] addrs)
     {
@@ -24,8 +49,8 @@ public class PeerStore
         if (peerId is not null)
         {
             PeerInfo? newOne = null;
-            PeerInfo peerInfo = store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
-            if (peerInfo != newOne && peerInfo.Addrs is not null && peerInfo.Addrs.Count == addrs.Length && addrs.All(peerInfo.Addrs.Contains))
+            PeerInfo peerInfo = _store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
+            if (peerInfo != newOne && peerInfo.Addrs is not null && addrs.UnorderedSequenceEqual(peerInfo.Addrs))
             {
                 return;
             }
@@ -45,7 +70,7 @@ public class PeerStore
             }
 
             onNewPeer += value;
-            foreach (var item in store.Select(x => x.Value).ToArray())
+            foreach (PeerInfo? item in _store.Select(x => x.Value).ToArray())
             {
                 if (item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
             }
@@ -56,19 +81,17 @@ public class PeerStore
         }
     }
 
-    public override string ToString()
-    {
-        return $"peerStore({store.Count}):{string.Join(",", store.Select(x => x.Key.ToString() ?? "null"))}";
-    }
+    public override string ToString() => $"peerStore({_store.Count}):{string.Join(",", _store.Select(x => x.Key.ToString() ?? "null"))}";
 
     public PeerInfo GetPeerInfo(PeerId peerId)
     {
-        return store.GetOrAdd(peerId, id => new PeerInfo());
+        return _store.GetOrAdd(peerId, id => new PeerInfo());
     }
 
     public class PeerInfo
     {
         public ByteString? SignedPeerRecord { get; set; }
+        public string[]? SupportedProtocols { get; set; }
         public HashSet<Multiaddress>? Addrs { get; set; }
     }
 }

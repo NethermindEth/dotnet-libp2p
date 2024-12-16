@@ -10,17 +10,16 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class PlainTextProtocol : SymmetricProtocol, IProtocol
+public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
 {
     public string Id => "/plaintext/2.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context, bool isListener)
+    protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
         Exchange src = new()
         {
-            Id = ByteString.CopyFrom(context.LocalPeer.Identity.PeerId.Bytes),
-            Pubkey = context.LocalPeer.Identity.PublicKey.ToByteString()
+            Id = ByteString.CopyFrom(context.Peer.Identity.PeerId.Bytes),
+            Pubkey = context.Peer.Identity.PublicKey.ToByteString()
         };
         int size = src.CalculateSize();
         int sizeOfSize = VarInt.GetSizeInBytes(size);
@@ -35,8 +34,6 @@ public class PlainTextProtocol : SymmetricProtocol, IProtocol
         buf = (await channel.ReadAsync(structSize).OrThrow()).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
 
-        await (isListener
-            ? channelFactory.SubListenAndBind(channel, context)
-            : channelFactory.SubDialAndBind(channel, context));
+        await context.Upgrade(channel);
     }
 }

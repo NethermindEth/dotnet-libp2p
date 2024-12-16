@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
@@ -30,7 +29,7 @@ public class ChannelBus(TestContextLoggerFactory? fac = null)
 
         logger?.LogDebug($"Listen {serverId}");
 
-        await foreach (var item in col.Reader.ReadAllAsync())
+        await foreach (ClientChannel item in col.Reader.ReadAllAsync())
         {
             logger?.LogDebug($"New request from {item.Client} to {serverId}");
             yield return item.Channel;

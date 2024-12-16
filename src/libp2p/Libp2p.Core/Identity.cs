@@ -149,10 +149,7 @@ public class Identity
 
     public bool VerifySignature(byte[] message, byte[] signature)
     {
-        if (PublicKey is null)
-        {
-            throw new ArgumentNullException(nameof(PublicKey));
-        }
+        ArgumentNullException.ThrowIfNull(PublicKey);
 
         switch (PublicKey.Type)
         {
@@ -164,6 +161,7 @@ public class Identity
                 {
                     using RSA rsa = RSA.Create();
                     rsa.ImportSubjectPublicKeyInfo(PublicKey.Data.Span, out _);
+
                     return rsa.VerifyData(message, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
             case KeyType.Secp256K1:
@@ -242,54 +240,4 @@ public class Identity
     }
 
     public PeerId PeerId => new(PublicKey);
-
-
-    //public byte[] CreateSignedEnvelope(byte[] message)
-    //{
-    //    if (PrivateKey is null)
-    //    {
-    //        throw new ArgumentException(nameof(PrivateKey));
-    //    }
-
-    //    switch (PublicKey.Type)
-    //    {
-    //        case KeyType.Ed25519:
-    //            {
-    //                byte[] sig = new byte[Ed25519.SignatureSize];
-    //                Ed25519.Sign(PrivateKey.Data.ToByteArray(), 0, PublicKey.Data.ToByteArray(), 0,
-    //                    message, 0, message.Length, sig, 0);
-    //                return sig;
-    //            }
-    //        case KeyType.Ecdsa:
-    //            {
-    //                ECDsa e = ECDsa.Create();
-    //                e.ImportECPrivateKey(PrivateKey.Data.Span, out _);
-    //                return e.SignData(message, HashAlgorithmName.SHA256,
-    //                    DSASignatureFormat.Rfc3279DerSequence);
-    //            }
-    //        case KeyType.Rsa:
-    //            {
-    //                using RSA rsa = RSA.Create();
-    //                rsa.ImportRSAPrivateKey(PrivateKey.Data.Span, out _);
-    //                return rsa.SignData(message, 0, message.Length, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    //            }
-    //        case KeyType.Secp256K1:
-    //            {
-    //                X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
-    //                ISigner signer = SignerUtilities.GetSigner("SHA-256withECDSA");
-
-    //                ECPrivateKeyParameters privateKeyParams = new(
-    //                    "ECDSA",
-    //                    new BigInteger(1, PrivateKey.Data.ToArray()),
-    //                    new ECDomainParameters(curve)
-    //                    );
-
-    //                signer.Init(true, privateKeyParams);
-    //                signer.BlockUpdate(message, 0, message.Length);
-    //                return signer.GenerateSignature();
-    //            }
-    //        default:
-    //            throw new NotImplementedException($"{PublicKey.Type} is not supported");
-    //    }
-    //}
 }

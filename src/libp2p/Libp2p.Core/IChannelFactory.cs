@@ -6,33 +6,25 @@ namespace Nethermind.Libp2p.Core;
 public interface IChannelFactory
 {
     IEnumerable<IProtocol> SubProtocols { get; }
-    IChannel SubDial(IPeerContext context, IChannelRequest? request = null);
 
-    IChannel SubListen(IPeerContext context, IChannelRequest? request = null);
+    IChannel Upgrade(UpgradeOptions? options = null);
+    IChannel Upgrade(IProtocol specificProtocol, UpgradeOptions? options = null);
 
-    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+    Task Upgrade(IChannel parentChannel, UpgradeOptions? options = null);
+    Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? options = null);
+}
 
-    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IChannelRequest? request = null);
+public record UpgradeOptions
+{
+    public IProtocol? SelectedProtocol { get; init; }
+    public UpgradeModeOverride ModeOverride { get; init; }
+    public TaskCompletionSource<object?>? CompletionSource { get; init; }
+    public object? Argument { get; set; }
+}
 
-
-
-    IChannel SubDial(IPeerContext context, IProtocol protocol)
-    {
-        return SubDial(context, new ChannelRequest { SubProtocol = protocol });
-    }
-
-    IChannel SubListen(IPeerContext context, IProtocol protocol)
-    {
-        return SubListen(context, new ChannelRequest { SubProtocol = protocol });
-    }
-
-    Task SubDialAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
-    {
-        return SubDialAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
-    }
-
-    Task SubListenAndBind(IChannel parentChannel, IPeerContext context, IProtocol protocol)
-    {
-        return SubListenAndBind(parentChannel, context, new ChannelRequest { SubProtocol = protocol });
-    }
+public enum UpgradeModeOverride
+{
+    None,
+    Dial,
+    Listen,
 }

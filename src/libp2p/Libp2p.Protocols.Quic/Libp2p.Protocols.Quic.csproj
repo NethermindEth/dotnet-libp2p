@@ -7,6 +7,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+    <UseQuicTransportPackage>true</UseQuicTransportPackage>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -47,8 +47,12 @@ public interface IWriter
 
     async ValueTask WriteSizeAndProtobufAsync<T>(T grpcMessage) where T : IMessage<T>
     {
-        byte[] serializedMessage = grpcMessage.ToByteArray();
-        await WriteSizeAndDataAsync(serializedMessage);
+        int length = grpcMessage.CalculateSize();
+        byte[] buf = new byte[VarInt.GetSizeInBytes(length) + length];
+        int offset = 0;
+        VarInt.Encode(length, buf, ref offset);
+        grpcMessage.WriteTo(buf.AsSpan(offset));
+        await WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
     ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default);
