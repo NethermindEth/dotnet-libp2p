@@ -520,7 +520,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
-        logger?.LogDebug($"Messages received: {messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId))}/{rpc.Publish.Count}: {rpc.Publish.Count}");
+        logger?.LogDebug($"Messages received: {messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId))}/{messages.Count()}");
 
         foreach (Message? message in messages)
         {

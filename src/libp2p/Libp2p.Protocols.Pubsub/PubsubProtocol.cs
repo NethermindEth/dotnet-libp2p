@@ -82,7 +82,7 @@ public abstract class PubsubProtocol : ISessionProtocol
             else
             {
                 _logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
-                _ = router.OnRpc(remotePeerId, rpc);
+                router.OnRpc(remotePeerId, rpc);
             }
         }
 
