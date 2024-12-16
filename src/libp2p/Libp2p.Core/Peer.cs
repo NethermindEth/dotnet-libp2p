@@ -194,7 +194,7 @@ public partial class LocalPeer : ILocalPeer
     }
 
 
-    // TODO: Remove lloking in the entire stack, look only on level for the given parent protocol
+    // TODO: Remove locking in the entire stack, look only on level for the given parent protocol
     internal IProtocol? GetProtocolInstance<TProtocol>()
     {
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
