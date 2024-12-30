@@ -4,7 +4,7 @@ public enum Varsig
     // Namespace for all not yet standard signature algorithms
     // draft
     Varsig = 0xd000,
-    // ES256K Siganture Algorithm (secp256k1)
+    // ES256K Signature Algorithm (secp256k1)
     // draft
     Es256k = 0xd0e7,
     // G1 signature for BLS-12381-G2
