@@ -53,7 +53,7 @@ public class E2eTestSetup : IDisposable
 
         for (; _peerCounter < totalCount; _peerCounter++)
         {
-            // But we create a seprate setup for every peer
+            // But we create a separate setup for every peer
             ServiceProvider sp = ServiceProviders[_peerCounter] =
                 ConfigureServices(
                     new ServiceCollection()
