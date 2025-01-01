@@ -50,7 +50,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 }
                 catch (SessionExistsException)
                 {
-                    logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener rejected inititation of a redundant session");
+                    logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener rejected initiation of a redundant session");
                 }
                 catch (Exception e)
                 {
