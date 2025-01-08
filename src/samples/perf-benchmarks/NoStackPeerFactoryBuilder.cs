@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText:2023 Demerzel Solutions Limited
 // SPDX-License-Identifier:MIT
 
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p;
 
 namespace DataTransferBenchmark;
 
@@ -16,8 +16,8 @@ public class NoStackPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactor
 
     public static Libp2pPeerFactoryBuilder Create => new();
 
-    protected override ProtocolStack BuildStack()
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
-        return Over<IpTcpProtocol>();
+        return [Get<IpTcpProtocol>()];
     }
 }

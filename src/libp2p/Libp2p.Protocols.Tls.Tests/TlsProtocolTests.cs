@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
+
 namespace Nethermind.Libp2p.Protocols.TLS.Tests;
 
 [TestFixture]
@@ -8,46 +14,47 @@ namespace Nethermind.Libp2p.Protocols.TLS.Tests;
 public class TlsProtocolTests
 {
     [Test]
-    [Ignore("Infinite loop")]
+    [Ignore("Needs a fix on Windows")]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
         // Arrange
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        IPeerContext listenerContext = Substitute.For<IPeerContext>();
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
         ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
 
-        TestChannel upChannel = new TestChannel();
-        channelFactory.SubDial(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-            .Returns(upChannel);
+        TestChannel upChannel = new();
+        channelFactory.Upgrade(Arg.Any<UpgradeOptions>()).Returns(upChannel);
 
-        TestChannel listenerUpChannel = new TestChannel();
-        channelFactory.SubListen(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-            .Returns(listenerUpChannel);
+        TestChannel listenerUpChannel = new();
+        channelFactory.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
-        peerContext.LocalPeer.Identity.Returns(new Identity());
-        listenerContext.LocalPeer.Identity.Returns(new Identity());
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
+        dialerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        dialerContext.State.Returns(new State());
 
-        string peerId = peerContext.LocalPeer.Identity.PeerId.ToString();
+
+        listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
+
+        string peerId = dialerContext.Peer.Identity.PeerId.ToString();
         Multiaddress localAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{peerId}";
-        peerContext.LocalPeer.Address.Returns(localAddr);
-        listenerContext.RemotePeer.Address.Returns(localAddr);
+        //listenerContext.State.RemoteAddress.Returns(localAddr);
 
-        string listenerPeerId = listenerContext.LocalPeer.Identity.PeerId.ToString();
+        string listenerPeerId = listenerContext.Peer.Identity.PeerId.ToString();
         Multiaddress listenerAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{listenerPeerId}";
-        peerContext.RemotePeer.Address.Returns(listenerAddr);
-        listenerContext.LocalPeer.Address.Returns(listenerAddr);
+        //dialerContext.State.RemoteAddress.Returns(listenerAddr);
+        //listenerContext.State.RemoteAddress.Returns(listenerAddr);
 
-        var i_multiplexerSettings = new MultiplexerSettings();
-        var r_multiplexerSettings = new MultiplexerSettings();
-        TlsProtocol tlsProtocolListener = new TlsProtocol(i_multiplexerSettings, loggerFactory);
-        TlsProtocol tlsProtocolInitiator = new TlsProtocol(r_multiplexerSettings, loggerFactory);
+        MultiplexerSettings i_multiplexerSettings = new();
+        MultiplexerSettings r_multiplexerSettings = new();
+        TlsProtocol tlsProtocolListener = new(i_multiplexerSettings, loggerFactory);
+        TlsProtocol tlsProtocolInitiator = new(r_multiplexerSettings, loggerFactory);
 
         // Act
-        Task listenTask = tlsProtocolListener.ListenAsync(downChannel, channelFactory, listenerContext);
-        Task dialTask = tlsProtocolInitiator.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task listenTask = tlsProtocolListener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = tlsProtocolInitiator.DialAsync(downChannelFromProtocolPov, dialerContext);
 
         int sent = 42;
         ValueTask<IOResult> writeTask = listenerUpChannel.Reverse().WriteVarintAsync(sent);

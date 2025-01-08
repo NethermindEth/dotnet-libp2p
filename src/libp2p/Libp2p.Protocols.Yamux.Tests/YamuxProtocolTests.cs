@@ -5,7 +5,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 using NUnit.Framework.Internal;
-using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 
@@ -22,46 +21,50 @@ public class YamuxProtocolTests
     // Expect error and react to it
 
     [Test]
-    public async Task Test_Protocol_Communication()
+    public async Task Test_Protocol_Communication2()
     {
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
-        IPeerContext dialerPeerContext = Substitute.For<IPeerContext>();
-        var dialerRequests = new BlockingCollection<IChannelRequest>() { new ChannelRequest() { SubProtocol = proto1 } };
-        dialerPeerContext.SubDialRequests.Returns(dialerRequests);
 
-        TestChannel dialerDownChannel = new TestChannel();
-        IChannelFactory dialerUpchannelFactory = Substitute.For<IChannelFactory>();
-        dialerUpchannelFactory.SubProtocols.Returns(new[] { proto1 });
-        TestChannel dialerUpChannel = new TestChannel();
-        dialerUpchannelFactory.SubDial(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-           .Returns(dialerUpChannel);
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        INewSessionContext dialerSessionContext = Substitute.For<INewSessionContext>();
+        dialerContext.UpgradeToSession().Returns(dialerSessionContext);
+        dialerContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        dialerSessionContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        dialerSessionContext.Id.Returns("dialer");
 
+        dialerSessionContext.DialRequests.Returns([new UpgradeOptions() { SelectedProtocol = proto1 }]);
+
+        TestChannel dialerDownChannel = new();
+        dialerSessionContext.SubProtocols.Returns([proto1]);
+        TestChannel dialerUpChannel = new();
+        dialerSessionContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(dialerUpChannel);
 
         _ = dialerUpChannel.Reverse().WriteLineAsync("hello").AsTask().ContinueWith((e) => dialerUpChannel.CloseAsync());
 
-        IPeerContext listenerPeerContext = Substitute.For<IPeerContext>();
         IChannel listenerDownChannel = dialerDownChannel.Reverse();
-        IChannelFactory listenerUpchannelFactory = Substitute.For<IChannelFactory>();
-        var listenerRequests = new BlockingCollection<IChannelRequest>();
-        listenerPeerContext.SubDialRequests.Returns(listenerRequests);
-        listenerUpchannelFactory.SubProtocols.Returns(new[] { proto1 });
-        TestChannel listenerUpChannel = new TestChannel();
-        listenerUpchannelFactory.SubListen(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-           .Returns(listenerUpChannel);
+
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        INewSessionContext listenerSessionContext = Substitute.For<INewSessionContext>();
+        listenerContext.UpgradeToSession().Returns(listenerSessionContext);
+        listenerContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
+        listenerSessionContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
+        listenerSessionContext.Id.Returns("listener");
+
+        listenerSessionContext.SubProtocols.Returns([proto1]);
+        TestChannel listenerUpChannel = new();
+        listenerSessionContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
         YamuxProtocol proto = new(loggerFactory: new TestContextLoggerFactory());
 
-        _ = proto.ListenAsync(listenerDownChannel, listenerUpchannelFactory, listenerPeerContext);
+        _ = proto.ListenAsync(listenerDownChannel, listenerContext);
 
-        _ = proto.DialAsync(dialerDownChannel, dialerUpchannelFactory, dialerPeerContext);
+        _ = proto.DialAsync(dialerDownChannel, dialerContext);
 
 
-        var res = await listenerUpChannel.Reverse().ReadLineAsync();
+        string res = await listenerUpChannel.Reverse().ReadLineAsync();
         await listenerUpChannel.CloseAsync();
 
         Assert.That(res, Is.EqualTo("hello"));
-
-        await Task.Delay(1000);
     }
 }

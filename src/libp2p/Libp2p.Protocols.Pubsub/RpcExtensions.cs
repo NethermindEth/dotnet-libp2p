@@ -45,9 +45,9 @@ internal static class RpcExtensions
         return rpc;
     }
 
-    public static bool VerifySignature(this Message message, Settings.SignaturePolicy signaturePolicy)
+    public static bool VerifySignature(this Message message, PubsubSettings.SignaturePolicy signaturePolicy)
     {
-        if (signaturePolicy is Settings.SignaturePolicy.StrictNoSign)
+        if (signaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
         {
             return message.Signature.IsEmpty;
         }

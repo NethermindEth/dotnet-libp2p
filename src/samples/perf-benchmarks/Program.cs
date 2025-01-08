@@ -4,9 +4,9 @@
 using System.Diagnostics;
 using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Multiformats.Address;
+using Nethermind.Libp2p;
 
 await Task.Delay(1000);
 {
@@ -20,11 +20,11 @@ await Task.Delay(1000);
     Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
-    IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}");
+    await peer.StartListenAsync([$"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}"]);
 
-    Multiaddress remoteAddr = listener.Address;
+    Multiaddress remoteAddr = peer.ListenAddresses.First();
     ILocalPeer localPeer = peerFactory.Create();
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<PerfProtocol>();
@@ -42,11 +42,11 @@ await Task.Delay(1000);
         .Build();
 
     ILocalPeer peer = peerFactory.Create();
-    IListener listener = await peer.ListenAsync($"/ip4/0.0.0.0/tcp/0");
+    await peer.StartListenAsync([$"/ip4/0.0.0.0/tcp/0"]);
 
-    Multiaddress remoteAddr = listener.Address;
+    Multiaddress remoteAddr = peer.ListenAddresses.First();
     ILocalPeer localPeer = peerFactory.Create();
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr);
 
     Stopwatch timeSpent = Stopwatch.StartNew();
     await remotePeer.DialAsync<PerfProtocol>();

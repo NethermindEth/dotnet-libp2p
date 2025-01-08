@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Buffers.Binary;
@@ -49,7 +50,7 @@ public partial class PubsubRouter
         }
 
         Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
-        foreach (var peer in peerState)
+        foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
         {
             peer.Value.Send(topicUpdate);
         }
@@ -82,34 +83,41 @@ public partial class PubsubRouter
 
     public void UnsubscribeAll()
     {
-        foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
+        try
         {
-            Rpc msg = new Rpc().WithTopics([], topicState.Keys);
+            foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
+            {
+                Rpc msg = new Rpc().WithTopics([], topicState.Keys);
 
-            peerState.GetValueOrDefault(peerId)?.Send(msg);
-        }
+                peerState.GetValueOrDefault(peerId)?.Send(msg);
+            }
 
-        Dictionary<PeerId, Rpc> peerMessages = new();
+            Dictionary<PeerId, Rpc> peerMessages = [];
 
-        foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
-        {
-            (peerMessages[peerId] ??= new Rpc())
-                .WithTopics([], topicState.Keys);
-        }
-
-        foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh)
-        {
-            foreach (PeerId peerId in topicMesh.Value)
+            foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
             {
                 (peerMessages[peerId] ??= new Rpc())
-                   .Ensure(r => r.Control.Prune)
-                   .Add(new ControlPrune { TopicID = topicMesh.Key });
+                    .WithTopics([], topicState.Keys);
+            }
+
+            foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh.ToDictionary())
+            {
+                foreach (PeerId peerId in topicMesh.Value)
+                {
+                    (peerMessages[peerId] ??= new Rpc())
+                       .Ensure(r => r.Control.Prune)
+                       .Add(new ControlPrune { TopicID = topicMesh.Key });
+                }
+            }
+
+            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+            {
+                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
             }
         }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        catch (Exception e)
         {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            logger?.LogError(e, $"Error during {nameof(UnsubscribeAll)}");
         }
     }
 
@@ -120,7 +128,7 @@ public partial class PubsubRouter
         ulong seqNo = this.seqNo++;
         Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Address.GetPeerId()!.Bytes, message, localPeer.Identity);
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Identity.PeerId.Bytes, message, localPeer.Identity);
 
         foreach (PeerId peerId in fPeers[topicId])
         {
@@ -137,14 +145,14 @@ public partial class PubsubRouter
         else
         {
             fanoutLastPublished[topicId] = DateTime.Now;
-            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => new HashSet<PeerId>());
+            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
 
             if (topicFanout.Count == 0)
             {
                 HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
                 if (topicPeers is { Count: > 0 })
                 {
-                    foreach (PeerId peer in topicPeers.Take(settings.Degree))
+                    foreach (PeerId peer in topicPeers.Take(_settings.Degree))
                     {
                         topicFanout.Add(peer);
                     }

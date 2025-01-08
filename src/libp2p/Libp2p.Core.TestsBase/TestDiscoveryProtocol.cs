@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Core.TestsBase;
 //    public Func<Multiaddress[], bool>? OnAddPeer { get; set; }
 //    public Func<Multiaddress[], bool>? OnRemovePeer { get; set; }
 
-//    public Task DiscoverAsync(Multiaddress localPeerAddr, CancellationToken token = default)
+//    public Task DiscoverAsync(IPeer peer, CancellationToken token = default)
 //    {
 //        TaskCompletionSource task = new();
 //        token.Register(task.SetResult);

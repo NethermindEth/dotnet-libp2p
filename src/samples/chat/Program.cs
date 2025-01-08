@@ -3,15 +3,15 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
     .AddLogging(builder =>
-        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
+        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Trace)
             .AddSimpleConsole(l =>
             {
                 l.SingleLine = true;
@@ -32,10 +32,10 @@ if (args.Length > 0 && args[0] == "-d")
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 
-    ILocalPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
+    ILocalPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
     await remotePeer.DisconnectAsync();
@@ -49,12 +49,15 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
-    IListener listener = await peer.ListenAsync(
-        string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0"),
-        ts.Token);
-    logger.LogInformation("Listener started at {address}", listener.Address);
-    listener.OnConnection += async remotePeer => logger.LogInformation("A peer connected {remote}", remotePeer.Address);
-    Console.CancelKeyPress += delegate { listener.DisconnectAsync(); };
+    peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
-    await listener;
+    await peer.StartListenAsync(
+        [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],
+        ts.Token);
+    logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));
+
+    Console.CancelKeyPress += delegate { ts.Cancel(); };
+
+    await Task.Delay(-1, ts.Token);
+    await peer.DisconnectAsync();
 }

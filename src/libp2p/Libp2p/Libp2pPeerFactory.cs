@@ -1,32 +1,22 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Multiformats.Address;
-using Multiformats.Address.Protocols;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
-public class Libp2pPeerFactory : PeerFactory
+public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, loggerFactory)
 {
-    public Libp2pPeerFactory(IServiceProvider serviceProvider) : base(serviceProvider)
-    {
-    }
+    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), LoggerFactory);
+}
 
-    protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
+class Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, ILoggerFactory? loggerFactory = null) : LocalPeer(identity, peerStore, protocolStackSettings, loggerFactory)
+{
+    protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        await peer.DialAsync<IdentifyProtocol>();
-    }
-
-    public override ILocalPeer Create(Identity? identity = null, Multiaddress? localAddr = null)
-    {
-        identity ??= new Identity();
-        localAddr ??= $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}";
-        if (localAddr.Get<P2P>() is null)
-        {
-            localAddr.Add<P2P>(identity.PeerId.ToString());
-        }
-        return base.Create(identity, localAddr);
+        await session.DialAsync<IdentifyProtocol>();
     }
 }

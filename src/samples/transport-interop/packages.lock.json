@@ -177,8 +177,8 @@
       },
       "Nethermind.Multiformats.Address": {
         "type": "Transitive",
-        "resolved": "1.1.5",
-        "contentHash": "wm3ooKVG2w0jIuqtHXUPWMck1gQ/DxIFB3RAqxsPIhJesm+dSOUmACkJ4t3GL+VhxtHlYdDVbIKimuKe83ZCGQ==",
+        "resolved": "1.1.8",
+        "contentHash": "+nRuuVXjj/Okj/RAJtJUZ/nDRjwMfjJnF1+4Z7gKX2MjMsxR92KPJbsP4fY4IaEwXMDjNJsXJu78z2C06tElzw==",
         "dependencies": {
           "BinaryEncoding": "1.4.0",
           "Nethermind.Multiformats.Base": "2.0.3-preview.1",
@@ -1196,7 +1196,7 @@
           "Microsoft.Extensions.DependencyInjection": "[9.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[9.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
-          "Nethermind.Multiformats.Address": "[1.1.5, )",
+          "Nethermind.Multiformats.Address": "[1.1.8, )",
           "SimpleBase": "[4.0.2, )"
         }
       },

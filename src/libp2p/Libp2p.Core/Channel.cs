@@ -11,7 +11,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
-internal class Channel : IChannel
+public class Channel : IChannel
 {
     private IChannel? _reversedChannel;
     private ReaderWriter _reader;

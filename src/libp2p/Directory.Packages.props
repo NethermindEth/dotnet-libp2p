@@ -23,7 +23,7 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
-    <PackageVersion Include="Nethermind.Multiformats.Address" Version="1.1.5" />
+    <PackageVersion Include="Nethermind.Multiformats.Address" Version="1.1.8" />
     <PackageVersion Include="NLog.Extensions.Logging" Version="5.3.14" />
     <PackageVersion Include="Noise.NET" Version="1.0.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
