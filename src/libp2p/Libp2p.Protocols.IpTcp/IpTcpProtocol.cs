@@ -160,10 +160,12 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                         break;
                     }
                 }
+                _logger?.LogDebug("Ctx{0}: end receiving", connectionCtx.Id);
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
                 _ = upChannel.CloseAsync();
+                _logger?.LogDebug("Ctx{0}: end receiving, socket exception {1}", connectionCtx.Id, e.Message);
             }
         });
 
@@ -180,11 +182,13 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                         break;
                     }
                 }
+
+                _logger?.LogDebug("Ctx{0}: end sending", connectionCtx.Id);
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
                 _ = upChannel.CloseAsync();
-                return;
+                _logger?.LogDebug("Ctx{0}: end sending, socket exception {1}", connectionCtx.Id, e.Message);
             }
 
             client.Close();

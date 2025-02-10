@@ -19,7 +19,7 @@ public partial class LocalPeer : ILocalPeer
     protected readonly IProtocolStackSettings _protocolStackSettings;
 
     Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
-    private ObservableCollection<Session> sessions { get; } = [];
+    public ObservableCollection<Session> Sessions { get; } = [];
 
 
     public LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null)
@@ -32,7 +32,7 @@ public partial class LocalPeer : ILocalPeer
 
     public override string ToString()
     {
-        return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses)} sessions {string.Join("|", sessions.Select(x => $"{x.State.RemotePeerId}"))}";
+        return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses)} sessions {string.Join("|", Sessions.Select(x => $"{x.State.RemotePeerId}"))}";
     }
 
     public Identity Identity { get; }
@@ -152,15 +152,15 @@ public partial class LocalPeer : ILocalPeer
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialiazed before session creation");
 
-        lock (sessions)
+        lock (Sessions)
         {
-            if (sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == remotePeerId))
+            if (Sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == remotePeerId))
             {
                 _ = session.DisconnectAsync();
                 throw new SessionExistsException(remotePeerId);
             }
             _logger?.LogDebug($"New session with {remotePeerId}");
-            sessions.Add(session);
+            Sessions.Add(session);
         }
 
         Task initializeSession = ConnectedTo(session, !isListener);
@@ -203,7 +203,7 @@ public partial class LocalPeer : ILocalPeer
     public async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
-        ISession? existingSession = sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
+        ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
 
         if (existingSession is not null)
         {
@@ -267,7 +267,7 @@ public partial class LocalPeer : ILocalPeer
 
     public Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default)
     {
-        ISession? existingSession = sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId);
+        ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId);
 
         if (existingSession is not null)
         {
@@ -413,5 +413,5 @@ public partial class LocalPeer : ILocalPeer
         });
     }
 
-    public Task DisconnectAsync() => Task.WhenAll(sessions.ToArray().Select(s => s.DisconnectAsync()));
+    public Task DisconnectAsync() => Task.WhenAll(Sessions.ToArray().Select(s => s.DisconnectAsync()));
 }

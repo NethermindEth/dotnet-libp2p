@@ -23,6 +23,7 @@ public static class ServiceProviderExtensions
             .AddSingleton<PubsubRouter>()
             .AddSingleton<PeerStore>()
             .AddSingleton<MDnsDiscoveryProtocol>()
+            .AddSingleton<IdentifyNotifier>()
             ;
     }
 }

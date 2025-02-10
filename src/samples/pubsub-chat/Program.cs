@@ -63,7 +63,7 @@ string nickName = "libp2p-dotnet";
 
 while (true)
 {
-    string msg = Console.ReadLine()!;
+    string? msg = Console.ReadLine();
     if (msg == "exit")
     {
         break;

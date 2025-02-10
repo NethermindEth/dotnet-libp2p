@@ -40,6 +40,8 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             PeerName = RandomString(32);
             ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
 
+            service.Resources.RemoveAll(r => r is TXTRecord);
+
             foreach (Multiaddress localPeerAddr in localPeerAddrs)
             {
                 if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
@@ -49,7 +51,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                         Name = service.FullyQualifiedName,
                         Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
                             .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                            .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}"))
+                            .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}")),
                     });
                 }
                 else
@@ -57,11 +59,12 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     service.Resources.Add(new TXTRecord()
                     {
                         Name = service.FullyQualifiedName,
-                        Strings = [$"dnsaddr={localPeerAddr}"]
+                        Strings = [$"dnsaddr={localPeerAddr}"],
                     });
                 }
             }
 
+            _logger?.LogTrace("Records {0}", string.Join(",", service.Resources));
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
 
             sd.ServiceDiscovered += (s, serviceName) =>
@@ -71,6 +74,11 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             sd.ServiceInstanceDiscovered += (s, e) =>
             {
+                if (e.ServiceInstanceName.ToString().Contains(PeerName))
+                {
+                    return;
+                }
+
                 Multiaddress[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
                     .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();

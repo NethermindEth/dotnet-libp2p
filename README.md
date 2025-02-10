@@ -52,20 +52,23 @@ The target is to provide a performant well-tested implementation of a wide range
 | **Application layer**
 | Identify           | /ipfs/id/1.0.0     | ✅             |
 | ping               | /ipfs/ping/1.0.0   | ✅             |
+| ping/push          | /ipfs/id/push/1.0.0 | 🚧             |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
 |                    | /meshsub/1.2.0     | 🚧             |
+| perf               | /perf/1.0.0        | 🚧             |
 | **Discovery**
-| mDns               | basic              | ✅             |
-|                    | DNS-SD             | 🚧             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧 help wanted |
+| mDns               | basic w/o DNS-SD   | ✅             |
+| pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
+| Kademlia DHT       | /*/kad/1.0.0       | 🚧             |
+| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧             |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
 ✅ - basic support implemented
 
-No plans for: mplex, quic(draft-29)
+No plans for: mplex, quic-draft-29
 
 ## License
 

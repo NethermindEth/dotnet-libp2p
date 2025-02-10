@@ -41,7 +41,7 @@ public partial class LocalPeer
             SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>(), Argument = request }, token);
             await tcs.Task;
             MarkAsConnected();
-            return (TResponse)tcs.Task.Result;
+            return (TResponse)tcs.Task.Result!;
         }
 
 
@@ -50,7 +50,7 @@ public partial class LocalPeer
         public Task DisconnectAsync()
         {
             connectionTokenSource.Cancel();
-            peer.sessions.Remove(this);
+            peer.Sessions.Remove(this);
             return Task.CompletedTask;
         }
 

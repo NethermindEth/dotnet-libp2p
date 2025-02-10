@@ -69,7 +69,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
-        logger?.LogDebug($"Messages received: {messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId))}/{messages.Count()}");
+        if (logger?.IsEnabled(LogLevel.Trace) is true)
+        {
+            int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId));
+            //logger?.LogTrace($"Messages received: {messages.Count()}, already known: {knownMessages}");
+        }
+        else
+        {
+            logger?.LogDebug($"Messages received: {messages.Count()}");
+        }
 
         foreach (Message? message in messages)
         {
@@ -84,7 +92,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 case MessageValidity.Rejected:
                 case MessageValidity.Ignored:
-                    _limboMessageCache.Add(messageId, message);
+                    _limboMessageCache.Add(messageId, new(messageId, message));
                     continue;
                 case MessageValidity.Trottled:
                     continue;
@@ -92,11 +100,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
-                _limboMessageCache!.Add(messageId, message);
+                _limboMessageCache!.Add(messageId, new(messageId, message));
                 continue;
             }
 
-            _messageCache.Add(messageId, message);
+            _messageCache.Add(messageId, new(messageId, message));
 
             PeerId author = new(message.From.ToArray());
             OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
@@ -267,7 +275,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         List<Message> messages = [];
         foreach (MessageId? mId in messageIds)
         {
-            Message message = _messageCache.Get(mId);
+            Message message = _messageCache.Get(mId).Message;
             if (message != default)
             {
                 messages.Add(message);

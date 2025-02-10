@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Protocols.Yamux;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -11,7 +12,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
+public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 {
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
@@ -28,6 +29,7 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
+        using var scope = _logger?.BeginScope("Context id {ctx}", context.Id);
         _logger?.LogInformation("Ctx({ctx}): {mode} {peer}", context.Id, isListener ? "Listen" : "Dial", context.State.RemoteAddress);
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
@@ -66,8 +68,11 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
-                    // TODO: Handle bad packet
+                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session.Id, header.Type);
+                    await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.ProtocolError);
+                    return;
                 }
+
                 if (header.StreamID is 0)
                 {
                     if (header.Type == YamuxHeaderType.Ping)
@@ -122,7 +127,8 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
                 {
-                    if (header.Length > channels[header.StreamID].LocalWindow.Available)
+                    int available = channels[header.StreamID].LocalWindow.Available;
+                    if (header.Length > available)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Data length > windows size: {length} > {window size}", session.Id,
                            header.StreamID, header.Length, channels[header.StreamID].LocalWindow.Available);
@@ -140,6 +146,9 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.InternalError);
                         return;
                     }
+
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Spent window, was {available}, became {new}", session.Id,
+                           header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
 
                     ValueTask<IOResult> writeTask = channels[header.StreamID].Channel!.WriteAsync(data);
 
@@ -191,7 +200,7 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
                 {
-                    if (!channels.TryGetValue(header.StreamID, out ChannelState state))
+                    if (!channels.TryGetValue(header.StreamID, out ChannelState? state))
                     {
                         continue;
                     }
@@ -350,89 +359,4 @@ public class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             Length = (int)code,
             StreamID = 0,
         });
-
-    private class ChannelState(IChannel? channel = default)
-    {
-        public IChannel? Channel { get; set; } = channel;
-        //public ChannelRequest? Request { get; set; } = request;
-
-        public DataWindow LocalWindow { get; } = new();
-        public DataWindow RemoteWindow { get; } = new();
-    }
-
-    public class DataWindow(int defaultWindowSize = 256 * 1024)
-    {
-        private int _defaultWindowSize = defaultWindowSize;
-        private int _available = defaultWindowSize;
-        private int _requestedSize;
-        private TaskCompletionSource<int>? _windowSizeTcs;
-        public int Available { get => _available; }
-
-        internal int ExtendWindowIfNeeded()
-        {
-            if (_available < _defaultWindowSize / 2)
-            {
-                return ExtendWindow(_defaultWindowSize);
-            }
-
-            return 0;
-        }
-
-        internal int ExtendWindow(int length)
-        {
-            if (length is 0)
-            {
-                return 0;
-            }
-
-            lock (this)
-            {
-                _available += length;
-                if (_windowSizeTcs is not null)
-                {
-                    int availableSize = Math.Min(_requestedSize, _available);
-                    _available -= availableSize;
-                    _windowSizeTcs.SetResult(availableSize);
-                }
-                return _available;
-            }
-        }
-
-        internal async Task<int> SpendWindowOrWait(int requestedSize)
-        {
-            if (requestedSize is 0)
-            {
-                return 0;
-            }
-            if (_windowSizeTcs is not null)
-            {
-                await _windowSizeTcs.Task;
-            }
-
-            TaskCompletionSource<int>? taskToWait;
-
-            lock (this)
-            {
-                if (_available is 0)
-                {
-                    taskToWait = _windowSizeTcs = new();
-                    _requestedSize = requestedSize;
-                }
-                else
-                {
-                    int availableSize = Math.Min(requestedSize, _available);
-                    _available -= availableSize;
-                    return availableSize;
-                }
-            }
-
-            return await taskToWait.Task;
-        }
-
-        internal bool SpendWindow(int requestedSize)
-        {
-            int result = Interlocked.Add(ref _available, -requestedSize);
-            return result >= 0;
-        }
-    }
 }

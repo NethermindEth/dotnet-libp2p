@@ -112,7 +112,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
@@ -186,13 +186,13 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
-    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel)
+    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)
     {
         // UP -> DOWN
         Task t = Task.Run(async () =>
@@ -212,9 +212,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
                 if (writeResult != IOResult.Ok)
                 {
+                    logger?.LogDebug("End sending, due to {}", writeResult);
                     return;
                 }
             }
+
         });
         // DOWN -> UP
         Task t2 = Task.Run(async () =>
@@ -224,6 +226,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll);
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("End receiving packet length, due to {}", lengthBytesReadResult.Result);
                     return;
                 }
 
@@ -232,6 +235,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult dataReadResult = await downChannel.ReadAsync(length);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("End receiving header, due to {}", dataReadResult);
+
                     return;
                 }
                 byte[] buffer = new byte[length - 16];
@@ -241,6 +246,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
                 if (writeResult != IOResult.Ok)
                 {
+                    logger?.LogDebug("End receiving, due to {}", dataReadResult);
                     return;
                 }
             }
