@@ -72,7 +72,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {
             int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId));
-            //logger?.LogTrace($"Messages received: {messages.Count()}, already known: {knownMessages}");
+            logger?.LogTrace($"Messages received: {messages.Count()}, already known: {knownMessages}");
         }
         else
         {

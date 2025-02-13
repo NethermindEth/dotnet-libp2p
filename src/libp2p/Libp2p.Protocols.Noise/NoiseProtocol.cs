@@ -226,7 +226,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll);
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
-                    logger?.LogDebug("End receiving packet length, due to {}", lengthBytesReadResult.Result);
+                    logger?.LogDebug("Receiving packet length failed due to {}", lengthBytesReadResult.Result);
                     return;
                 }
 
@@ -235,7 +235,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult dataReadResult = await downChannel.ReadAsync(length);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
-                    logger?.LogDebug("End receiving header, due to {}", dataReadResult);
+                    logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
 
                     return;
                 }
@@ -246,7 +246,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
                 if (writeResult != IOResult.Ok)
                 {
-                    logger?.LogDebug("End receiving, due to {}", dataReadResult);
+                    logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
                     return;
                 }
             }
