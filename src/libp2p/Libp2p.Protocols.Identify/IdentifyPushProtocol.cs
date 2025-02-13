@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -25,6 +25,6 @@ public class IdentifyPushProtocol(IProtocolStackSettings protocolStackSettings, 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogDebug("Receiving identity update");
-        await ReadAndVerifyIndentity(channel, context);
+        await ReadAndVerifyIdentity(channel, context);
     }
 }

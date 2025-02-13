@@ -492,7 +492,7 @@ internal enum ConnectionInitiation
     Remote,
 }
 
-readonly struct MessageWithId(MessageId id, Message message)
+internal readonly struct MessageWithId(MessageId id, Message message)
 {
     public MessageId Id { get; } = id;
     public Message Message { get; } = message;

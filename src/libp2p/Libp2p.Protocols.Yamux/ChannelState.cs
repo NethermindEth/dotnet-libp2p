@@ -8,6 +8,6 @@ namespace Nethermind.Libp2p.Protocols.Yamux;
 internal class ChannelState(IChannel? channel = default)
 {
     public IChannel? Channel { get; set; } = channel;
-    public DataWindow LocalWindow { get; } = new();
-    public DataWindow RemoteWindow { get; } = new();
+    public LocalDataWindow LocalWindow { get; } = new();
+    public RemoteDataWindow RemoteWindow { get; } = new();
 }

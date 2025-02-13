@@ -190,8 +190,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 _ = upChannel.CloseAsync();
                 _logger?.LogDebug("Ctx{0}: end sending, socket exception {1}", connectionCtx.Id, e.Message);
             }
-
-            client.Close();
+            finally
+            {
+                client.Close();
+            }
         });
 
         await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());

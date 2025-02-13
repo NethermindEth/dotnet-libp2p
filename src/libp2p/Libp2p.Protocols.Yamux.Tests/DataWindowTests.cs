@@ -9,21 +9,32 @@ public class DataWindowTests
     [Test]
     public async Task Test_WindowExtendsProperly_WhenChannelWaitsForUpdate()
     {
-        int windowSize = 100;
-        var w = new DataWindow(windowSize);
-        Task spendingTask = Task.Run(async () =>
-        {
-            int bytesToSend = windowSize + 1;
-            while (bytesToSend != 0)
-            {
-                bytesToSend -= await w.SpendWindowOrWait(bytesToSend);
-            }
-        });
-        await Task.Delay(10);
-        int val = w.ExtendWindowIfNeeded();
+        const int WindowSize = 100;
 
-        await spendingTask;
-        Assert.That(val, Is.EqualTo(windowSize));
-        Assert.That(w.Available, Is.EqualTo(windowSize - 1));
+        for (int bytesToSendCase = 0; bytesToSendCase < 500; bytesToSendCase++)
+        {
+            int bytesToSend = bytesToSendCase;
+            int windowUdatesNeeded = (bytesToSend - 1) / WindowSize;
+            int finalAvailable = WindowSize - bytesToSend + WindowSize * windowUdatesNeeded;
+
+            var w = new RemoteDataWindow(WindowSize);
+            Task spendingTask = Task.Run(async () =>
+            {
+                await Task.Delay(bytesToSend % 3);
+                while (bytesToSend != 0)
+                {
+                    bytesToSend -= await w.SpendOrWait(bytesToSend);
+                }
+            });
+
+            await Task.Delay(bytesToSend % 5);
+            for (int i = 0; i < windowUdatesNeeded; i++)
+            {
+                int val = w.Extend(WindowSize);
+            }
+
+            await spendingTask;
+            Assert.That(w.Available, Is.EqualTo(finalAvailable));
+        }
     }
 }

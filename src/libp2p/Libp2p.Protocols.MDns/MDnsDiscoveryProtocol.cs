@@ -64,7 +64,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 }
             }
 
-            _logger?.LogTrace("Records {0}", string.Join(",", service.Resources));
+            _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
             _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
 
             sd.ServiceDiscovered += (s, serviceName) =>

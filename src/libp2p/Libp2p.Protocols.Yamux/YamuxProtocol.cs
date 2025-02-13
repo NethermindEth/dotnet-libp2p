@@ -14,6 +14,8 @@ namespace Nethermind.Libp2p.Protocols;
 
 public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 {
+    public const int ProtocolInitialWindowSize = 256 * 1024;
+
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
 
@@ -139,7 +141,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                     data = await channel.ReadAsync(header.Length).OrThrow();
 
-                    bool spent = channels[header.StreamID].LocalWindow.SpendWindow((int)data.Length);
+                    bool spent = channels[header.StreamID].LocalWindow.TrySpend((int)data.Length);
                     if (!spent)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window spent out of budget", session.Id, header.StreamID);
@@ -156,7 +158,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if (writeTask.Result == IOResult.Ok)
                         {
-                            int extendedBy = channels[header.StreamID].LocalWindow.ExtendWindowIfNeeded();
+                            int extendedBy = channels[header.StreamID].LocalWindow.ExtendIfNeeded();
                             if (extendedBy is not 0)
                             {
                                 _ = WriteHeaderAsync(session.Id, channel,
@@ -175,7 +177,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         {
                             if (writeTask.Result == IOResult.Ok && channels.TryGetValue(header.StreamID, out ChannelState? channelState))
                             {
-                                int extendedBy = channelState.LocalWindow.ExtendWindowIfNeeded();
+                                int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
                                 if (extendedBy is not 0)
                                 {
                                     _ = WriteHeaderAsync(session.Id, channel,
@@ -194,7 +196,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
                 {
                     int oldSize = channels[header.StreamID].RemoteWindow.Available;
-                    int newSize = channels[header.StreamID].RemoteWindow.ExtendWindow(header.Length);
+                    int newSize = channels[header.StreamID].RemoteWindow.Extend(header.Length);
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window update requested: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
                 }
 
@@ -269,7 +271,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                             for (int i = 0; i < upData.Length;)
                             {
-                                int sendingSize = await state.RemoteWindow.SpendWindowOrWait((int)upData.Length - i);
+                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.Channel!.CancellationToken);
 
                                 await WriteHeaderAsync(contextId, channel,
                                     new YamuxHeader

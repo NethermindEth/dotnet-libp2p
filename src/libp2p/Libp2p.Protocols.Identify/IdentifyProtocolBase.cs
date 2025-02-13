@@ -20,7 +20,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     private readonly IdentifyProtocolSettings _settings = settings ?? new IdentifyProtocolSettings();
 
-    protected async Task ReadAndVerifyIndentity(IChannel channel, ISessionContext context)
+    protected async Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
@@ -34,30 +34,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             throw new PeerConnectionException("Malformed peer identity: the remote public key corresponds to a different peer id");
         }
 
-        ulong seq = 0;
-
-        if (identify.SignedPeerRecord is not null)
-        {
-            if (!SigningHelper.VerifyPeerRecord(identify.SignedPeerRecord, context.State.RemotePublicKey, out seq))
-            {
-                if (_settings?.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
-                {
-                    throw new PeerConnectionException("Malformed peer identity: peer record signature is not valid");
-                }
-                else
-                {
-                    _logger?.LogWarning("Malformed peer identity: peer record signature is not valid");
-                }
-            }
-            else
-            {
-                _logger?.LogDebug("Confirmed peer record: {peerId}", context.State.RemotePeerId);
-            }
-        }
-        else if (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.DoesNotRequire)
-        {
-            throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
-        }
+        VerifySignedPeerRecordOrThrow(identify.SignedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, out ulong seq);
 
         if (_peerStore is not null)
         {
@@ -74,20 +51,55 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         }
     }
 
+    private void VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, out ulong seq)
+    {
+        if (signedPeerRecordBytes is not null)
+        {
+            if (!SigningHelper.VerifyPeerRecord(signedPeerRecordBytes, remotePublicKey, out seq))
+            {
+                if (_settings?.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
+                {
+                    throw new PeerConnectionException("Malformed peer identity: peer record signature is not valid");
+                }
+                else
+                {
+                    _logger?.LogWarning("Malformed peer identity: peer record signature is not valid");
+                }
+            }
+            else
+            {
+                _logger?.LogDebug("Confirmed peer record: {peerId}", remotePeerId);
+            }
+        }
+        else if (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.DoesNotRequire)
+        {
+            throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
+        }
+
+        seq = 0;
+    }
+
     protected async Task SendIdentity(IChannel channel, ISessionContext context, ulong idVersion = 1)
     {
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+        Libp2pSetupException.ThrowIfNull(_protocolStackSettings.Protocols);
+
         Identify.Dto.Identify identify = new()
         {
             ProtocolVersion = _settings.ProtocolVersion,
             AgentVersion = _settings.AgentVersion,
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
             ListenAddrs = { },
-            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress!.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto).ToBytes()),
-            Protocols = { _protocolStackSettings.Protocols!.Select(r => r.Key.Protocol).OfType<ISessionListenerProtocol>().Select(p => p.Id) },
+            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress.GetEndpointPart().ToBytes()),
+            Protocols = { _protocolStackSettings.Protocols.Select(r => r.Key.Protocol).OfType<ISessionListenerProtocol>().Select(p => p.Id) },
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, [.. context.Peer.ListenAddresses], idVersion),
         };
 
-        ByteString[] endpoints = context.Peer.ListenAddresses.Where(a => !a.ToEndPoint().Address.IsPrivate()).Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto)).Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
+        ByteString[] endpoints = context.Peer.ListenAddresses
+            .Where(a => !a.ToEndPoint().Address.IsPrivate())
+            .Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto))
+            .Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
+
         identify.ListenAddrs.AddRange(endpoints);
 
         await channel.WriteSizeAndProtobufAsync(identify);
