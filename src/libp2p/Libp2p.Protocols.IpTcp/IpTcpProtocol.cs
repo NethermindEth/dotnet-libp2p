@@ -149,7 +149,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         {
             try
             {
-                for (; client.Connected;)
+                while (client.Connected)
                 {
                     byte[] buf = new byte[client.ReceiveBufferSize];
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
