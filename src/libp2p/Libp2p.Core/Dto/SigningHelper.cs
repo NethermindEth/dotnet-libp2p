@@ -10,18 +10,19 @@ public static class SigningHelper
 {
     private static readonly byte[] PayloadType = [((ushort)Enums.Libp2p.Libp2pPeerRecord >> 8) & 0xFF, (ushort)Enums.Libp2p.Libp2pPeerRecord & 0xFF];
     private static readonly byte[] Domain = "libp2p-peer-record"u8.ToArray().ToArray();
-    public static bool VerifyPeerRecord(ByteString signedEnvelopeBytes, PublicKey publicKey)
+    public static bool VerifyPeerRecord(ByteString signedEnvelopeBytes, PublicKey publicKey, out ulong seq)
     {
         SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedEnvelopeBytes);
-        return VerifyPeerRecord(signedEnvelope, publicKey);
+        return VerifyPeerRecord(signedEnvelope, publicKey, out seq);
     }
 
-    public static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey)
+    public static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey, out ulong seq)
     {
         Identity identity = new(publicKey);
 
         if (signedEnvelope.PayloadType?.Take(2).SequenceEqual(PayloadType) is not true)
         {
+            seq = 0;
             return false;
         }
 
@@ -29,6 +30,7 @@ public static class SigningHelper
 
         if (identity.PeerId != new PeerId(pr.PeerId.ToByteArray()))
         {
+            seq = 0;
             return false;
         }
 
@@ -50,7 +52,14 @@ public static class SigningHelper
         VarInt.Encode(signedEnvelope.Payload.Length, signedData.AsSpan(), ref offset);
         Array.Copy(signedEnvelope.Payload.ToByteArray(), 0, signedData, offset, signedEnvelope.Payload.Length);
 
-        return identity.VerifySignature(signedData, signedEnvelope.Signature.ToByteArray());
+        if (!identity.VerifySignature(signedData, signedEnvelope.Signature.ToByteArray()))
+        {
+            seq = 0;
+            return false;
+        }
+
+        seq = pr.Seq;
+        return true;
     }
 
     public static ByteString CreateSignedEnvelope(Identity identity, Multiaddress[] addresses, ulong seq)

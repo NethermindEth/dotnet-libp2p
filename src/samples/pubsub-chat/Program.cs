@@ -63,15 +63,18 @@ string nickName = "libp2p-dotnet";
 
 while (true)
 {
-    string msg = Console.ReadLine()!;
-    if (msg == "exit")
-    {
-        break;
-    }
+    string? msg = Console.ReadLine();
+
     if (string.IsNullOrWhiteSpace(msg))
     {
         continue;
     }
+
+    if (msg == "exit")
+    {
+        break;
+    }
+
     topic.Publish(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new ChatMessage(msg, peerId, nickName))));
 }
 

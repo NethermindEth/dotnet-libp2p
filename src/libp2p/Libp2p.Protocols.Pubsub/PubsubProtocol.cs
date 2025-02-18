@@ -73,7 +73,7 @@ public abstract class PubsubProtocol : ISessionProtocol
 
         while (!token.IsCancellationRequested)
         {
-            Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
+            Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
             if (rpc is null)
             {
                 _logger?.LogDebug($"Received a broken message or EOF from {remotePeerId}");
@@ -81,7 +81,7 @@ public abstract class PubsubProtocol : ISessionProtocol
             }
             else
             {
-                _logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
+                //_logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
                 router.OnRpc(remotePeerId, rpc);
             }
         }

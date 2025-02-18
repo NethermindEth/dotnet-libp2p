@@ -19,7 +19,7 @@ public class PeerStore
         PublicKey publicKey = PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey);
         PeerId peerId = new Identity(publicKey).PeerId;
 
-        if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey))
+        if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, out _))
         {
             return;
         }
@@ -93,6 +93,7 @@ public class PeerStore
         public ByteString? SignedPeerRecord { get; set; }
         public string[]? SupportedProtocols { get; set; }
         public HashSet<Multiaddress>? Addrs { get; set; }
+        public ulong Seq { get; set; } = 0;
     }
 }
 

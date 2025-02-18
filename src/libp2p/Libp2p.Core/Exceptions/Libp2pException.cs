@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+
 namespace Nethermind.Libp2p.Core.Exceptions;
 
 public class Libp2pException : Exception
@@ -18,7 +22,20 @@ public class ChannelClosedException() : Libp2pException("Channel closed");
 /// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
 /// </summary>
 /// <param name="message"></param>
-public class Libp2pSetupException(string? message = null) : Libp2pException(message);
+public class Libp2pSetupException(string? message = null) : Libp2pException(message)
+{
+    public static void ThrowIfNull([NotNull] object? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+    {
+        if (argument is null)
+        {
+            Throw(paramName);
+        }
+    }
+
+    [DoesNotReturn]
+    internal static void Throw(string? paramName) =>
+            throw new Libp2pSetupException($"{paramName} is not set during libp2p initialization");
+}
 
 /// <summary>
 /// Appears when there is already active session for the given peer

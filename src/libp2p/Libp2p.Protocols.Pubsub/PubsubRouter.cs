@@ -26,6 +26,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             $"fPeers: {string.Join("|", fPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
             $"gPeers: {string.Join("|", gPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}";
     }
+
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
@@ -122,8 +123,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
     private readonly PubsubSettings _settings;
-    private readonly TtlCache<MessageId, Message> _messageCache;
-    private readonly TtlCache<MessageId, Message> _limboMessageCache;
+    private readonly TtlCache<MessageId, MessageWithId> _messageCache;
+    private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
     private readonly TtlCache<(PeerId, MessageId)> _dontWantMessages;
 
     private ILocalPeer? localPeer;
@@ -194,7 +195,29 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
                     {
-                        await session.DialAsync<GossipsubProtocolV11>(token);
+                        string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
+                        if (protocols.Contains(GossipsubProtocolVersionV12))
+                        {
+                            await session.DialAsync<GossipsubProtocolV12>(token);
+                        }
+                        else if (protocols.Contains(GossipsubProtocolVersionV11))
+                        {
+                            await session.DialAsync<GossipsubProtocolV11>(token);
+                        }
+                        else if (protocols.Contains(GossipsubProtocolVersionV10))
+                        {
+                            await session.DialAsync<GossipsubProtocol>(token);
+                        }
+                        else if (protocols.Contains(FloodsubProtocolVersion))
+                        {
+                            await session.DialAsync<FloodsubProtocol>(token);
+                        }
+                        else
+                        {
+                            _ = session.DisconnectAsync();
+                            return;
+                        }
+                        logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
                         if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                         {
                             _ = session.DisconnectAsync();
@@ -318,15 +341,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
 
-            IEnumerable<IGrouping<string, Message>> msgs = _messageCache.ToList().GroupBy(m => m.Topic);
+            IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
 
             foreach (string? topic in gPeers.Keys.Concat(fanout.Keys).Distinct().ToArray())
             {
-                IGrouping<string, Message>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
+                IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
                 if (msgsInTopic is not null)
                 {
                     ControlIHave ihave = new() { TopicID = topic };
-                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(_settings.GetMessageId(m).Bytes)));
+                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
 
                     foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(_settings.LazyDegree))
                     {
@@ -467,4 +490,10 @@ internal enum ConnectionInitiation
 {
     Local,
     Remote,
+}
+
+internal readonly struct MessageWithId(MessageId id, Message message)
+{
+    public MessageId Id { get; } = id;
+    public Message Message { get; } = message;
 }
