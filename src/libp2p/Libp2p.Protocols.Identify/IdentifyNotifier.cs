@@ -16,7 +16,8 @@ public class IdentifyNotifier
             foreach (var session in libp2pPeer.Sessions.ToList())
             {
                 _ = session.DialAsync<IdentifyPushProtocol, ulong, ulong>(seq);
-            };
+            }
+            ;
         };
     }
 }
