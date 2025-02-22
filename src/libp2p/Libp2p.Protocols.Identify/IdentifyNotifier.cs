@@ -17,7 +17,6 @@ public class IdentifyNotifier
             {
                 _ = session.DialAsync<IdentifyPushProtocol, ulong, ulong>(seq);
             }
-            ;
         };
     }
 }
