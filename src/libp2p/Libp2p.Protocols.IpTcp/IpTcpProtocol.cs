@@ -42,7 +42,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         token.Register(listener.Close);
 
 
-        _logger?.LogDebug("Ready to handle connections");
+        _logger?.LogDebug($"Ready to handle connections at {listenAddr}");
         context.ListenerReady(listenAddr);
 
         await Task.Run(async () =>
@@ -153,19 +153,19 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     byte[] buf = new byte[client.ReceiveBufferSize];
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    _logger?.LogDebug("Ctx{0}: receive, length={1}", connectionCtx.Id, dataLength);
+                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
 
                     if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                     {
                         break;
                     }
                 }
-                _logger?.LogDebug("Ctx{0}: end receiving", connectionCtx.Id);
+                _logger?.LogDebug("Ctx({0}): end receiving", connectionCtx.Id);
             }
             catch (SocketException e)
             {
                 _ = upChannel.CloseAsync();
-                _logger?.LogDebug("Ctx{0}: end receiving, socket exception {1}", connectionCtx.Id, e.Message);
+                _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connectionCtx.Id, e.Message);
             }
         });
 
@@ -175,7 +175,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    _logger?.LogDebug("Ctx{0}: send, length={2}", connectionCtx.Id, data.Length);
+                    _logger?.LogDebug("Ctx({0}): send, length={2}", connectionCtx.Id, data.Length);
                     int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
                     if (sent is 0 || !client.Connected)
                     {
@@ -183,12 +183,12 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                     }
                 }
 
-                _logger?.LogDebug("Ctx{0}: end sending", connectionCtx.Id);
+                _logger?.LogDebug("Ctx({0}): end sending", connectionCtx.Id);
             }
             catch (SocketException e)
             {
                 _ = upChannel.CloseAsync();
-                _logger?.LogDebug("Ctx{0}: end sending, socket exception {1}", connectionCtx.Id, e.Message);
+                _logger?.LogDebug("Ctx({0}): end sending, socket exception {1}", connectionCtx.Id, e.Message);
             }
             finally
             {

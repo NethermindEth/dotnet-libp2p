@@ -12,30 +12,23 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core;
 
-public partial class LocalPeer : ILocalPeer
+public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null) : ILocalPeer
 {
-    protected readonly ILogger? _logger;
-    protected readonly PeerStore _peerStore;
-    protected readonly IProtocolStackSettings _protocolStackSettings;
+    private const int ConnectionTimeout = 15_000;
+
+    protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
+    protected readonly PeerStore _peerStore = peerStore;
+    protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
 
     Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
-
-
-    public LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null)
-    {
-        Identity = identity;
-        _peerStore = peerStore;
-        _protocolStackSettings = protocolStackSettings;
-        _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
-    }
 
     public override string ToString()
     {
         return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses)} sessions {string.Join("|", Sessions.Select(x => $"{x.State.RemotePeerId}"))}";
     }
 
-    public Identity Identity { get; }
+    public Identity Identity { get; } = identity;
 
     public ObservableCollection<Multiaddress> ListenAddresses { get; } = [];
 
@@ -77,7 +70,6 @@ public partial class LocalPeer : ILocalPeer
         }
     }
 
-
     public event Connected? OnConnected;
 
     public virtual async Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
@@ -105,14 +97,17 @@ public partial class LocalPeer : ILocalPeer
                 {
                     tcs.SetException(t.Exception);
                 }
-                ListenAddresses.Remove(tcs.Task.Result);
+                else
+                {
+                    ListenAddresses.Remove(tcs.Task.Result);
+                }
             });
 
             listenTasks.Add(tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(5000)).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for an address");
+                    _logger?.LogDebug($"Failed to start listener for address {addr}");
                     return null;
                 }
 
@@ -128,6 +123,7 @@ public partial class LocalPeer : ILocalPeer
 
             if (addr is not null)
             {
+                _logger?.LogDebug($"Adding listener address {addr}");
                 ListenAddresses.Add(addr);
             }
         }
@@ -154,12 +150,12 @@ public partial class LocalPeer : ILocalPeer
 
         lock (Sessions)
         {
-            if (Sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == remotePeerId))
+            if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
             {
                 _ = session.DisconnectAsync();
                 throw new SessionExistsException(remotePeerId);
             }
-            _logger?.LogDebug($"New session with {remotePeerId}");
+            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
             Sessions.Add(session);
         }
 
@@ -216,7 +212,7 @@ public partial class LocalPeer : ILocalPeer
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
-        Task timeoutTask = Task.Delay(15_000, token);
+        Task timeoutTask = Task.Delay(ConnectionTimeout, token);
         Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
 
         if (wait == timeoutTask)

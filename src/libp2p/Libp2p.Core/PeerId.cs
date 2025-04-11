@@ -145,32 +145,24 @@ public class PeerId
     #endregion
 }
 
-public class MessageId : IComparable<MessageId>
+public struct MessageId(byte[] bytes) : IComparable<MessageId>, IEquatable<MessageId>
 {
-    public readonly byte[] Bytes;
+    public readonly byte[] Bytes = bytes;
     int? hashCode = null;
 
-    public MessageId(byte[] bytes)
+    public int CompareTo(MessageId other) => Equals(other) ? 0 : GetHashCode().CompareTo(other.GetHashCode());
+
+    public readonly override bool Equals(object? obj)
     {
-        Bytes = bytes;
-    }
-
-    public int CompareTo(MessageId? other) => Equals(other) ? 0 : (other is not null ? GetHashCode().CompareTo(other.GetHashCode()) : 1);
-
-    public override bool Equals(object? obj)
-    {
-        if (ReferenceEquals(this, obj))
-        {
-            return true;
-        }
-
-        if (obj is not MessageId peerId)
+        if (obj is not MessageId other)
         {
             return false;
         }
 
-        return Bytes.SequenceEqual(peerId.Bytes);
+        return Equals(other);
     }
+
+    public readonly bool Equals(MessageId other) => ReferenceEquals(Bytes, other.Bytes) || Bytes.SequenceEqual(other.Bytes);
 
     public override int GetHashCode()
     {
@@ -193,17 +185,10 @@ public class MessageId : IComparable<MessageId>
 
     public static bool operator ==(MessageId left, MessageId right)
     {
-        if (left is null)
-        {
-            if (right is null)
-            {
-                return true;
-            }
-
-            return false;
-        }
         return left.Equals(right);
     }
 
     public static bool operator !=(MessageId left, MessageId right) => !(left == right);
+
+    public override readonly string ToString() => Convert.ToBase64String(Bytes);
 }

@@ -37,22 +37,30 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
 
         Dictionary<int, ChannelState> channels = [];
+        INewSessionContext? session = null;
 
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
-            using INewSessionContext session = context.UpgradeToSession();
 
-            _logger?.LogInformation("Ctx({ctx}): Session created for {peer}", session.Id, session.State.RemoteAddress);
-            int pingCounter = 0;
+            SemaphoreSlim waitForSession = new(0, 1);
+            if (!isListener)
+            {
+                session = context.UpgradeToSession();
+                _logger?.LogInformation("Ctx({ctx}): Session created by dialer for {peer}", session.Id, session.State.RemoteAddress);
+                waitForSession.Release();
+            }
+
+            uint pingCounter = 0;
 
             using Timer timer = new((s) =>
             {
-                _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
+                _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
             }, null, PingDelay, PingDelay);
 
-            _ = Task.Run(() =>
+            _ = Task.Run(async () =>
             {
+                await waitForSession.WaitAsync();
                 foreach (UpgradeOptions request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
@@ -65,13 +73,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
             while (!downChannelAwaiter.IsCompleted)
             {
-                YamuxHeader header = await ReadHeaderAsync(session.Id, channel);
+                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? "nil", channel);
                 ReadOnlySequence<byte> data = default;
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
-                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session.Id, header.Type);
-                    await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.ProtocolError);
+                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? "nil", header.Type);
+                    await WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.ProtocolError);
                     return;
                 }
 
@@ -81,7 +89,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(session.Id, channel,
+                            _ = WriteHeaderAsync(session?.Id ?? "nil", channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
@@ -96,7 +104,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                     if (header.Type == YamuxHeaderType.GoAway)
                     {
-                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session.Id);
+                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session?.Id ?? "nil");
 
                         foreach (ChannelState channelState in channels.Values)
                         {
@@ -110,6 +118,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
 
                     continue;
+                }
+                else if (isListener && session is null)
+                {
+                    session = context.UpgradeToSession();
+                    _logger?.LogInformation("Ctx({ctx}): Session created by listener for {peer}", session.Id, session.State.RemoteAddress);
+                    waitForSession.Release();
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
@@ -152,45 +166,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Spent window, was {available}, became {new}", session.Id,
                            header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
 
-                    ValueTask<IOResult> writeTask = channels[header.StreamID].Channel!.WriteAsync(data);
-
-                    if (writeTask.IsCompleted)
+                    _ = channels[header.StreamID].Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
-                        if (writeTask.Result == IOResult.Ok)
+                        if (!t.IsCompletedSuccessfully)
                         {
-                            int extendedBy = channels[header.StreamID].LocalWindow.ExtendIfNeeded();
-                            if (extendedBy is not 0)
-                            {
-                                _ = WriteHeaderAsync(session.Id, channel,
-                                    new YamuxHeader
-                                    {
-                                        Type = YamuxHeaderType.WindowUpdate,
-                                        Length = extendedBy,
-                                        StreamID = header.StreamID
-                                    });
-                            }
+                            _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
                         }
-                    }
-                    else
-                    {
-                        writeTask.GetAwaiter().OnCompleted(() =>
-                        {
-                            if (writeTask.Result == IOResult.Ok && channels.TryGetValue(header.StreamID, out ChannelState? channelState))
-                            {
-                                int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
-                                if (extendedBy is not 0)
-                                {
-                                    _ = WriteHeaderAsync(session.Id, channel,
-                                        new YamuxHeader
-                                        {
-                                            Type = YamuxHeaderType.WindowUpdate,
-                                            Length = extendedBy,
-                                            StreamID = header.StreamID
-                                        });
-                                }
-                            }
-                        });
-                    }
+
+                        ExtendWindow(channel, session.Id, header.StreamID, t.Result);
+                    });
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -326,10 +310,32 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             await WriteGoAwayAsync(context.Id, channel, SessionTerminationCode.InternalError);
             await channel.CloseAsync();
         }
+        finally
+        {
+            session?.Dispose();
+        }
 
         foreach (ChannelState upChannel in channels.Values)
         {
             _ = upChannel.Channel?.CloseAsync();
+        }
+
+        void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result)
+        {
+            if (result == IOResult.Ok)
+            {
+                int extendedBy = channels[streamId].LocalWindow.ExtendIfNeeded();
+                if (extendedBy is not 0)
+                {
+                    _ = WriteHeaderAsync(sessionId, channel,
+                        new YamuxHeader
+                        {
+                            Type = YamuxHeaderType.WindowUpdate,
+                            Length = extendedBy,
+                            StreamID = streamId
+                        });
+                }
+            }
         }
     }
 
