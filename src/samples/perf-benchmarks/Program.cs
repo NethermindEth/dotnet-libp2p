@@ -20,7 +20,7 @@ await Task.Delay(1000);
     Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
-    await peer.StartListenAsync([$"/ip4/0.0.0.0/tcp/0/p2p/{peer.Identity.PeerId}"]);
+    await peer.StartListenAsync([$"/ip4/127.0.0.1/tcp/0/p2p/{peer.Identity.PeerId}"]);
 
     Multiaddress remoteAddr = peer.ListenAddresses.First();
     ILocalPeer localPeer = peerFactory.Create();
@@ -42,7 +42,7 @@ await Task.Delay(1000);
         .Build();
 
     ILocalPeer peer = peerFactory.Create();
-    await peer.StartListenAsync([$"/ip4/0.0.0.0/tcp/0"]);
+    await peer.StartListenAsync([$"/ip4/127.0.0.1/tcp/0"]);
 
     Multiaddress remoteAddr = peer.ListenAddresses.First();
     ILocalPeer localPeer = peerFactory.Create();

@@ -7,6 +7,10 @@
     "Chat server": {
       "commandName": "Project",
       "commandLineArgs": "--trace"
+    },
+    "Chat listen on 5001": {
+      "commandName": "Project",
+      "commandLineArgs": "-sp 5001 --trace"
     }
   }
 }

@@ -16,6 +16,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Terminal.Gui" Version="1.15.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
