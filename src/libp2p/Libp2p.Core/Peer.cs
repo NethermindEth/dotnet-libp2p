@@ -171,7 +171,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             session.ConnectedTcs.TrySetResult();
             OnConnected?.Invoke(session);
         });
-        return new NewSessionContext(this, session, proto, isListener, null);
+        return new NewSessionContext(this, session, proto, isListener, null, loggerFactory);
     }
 
     internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)

@@ -11,6 +11,9 @@ using Multiformats.Address.Protocols;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Utils;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Pubsub.E2eTests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -50,7 +53,16 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             for (; ; )
             {
                 Socket client = await listener.AcceptAsync();
-
+#if DEBUG
+                TriggerDisconnection += localPeerId =>
+                {
+                    if (context.Peer.Identity.PeerId == localPeerId)
+                    {
+                        _logger?.LogDebug("Triggering disconnection of incoming connection");
+                        client.Close();
+                    }
+                };
+#endif
                 INewConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
                 connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
@@ -112,6 +124,16 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
+#if DEBUG
+        TriggerDisconnection += localPeerId =>
+        {
+            if (context.Peer.Identity.PeerId == localPeerId)
+            {
+                _logger?.LogDebug("Triggering disconnection of outgoing connection");
+                client.Close();
+            }
+        };
+#endif
 
         IPEndPoint remoteEndpoint = remoteAddr.ToEndPoint();
         _logger?.LogDebug("Dialing {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
@@ -200,4 +222,8 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         _ = upChannel.CloseAsync();
     }
+
+    internal static TriggerDisconnectionEvent TriggerDisconnection = (_) => { };
+
+    internal delegate void TriggerDisconnectionEvent(PeerId localPeerId);
 }

@@ -115,6 +115,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
@@ -189,6 +190,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
@@ -202,6 +204,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
                     return;
                 }
 
@@ -216,7 +219,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                     return;
                 }
             }
-
         });
         // DOWN -> UP
         Task t2 = Task.Run(async () =>
@@ -236,7 +238,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
-
                     return;
                 }
                 byte[] buffer = new byte[length - 16];
@@ -252,6 +253,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
 
-        return Task.WhenAll(t, t2);
+        return Task.WhenAny(t, t2);
     }
 }

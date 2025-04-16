@@ -38,6 +38,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
         Dictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
+        Timer? timer = null;
 
         try
         {
@@ -51,16 +52,21 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 waitForSession.Release();
             }
 
-            uint pingCounter = 0;
-
-            using Timer timer = new((s) =>
-            {
-                _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
-            }, null, PingDelay, PingDelay);
-
             _ = Task.Run(async () =>
             {
                 await waitForSession.WaitAsync();
+                if (session is null)
+                {
+                    throw new Libp2pException();
+                }
+
+                uint pingCounter = 0;
+
+                timer = new((s) =>
+                {
+                    _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
+                }, null, PingDelay, PingDelay);
+
                 foreach (UpgradeOptions request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
@@ -73,13 +79,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
             while (!downChannelAwaiter.IsCompleted)
             {
-                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? "nil", channel);
+                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? "nil", channel, channel.CancellationToken);
                 ReadOnlySequence<byte> data = default;
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
                     _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? "nil", header.Type);
-                    await WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.ProtocolError);
+                    _ = WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.ProtocolError);
                     return;
                 }
 
@@ -202,7 +208,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             }
 
-            await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.Ok);
+            _ = WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.Ok);
 
             ChannelState CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
@@ -312,6 +318,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
         finally
         {
+            timer?.Dispose();
             session?.Dispose();
         }
 
@@ -319,6 +326,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         {
             _ = upChannel.Channel?.CloseAsync();
         }
+
+        _ = channel.CloseAsync();
 
         void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result)
         {
