@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
@@ -32,18 +32,17 @@ if (args.Length > 0 && args[0] == "-d")
        "/ip4/0.0.0.0/udp/0/quic-v1" :
        "/ip4/0.0.0.0/tcp/0";
 
-    ILocalPeer localPeer = peerFactory.Create();
+    await using ILocalPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
     ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-    await remotePeer.DisconnectAsync();
 }
 else
 {
     Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-    ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
+    await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     string addrTemplate = args.Contains("-quic") ?
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
@@ -59,5 +58,4 @@ else
     Console.CancelKeyPress += delegate { ts.Cancel(); };
 
     await Task.Delay(-1, ts.Token);
-    await peer.DisconnectAsync();
 }
