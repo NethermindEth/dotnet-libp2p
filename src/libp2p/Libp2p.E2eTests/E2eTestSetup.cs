@@ -1,20 +1,42 @@
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Makaretu.Dns.Resolving;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.OpenTelemetry;
+using NUnit.Framework;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 using System.Text;
 
 namespace Libp2p.E2eTests;
 
-public class E2eTestSetup : IDisposable
+public class E2eTestSetup : IAsyncDisposable
 {
     private readonly CancellationTokenSource _commonTokenSource = new();
-    public void Dispose()
+    private TracerProvider? tracerProvider;
+    Proc proc;
+
+    public async ValueTask DisposeAsync()
     {
         _commonTokenSource.Cancel();
         _commonTokenSource.Dispose();
+
+        foreach (ILocalPeer peer in Peers.Values)
+        {
+            await peer.DisposeAsync();
+        }
+
+        var d = proc.All.Length;
+        proc.Dispose();
+        tracerProvider?.ForceFlush();
+        tracerProvider?.Dispose();
     }
 
     protected CancellationToken Token => _commonTokenSource.Token;
@@ -35,7 +57,7 @@ public class E2eTestSetup : IDisposable
 
     protected virtual IServiceCollection ConfigureServices(IServiceCollection col)
     {
-        return col;
+        return col.AddTracing("test", createRootActivity: true);
     }
 
     protected virtual void AddToPrintState(StringBuilder sb, int index)
@@ -62,12 +84,20 @@ public class E2eTestSetup : IDisposable
                 )
                    .BuildServiceProvider();
 
-            PeerStores[_peerCounter] = ServiceProviders[_peerCounter].GetService<PeerStore>()!;
+            if (tracerProvider is null)
+            {
+                tracerProvider = sp.GetService<TracerProvider>();
+                proc = new Proc();
+                tracerProvider?.AddProcessor(proc);
+            }
+
+            PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
             Peers[_peerCounter] = sp.GetService<IPeerFactory>()!.Create(TestPeers.Identity(_peerCounter));
 
             await Peers[_peerCounter].StartListenAsync(token: Token);
 
             AddAt(_peerCounter);
+
         }
     }
 
@@ -97,4 +127,35 @@ public class E2eTestSetup : IDisposable
             TestLogger.LogInformation(report.ToString());
         }
     }
+}
+
+internal class Proc : BaseProcessor<Activity>
+{
+    ConcurrentSet<Activity> acts = new();
+
+    public override void OnStart(Activity data)
+    {
+        acts.Add(data);
+        TestContext.WriteLine($"~~~~~~~Start: {acts.Count} {data.DisplayName} {data.Id} {data.ParentId}");
+        base.OnStart(data);
+    }
+
+    public override void OnEnd(Activity data)
+    {
+        acts.Remove(data);
+        TestContext.WriteLine($"~~~~~~~End: {acts.Count} {data.DisplayName} {data.Id} {data.ParentId}");
+        base.OnEnd(data);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        foreach (var activity in acts.ToArray())
+        {
+            activity.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    public Activity[] All => acts.ToArray();
 }

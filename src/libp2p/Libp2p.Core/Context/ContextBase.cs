@@ -2,14 +2,20 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.Context;
 
-public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions) : IChannelFactory
+public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions, ActivitySource? activitySource, Activity? activity) : IChannelFactory
 {
     protected bool isListener = isListener;
     public ILocalPeer Peer => localPeer;
     public State State => session.State;
+
+    public ActivitySource? ActivitySource { get; } = activitySource;
+
+    public Activity? Activity { get; } = activity;
+
 
     public IEnumerable<IProtocol> SubProtocols => localPeer.GetProtocolsFor(protocol);
 
@@ -22,32 +28,32 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
 
     public IChannel Upgrade(UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener);
+        return localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
     }
 
     public IChannel Upgrade(IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener);
+        return localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
     }
 
     public Task Upgrade(IChannel parentChannel, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener);
+        return localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
     }
 
     public Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
     {
-        return localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener);
+        return localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
     }
 
     public INewConnectionContext CreateConnection()
     {
-        return localPeer.CreateConnection(protocol, null, isListener);
+        return localPeer.CreateConnection(protocol, null, isListener, activity);
     }
 
     public INewSessionContext UpgradeToSession()
     {
-        return localPeer.UpgradeToSession(session, protocol, isListener);
+        return localPeer.UpgradeToSession(session, protocol, isListener, activity);
     }
 
     public void ListenerReady(Multiaddress addr)

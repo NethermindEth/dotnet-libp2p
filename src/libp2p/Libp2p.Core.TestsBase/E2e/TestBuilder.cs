@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
@@ -25,18 +26,18 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
     }
 }
 
-public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore)
+public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, activitySource)
 {
     ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
 
     public override ILocalPeer Create(Identity? identity = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, peerStore, loggerFactory));
+        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, peerStore, activitySource, loggerFactory));
     }
 }
 
-internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ILoggerFactory? loggerFactory = null) : LocalPeer(id, peerStore, protocolStackSettings, loggerFactory)
+internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, ILoggerFactory? loggerFactory = null) : LocalPeer(id, peerStore, protocolStackSettings, activitySource, null, loggerFactory)
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {

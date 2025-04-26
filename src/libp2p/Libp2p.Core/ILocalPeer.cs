@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -6,7 +6,7 @@ using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface ILocalPeer
+public interface ILocalPeer : IAsyncDisposable
 {
     Identity Identity { get; }
 
@@ -20,7 +20,6 @@ public interface ILocalPeer
 
     Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default);
 
-    Task DisconnectAsync();
 
     ObservableCollection<Multiaddress> ListenAddresses { get; }
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Yamux;
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Yamux.Tests")]
@@ -35,6 +36,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         _logger?.LogInformation("Ctx({ctx}): {mode} {peer}", context.Id, isListener ? "Listen" : "Dial", context.State.RemoteAddress);
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
+        channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
 
         Dictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
@@ -285,6 +287,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                     catch (ChannelClosedException e)
                     {
+                        context.Activity?.AddEvent(new ActivityEvent($"exception {e.Message}"));
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed due to transport disconnection", contextId, streamId);
                     }
                     catch (Exception e)
@@ -320,14 +323,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         {
             timer?.Dispose();
             session?.Dispose();
-        }
 
-        foreach (ChannelState upChannel in channels.Values)
-        {
-            _ = upChannel.Channel?.CloseAsync();
-        }
+            foreach (ChannelState? upChannel in channels.Values)
+            {
+                context.Activity?.AddEvent(new ActivityEvent("close an up chan"));
+                _ = upChannel?.Channel?.CloseAsync();
+            }
 
-        _ = channel.CloseAsync();
+            _ = channel.CloseAsync();
+        }
 
         void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result)
         {

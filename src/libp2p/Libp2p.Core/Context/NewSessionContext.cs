@@ -2,16 +2,21 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.Context;
 
-public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions, ILoggerFactory? loggerFactory = null) : ContextBase(localPeer, session, protocol, isListener, upgradeOptions), INewSessionContext
+public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions,
+    ActivitySource? activitySource, Activity? parentActivity, ILoggerFactory? loggerFactory = null)
+    : ContextBase(localPeer, session, protocol, isListener, upgradeOptions, activitySource, parentActivity), INewSessionContext
 {
     private readonly ILogger? logger = loggerFactory?.CreateLogger<NewSessionContext>();
 
     public IEnumerable<UpgradeOptions> DialRequests => session.GetRequestQueue();
 
     public CancellationToken Token => session.ConnectionToken;
+
+    public Activity? Activity { get; } = activitySource?.CreateActivity("New session", ActivityKind.Internal, parentActivity?.Context ?? default);
 
     public void Dispose()
     {

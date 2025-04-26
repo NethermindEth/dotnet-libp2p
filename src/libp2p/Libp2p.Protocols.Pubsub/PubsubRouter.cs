@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -187,48 +187,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 return;
             }
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    ISession session = await localPeer.DialAsync(addrs, token);
-
-                    if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
-                    {
-                        string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
-                        if (protocols.Contains(GossipsubProtocolVersionV12))
-                        {
-                            await session.DialAsync<GossipsubProtocolV12>(token);
-                        }
-                        else if (protocols.Contains(GossipsubProtocolVersionV11))
-                        {
-                            await session.DialAsync<GossipsubProtocolV11>(token);
-                        }
-                        else if (protocols.Contains(GossipsubProtocolVersionV10))
-                        {
-                            await session.DialAsync<GossipsubProtocol>(token);
-                        }
-                        else if (protocols.Contains(FloodsubProtocolVersion))
-                        {
-                            await session.DialAsync<FloodsubProtocol>(token);
-                        }
-                        else
-                        {
-                            _ = session.DisconnectAsync();
-                            return;
-                        }
-                        logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
-                        if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
-                        {
-                            _ = session.DisconnectAsync();
-                        }
-                    }
-                }
-                catch
-                {
-                    reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
-                }
-            });
+            _ = Connect(addrs, token, true);
         };
 
         _ = Task.Run(async () =>
@@ -246,12 +205,56 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             while (!token.IsCancellationRequested)
             {
                 await Task.Delay(_settings.ReconnectionPeriod);
-                await Reconnect(token);
+                Reconnect(token);
             }
         }, token);
 
         logger?.LogInformation("Started");
         return Task.CompletedTask;
+    }
+
+    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
+    {
+        try
+        {
+            ISession session = await localPeer.DialAsync(addrs, token);
+
+            if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
+            {
+                string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
+                if (protocols.Contains(GossipsubProtocolVersionV12))
+                {
+                    await session.DialAsync<GossipsubProtocolV12>(token);
+                }
+                else if (protocols.Contains(GossipsubProtocolVersionV11))
+                {
+                    await session.DialAsync<GossipsubProtocolV11>(token);
+                }
+                else if (protocols.Contains(GossipsubProtocolVersionV10))
+                {
+                    await session.DialAsync<GossipsubProtocol>(token);
+                }
+                else if (protocols.Contains(FloodsubProtocolVersion))
+                {
+                    await session.DialAsync<FloodsubProtocol>(token);
+                }
+                else
+                {
+                    _ = session.DisconnectAsync();
+                    return;
+                }
+                logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
+                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                {
+                    _ = session.DisconnectAsync();
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))} bc of {e.Message}");
+            if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
+        }
     }
 
     public void Dispose()
@@ -260,22 +263,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _limboMessageCache.Dispose();
     }
 
-    private async Task Reconnect(CancellationToken token)
+    private void Reconnect(CancellationToken token)
     {
-        while (reconnections.TryTake(out Reconnection? rec))
+        const int MaxParallelReconnections = 5;
+        int reconnectionCounter = 0;
+        while (reconnections.TryTake(out Reconnection? rec) && reconnectionCounter++ < MaxParallelReconnections)
         {
-            try
+            _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
-                ISession remotePeer = await localPeer.DialAsync(rec.Addresses, token);
-                await remotePeer.DialAsync<GossipsubProtocol>(token);
-            }
-            catch
-            {
-                if (rec.Attempts != 1)
+                if (t.IsFaulted && rec.Attempts != 1)
                 {
                     reconnections.Add(rec with { Attempts = rec.Attempts - 1 });
                 }
-            }
+            }, token);
         }
     }
 

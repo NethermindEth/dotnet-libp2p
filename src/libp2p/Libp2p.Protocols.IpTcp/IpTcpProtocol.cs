@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -12,6 +12,7 @@ using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Utils;
 using System.Runtime.CompilerServices;
+using System.Diagnostics;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Pubsub.E2eTests")]
 
@@ -23,18 +24,19 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
     public string Id => "ip-tcp";
     public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => IpHelper.GetListenerAddresses()
-        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}")).ToArray();
+        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}")).Take(1).ToArray();
     public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
         Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
-
         IPEndPoint endpoint = listenAddr.ToEndPoint();
 
         listener.Bind(endpoint);
         listener.Listen();
 
+        context.Activity?.SetTag("listen-on-addr", endpoint.Address);
+        context.Activity?.SetTag("listen-on-port", endpoint.Port);
 
         if (endpoint.Port is 0)
         {
@@ -44,28 +46,36 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         token.Register(listener.Close);
 
-
         _logger?.LogDebug($"Ready to handle connections at {listenAddr}");
         context.ListenerReady(listenAddr);
+        context.Activity?.AddEvent(new ActivityEvent("ready"));
 
         await Task.Run(async () =>
         {
             for (; ; )
             {
                 Socket client = await listener.AcceptAsync();
+
+                context.Activity?.AddEvent(new ActivityEvent($"connected {client.RemoteEndPoint}"));
+
+                CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
+
 #if DEBUG
                 TriggerDisconnection += localPeerId =>
                 {
-                    if (context.Peer.Identity.PeerId == localPeerId)
+                    if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
                     {
                         _logger?.LogDebug("Triggering disconnection of incoming connection");
                         client.Close();
+                        internalCts.Cancel();
                     }
                 };
 #endif
                 INewConnectionContext connectionCtx = context.CreateConnection();
                 connectionCtx.Token.Register(client.Close);
                 connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+
 
                 IChannel upChannel = connectionCtx.Upgrade();
 
@@ -89,9 +99,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                             }
                         }
                     }
-                    catch (SocketException e)
+                    catch (SocketException)
                     {
-                        await upChannel.CloseAsync();
+                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
+                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
+                        _ = upChannel.CloseAsync();
                     }
                 });
 
@@ -99,7 +111,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
                         {
                             int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
                             if (sent is 0 || !client.Connected)
@@ -109,34 +121,39 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                             }
                         }
                     }
-                    catch (SocketException e)
+                    catch (SocketException)
                     {
-                        _logger?.LogInformation($"Disconnected due to a socket exception");
-                        await upChannel.CloseAsync();
+                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
+                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
                     }
                 });
 
-                _ = Task.WhenAll(readTask, writeTask).ContinueWith(_ => connectionCtx.Dispose());
+                _ = Task.WhenAny(readTask, writeTask).ContinueWith((t) => { _ = upChannel.CloseAsync(); connectionCtx.Dispose(); });
             }
-        });
+        }, token);
     }
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
+
+        CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
+
 #if DEBUG
         TriggerDisconnection += localPeerId =>
         {
-            if (context.Peer.Identity.PeerId == localPeerId)
+            if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
             {
                 _logger?.LogDebug("Triggering disconnection of outgoing connection");
                 client.Close();
+                internalCts.Cancel();
             }
         };
 #endif
 
         IPEndPoint remoteEndpoint = remoteAddr.ToEndPoint();
-        _logger?.LogDebug("Dialing {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
+        _logger?.LogDebug("Dialling {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
 
         try
         {
@@ -186,7 +203,6 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             }
             catch (SocketException e)
             {
-                _ = upChannel.CloseAsync();
                 _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connectionCtx.Id, e.Message);
             }
         });
@@ -209,7 +225,6 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             }
             catch (SocketException e)
             {
-                _ = upChannel.CloseAsync();
                 _logger?.LogDebug("Ctx({0}): end sending, socket exception {1}", connectionCtx.Id, e.Message);
             }
             finally
@@ -218,12 +233,15 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             }
         });
 
-        await Task.WhenAll(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
+        await Task.WhenAny(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
 
         _ = upChannel.CloseAsync();
+        _logger?.LogDebug("Ctx({0}): dialling ended", connectionCtx.Id);
     }
 
-    internal static TriggerDisconnectionEvent TriggerDisconnection = (_) => { };
+#if DEBUG
+    public static TriggerDisconnectionEvent TriggerDisconnection = (_) => { };
 
-    internal delegate void TriggerDisconnectionEvent(PeerId localPeerId);
+    public delegate void TriggerDisconnectionEvent(PeerId? localPeerId = null);
+#endif
 }
