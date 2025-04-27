@@ -78,7 +78,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
     public virtual async Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
     {
-        peerActivity.SetTag("parent", rootActivity?.Id);
+        peerActivity?.SetTag("parent", rootActivity?.Id);
         addrs ??= GetDefaultAddresses();
 
         List<Task> listenTasks = new(addrs.Length);

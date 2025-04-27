@@ -12,7 +12,6 @@ namespace Nethermind.Libp2p.OpenTelemetry;
 public static class ServiceProviderExtensions
 {
     private static readonly ActivitySource DefaultActivitySource = new("dotnet-libp2p");
-
     private static TracerProvider? tracerProvider;
     private static Activity? rootActivity;
 

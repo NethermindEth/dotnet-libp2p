@@ -8,7 +8,6 @@ namespace Libp2p.Protocols.PubsubPeerDiscovery.E2eTests;
 
 public class NetworkDiscoveryTests
 {
-    [Ignore("TODO")]
     [Test]
     public async Task Test_NetworkDiscoveredByEveryPeer()
     {

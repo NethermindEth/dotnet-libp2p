@@ -30,7 +30,9 @@ public class ReconnectionTests
         await test.WaitForFullMeshAsync(commonTopic);
 
         IpTcpProtocol.TriggerDisconnection(test.Peers[0].Identity.PeerId);
+
         TestContext.Out.WriteLine("Disconnected");
+
         await test.WaitForFullMeshAsync(commonTopic);
     }
 
@@ -52,7 +54,9 @@ public class ReconnectionTests
         await test.WaitForFullMeshAsync(commonTopic);
 
         IpTcpProtocol.TriggerDisconnection(test.Peers[1].Identity.PeerId);
+
         TestContext.Out.WriteLine("Disconnected");
+
         await test.WaitForFullMeshAsync(commonTopic);
     }
 #endif

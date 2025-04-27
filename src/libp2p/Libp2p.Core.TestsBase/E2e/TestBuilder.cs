@@ -26,7 +26,7 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
     }
 }
 
-public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, activitySource)
+public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, activitySource)
 {
     ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
 
@@ -37,7 +37,7 @@ public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerS
     }
 }
 
-internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, ILoggerFactory? loggerFactory = null) : LocalPeer(id, peerStore, protocolStackSettings, activitySource, null, loggerFactory)
+internal class TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null) : LocalPeer(id, peerStore, protocolStackSettings, activitySource, null, loggerFactory)
 {
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
