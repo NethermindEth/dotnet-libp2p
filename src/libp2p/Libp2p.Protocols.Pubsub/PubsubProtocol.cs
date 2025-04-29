@@ -28,7 +28,7 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        channel.GetAwaiter().OnCompleted(() => context.Activity.AddEvent(new ActivityEvent("channel closed")));
+        channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
@@ -94,7 +94,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         catch (Exception e)
         {
             context.Activity?.AddEvent(new ActivityEvent($"Exception: {e.Message}"));
-            context.Activity.SetStatus(ActivityStatusCode.Error);
+            context.Activity?.SetStatus(ActivityStatusCode.Error);
         }
 
         listTcs.SetResult();
