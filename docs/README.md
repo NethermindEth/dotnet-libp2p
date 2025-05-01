@@ -2,84 +2,99 @@
 
 Libp2p network stack includes all necessary to bypass typical networking obstacles, find peers, connect to them and exchange data according to the selected protocol. The implementation allows to build your own transport, but standard stack can be used for rapid development.
 
-The current implementation is WIP and is not available via nuget yet. To build an app, you can utilize [chat example](../src/samples/chat/README.md).
+The following package includes links to protocols and provides them assembled in a single convenient LibP2P library:
 
-## Prerequisites
+```
+dotnet add package Nethermind.Libp2p --prerelease
+```
 
-Development requires [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download)
+The library requires [.NET 8](https://dotnet.microsoft.com/en-us/download) or higher
+
+## Basic usage
+
+.NET libp2p is IoC friendly. `AddLibp2p` service collection extension allows to provide basic customization:
+- add user define protocols
+- customize included ones
+- change libp2p core behavior
+
+```cs
+ServiceProvider serviceProvider = new ServiceCollection()
+    .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
+    .BuildServiceProvider();
+```
+
+One of injected services is IPeerFactory implementation. It allows to create a peer that can wait for connections:
+
+```cs
+IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
+await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
+
+peer.OnConnected += async remotePeer => Console.WriteLine("A peer connected {0}", remotePeer.RemoteAddress);
+
+await peer.StartListenAsync();
+```
+
+and dial other peers:
+
+```cs
+ISession remotePeer = await localPeer.DialAsync(remoteAddr);
+await remotePeer.DialAsync<SomeProtocol>();
+```
+
+When properly implemented protocols may receive arguments and return data:
+
+```cs
+ISession remotePeer = await localPeer.DialAsync(remoteAddr);
+int answer = await remotePeer.DialAsync<SomeProtocol, string, int>("what is answer to the Ultimate Question?");
+```
 
 ## Make a protocol for your application
 
 1. Write your protocol
 
-Libp2p protocols can be divided into 2 layers:
+Libp2p protocols can be divided into 3 layers:
 - Transport layer protocols, that actively use peer address to discover network and establish connection;
-- Application layer protocols, that is used to exchange actual payload once the connection is active.
+- Connection layer protocols, ;
+- Application layer protocols, that relay on established session and are used to exchange actual payload.
 
 Protocol can be used to dial to other peer or to listen for connections.
 
-So when a p2p communication needs to be implemented, it's required to implement a protocol according to `IProtocol` interface:
+Typically you need to implement `ISessionProtocol` or `ISessionProtocol<TRequest, TResponse>`:
 
 ```csharp
-namespace Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core;
 
-public abstract class MyCustomProtocol
+// implement application layer protocol interface
+class DeepThoughtProtocol : ISessionProtocol<string, int>
 {
-    public Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    // protocol id is required: libp2p exchange with protocol ids at some step
+    public string Id => "/deep-thought/2.0";
+
+    // called when you dial a remote peer
+    public async Task<int> DialAsync(IChannel downChannel, ISessionContext context, string request)
     {
-        ...
+        // `downChannel` contains various method to send and receive data
+        // you can write a string with \n at the end
+        await downChannel.WriteLineAsync(request);
+        // or read an integer
+        return await downChannel.ReadVarintAsync();
     }
 
-    public Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    // called when you listen and someone dials you
+    public async Task ListenAsync(IChannel downChannel, ISessionContext context)
     {
-        ...
+        string question = await downChannel.ReadLineAsync();
+        await downChannel.WriteVarintAsync(question.GetHashCode());
     }
 }
 ```
 
-The `downChannel` is used to receive from and send data to the transport layer. Check `downChannel.Reader` and `downChannel.Writer`'s methods. You need to close this channel if communication is finished.
+- The `downChannel` is used to receive from and send data to the transport layer.
+- `context` holds information about local and remote peers. It allows to initiate more conversations withing the current session.
 
-`upChannelFactory` is mostly used by transport layer protocols to initiate upper layer protocol communication.
-
-`context` holds information about peers.
-
-If protocol symmetric, consider using `SymmetricProtocol` helper as base class.
-
-2. When protocol is defined, you need add it to the stack and create factory:
-
-```csharp
-using Nethermind.Libp2p.Builder;
-using Nethermind.Libp2p.Core;
-
-IPeerFactory peerFactory = Libp2pPeerFactoryBuilder.Instance
-    .AddAppLayerProtocol<MyCustomProtocol>()
-    .Build();
-```
-
-It can be added as an instance or as a type parameter.
-
-3. To dial to a peer with your new protocol, you need to instantiate a local peer that holds identity using the factory, and then dial. You need to dial to establish connection to remote peer and then dial with your protocol:
-
-```csharp
-    ... 
-    ILocalPeer localPeer = peerFactory.Create();
-
-    IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr);
-    await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-    await remotePeer.DisconnectAsync();
-    ...
-```
-
-when for listening, the protocol will be automatically negotiated, as far as it was defined while building the stack:
-
-```csharp
-    ... 
-    ILocalPeer peer = peerFactory.Create();
-
-    IListener listener = await peer.ListenAsync(
-        $"/ip4/0.0.0.0/tcp/3000/p2p/{peer.Identity.PeerId}");
-    listener.OnConnection += async remotePeer => Console.WriteLine($"A peer connected {remotePeer.Address}");
-    ...
-```
-
-4. Conventions and potentially useful tips can be found in [the best practices list](./development/best-practices.md)
+### Further exploration
+- Add [logging and tracing](./logging-tracing.md)
+- Go check samples dir! It include chat apps, pubsub, discovery and more
+- If protocol symmetric(listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class.
+- Need more information about other connected peers - check `IPeerStore`
+- Conventions and more potentially useful tips can be found in [the best practices list](./development/best-practices.md)

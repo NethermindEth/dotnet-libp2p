@@ -9,7 +9,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.OpenTelemetry;
-using NUnit.Framework;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
@@ -21,7 +20,7 @@ public class E2eTestSetup : IAsyncDisposable
 {
     private readonly CancellationTokenSource _commonTokenSource = new();
     private TracerProvider? tracerProvider;
-    Proc proc;
+    ActivityTracker? activityTracker;
 
     public async ValueTask DisposeAsync()
     {
@@ -33,8 +32,7 @@ public class E2eTestSetup : IAsyncDisposable
             await peer.DisposeAsync();
         }
 
-        var d = proc.All.Length;
-        proc.Dispose();
+        activityTracker?.Dispose();
         tracerProvider?.ForceFlush();
         tracerProvider?.Dispose();
     }
@@ -87,8 +85,8 @@ public class E2eTestSetup : IAsyncDisposable
             if (tracerProvider is null)
             {
                 tracerProvider = sp.GetService<TracerProvider>();
-                proc = new Proc();
-                tracerProvider?.AddProcessor(proc);
+                activityTracker = new ActivityTracker();
+                tracerProvider?.AddProcessor(activityTracker);
             }
 
             PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
@@ -129,21 +127,19 @@ public class E2eTestSetup : IAsyncDisposable
     }
 }
 
-internal class Proc : BaseProcessor<Activity>
+internal class ActivityTracker : BaseProcessor<Activity>
 {
     ConcurrentSet<Activity> acts = new();
 
     public override void OnStart(Activity data)
     {
         acts.Add(data);
-        TestContext.WriteLine($"~~~~~~~Start: {acts.Count} {data.DisplayName} {data.Id} {data.ParentId}");
         base.OnStart(data);
     }
 
     public override void OnEnd(Activity data)
     {
         acts.Remove(data);
-        TestContext.WriteLine($"~~~~~~~End: {acts.Count} {data.DisplayName} {data.Id} {data.ParentId}");
         base.OnEnd(data);
     }
 
