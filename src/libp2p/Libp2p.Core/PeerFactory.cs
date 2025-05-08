@@ -7,32 +7,19 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerFactory : IPeerFactory
+public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null) : IPeerFactory
 {
-    private readonly ActivitySource? _activitySource;
-    protected IProtocolStackSettings protocolStackSettings;
+    private readonly ActivitySource? _activitySource = activitySource;
+    protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
     private static int _factoryCounter;
 
-    public PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
-    {
-        this.activitySource = activitySource;
-        string randomTraceId = ActivityTraceId.CreateRandom().ToString();
-        string randomParentSpanId = ActivitySpanId.CreateRandom().ToString();
-        string parentId = "";//; $"00-{randomTraceId}-{randomParentSpanId}-01"; // Format: Version-TraceId-SpanId-Flags
+    protected PeerStore PeerStore { get; } = peerStore;
+    protected ILoggerFactory? LoggerFactory { get; } = loggerFactory;
 
-        this.rootActivity = rootActivity ?? activitySource?.StartActivity($"Factory #{Interlocked.Increment(ref factoryCounter)}", ActivityKind.Internal, parentId);
-        this.protocolStackSettings = protocolStackSettings;
-        PeerStore = peerStore;
-        LoggerFactory = loggerFactory;
-    }
-
-    protected PeerStore PeerStore { get; }
-    protected ILoggerFactory? LoggerFactory { get; }
-
-    protected Activity? rootActivity;
+    protected Activity? rootActivity = rootActivity ?? activitySource?.StartActivity($"Factory #{Interlocked.Increment(ref _factoryCounter)}", ActivityKind.Internal, "");
 
     public virtual ILocalPeer Create(Identity? identity = default)
     {
-        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, activitySource, rootActivity, LoggerFactory);
+        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, _activitySource, rootActivity, LoggerFactory);
     }
 }

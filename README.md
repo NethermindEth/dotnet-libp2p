@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-# .NET LibP2P
+# dotnet-libp2p
 
 [![Test](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml/badge.svg)](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml)
 [![Nethermind.Libp2p](https://img.shields.io/nuget/v/Nethermind.Libp2p)](https://www.nuget.org/packages/Nethermind.Libp2p)
