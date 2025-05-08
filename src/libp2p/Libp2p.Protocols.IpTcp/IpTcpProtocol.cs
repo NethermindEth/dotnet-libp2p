@@ -21,10 +21,13 @@ namespace Nethermind.Libp2p.Protocols;
 public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+    private static Multiaddress ToTcpMultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}");
+
 
     public string Id => "ip-tcp";
-    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => IpHelper.GetListenerAddresses()
-        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}")).Take(1).ToArray();
+
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => [.. IpHelper.GetListenerAddresses().Select(a => ToTcpMultiAddress(a, peerId))];
+
     public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)

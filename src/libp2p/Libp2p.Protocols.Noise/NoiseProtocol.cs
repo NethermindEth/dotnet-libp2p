@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -197,7 +197,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
     private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)
     {
         // UP -> DOWN
-        Task t = Task.Run(async () =>
+        Task upToDown = Task.Run(async () =>
         {
             for (; ; )
             {
@@ -221,7 +221,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
         // DOWN -> UP
-        Task t2 = Task.Run(async () =>
+        Task downToUp = Task.Run(async () =>
         {
             for (; ; )
             {
@@ -253,6 +253,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
 
-        return Task.WhenAny(t, t2);
+        return Task.WhenAny(upToDown, downToUp);
     }
 }

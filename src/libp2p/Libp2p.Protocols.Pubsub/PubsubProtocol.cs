@@ -79,15 +79,17 @@ public abstract class PubsubProtocol : ISessionProtocol
                 Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
                 if (rpc is null)
                 {
-                    _logger?.LogDebug($"Received a broken message or EOF from {remotePeerId}");
-                    context.Activity?.AddEvent(new ActivityEvent($"Received a broken message or EOF from {remotePeerId}"));
+                    string logMessage = $"Received a broken message or EOF from {remotePeerId}";
+                    _logger?.LogDebug(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
                     break;
                 }
                 else
                 {
-                    //_logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
+                    string logMessage = $"Received message from {remotePeerId}: {rpc}";
+                    _logger?.LogTrace(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
                     router.OnRpc(remotePeerId, rpc);
-                    context.Activity?.AddEvent(new ActivityEvent($"Received message to {remotePeerId}: {rpc}"));
                 }
             }
         }

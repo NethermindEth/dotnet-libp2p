@@ -27,37 +27,23 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
     protected UpgradeOptions? upgradeOptions = upgradeOptions;
 
     public IChannel Upgrade(UpgradeOptions? upgradeOptions = null)
-    {
-        return localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
-    }
+        => localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
 
     public IChannel Upgrade(IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
-    {
-        return localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
-    }
+        => localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
 
     public Task Upgrade(IChannel parentChannel, UpgradeOptions? upgradeOptions = null)
-    {
-        return localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
-    }
+        => localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
 
     public Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
-    {
-        return localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
-    }
+        => localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
 
     public INewConnectionContext CreateConnection()
-    {
-        return localPeer.CreateConnection(protocol, null, isListener, activity);
-    }
+        => localPeer.CreateConnection(protocol, null, isListener, Activity);
 
     public INewSessionContext UpgradeToSession()
-    {
-        return localPeer.UpgradeToSession(session, protocol, isListener, activity);
-    }
+        => localPeer.UpgradeToSession(session, protocol, isListener, Activity);
 
     public void ListenerReady(Multiaddress addr)
-    {
-        localPeer.ListenerReady(this, addr);
-    }
+        => localPeer.ListenerReady(this, addr);
 }
