@@ -16,7 +16,7 @@
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
 The docs from the application developer perspective: [quick start](./docs/README.md).
-As libp2p protocol implementer, you may be interested in [more advanced tutorials](./docs/development/README.md). You can rewire and reconfigure the library in any way you want!
+As a libp2p protocol implementer, you may be interested in [more advanced tutorials](./docs/development/README.md). You can rewire and reconfigure the library in any way you want!
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 

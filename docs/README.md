@@ -23,7 +23,7 @@ ServiceProvider serviceProvider = new ServiceCollection()
     .BuildServiceProvider();
 ```
 
-One of injected services is IPeerFactory implementation. It allows to create a peer that can wait for connections:
+One of the injected services is `IPeerFactory`. It allows peer to be created that can wait for connections:
 
 ```cs
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
@@ -34,7 +34,7 @@ peer.OnConnected += async remotePeer => Console.WriteLine("A peer connected {0}"
 await peer.StartListenAsync();
 ```
 
-and dial other peers:
+It can also dial other peers:
 
 ```cs
 ISession remotePeer = await localPeer.DialAsync(remoteAddr);
@@ -53,11 +53,11 @@ int answer = await remotePeer.DialAsync<SomeProtocol, string, int>("what is answ
 1. Write your protocol
 
 Libp2p protocols can be divided into 3 layers:
-- Transport layer protocols, that actively use peer address to discover network and establish connection;
-- Connection layer protocols, ;
-- Application layer protocols, that relay on established session and are used to exchange actual payload.
+- Transport layer protocols, that actively use peer address to discover network and establish connection
+- Connection layer protocols
+- Application layer protocols, that rely on an established session and are used to exchange an actual payload
 
-Protocol can be used to dial to other peer or to listen for connections.
+The protocol can be used to dial other peers or listen for connections.
 
 Typically you need to implement `ISessionProtocol` or `ISessionProtocol<TRequest, TResponse>`:
 
@@ -90,11 +90,11 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 ```
 
 - The `downChannel` is used to receive from and send data to the transport layer.
-- `context` holds information about local and remote peers. It allows to initiate more conversations withing the current session.
+- `context` holds information about local and remote peers. It allows more connections to be initiated within the current session.
 
 ### Further exploration
 - Add [logging and tracing](./logging-tracing.md)
 - Go check samples dir! It include chat apps, pubsub, discovery and more
-- If protocol symmetric(listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class.
+- If the protocol is symmetric (i.e. listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class.
 - Need more information about other connected peers - check `IPeerStore`
 - Conventions and more potentially useful tips can be found in [the best practices list](./development/best-practices.md)

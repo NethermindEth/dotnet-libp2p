@@ -252,7 +252,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
         catch (Exception e)
         {
-            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))} bc of {e.Message}");
+            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
             if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
         }
     }

@@ -9,9 +9,9 @@ namespace Nethermind.Libp2p.Core;
 
 public class PeerFactory : IPeerFactory
 {
-    private readonly ActivitySource? activitySource;
+    private readonly ActivitySource? _activitySource;
     protected IProtocolStackSettings protocolStackSettings;
-    private static int factoryCounter;
+    private static int _factoryCounter;
 
     public PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
     {

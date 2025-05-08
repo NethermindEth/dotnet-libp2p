@@ -1,8 +1,8 @@
 # Logging
 
-Libp2p integrates standard ILoggerFactory/ILogger approach. When logging is not injected no logs are printed.
+Libp2p integrates a standard `ILoggerFactory`/`ILogger` approach. When logging is not injected no logs are printed.
 
-Such code allows to display logs in the console:
+Such code allows logs to be displayed in the console:
 
 ```cs
 new ServiceCollection()
@@ -18,7 +18,7 @@ new ServiceCollection()
 
 Tracing is implemented using standard `Activities`, check [Microsoft docs](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/distributed-tracing-instrumentation-walkthroughs#activity) for more details.
 
-There is a separate an optional package that contains a helper that allows to:
+There is an optional separate package containing a helper that allows you to:
 - activate telemetry sending to standard address
 - inject "root" activity that will be used as a parent for all activities created in libp2p
 - inject activity source required for spawning tracing activities
