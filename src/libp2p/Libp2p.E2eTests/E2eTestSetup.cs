@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Makaretu.Dns.Resolving;
@@ -147,7 +147,7 @@ internal class ActivityTracker : BaseProcessor<Activity>
     {
         foreach (var activity in acts.ToArray())
         {
-            activity.Dispose();
+            activity?.Dispose();
         }
 
         base.Dispose(disposing);
