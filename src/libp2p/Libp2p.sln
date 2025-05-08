@@ -83,6 +83,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.Protocols.Relay", "L
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransportInterop", "..\samples\transport-interop\TransportInterop.csproj", "{2C00E91D-79CE-470B-A38B-975F03C8B8A3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Libp2p.OpenTelemetry", "Libp2p.OpenTelemetry\Libp2p.OpenTelemetry.csproj", "{639ED76E-2092-5EE1-2DB0-A8D525460A4A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -221,6 +223,10 @@ Global
 		{2C00E91D-79CE-470B-A38B-975F03C8B8A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2C00E91D-79CE-470B-A38B-975F03C8B8A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2C00E91D-79CE-470B-A38B-975F03C8B8A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{639ED76E-2092-5EE1-2DB0-A8D525460A4A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{639ED76E-2092-5EE1-2DB0-A8D525460A4A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{639ED76E-2092-5EE1-2DB0-A8D525460A4A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{639ED76E-2092-5EE1-2DB0-A8D525460A4A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

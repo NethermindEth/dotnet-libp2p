@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Libp2p.E2eTests;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;

@@ -4,6 +4,7 @@
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Exceptions;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -15,6 +16,8 @@ public partial class LocalPeer
 
         public string Id { get; } = Interlocked.Increment(ref SessionIdCounter).ToString();
         public State State { get; } = new();
+        public Activity? Activity { get; }
+
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
@@ -59,10 +62,9 @@ public partial class LocalPeer
 
         public TaskCompletionSource ConnectedTcs = new();
         public Task Connected => ConnectedTcs.Task;
+
         internal void MarkAsConnected() => ConnectedTcs?.TrySetResult();
 
-
         internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
-
     }
 }

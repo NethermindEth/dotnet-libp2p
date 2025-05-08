@@ -9,16 +9,11 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/multiformats/multistream-select
 /// </summary>
-public class MultistreamProtocol : IConnectionProtocol
+public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnectionProtocol
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     private const string ProtocolNotSupported = "na";
     public string Id => "/multistream/1.0.0";
-
-    public MultistreamProtocol(ILoggerFactory? loggerFactory = null)
-    {
-        _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
-    }
 
     public async Task DialAsync(IChannel channel, IConnectionContext context)
     {

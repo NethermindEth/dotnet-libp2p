@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Discovery;
@@ -8,14 +8,13 @@ namespace Libp2p.Protocols.PubsubPeerDiscovery.E2eTests;
 
 public class NetworkDiscoveryTests
 {
-    [Ignore("TODO")]
     [Test]
     public async Task Test_NetworkDiscoveredByEveryPeer()
     {
         string commonTopic = "test";
 
         int totalCount = 2;
-        using PubsubDiscoveryE2eTestSetup test = new();
+        await using PubsubDiscoveryE2eTestSetup test = new();
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);

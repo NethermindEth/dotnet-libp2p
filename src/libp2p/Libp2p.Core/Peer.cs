@@ -9,33 +9,30 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public partial class LocalPeer : ILocalPeer
+public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings,
+    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
+    : ILocalPeer
 {
-    protected readonly ILogger? _logger;
-    protected readonly PeerStore _peerStore;
-    protected readonly IProtocolStackSettings _protocolStackSettings;
+    private const int ConnectionTimeout = 15_000;
+
+    protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
+    protected readonly PeerStore _peerStore = peerStore;
+    protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
+    protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
 
     Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
-
-
-    public LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings, ILoggerFactory? loggerFactory = null)
-    {
-        Identity = identity;
-        _peerStore = peerStore;
-        _protocolStackSettings = protocolStackSettings;
-        _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
-    }
 
     public override string ToString()
     {
         return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses)} sessions {string.Join("|", Sessions.Select(x => $"{x.State.RemotePeerId}"))}";
     }
 
-    public Identity Identity { get; }
+    public Identity Identity { get; } = identity;
 
     public ObservableCollection<Multiaddress> ListenAddresses { get; } = [];
 
@@ -77,11 +74,11 @@ public partial class LocalPeer : ILocalPeer
         }
     }
 
-
     public event Connected? OnConnected;
 
     public virtual async Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
     {
+        peerActivity?.SetTag("parent", rootActivity?.Id);
         addrs ??= GetDefaultAddresses();
 
         List<Task> listenTasks = new(addrs.Length);
@@ -95,24 +92,36 @@ public partial class LocalPeer : ILocalPeer
                 throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {listenerProtocol.GetType()}");
             }
 
-            ITransportContext ctx = new TransportContext(this, listenerProtocol, true);
+            Activity? listenActivity = activitySource?.StartActivity("Listen", ActivityKind.Internal, peerActivity?.Id);
+            listenActivity?.SetTag("parent", peerActivity?.DisplayName);
+            ITransportContext ctx = new TransportContext(this, listenerProtocol, true, listenActivity);
             TaskCompletionSource<Multiaddress> tcs = new();
             listenerReadyTcs[ctx] = tcs;
 
+            listenActivity?.SetTag("listen-on-addr", addr);
             _ = transportProtocol.ListenAsync(ctx, addr, token).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
-                    tcs.SetException(t.Exception);
+                    listenActivity?.AddEvent(new ActivityEvent("failed", tags: new ActivityTagsCollection(
+                        [
+                            new KeyValuePair<string, object?>("error", t.Exception?.Message),
+                        ])));
+                    listenActivity?.SetStatus(ActivityStatusCode.Error);
+                    if (t.Exception is not null) tcs.TrySetException(t.Exception);
                 }
-                ListenAddresses.Remove(tcs.Task.Result);
+                else
+                {
+                    ListenAddresses.Remove(tcs.Task.Result);
+                }
+                listenActivity?.Dispose();
             });
 
             listenTasks.Add(tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(5000)).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for an address");
+                    _logger?.LogDebug($"Failed to start listener for address {addr}");
                     return null;
                 }
 
@@ -128,6 +137,7 @@ public partial class LocalPeer : ILocalPeer
 
             if (addr is not null)
             {
+                _logger?.LogDebug($"Adding listener address {addr}");
                 ListenAddresses.Add(addr);
             }
         }
@@ -141,25 +151,25 @@ public partial class LocalPeer : ILocalPeer
         }
     }
 
-    public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener)
+    public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
     {
         session ??= new(this);
-        return new NewConnectionContext(this, session, proto, isListener, null);
+        return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
     }
 
-    public INewSessionContext UpgradeToSession(Session session, ProtocolRef proto, bool isListener)
+    public INewSessionContext UpgradeToSession(Session session, ProtocolRef proto, bool isListener, Activity? activity)
     {
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialiazed before session creation");
 
         lock (Sessions)
         {
-            if (Sessions.Any(s => !ReferenceEquals(session, s) && s.State.RemoteAddress.GetPeerId() == remotePeerId))
+            if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
             {
                 _ = session.DisconnectAsync();
                 throw new SessionExistsException(remotePeerId);
             }
-            _logger?.LogDebug($"New session with {remotePeerId}");
+            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
             Sessions.Add(session);
         }
 
@@ -175,7 +185,7 @@ public partial class LocalPeer : ILocalPeer
             session.ConnectedTcs.TrySetResult();
             OnConnected?.Invoke(session);
         });
-        return new NewSessionContext(this, session, proto, isListener, null);
+        return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
     }
 
     internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
@@ -216,7 +226,7 @@ public partial class LocalPeer : ILocalPeer
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
-        Task timeoutTask = Task.Delay(15_000, token);
+        Task timeoutTask = Task.Delay(ConnectionTimeout, token);
         Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
 
         if (wait == timeoutTask)
@@ -239,6 +249,9 @@ public partial class LocalPeer : ILocalPeer
 
     public async Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
+        Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
+        dialActivity?.SetTag("parent", peerActivity?.DisplayName);
+
         ProtocolRef dialerProtocol = SelectProtocol(addr);
 
         if (dialerProtocol.Protocol is not ITransportProtocol transportProtocol)
@@ -247,9 +260,11 @@ public partial class LocalPeer : ILocalPeer
         }
 
         Session session = new(this);
-        ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol);
+        ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol, dialActivity);
 
         Task dialingTask = transportProtocol.DialAsync(ctx, addr, token);
+
+        _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
 
         Task dialingResult = await Task.WhenAny(dialingTask, session.Connected);
 
@@ -257,11 +272,14 @@ public partial class LocalPeer : ILocalPeer
         {
             if (dialingResult.IsFaulted)
             {
+                dialActivity?.SetStatus(ActivityStatusCode.Error, dialingResult.Exception.Message);
+                dialActivity?.Dispose();
                 throw dialingResult.Exception;
             }
             throw new Libp2pException("Not able to dial the peer");
         }
-        await session.Connected;
+
+        dialActivity?.AddEvent(new ActivityEvent("connected"));
         return session;
     }
 
@@ -299,31 +317,16 @@ public partial class LocalPeer : ILocalPeer
         tcs.SetException(t.Exception!);
     }
 
-    private static void MapToTaskCompletionSource(Task t, TaskCompletionSource tcs)
-    {
-        if (t.IsCompletedSuccessfully)
-        {
-            tcs.SetResult();
-            return;
-        }
-        if (t.IsCanceled)
-        {
-            tcs.SetCanceled();
-            return;
-        }
-        tcs.SetException(t.Exception!);
-    }
-
-    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
+    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {
         Channel downChannel = new();
 
-        _ = Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener);
+        _ = Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity);
 
         return downChannel;
     }
 
-    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener)
+    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {
         if (_protocolStackSettings.Protocols is null)
         {
@@ -344,74 +347,92 @@ public partial class LocalPeer : ILocalPeer
         _logger?.LogInformation($"Upgrade and bind {parentProtocol} to {top}, listen={isListener}");
 
         Task upgradeTask;
-        switch (top.Protocol)
+        Activity? upgrageActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
+        upgrageActivity?.SetTag("parent", activity?.DisplayName);
+        upgrageActivity?.SetTag("proto", top.Protocol.Id);
+
+        try
         {
-            case IConnectionProtocol tProto:
-                {
-                    ConnectionContext ctx = new(this, session, top, isListener, options);
-                    upgradeTask = isListener ? tProto.ListenAsync(downChannel, ctx) : tProto.DialAsync(downChannel, ctx);
-                    break;
-                }
-            case ISessionProtocol sProto:
-                {
-                    SessionContext ctx = new(this, session, top, isListener, options);
-                    upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
-                    break;
-                }
-            default:
-                if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
-                {
-                    SessionContext ctx = new(this, session, top, isListener, options);
-                    upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
-                    break;
-                }
-
-                Type? genericInterface = top.Protocol.GetType().GetInterfaces()
-                    .FirstOrDefault(i =>
-                        i.IsGenericType &&
-                        i.GetGenericTypeDefinition() == typeof(ISessionProtocol<,>));
-
-                if (genericInterface != null)
-                {
-                    Type[] genericArguments = genericInterface.GetGenericArguments();
-                    Type requestType = genericArguments[0];
-
-                    if (options?.Argument is not null && !options.Argument.GetType().IsAssignableTo(requestType))
+            switch (top.Protocol)
+            {
+                case IConnectionProtocol tProto:
                     {
-                        throw new ArgumentException($"Invalid request. Argument is of {options.Argument.GetType()} type which is not assignable to {requestType.FullName}");
-                    }
-
-                    // Dynamically invoke DialAsync
-                    System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
-                    if (dialAsyncMethod != null)
-                    {
-                        SessionContext ctx = new(this, session, top, isListener, options);
-                        upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
+                        ConnectionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        upgradeTask = isListener ? tProto.ListenAsync(downChannel, ctx) : tProto.DialAsync(downChannel, ctx);
                         break;
                     }
-                }
-                throw new Libp2pSetupException($"Protocol {top.Protocol} does not implement proper protocol interface");
-        }
+                case ISessionProtocol sProto:
+                    {
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
+                        break;
+                    }
+                default:
+                    if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
+                    {
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
+                        break;
+                    }
 
-        if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
-        {
-            _ = upgradeTask.ContinueWith(async t =>
-            {
-                MapToTaskCompletionSource(t, options.CompletionSource);
-                await downChannel.CloseAsync();
-            });
-        }
+                    Type? genericInterface = top.Protocol.GetType().GetInterfaces()
+                        .FirstOrDefault(i =>
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() == typeof(ISessionProtocol<,>));
 
-        return upgradeTask.ContinueWith(t =>
-        {
-            if (t.IsFaulted)
-            {
-                _logger?.LogError($"Upgrade task failed with {t.Exception}");
+                    if (genericInterface != null)
+                    {
+                        Type[] genericArguments = genericInterface.GetGenericArguments();
+                        Type requestType = genericArguments[0];
+
+                        if (options?.Argument is not null && !options.Argument.GetType().IsAssignableTo(requestType))
+                        {
+                            throw new ArgumentException($"Invalid request. Argument is of {options.Argument.GetType()} type which is not assignable to {requestType.FullName}");
+                        }
+
+                        System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
+                        if (dialAsyncMethod != null)
+                        {
+                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                            upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
+                            break;
+                        }
+                    }
+                    throw new Libp2pSetupException($"Protocol {top.Protocol} does not implement proper protocol interface");
             }
-            _ = downChannel.CloseAsync();
-            _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
-        });
+
+            if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
+            {
+                _ = upgradeTask.ContinueWith(async t =>
+                {
+                    MapToTaskCompletionSource(t, options.CompletionSource);
+                    await downChannel.CloseAsync();
+                });
+            }
+
+            upgradeTask.ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    _logger?.LogError($"Upgrade task failed with {t.Exception}");
+                }
+                _ = downChannel.CloseAsync();
+                _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
+                upgrageActivity?.Dispose();
+            });
+
+            return upgradeTask;
+        }
+        catch
+        {
+            upgrageActivity?.Dispose();
+            throw;
+        }
     }
 
-    public Task DisconnectAsync() => Task.WhenAll(Sessions.ToArray().Select(s => s.DisconnectAsync()));
+    public async ValueTask DisposeAsync()
+    {
+        await Task.WhenAll(Sessions.ToArray().Select(s => s.DisconnectAsync()));
+        peerActivity?.Dispose();
+    }
 }

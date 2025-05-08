@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics;
+
 namespace Nethermind.Libp2p.Core.Context;
 
-public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions) : ContextBase(localPeer, session, protocol, isListener, upgradeOptions), ISessionContext
+public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, ProtocolRef protocol, bool isListener, UpgradeOptions? upgradeOptions,
+    ActivitySource? activitySource, Activity? parentActivity)
+    : ContextBase(localPeer, session, protocol, isListener, upgradeOptions, activitySource, parentActivity), ISessionContext
 {
     public UpgradeOptions? UpgradeOptions => upgradeOptions;
 

@@ -8,7 +8,6 @@ namespace Libp2p.E2eTests;
 
 public class RequestResponseTests
 {
-    [Ignore("TODO")]
     [Test]
     public async Task Test_RequestReponse()
     {
@@ -16,10 +15,9 @@ public class RequestResponseTests
         int request = 1;
 
         await test.AddPeersAsync(2);
-        ISession session = await test.Peers[0].DialAsync(test.Peers[1].ListenAddresses.ToArray());
+        ISession session = await test.Peers[0].DialAsync([.. test.Peers[1].ListenAddresses]);
         int response = await session.DialAsync<IncrementNumberTestProtocol, int, int>(1);
 
         Assert.That(response, Is.EqualTo(request + 1));
     }
-
 }
