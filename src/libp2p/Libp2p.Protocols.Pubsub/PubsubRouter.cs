@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -178,8 +178,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             throw new InvalidOperationException("Router has been already started");
         }
-        this.localPeer = localPeer;
 
+        this.localPeer = localPeer;
 
         _peerStore.OnNewPeer += (addrs) =>
         {
@@ -190,27 +190,30 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             _ = Connect(addrs, token, true);
         };
 
-        _ = Task.Run(async () =>
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(_settings.HeartbeatInterval);
-                await Heartbeat();
-            }
-        }, token);
-
-        // reconnection if needed
-        _ = Task.Run(async () =>
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(_settings.ReconnectionPeriod);
-                Reconnect(token);
-            }
-        }, token);
+        _ = Task.Run(LoopHeartbeat, token);
+        _ = Task.Run(LoopReconnect, token);
 
         logger?.LogInformation("Started");
         return Task.CompletedTask;
+
+
+        async Task LoopHeartbeat()
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(_settings.HeartbeatInterval, token);
+                await Heartbeat();
+            }
+        }
+
+        async Task LoopReconnect()
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(_settings.ReconnectionPeriod, token);
+                Reconnect(token);
+            }
+        }
     }
 
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
@@ -266,8 +269,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private void Reconnect(CancellationToken token)
     {
         const int MaxParallelReconnections = 5;
-        int reconnectionCounter = 0;
-        while (reconnections.TryTake(out Reconnection? rec) && reconnectionCounter++ < MaxParallelReconnections)
+
+        for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
         {
             _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
