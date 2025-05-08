@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -59,7 +59,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 await waitForSession.WaitAsync();
                 if (session is null)
                 {
-                    throw new Libp2pException();
+                    throw new Libp2pException("Session was not initialized");
                 }
 
                 uint pingCounter = 0;

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -9,7 +9,7 @@ namespace Nethermind.Libp2p.Core;
 
 public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null) : IPeerFactory
 {
-    private readonly ActivitySource? _activitySource = activitySource;
+    protected readonly ActivitySource? activitySource = activitySource;
     protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
     private static int _factoryCounter;
 
@@ -20,6 +20,6 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
 
     public virtual ILocalPeer Create(Identity? identity = default)
     {
-        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, _activitySource, rootActivity, LoggerFactory);
+        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, activitySource, rootActivity, LoggerFactory);
     }
 }

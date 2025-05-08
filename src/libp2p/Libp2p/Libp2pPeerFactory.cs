@@ -9,7 +9,14 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p;
 
-public class Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory)
+public class Libp2pPeerFactory(
+        IProtocolStackSettings protocolStackSettings,
+        PeerStore peerStore,
+        IdentifyNotifier identifyNotifier,
+        ActivitySource? activitySource = null,
+        Activity? rootActivity = null,
+        ILoggerFactory? loggerFactory = null)
+    : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory)
 {
     public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
 }
