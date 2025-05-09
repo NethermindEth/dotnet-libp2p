@@ -6,7 +6,7 @@ namespace Nethermind.Libp2p.Core;
 public struct MessageId(byte[] bytes) : IComparable<MessageId>, IComparable, IEquatable<MessageId>
 {
     public readonly byte[] Bytes = bytes;
-    int? hashCode = null;
+    private int? hashCode = null;
 
     public readonly override bool Equals(object? obj) => obj is MessageId other && Equals(other);
 
