@@ -22,7 +22,9 @@ public struct MessageId(byte[] bytes) : IComparable<MessageId>, IComparable, IEq
                 int hash = (int)2166136261;
 
                 for (int i = 0; i < data.Length; i++)
+                {
                     hash = (hash ^ data[i]) * p;
+                }
 
                 return hash;
             }
