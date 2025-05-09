@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Makaretu.Dns.Resolving;
@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.OpenTelemetry;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
@@ -79,6 +80,7 @@ public class E2eTestSetup : IAsyncDisposable
                     new ServiceCollection()
                        .AddLibp2p(ConfigureLibp2p)
                        .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
+                       .AddSingleton(sp => new PubsubSettings { ReconnectionPeriod = 3 })
                 )
                    .BuildServiceProvider();
 
@@ -107,7 +109,7 @@ public class E2eTestSetup : IAsyncDisposable
         StringBuilder reportBuilder = new();
         reportBuilder.AppendLine($"Test state#{stateCounter++}");
 
-        foreach ((int index, ILocalPeer peer) in Peers)
+        foreach ((int index, ILocalPeer peer) in Peers.ToList())
         {
             AddToPrintState(reportBuilder, index);
             reportBuilder.AppendLine(peer.ToString());
@@ -147,7 +149,7 @@ internal class ActivityTracker : BaseProcessor<Activity>
     {
         foreach (var activity in acts.ToArray())
         {
-            activity.Dispose();
+            activity?.Dispose();
         }
 
         base.Dispose(disposing);

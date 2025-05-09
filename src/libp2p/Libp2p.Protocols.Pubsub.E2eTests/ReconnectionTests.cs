@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.Pubsub.E2eTests;
@@ -31,6 +31,7 @@ public class ReconnectionTests
 
         IpTcpProtocol.TriggerDisconnection(test.Peers[0].Identity.PeerId);
 
+        await test.WaitForBrokenMeshAsync(commonTopic);
         TestContext.Out.WriteLine("Disconnected");
 
         await test.WaitForFullMeshAsync(commonTopic);
@@ -55,6 +56,7 @@ public class ReconnectionTests
 
         IpTcpProtocol.TriggerDisconnection(test.Peers[1].Identity.PeerId);
 
+        await test.WaitForBrokenMeshAsync(commonTopic);
         TestContext.Out.WriteLine("Disconnected");
 
         await test.WaitForFullMeshAsync(commonTopic);
