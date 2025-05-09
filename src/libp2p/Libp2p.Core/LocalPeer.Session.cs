@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -53,7 +53,7 @@ public partial class LocalPeer
         public Task DisconnectAsync()
         {
             connectionTokenSource.Cancel();
-            peer.Sessions.Remove(this);
+            peer.RemoveSession(this);
             return Task.CompletedTask;
         }
 
@@ -66,5 +66,13 @@ public partial class LocalPeer
         internal void MarkAsConnected() => ConnectedTcs?.TrySetResult();
 
         internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
+    }
+
+    private void RemoveSession(Session session)
+    {
+        lock (Sessions)
+        {
+            Sessions.Remove(session);
+        }
     }
 }

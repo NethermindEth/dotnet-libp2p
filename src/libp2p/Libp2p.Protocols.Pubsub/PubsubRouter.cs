@@ -272,6 +272,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
         {
+            logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
             _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
                 if (t.IsFaulted && rec.Attempts != 1)

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -29,7 +29,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
     public override string ToString()
     {
-        return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses)} sessions {string.Join("|", Sessions.Select(x => $"{x.State.RemotePeerId}"))}";
+        return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses.ToArray().Select(la => la.ToString()))} sessions {string.Join("|", Sessions.ToArray().Select(x => $"{x?.State?.RemotePeerId}"))}";
     }
 
     public Identity Identity { get; } = identity;
@@ -432,7 +432,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
     public async ValueTask DisposeAsync()
     {
-        await Task.WhenAll(Sessions.ToArray().Select(s => s.DisconnectAsync()));
+        await Task.WhenAll(Sessions.ToArray().Select(s => s?.DisconnectAsync() ?? Task.CompletedTask));
         peerActivity?.Dispose();
     }
 }

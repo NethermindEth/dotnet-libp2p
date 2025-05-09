@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Discovery;
@@ -13,7 +13,7 @@ public class NetworkDiscoveryTests
     {
         string commonTopic = "test";
 
-        int totalCount = 2;
+        int totalCount = 5;
         await using PubsubDiscoveryE2eTestSetup test = new();
 
         await test.AddPeersAsync(totalCount);
@@ -22,7 +22,6 @@ public class NetworkDiscoveryTests
         {
             peerStore.Discover(test.Peers[0].ListenAddresses.ToArray());
         }
-
 
         await test.WaitForFullMeshAsync(commonTopic);
     }
