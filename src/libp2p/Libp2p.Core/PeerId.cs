@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Dto;
@@ -11,7 +11,7 @@ using Multihash = Multiformats.Hash.Multihash;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerId
+public class PeerId : IComparable<PeerId>, IComparable
 {
     public readonly byte[] Bytes;
     int? hashCode = null;
@@ -127,6 +127,10 @@ public class PeerId
         return hashCode ??= ComputeHash(Bytes);
     }
 
+    public int CompareTo(PeerId? other) => other is null ? 1 : Bytes.AsSpan().SequenceCompareTo(other.Bytes.AsSpan());
+
+    public int CompareTo(object? obj) => obj is not PeerId other ? 1 : CompareTo(other);
+
     public static bool operator ==(PeerId? left, PeerId? right)
     {
         if (left is null)
@@ -143,52 +147,4 @@ public class PeerId
 
     public static bool operator !=(PeerId? left, PeerId? right) => !(left == right);
     #endregion
-}
-
-public struct MessageId(byte[] bytes) : IComparable<MessageId>, IEquatable<MessageId>
-{
-    public readonly byte[] Bytes = bytes;
-    int? hashCode = null;
-
-    public int CompareTo(MessageId other) => Equals(other) ? 0 : GetHashCode().CompareTo(other.GetHashCode());
-
-    public readonly override bool Equals(object? obj)
-    {
-        if (obj is not MessageId other)
-        {
-            return false;
-        }
-
-        return Equals(other);
-    }
-
-    public readonly bool Equals(MessageId other) => ReferenceEquals(Bytes, other.Bytes) || Bytes.SequenceEqual(other.Bytes);
-
-    public override int GetHashCode()
-    {
-        static int ComputeHash(params byte[] data)
-        {
-            unchecked
-            {
-                const int p = 16777619;
-                int hash = (int)2166136261;
-
-                for (int i = 0; i < data.Length; i++)
-                    hash = (hash ^ data[i]) * p;
-
-                return hash;
-            }
-        }
-
-        return hashCode ??= ComputeHash(Bytes);
-    }
-
-    public static bool operator ==(MessageId left, MessageId right)
-    {
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(MessageId left, MessageId right) => !(left == right);
-
-    public override readonly string ToString() => Convert.ToBase64String(Bytes);
 }
