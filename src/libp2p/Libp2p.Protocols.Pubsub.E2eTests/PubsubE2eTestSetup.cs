@@ -82,7 +82,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
             PrintState();
 
             if (!stillWaiting) break;
-            await Task.Delay(100, cts.Token);
+            await Task.Delay(1000, cts.Token);
         }
     }
 
@@ -91,6 +91,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
         int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);
 
         CancellationTokenSource cts = new(timeoutMs);
+        await Task.Delay(100, cts.Token);
 
         while (true)
         {
@@ -106,7 +107,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
                 }
             }
 
-            await Task.Delay(100, cts.Token);
+            await Task.Delay(1000, cts.Token);
         }
     }
 }

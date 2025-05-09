@@ -23,7 +23,6 @@ public class NetworkDiscoveryTests
             peerStore.Discover(test.Peers[0].ListenAddresses.ToArray());
         }
 
-
         await test.WaitForFullMeshAsync(commonTopic);
     }
 }
