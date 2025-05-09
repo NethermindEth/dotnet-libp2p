@@ -56,7 +56,6 @@ public class ReconnectionTests
 
         IpTcpProtocol.TriggerDisconnection(test.Peers[1].Identity.PeerId);
 
-
         await test.WaitForBrokenMeshAsync(commonTopic);
         TestContext.Out.WriteLine("Disconnected");
 

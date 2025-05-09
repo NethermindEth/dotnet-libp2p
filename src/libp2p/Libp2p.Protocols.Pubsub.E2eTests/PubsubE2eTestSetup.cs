@@ -82,7 +82,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
             PrintState();
 
             if (!stillWaiting) break;
-            await Task.Delay(1000, cts.Token);
+            await Task.Delay(100, cts.Token);
         }
     }
 
@@ -106,7 +106,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
                 }
             }
 
-            await Task.Delay(1000, cts.Token);
+            await Task.Delay(100, cts.Token);
         }
     }
 }
