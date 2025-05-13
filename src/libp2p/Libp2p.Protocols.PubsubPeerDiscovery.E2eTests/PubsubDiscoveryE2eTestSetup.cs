@@ -1,4 +1,7 @@
-using Libp2p.E2eTests;
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Libp2p.Core.TestsBase;
 using Libp2p.Protocols.Pubsub.E2eTests;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;

@@ -13,14 +13,14 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings,
+public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
     ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
     : ILocalPeer
 {
     private const int ConnectionTimeout = 15_000;
 
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
-    protected readonly PeerStore _peerStore = peerStore;
+    protected readonly PeerStore? _peerStore = peerStore;
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
 
@@ -292,7 +292,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             return Task.FromResult(existingSession);
         }
 
-        PeerStore.PeerInfo existingPeerInfo = _peerStore.GetPeerInfo(peerId);
+        PeerStore.PeerInfo? existingPeerInfo = _peerStore?.GetPeerInfo(peerId);
 
         if (existingPeerInfo?.Addrs is null)
         {

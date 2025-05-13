@@ -41,6 +41,7 @@ public partial class LocalPeer
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
             TaskCompletionSource<object?> tcs = new();
+            token.Register(() => tcs.TrySetCanceled());
             SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>(), Argument = request }, token);
             await tcs.Task;
             MarkAsConnected();

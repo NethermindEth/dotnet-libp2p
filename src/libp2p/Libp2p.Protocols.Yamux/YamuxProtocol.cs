@@ -134,6 +134,11 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     waitForSession.Release();
                 }
 
+                if (session is null)
+                {
+                    throw new Libp2pException("Session was not initialized");
+                }
+
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
                     channels[header.StreamID] = CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
