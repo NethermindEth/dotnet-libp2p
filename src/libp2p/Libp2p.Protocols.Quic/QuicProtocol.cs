@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Utils;
 using Nethermind.Libp2p.Protocols.Quic;
 using System.Buffers;
@@ -61,6 +62,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
+                ClientCertificateRequired = true,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => true,
                 ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)
@@ -72,7 +74,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             ListenEndPoint = localEndpoint,
             ApplicationProtocols = protocols,
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
-        });
+        }, token);
 
         if (udpPort == 0)
         {
@@ -92,7 +94,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 QuicConnection connection = await listener.AcceptConnectionAsync(token);
                 INewConnectionContext clientContext = context.CreateConnection();
 
-                _ = ProcessStreams(clientContext, connection, token).ContinueWith(t => clientContext.Dispose());
+                _ = ProcessStreams(clientContext, connection, token).ContinueWith(t =>
+                clientContext.Dispose());
             }
             catch (Exception ex)
             {
@@ -124,17 +127,22 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
             MaxInboundUnidirectionalStreams = 256,
             MaxInboundBidirectionalStreams = 256,
+
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                LocalCertificateSelectionCallback = (a, b, c, d, e) => c[0],
+                AllowTlsResume = true,
+                AllowRenegotiation = true,
                 TargetHost = null,
                 ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, c, _, _) => VerifyRemoteCertificate(remoteAddr, c),
+                RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert ?? throw new Libp2pException("Remote public key not found")),
                 ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
             },
             RemoteEndPoint = remoteEndpoint,
         };
 
-        QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
+        QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions, token);
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
         INewConnectionContext connectionContext = context.CreateConnection();
@@ -144,11 +152,14 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
     }
 
     private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
-         CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remoteAddr.Get<P2P>().ToString());
+         CertificateHelper.ValidateCertificate(certificate as X509Certificate2 ?? throw new Libp2pException("Remote public key not found"), remoteAddr.Get<P2P>().ToString());
 
     private async Task ProcessStreams(INewConnectionContext context, QuicConnection connection, CancellationToken token = default)
     {
         _logger?.LogDebug("New connection to {remote}", connection.RemoteEndPoint);
+
+        context.State.RemotePublicKey = CertificateHelper.ExtractPublicKey(connection.RemoteCertificate as X509Certificate2, out _) ?? throw new Libp2pException("Remote public key not found");
+        context.State.RemoteAddress = $"/{(connection.RemoteEndPoint.AddressFamily == AddressFamily.InterNetwork ? "ip4" : "ip6")}/{connection.RemoteEndPoint.Address}/udp/{connection.RemoteEndPoint.Port}/quic-v1/p2p/{new Identity(context.State.RemotePublicKey).PeerId}";
 
         using INewSessionContext session = context.UpgradeToSession();
 
