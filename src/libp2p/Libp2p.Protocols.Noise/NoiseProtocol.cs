@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -115,6 +115,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
@@ -189,19 +190,21 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
     private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)
     {
         // UP -> DOWN
-        Task t = Task.Run(async () =>
+        Task upToDown = Task.Run(async () =>
         {
             for (; ; )
             {
                 ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
                     return;
                 }
 
@@ -216,10 +219,9 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                     return;
                 }
             }
-
         });
         // DOWN -> UP
-        Task t2 = Task.Run(async () =>
+        Task downToUp = Task.Run(async () =>
         {
             for (; ; )
             {
@@ -236,7 +238,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
-
                     return;
                 }
                 byte[] buffer = new byte[length - 16];
@@ -252,6 +253,6 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             }
         });
 
-        return Task.WhenAll(t, t2);
+        return Task.WhenAny(upToDown, downToUp);
     }
 }

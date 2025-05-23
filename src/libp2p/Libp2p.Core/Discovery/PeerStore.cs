@@ -93,7 +93,7 @@ public class PeerStore
         public ByteString? SignedPeerRecord { get; set; }
         public string[]? SupportedProtocols { get; set; }
         public HashSet<Multiaddress>? Addrs { get; set; }
-        public ulong Seq { get; set; } = 0;
+        public ulong? Seq { get; set; }
     }
 }
 

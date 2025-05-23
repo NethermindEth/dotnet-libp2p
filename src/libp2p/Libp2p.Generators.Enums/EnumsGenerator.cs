@@ -29,8 +29,7 @@ public class EnumsGenerator : ISourceGenerator
             return;
         }
 
-        string filePath = projectDirectory.Substring(0, projectDirectory.IndexOf("src") + "src".Length) +
-                          Path.DirectorySeparatorChar + "multicodec" + Path.DirectorySeparatorChar + "table.csv";
+        string filePath = Path.Combine(enumsDirectory, "table.csv");
         if (!File.Exists(filePath))
         {
             return;

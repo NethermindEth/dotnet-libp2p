@@ -1,20 +1,41 @@
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Makaretu.Dns.Resolving;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.OpenTelemetry;
+using Nethermind.Libp2p.Protocols.Pubsub;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 using System.Text;
 
 namespace Libp2p.E2eTests;
 
-public class E2eTestSetup : IDisposable
+public class E2eTestSetup : IAsyncDisposable
 {
     private readonly CancellationTokenSource _commonTokenSource = new();
-    public void Dispose()
+    private TracerProvider? tracerProvider;
+    ActivityTracker? activityTracker;
+
+    public async ValueTask DisposeAsync()
     {
         _commonTokenSource.Cancel();
         _commonTokenSource.Dispose();
+
+        foreach (ILocalPeer peer in Peers.Values)
+        {
+            await peer.DisposeAsync();
+        }
+
+        activityTracker?.Dispose();
+        tracerProvider?.ForceFlush();
+        tracerProvider?.Dispose();
     }
 
     protected CancellationToken Token => _commonTokenSource.Token;
@@ -35,7 +56,7 @@ public class E2eTestSetup : IDisposable
 
     protected virtual IServiceCollection ConfigureServices(IServiceCollection col)
     {
-        return col;
+        return col.AddTracing("test", createRootActivity: true);
     }
 
     protected virtual void AddToPrintState(StringBuilder sb, int index)
@@ -59,15 +80,24 @@ public class E2eTestSetup : IDisposable
                     new ServiceCollection()
                        .AddLibp2p(ConfigureLibp2p)
                        .AddSingleton<ILoggerFactory>(sp => new TestContextLoggerFactory())
+                       .AddSingleton(sp => new PubsubSettings { ReconnectionPeriod = 3 })
                 )
                    .BuildServiceProvider();
 
-            PeerStores[_peerCounter] = ServiceProviders[_peerCounter].GetService<PeerStore>()!;
+            if (tracerProvider is null)
+            {
+                tracerProvider = sp.GetService<TracerProvider>();
+                activityTracker = new ActivityTracker();
+                tracerProvider?.AddProcessor(activityTracker);
+            }
+
+            PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
             Peers[_peerCounter] = sp.GetService<IPeerFactory>()!.Create(TestPeers.Identity(_peerCounter));
 
             await Peers[_peerCounter].StartListenAsync(token: Token);
 
             AddAt(_peerCounter);
+
         }
     }
 
@@ -79,7 +109,7 @@ public class E2eTestSetup : IDisposable
         StringBuilder reportBuilder = new();
         reportBuilder.AppendLine($"Test state#{stateCounter++}");
 
-        foreach ((int index, ILocalPeer peer) in Peers)
+        foreach ((int index, ILocalPeer peer) in Peers.ToList())
         {
             AddToPrintState(reportBuilder, index);
             reportBuilder.AppendLine(peer.ToString());
@@ -97,4 +127,33 @@ public class E2eTestSetup : IDisposable
             TestLogger.LogInformation(report.ToString());
         }
     }
+}
+
+internal class ActivityTracker : BaseProcessor<Activity>
+{
+    ConcurrentSet<Activity> acts = new();
+
+    public override void OnStart(Activity data)
+    {
+        acts.Add(data);
+        base.OnStart(data);
+    }
+
+    public override void OnEnd(Activity data)
+    {
+        acts.Remove(data);
+        base.OnEnd(data);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        foreach (var activity in acts.ToArray())
+        {
+            activity?.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    public Activity[] All => acts.ToArray();
 }

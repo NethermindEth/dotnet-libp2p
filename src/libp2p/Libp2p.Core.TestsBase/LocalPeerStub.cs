@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
@@ -19,7 +20,7 @@ public class LocalPeerStub : ILocalPeer
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
-    public event Connected? OnConnected;
+    public event Connected? OnConnected = _ => Task.CompletedTask;
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
@@ -36,14 +37,14 @@ public class LocalPeerStub : ILocalPeer
         throw new NotImplementedException();
     }
 
-    public Task DisconnectAsync()
+    public ValueTask DisposeAsync()
     {
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     public Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
     }
 }
 
@@ -59,6 +60,8 @@ public class TestRemotePeer : ISession
     public Multiaddress Address { get; set; }
 
     public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
+
+    public Activity? Activity => throw new NotImplementedException();
 
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {

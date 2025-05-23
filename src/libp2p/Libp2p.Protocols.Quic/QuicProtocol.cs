@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -27,6 +27,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 {
     private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
     private readonly ECDsa _sessionKey = ECDsa.Create();
+    private static Multiaddress ToQuicv1MultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/udp/0/quic-v1/p2p/{peerId}");
 
     private static readonly List<SslApplicationProtocol> protocols =
     [
@@ -35,8 +36,9 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
     ];
 
     public string Id => "quic-v1";
-    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => IpHelper.GetListenerAddresses()
-        .Select(a => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/udp/0/quic-v1/p2p/{peerId}")).ToArray();
+
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => [.. IpHelper.GetListenerAddresses().Select(a => ToQuicv1MultiAddress(a, peerId))];
+
     public static bool IsAddressMatch(Multiaddress addr) => addr.Has<QUICv1>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress localAddr, CancellationToken token)

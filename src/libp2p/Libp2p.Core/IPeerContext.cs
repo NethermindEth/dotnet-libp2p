@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Dto;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -11,6 +12,7 @@ public interface ITransportContext
     ILocalPeer Peer { get; }
     void ListenerReady(Multiaddress addr);
     INewConnectionContext CreateConnection();
+    Activity? Activity { get; }
 }
 
 public interface IContextState
@@ -38,6 +40,7 @@ public interface INewConnectionContext : IDisposable, IChannelFactory, IContextS
     ILocalPeer Peer { get; }
     CancellationToken Token { get; }
     INewSessionContext UpgradeToSession();
+    Activity? Activity { get; }
 }
 
 public interface INewSessionContext : IDisposable, INewConnectionContext

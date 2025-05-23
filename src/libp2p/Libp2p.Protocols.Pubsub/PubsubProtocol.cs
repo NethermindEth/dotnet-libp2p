@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -27,6 +28,7 @@ public abstract class PubsubProtocol : ISessionProtocol
 
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
+        channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
@@ -37,20 +39,19 @@ public abstract class PubsubProtocol : ISessionProtocol
         TaskCompletionSource dialTcs = new();
         CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
         {
-            ValueTask t = channel.WriteSizeAndProtobufAsync(rpc);
-            t.AsTask().ContinueWith((t) =>
+            channel.WriteSizeAndProtobufAsync(rpc).AsTask().ContinueWith((t) =>
             {
                 if (!t.IsCompletedSuccessfully)
                 {
-                    _logger?.LogWarning($"Sending RPC failed message to {remotePeerId}: {rpc}");
+                    context.Activity?.AddEvent(new ActivityEvent($"Sending RPC failed message to {remotePeerId}: {rpc}"));
                 }
             });
-            _logger?.LogTrace($"Sent message to {remotePeerId}: {rpc}");
+            context.Activity?.AddEvent(new ActivityEvent($"Sent message to {remotePeerId}: {rpc}"));
         });
 
         await channel;
         dialTcs.SetResult();
-        _logger?.LogDebug($"Finished dial({context.Id}) {context.State.RemoteAddress}");
+        context.Activity?.AddEvent(new ActivityEvent($"Finished dial({context.Id}) {context.State.RemoteAddress}"));
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
@@ -71,23 +72,35 @@ public abstract class PubsubProtocol : ISessionProtocol
             return dialTcs.Task;
         });
 
-        while (!token.IsCancellationRequested)
+        try
         {
-            Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
-            if (rpc is null)
+            while (!token.IsCancellationRequested)
             {
-                _logger?.LogDebug($"Received a broken message or EOF from {remotePeerId}");
-                break;
+                Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
+                if (rpc is null)
+                {
+                    string logMessage = $"Received a broken message or EOF from {remotePeerId}";
+                    _logger?.LogDebug(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    break;
+                }
+                else
+                {
+                    string logMessage = $"Received message from {remotePeerId}: {rpc}";
+                    _logger?.LogTrace(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    router.OnRpc(remotePeerId, rpc);
+                }
             }
-            else
-            {
-                //_logger?.LogTrace($"Received message from {remotePeerId}: {rpc}");
-                router.OnRpc(remotePeerId, rpc);
-            }
+        }
+        catch (Exception e)
+        {
+            context.Activity?.AddEvent(new ActivityEvent($"Exception: {e.Message}"));
+            context.Activity?.SetStatus(ActivityStatusCode.Error);
         }
 
         listTcs.SetResult();
-        _logger?.LogDebug($"Finished({context.Id}) list {context.State.RemoteAddress}");
+        context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
     }
 
     public override string ToString() => Id;

@@ -28,11 +28,14 @@ public class PubsubSettings
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
-    public Func<Message, MessageId> GetMessageId { get; set; } = (Message message) => new MessageId([.. message.From, .. message.Seqno]);
+    public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 
     public enum SignaturePolicy
     {
         StrictSign,
         StrictNoSign,
     }
+
+
+    public static MessageId ConcatFromAndSeqno(Message message) => new([.. message.From, .. message.Seqno]);
 }
