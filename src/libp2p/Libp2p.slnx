@@ -43,5 +43,6 @@
   <Project Path="Libp2p.E2eTests/Libp2p.E2eTests.csproj" />
   <Project Path="Libp2p.Generators.Enums/Libp2p.Generators.Enums.csproj" />
   <Project Path="Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj" />
+  <Project Path="Libp2p.OpenTelemetry/Libp2p.OpenTelemetry.csproj" />
   <Project Path="Libp2p/Libp2p.csproj" />
 </Solution>
