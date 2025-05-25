@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +22,7 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 }
 
 
-public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
+public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>(IServiceProvider? serviceProvider = default) : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : IPeerFactory
 {
@@ -48,12 +48,9 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
     private readonly List<ProtocolRef> _appLayerProtocols = [];
     public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
-    internal readonly IServiceProvider ServiceProvider;
-
-    protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
-    {
-        ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
-    }
+    internal readonly IServiceProvider ServiceProvider = serviceProvider ?? new ServiceCollection()
+            .AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings())
+            .BuildServiceProvider();
 
     public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {

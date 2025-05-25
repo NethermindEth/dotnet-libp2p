@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -11,6 +11,10 @@ namespace Nethermind.Libp2p.Core.Discovery;
 
 public class PeerStore
 {
+    public PeerStore()
+    {
+
+    }
     private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
 
     public void Discover(ByteString signedPeerRecord)
