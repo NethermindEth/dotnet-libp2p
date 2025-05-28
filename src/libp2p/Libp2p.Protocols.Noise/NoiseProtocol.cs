@@ -12,6 +12,7 @@ using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
+#pragma warning disable IDE0130
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
@@ -25,11 +26,12 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         );
 
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+
     private NoiseExtensions _extensions => new()
     {
         StreamMuxers = { } // TODO: return the following after go question resolution:
         //{
-        //   multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+        //    multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
         //}
     };
 
@@ -64,9 +66,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         context.State.RemotePublicKey = msg1KeyDecoded;
         // TODO: verify signature
 
-        List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
-            .Where(m => !string.IsNullOrEmpty(m))
-            .ToList();
+        List<string> responderMuxers = [.. msg1Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m))];
         IProtocol? commonMuxer = null;// multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;
@@ -134,9 +134,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
         handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
 
-        byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
-            .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
-            .ToArray();
+        byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(serverStatic.PublicKey)];
         byte[] sig = context.Peer.Identity.Sign(msg);
 
         NoiseHandshakePayload payload = new()
@@ -164,7 +162,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         // TODO: verify signature
 
         Transport? transport = msg2.Transport;
-        List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
+        List<string> initiatorMuxers = [.. msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m))];
         IProtocol? commonMuxer = null; // multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;

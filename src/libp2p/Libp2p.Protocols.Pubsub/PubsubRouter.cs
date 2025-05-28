@@ -32,23 +32,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
     public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
 
-    class PubsubPeer
+    class PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, Multiaddress address, ConnectionInitiation initialisedBy)
     {
-        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger)
-        {
-            PeerId = peerId;
-            _logger = logger;
-            Protocol = protocolId switch
-            {
-                GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
-                GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
-                GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
-                _ => PubsubProtocol.Floodsub,
-            };
-            TokenSource = new CancellationTokenSource();
-            Backoff = [];
-            SendRpcQueue = new ConcurrentQueue<Rpc>();
-        }
+        public CancellationTokenSource TokenSource { get; init; } = new CancellationTokenSource();
+        public PeerId PeerId { get; set; } = peerId;
+        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
+        public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
+        public ConnectionInitiation InititatedBy { get; internal set; } = initialisedBy;
+        public Multiaddress Address { get; } = address;
 
         public enum PubsubProtocol
         {
@@ -57,7 +48,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             GossipsubV10 = 2,
             GossipsubV11 = 4,
             GossipsubV12 = 8,
-            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
+            GossipsubV13 = 16,
+            GossipsubV14 = 32,
+            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12 | GossipsubV13 | GossipsubV14,
         }
 
         public void Send(Rpc rpc)
@@ -74,16 +67,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
-        public Dictionary<string, DateTime> Backoff { get; internal set; }
-        public ConcurrentQueue<Rpc> SendRpcQueue { get; }
+        public Dictionary<string, DateTime> Backoff { get; internal set; } = [];
+        public ConcurrentQueue<Rpc> SendRpcQueue { get; } = new ConcurrentQueue<Rpc>();
         private Action<Rpc>? _sendRpc;
-        private readonly ILogger? _logger;
+        private readonly ILogger? _logger = logger;
 
         public Action<Rpc>? SendRpc
         {
             get => _sendRpc; set
             {
-                _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
+                _logger?.LogDebug("Set SENDRPC for {peerId}: {value}", PeerId, value);
                 _sendRpc = value;
                 if (_sendRpc is not null)
                     lock (SendRpcQueue)
@@ -95,15 +88,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
             }
         }
-        public CancellationTokenSource TokenSource { get; init; }
-        public PeerId PeerId { get; set; }
 
-        public PubsubProtocol Protocol { get; set; }
-        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
-        public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
-
-        public ConnectionInitiation InititatedBy { get; internal set; }
-        public Multiaddress Address { get; internal set; }
+        public PubsubProtocol Protocol { get; set; } = protocolId switch
+        {
+            GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
+            GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
+            GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+            _ => PubsubProtocol.Floodsub,
+        };
     }
 
     private static readonly CancellationToken Canceled;
@@ -172,7 +164,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
     {
-        logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
+        logger?.LogDebug("Running pubsub for {listenAddresses}", string.Join(",", localPeer.ListenAddresses));
 
         if (this.localPeer is not null)
         {
@@ -218,6 +210,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
     {
+        ArgumentNullException.ThrowIfNull(localPeer);
+
         try
         {
             ISession session = await localPeer.DialAsync(addrs, token);
@@ -246,7 +240,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     _ = session.DisconnectAsync();
                     return;
                 }
-                logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
+                logger?.LogDebug("Dialing ended to {remoteAddress}", session.RemoteAddress);
                 if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
                 {
                     _ = session.DisconnectAsync();
@@ -255,13 +249,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
         catch (Exception e)
         {
-            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
+            logger?.LogDebug("Adding reconnections for {addrs}: {message}", string.Join(",", addrs.Select(a => a.ToString())), e.Message);
             if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
         }
     }
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         _messageCache.Dispose();
         _limboMessageCache.Dispose();
     }
@@ -272,7 +267,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
         {
-            logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
+            logger?.LogDebug("Reconnect to {addrs}", string.Join(",", rec.Addresses.Select(a => a.ToString())));
             _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
                 if (t.IsFaulted && rec.Attempts != 1)
@@ -292,9 +287,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 if (mesh.Value.Count < _settings.LowestDegree)
                 {
-                    PeerId[] peersToGraft = gPeers[mesh.Key]
+                    PeerId[] peersToGraft = [.. gPeers[mesh.Key]
                         .Where(p => !mesh.Value.Contains(p) && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(mesh.Key, out DateTime backoff) != true || backoff < DateTime.Now))
-                        .Take(_settings.Degree - mesh.Value.Count).ToArray();
+                        .Take(_settings.Degree - mesh.Value.Count)];
                     foreach (PeerId peerId in peersToGraft)
                     {
                         mesh.Value.Add(peerId);
@@ -305,7 +300,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
                 else if (mesh.Value.Count > _settings.HighestDegree)
                 {
-                    PeerId[] peerstoPrune = mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree).ToArray();
+                    PeerId[] peerstoPrune = [.. mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree)];
                     foreach (PeerId? peerId in peerstoPrune)
                     {
                         mesh.Value.Remove(peerId);
@@ -381,7 +376,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return Canceled;
         }
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, addr, ConnectionInitiation.Local) { SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
 
         lock (peer)
         {
@@ -424,9 +419,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
             });
 
-            string[] topics = topicState.Keys.ToArray();
+            string[] topics = [.. topicState.Keys];
 
-            if (topics.Any())
+            if (topics.Length != 0)
             {
                 logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
 
@@ -439,9 +434,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Task dialTask, Func<Task> subDial)
+    internal CancellationToken InboundConnection(Multiaddress remoteAddr, string protocolId, Task listTask, Func<Task> subDial)
     {
-        PeerId? peerId = addr.GetPeerId();
+        PeerId? peerId = remoteAddr.GetPeerId();
 
         if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
@@ -449,7 +444,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, remoteAddr, ConnectionInitiation.Remote));
         lock (existingPeer)
         {
 
@@ -476,7 +471,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         topicPeers.Value.Remove(peerId);
                     }
-                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                    reconnections.Add(new Reconnection([remoteAddr], _settings.ReconnectionAttempts));
                 });
 
                 subDial();

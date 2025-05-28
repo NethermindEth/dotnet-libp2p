@@ -41,14 +41,14 @@ if (args.Length > 0 && args[0] == "-d")
 }
 else
 {
-    Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
+    Identity optionalFixedIdentity = new([.. Enumerable.Repeat((byte)42, 32)]);
     await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     string addrTemplate = args.Contains("-quic") ?
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
-    peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
+    peer.OnConnected += newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
     await peer.StartListenAsync(
         [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],

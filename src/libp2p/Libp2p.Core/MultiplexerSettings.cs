@@ -4,9 +4,10 @@
 namespace Nethermind.Libp2p.Core;
 public class MultiplexerSettings
 {
-    public List<IProtocol> _multiplexers = [];
+    private readonly List<IProtocol> _multiplexers = [];
 
     public IEnumerable<IProtocol> Multiplexers => _multiplexers;
+
     public void Add(IProtocol multiplexerProtocol)
     {
         _multiplexers.Add(multiplexerProtocol);

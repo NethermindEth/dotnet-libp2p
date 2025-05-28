@@ -33,8 +33,6 @@
     <PackageReference Include="SimpleBase" />
     <PackageReference Include="OpenTelemetry.Exporter.Console"/>
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 
 </Project>

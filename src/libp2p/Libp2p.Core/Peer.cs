@@ -24,7 +24,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
 
-    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
+    readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
 
     public override string ToString()
@@ -56,7 +56,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        return _protocolStackSettings.TopProtocols.SelectMany(p => ITransportProtocol.GetDefaultAddresses(p.Protocol, Identity.PeerId)).ToArray();
+        return [.. _protocolStackSettings.TopProtocols.SelectMany(p => ITransportProtocol.GetDefaultAddresses(p.Protocol, Identity.PeerId))];
     }
 
     protected virtual IEnumerable<Multiaddress> PrepareAddresses(Multiaddress[] addrs)
@@ -115,13 +115,13 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                     ListenAddresses.Remove(tcs.Task.Result);
                 }
                 listenActivity?.Dispose();
-            });
+            }, token);
 
-            listenTasks.Add(tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(5000)).ContinueWith(t =>
+            listenTasks.Add(tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(5000), token).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for address {addr}");
+                    _logger?.LogDebug("Failed to start listener for address {addr}", addr);
                     return null;
                 }
 
@@ -137,7 +137,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
             if (addr is not null)
             {
-                _logger?.LogDebug($"Adding listener address {addr}");
+                _logger?.LogDebug("Adding listener address {addr}", addr);
                 ListenAddresses.Add(addr);
             }
         }
@@ -169,7 +169,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 _ = session.DisconnectAsync();
                 throw new SessionExistsException(remotePeerId);
             }
-            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
+            _logger?.LogDebug("New session with {remotePeerId} ({remoteAddress})", remotePeerId, session.RemoteAddress);
             Sessions.Add(session);
         }
 
@@ -195,12 +195,12 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        if (!_protocolStackSettings.Protocols.ContainsKey(protocol))
+        if (!_protocolStackSettings.Protocols.TryGetValue(protocol, out ProtocolRef[]? value))
         {
             throw new Libp2pSetupException($"{protocol} is not added");
         }
 
-        return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
+        return value.Select(p => p.Protocol);
     }
 
 
@@ -264,7 +264,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
         Task dialingTask = transportProtocol.DialAsync(ctx, addr, token);
 
-        _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
+        _ = dialingTask.ContinueWith(t => dialActivity?.Dispose(), token);
 
         Task dialingResult = await Task.WhenAny(dialingTask, session.Connected);
 
@@ -306,7 +306,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     {
         if (t.IsCompletedSuccessfully)
         {
-            tcs.SetResult(t.GetType().GenericTypeArguments.Any() ? t.GetType().GetProperty("Result")!.GetValue(t) : null);
+            tcs.SetResult(t.GetType().GenericTypeArguments.Length != 0 ? t.GetType().GetProperty("Result")!.GetValue(t) : null);
             return;
         }
         if (t.IsCanceled)
@@ -344,7 +344,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
         isListener = options?.ModeOverride switch { UpgradeModeOverride.Dial => false, UpgradeModeOverride.Listen => true, _ => isListener };
 
-        _logger?.LogInformation($"Upgrade and bind {parentProtocol} to {top}, listen={isListener}");
+        _logger?.LogInformation("Upgrade and bind {parentProtocol} to {protocol}, listen={isListener}", parentProtocol, top, isListener);
 
         Task upgradeTask;
         Activity? upgrageActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
@@ -410,14 +410,14 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 });
             }
 
-            upgradeTask.ContinueWith(t =>
+            _ = upgradeTask.ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogError($"Upgrade task failed with {t.Exception}");
+                    _logger?.LogError("Upgrade task failed with {exception}", t.Exception);
                 }
-                _ = downChannel.CloseAsync();
-                _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
+                _ = downChannel.CloseAsync().AsTask();
+                _logger?.LogInformation("Finished#2 {parentProtocol} to {top}, listen={isListener}", parentProtocol, top, isListener);
                 upgrageActivity?.Dispose();
             });
 
@@ -432,6 +432,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
     public async ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
         await Task.WhenAll(Sessions.ToArray().Select(s => s?.DisconnectAsync() ?? Task.CompletedTask));
         peerActivity?.Dispose();
     }

@@ -28,12 +28,12 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
 
 public class TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null) : PeerFactory(protocolStackSettings, peerStore, activitySource)
 {
-    ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
+    readonly ConcurrentDictionary<PeerId, ILocalPeer> peers = new();
 
     public override ILocalPeer Create(Identity? identity = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, peerStore, activitySource, loggerFactory));
+        return peers.GetOrAdd(identity.PeerId, (p) => new TestLocalPeer(identity, protocolStackSettings, base.PeerStore, activitySource, loggerFactory));
     }
 }
 

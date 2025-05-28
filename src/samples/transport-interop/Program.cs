@@ -63,16 +63,16 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            List<NetworkInterface> d = NetworkInterface.GetAllNetworkInterfaces()!
+            List<NetworkInterface> d = [.. NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
-                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
+                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet))];
 
             IEnumerable<UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
-                     i.GetIPProperties().GatewayAddresses.Any())
+                     i.GetIPProperties().GatewayAddresses.Count != 0)
                  ).First()
                  .GetIPProperties()
                  .UnicastAddresses
@@ -86,7 +86,7 @@ try
 
         CancellationTokenSource listennTcs = new();
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
-        localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
+        localPeer.OnConnected += (session) => Log($"Connected {session.RemoteAddress}");
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
         db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
@@ -156,7 +156,10 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
                 _ => throw new NotImplementedException(),
             }];
 
-            selector = Connect(selector, transportStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
+            selector = Connect(selector,
+                transportStack, [Get<MultistreamProtocol>()],
+                securityStack, [Get<MultistreamProtocol>()],
+                muxerStack, [Get<MultistreamProtocol>()]);
         }
 
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];
