@@ -7,11 +7,11 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public class LocalPeerStub : ILocalPeer
+public sealed class LocalPeerStub : ILocalPeer
 {
     public LocalPeerStub()
     {
-        Identity = new(Enumerable.Repeat((byte)42, 32).ToArray());
+        Identity = new([.. Enumerable.Repeat((byte)42, 32)]);
         Address = $"/p2p/{Identity.PeerId}";
     }
 
@@ -20,7 +20,7 @@ public class LocalPeerStub : ILocalPeer
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
-    public event Connected? OnConnected = _ => Task.CompletedTask;
+    public event Connected? OnConnected = _ => { };
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
     {
@@ -42,22 +42,16 @@ public class LocalPeerStub : ILocalPeer
         return ValueTask.CompletedTask;
     }
 
-    public Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
+    public Task StartListenAsync(Multiaddress[]? addrs = null, CancellationToken token = default)
     {
         return Task.CompletedTask;
     }
 }
 
-public class TestRemotePeer : ISession
+public class TestRemotePeer(Multiaddress addr) : ISession
 {
-    public TestRemotePeer(Multiaddress addr)
-    {
-        Identity = TestPeers.Identity(addr);
-        Address = addr;
-    }
-
-    public Identity Identity { get; set; }
-    public Multiaddress Address { get; set; }
+    public Identity Identity { get; set; } = TestPeers.Identity(addr);
+    public Multiaddress Address { get; set; } = addr;
 
     public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
 

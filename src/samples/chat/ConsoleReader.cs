@@ -14,16 +14,16 @@ internal class ConsoleReader
         if (!_isRequested)
         {
             _isRequested = true;
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
-                string? input = Console.ReadLine();
-                while (_requests.TryDequeue(out TaskCompletionSource<string> src))
+                string input = Console.ReadLine()!;
+                while (_requests.TryDequeue(out TaskCompletionSource<string>? src))
                 {
                     Task.Run(() => src.SetResult(input));
                 }
 
                 _isRequested = false;
-            });
+            }, token);
         }
 
         return result.Task;

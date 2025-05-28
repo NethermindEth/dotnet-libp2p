@@ -1,23 +1,16 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Core;
 using System.Buffers;
 
-public class ChannelStream : Stream
+namespace Nethermind.Libp2p.Core;
+
+public class ChannelStream(IChannel chan) : Stream
 {
-    private readonly IChannel _chan;
-    private readonly ILogger<ChannelStream> logger;
+    private readonly IChannel _chan = chan ?? throw new ArgumentNullException(nameof(chan));
     private bool _disposed = false;
     private bool _canRead = true;
     private bool _canWrite = true;
-
-    // Constructor
-    public ChannelStream(IChannel chan)
-    {
-        _chan = chan ?? throw new ArgumentNullException(nameof(_chan));
-    }
 
     public override bool CanRead => _canRead;
     public override bool CanSeek => false;
@@ -59,7 +52,7 @@ public class ChannelStream : Stream
 
     public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
+        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)), cancellationToken)) != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -72,7 +65,7 @@ public class ChannelStream : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
