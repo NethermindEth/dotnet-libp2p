@@ -1,13 +1,9 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
-using StackExchange.Redis;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -64,7 +60,7 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            List<NetworkInterface> d = NetworkInterface.GetAllNetworkInterfaces()!
+            List<NetworkInterface> interfaces = NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
@@ -109,7 +105,6 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
     private readonly string transport;
     private readonly string? muxer;
     private readonly string? security;
-    private static IPeerFactoryBuilder? defaultPeerFactoryBuilder;
 
     public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
         : base(new ServiceCollection()
@@ -121,10 +116,8 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
                         l.SingleLine = true;
                         l.TimestampFormat = "[HH:mm:ss.FFF]";
                     }))
-            .AddScoped(_ => defaultPeerFactoryBuilder!)
             .BuildServiceProvider())
     {
-        defaultPeerFactoryBuilder = this;
         this.transport = transport;
         this.muxer = muxer;
         this.security = security;
@@ -158,7 +151,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
                 _ => throw new NotImplementedException(),
             }];
 
-            selector = Connect(selector, transportStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
+            selector = Connect(selector, securityStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
         }
 
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];

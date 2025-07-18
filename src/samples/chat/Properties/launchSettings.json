@@ -6,7 +6,7 @@
     },
     "Chat server": {
       "commandName": "Project",
-      "commandLineArgs": "-quic -sp 9001"
+      "commandLineArgs": "-sp 9001"
     }
   }
 }
