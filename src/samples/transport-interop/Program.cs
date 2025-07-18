@@ -4,6 +4,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
+using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using StackExchange.Redis;
@@ -112,15 +113,16 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
         : base(new ServiceCollection()
-              .AddLogging(builder =>
+            .AddLibp2p()
+            .AddLogging(builder =>
                 builder.SetMinimumLevel(LogLevel.Trace)
                     .AddSimpleConsole(l =>
                     {
                         l.SingleLine = true;
                         l.TimestampFormat = "[HH:mm:ss.FFF]";
                     }))
-              .AddScoped(_ => defaultPeerFactoryBuilder!)
-              .BuildServiceProvider())
+            .AddScoped(_ => defaultPeerFactoryBuilder!)
+            .BuildServiceProvider())
     {
         defaultPeerFactoryBuilder = this;
         this.transport = transport;
