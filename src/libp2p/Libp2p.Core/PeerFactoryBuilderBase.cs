@@ -19,6 +19,8 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
     {
         return $"ref#{RefId}({Protocol.Id})";
     }
+
+    public static implicit operator ProtocolRef[](ProtocolRef pr) => [pr];
 }
 
 
@@ -63,7 +65,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     protected abstract ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols);
 
-    private Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
+    private readonly Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
 
     protected ProtocolRef[] Connect(ProtocolRef[] protocols, params ProtocolRef[][] upgradeToStacks)
     {

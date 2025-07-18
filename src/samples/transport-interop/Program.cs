@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using StackExchange.Redis;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -102,11 +106,11 @@ static void PrintResult(string info) => Console.WriteLine(info);
 
 class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryBuilder, PeerFactory>
 {
-    private readonly string transport;
-    private readonly string? muxer;
-    private readonly string? security;
+    private readonly string _transport;
+    private readonly string? _muxer;
+    private readonly string? _encryption;
 
-    public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
+    public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? encryption)
         : base(new ServiceCollection()
             .AddLibp2p<TestPlansPeerFactoryBuilder>()
             .AddLogging(builder =>
@@ -118,49 +122,52 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
                     }))
             .BuildServiceProvider())
     {
-        this.transport = transport;
-        this.muxer = muxer;
-        this.security = security;
+        _transport = transport;
+        _muxer = muxer;
+        _encryption = encryption;
     }
 
-    private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport"];
+    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport"];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
-        ProtocolRef[] transportStack = [transport switch
+        ProtocolRef transport = _transport switch
         {
             "tcp" => Get<IpTcpProtocol>(),
             // TODO: Improve QUIC imnteroperability
             "quic-v1" => Get<QuicProtocol>(),
             _ => throw new NotImplementedException(),
-        }];
+        };
 
-        ProtocolRef[] selector = [Get<MultistreamProtocol>()];
-        Connect(transportStack, selector);
+        ProtocolRef[] selector = null!;
 
-        if (!stacklessProtocols.Contains(transport))
+        if (stacklessProtocols.Contains(_transport))
         {
-            ProtocolRef[] securityStack = [security switch
+            selector = Connect(transport, Get<MultistreamProtocol>());
+        }
+        else
+        {
+            ProtocolRef encryption = _encryption switch
             {
                 "noise" => Get<NoiseProtocol>(),
                 _ => throw new NotImplementedException(),
-            }];
-            ProtocolRef[] muxerStack = [muxer switch
+            };
+            ProtocolRef muxer = _muxer switch
             {
                 "yamux" => Get<YamuxProtocol>(),
                 _ => throw new NotImplementedException(),
-            }];
+            };
 
-            selector = Connect(selector, securityStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
+            selector = Connect(transport, Get<MultistreamProtocol>(), encryption, Get<MultistreamProtocol>(), muxer, Get<MultistreamProtocol>());
         }
 
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];
         Connect(selector, apps);
 
-        return transportStack;
+        return transport;
     }
 
-    public string MakeAddress(string ip = "0.0.0.0", string port = "0") => transport switch
+    public string MakeAddress(string ip = "0.0.0.0", string port = "0") => _transport switch
     {
         "tcp" => $"/ip4/{ip}/tcp/{port}",
         "quic-v1" => $"/ip4/{ip}/udp/{port}/quic-v1",
