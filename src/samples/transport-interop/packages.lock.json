@@ -150,6 +150,11 @@
         "resolved": "9.0.0",
         "contentHash": "N3qEBzmLMYiASUlKxxFIISP4AiwuPTHF5uCh+2CWSwwzAJiIYx0kBJsS30cp1nvhSySFAVi30jecD307jV+8Kg=="
       },
+      "Microsoft.Native.Quic.MsQuic.OpenSSL": {
+        "type": "Transitive",
+        "resolved": "2.4.10",
+        "contentHash": "h3ubuqJ+oqrVLL0fMHEoN/n8WjIscEuiY2q5/ss0f5M89rojDFaTcCYoAYNqqFFWAiJvf70mMg6c46Wsib08wQ=="
+      },
       "Microsoft.NETCore.Platforms": {
         "type": "Transitive",
         "resolved": "1.1.0",
@@ -1243,6 +1248,7 @@
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.4.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
+          "Microsoft.Native.Quic.MsQuic.OpenSSL": "[2.4.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },

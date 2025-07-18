@@ -13,6 +13,7 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -27,7 +28,7 @@ namespace Nethermind.Libp2p.Protocols;
 public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
     private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
-    private readonly ECDsa _sessionKey = ECDsa.Create();
+    private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private static Multiaddress ToQuicv1MultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/udp/0/quic-v1/p2p/{peerId}");
 
     private static readonly List<SslApplicationProtocol> protocols =
@@ -44,10 +45,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
     public async Task ListenAsync(ITransportContext context, Multiaddress localAddr, CancellationToken token)
     {
-        if (!QuicListener.IsSupported)
-        {
-            throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        }
+        CheckProtocol();
 
         MultiaddressProtocol ipProtocol = localAddr.Has<IP4>() ? localAddr.Get<IP4>() : localAddr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
@@ -55,17 +53,25 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
+        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+
         QuicServerConnectionOptions serverConnectionOptions = new()
         {
             DefaultStreamErrorCode = 0, // Protocol-dependent error code.
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
-
+            MaxInboundBidirectionalStreams = 1000,
+            MaxInboundUnidirectionalStreams = 1000,
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
                 ClientCertificateRequired = true,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, c, _, _) => true,
-                ServerCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)
+                ServerCertificate = cert,
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                AllowRenegotiation = true,
+                AllowTlsResume = true,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                ServerCertificateSelectionCallback = (s, h) => cert
             },
         };
 
@@ -107,10 +113,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        if (!QuicConnection.IsSupported)
-        {
-            throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        }
+        CheckProtocol();
 
         Multiaddress addr = remoteAddr;
         bool isIp4 = addr.Has<IP4>();
@@ -149,6 +152,26 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         token.Register(() => _ = connection.CloseAsync(0));
         await ProcessStreams(connectionContext, connection, token);
+    }
+
+    private static void CheckProtocol()
+    {
+        if (!QuicListener.IsSupported)
+        {
+            throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
+        }
+
+        if (IsSchannel())
+        {
+            throw new NotSupportedException($"QUIC uses the Schannel backend, which is not supported. Check {typeof(QuicConnection).Assembly.Location}");
+        }
+
+        static bool IsSchannel()
+        {
+            Type quicApiType = typeof(QuicConnection).Assembly.GetType("System.Net.Quic.MsQuicApi")!;
+            PropertyInfo usesSChannelBackendProperty = quicApiType.GetProperty("UsesSChannelBackend", BindingFlags.Static | BindingFlags.NonPublic)!;
+            return (bool)usesSChannelBackendProperty.GetValue(null)!;
+        }
     }
 
     private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>

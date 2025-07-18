@@ -2,11 +2,11 @@
   "profiles": {
     "Chat": {
       "commandName": "Project",
-      "commandLineArgs": "-d /ip4/127.0.0.1/tcp/9001/p2p/QmNMymSSfNSRvtB1tytWUYB6PXAZqmS8PYW7WKci5vuU8s --trace "
+      "commandLineArgs": "-d /ip4/127.0.0.1/udp/9002/quic-v1/p2p/12D3KooWQY74YrFwnwuBd2Y8aNyw2KpHmHF4Y7nG4P24FjdmuhTP --trace"
     },
     "Chat server": {
       "commandName": "Project",
-      "commandLineArgs": "--trace"
+      "commandLineArgs": "-quic -sp 9001"
     }
   }
 }

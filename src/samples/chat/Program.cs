@@ -43,6 +43,14 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
+    peer.ListenAddresses.CollectionChanged += (_, args) =>
+    {
+        if (args.NewItems is { Count: > 0 })
+        {
+            logger.LogInformation("Listen on {localAddr}", args.NewItems[0]);
+        }
+    };
+
     peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
     int indexOfPort = Array.IndexOf(args, "-sp");

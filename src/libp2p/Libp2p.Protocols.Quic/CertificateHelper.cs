@@ -35,7 +35,7 @@ public class CertificateHelper
 
         certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, false));
 
-        var certificate = certRequest.CreateSelfSigned(
+        X509Certificate2 certificate = certRequest.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.MaxValue);
 
