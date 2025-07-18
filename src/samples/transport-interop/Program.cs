@@ -113,7 +113,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
 
     public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
         : base(new ServiceCollection()
-            .AddLibp2p()
+            .AddLibp2p<TestPlansPeerFactoryBuilder>()
             .AddLogging(builder =>
                 builder.SetMinimumLevel(LogLevel.Trace)
                     .AddSimpleConsole(l =>
