@@ -59,7 +59,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 await waitForSession.WaitAsync();
                 if (session is null)
                 {
-                    throw new Libp2pException("Session was not initialized");
+                    throw new Libp2pException("Session was not initialized.");
                 }
 
                 uint pingCounter = 0;
@@ -105,7 +105,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                     Length = header.Length,
                                 });
 
-                            _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session.Id);
+                            _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? "nil");
                         }
                         continue;
                     }
@@ -127,11 +127,17 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                     continue;
                 }
-                else if (isListener && session is null)
+
+                if (isListener && session is null)
                 {
                     session = context.UpgradeToSession();
                     _logger?.LogInformation("Ctx({ctx}): Session created by listener for {peer}", session.Id, session.State.RemoteAddress);
                     waitForSession.Release();
+                }
+
+                if (session is null)
+                {
+                    throw new Libp2pException("Session was not initialized.");
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
