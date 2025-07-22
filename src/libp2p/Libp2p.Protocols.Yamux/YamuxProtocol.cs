@@ -20,6 +20,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
 
+    private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
     {
         multiplexerSettings?.Add(this);
@@ -81,13 +82,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
             while (!downChannelAwaiter.IsCompleted)
             {
-                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? "nil", channel, channel.CancellationToken);
+                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, channel.CancellationToken);
                 ReadOnlySequence<byte> data = default;
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
-                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? "nil", header.Type);
-                    _ = WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.ProtocolError);
+                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? NoSession, header.Type);
+                    _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
                     return;
                 }
 
@@ -97,7 +98,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(session?.Id ?? "nil", channel,
+                            _ = WriteHeaderAsync(session?.Id ?? NoSession, channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
@@ -105,14 +106,14 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                     Length = header.Length,
                                 });
 
-                            _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? "nil");
+                            _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? NoSession);
                         }
                         continue;
                     }
 
                     if (header.Type == YamuxHeaderType.GoAway)
                     {
-                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session?.Id ?? "nil");
+                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session?.Id ?? NoSession);
 
                         foreach (ChannelState channelState in channels.Values)
                         {
@@ -216,7 +217,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             }
 
-            _ = WriteGoAwayAsync(session?.Id ?? "nil", channel, SessionTerminationCode.Ok);
+            _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
             ChannelState CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {

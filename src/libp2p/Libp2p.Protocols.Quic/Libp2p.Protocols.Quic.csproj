@@ -22,27 +22,24 @@
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'windows'">
-    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL"
-                      Version="2.5.0-ci.570732"
-                      PrivateAssets="all"
-                      GeneratePathProperty="true" />
-
+  
+  <ItemGroup >
+    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" PrivateAssets="all" GeneratePathProperty="true" />
     <RuntimeHostConfigurationOption Include="System.Net.Quic.AppLocalMsQuic" Value="true" />
   </ItemGroup>
 
-  <Target Name="CopyCustomContent" AfterTargets="AfterBuild" Condition="'$(TargetPlatformIdentifier)' == 'windows'">
+  <Target Name="CopyCustomContent" AfterTargets="AfterBuild" >
     <Copy SourceFiles="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll" DestinationFolder="$(OutDir)" />
   </Target>
-  <Target Name="CopyCustomContentOnPublish" AfterTargets="Publish" Condition="'$(TargetPlatformIdentifier)' == 'windows'">
+  <Target Name="CopyCustomContentOnPublish" AfterTargets="Publish" >
     <Copy SourceFiles="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll" DestinationFolder="$(PublishDir)" />
   </Target>
+  
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
