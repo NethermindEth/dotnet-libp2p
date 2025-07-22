@@ -27,19 +27,19 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-  
-  <ItemGroup >
+
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" PrivateAssets="all" GeneratePathProperty="true" />
     <RuntimeHostConfigurationOption Include="System.Net.Quic.AppLocalMsQuic" Value="true" />
   </ItemGroup>
 
-  <Target Name="CopyCustomContent" AfterTargets="AfterBuild" >
+  <Target Name="CopyCustomContent" AfterTargets="AfterBuild" Condition="'$(OS)' == 'Windows_NT'">
     <Copy SourceFiles="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll" DestinationFolder="$(OutDir)" />
   </Target>
-  <Target Name="CopyCustomContentOnPublish" AfterTargets="Publish" >
+  <Target Name="CopyCustomContentOnPublish" AfterTargets="Publish" Condition="'$(OS)' == 'Windows_NT'">
     <Copy SourceFiles="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll" DestinationFolder="$(PublishDir)" />
   </Target>
-  
+
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
