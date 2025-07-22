@@ -1,15 +1,14 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Nethermind.Libp2p.Core;
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p;
+using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder.AddAppLayerProtocol<ChatProtocol>())
+    .AddLibp2p(builder => builder.WithQuic().AddAppLayerProtocol<ChatProtocol>())
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Trace)
             .AddSimpleConsole(l =>
@@ -28,10 +27,6 @@ if (args.Length > 0 && args[0] == "-d")
 {
     Multiaddress remoteAddr = args[1];
 
-    string addrTemplate = remoteAddr.Has<QUICv1>() ?
-       "/ip4/0.0.0.0/udp/0/quic-v1" :
-       "/ip4/0.0.0.0/tcp/0";
-
     await using ILocalPeer localPeer = peerFactory.Create();
 
     logger.LogInformation("Dialing {remote}", remoteAddr);
@@ -48,10 +43,20 @@ else
         "/ip4/0.0.0.0/udp/{0}/quic-v1" :
         "/ip4/0.0.0.0/tcp/{0}";
 
+    peer.ListenAddresses.CollectionChanged += (_, args) =>
+    {
+        if (args.NewItems is { Count: > 0 })
+        {
+            logger.LogInformation("Listen on {localAddr}", args.NewItems[0]);
+        }
+    };
+
     peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
+    int indexOfPort = Array.IndexOf(args, "-sp");
+
     await peer.StartListenAsync(
-        [string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0")],
+        [string.Format(addrTemplate, indexOfPort > -1 ? args[indexOfPort + 1] : "0")],
         ts.Token);
     logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));
 

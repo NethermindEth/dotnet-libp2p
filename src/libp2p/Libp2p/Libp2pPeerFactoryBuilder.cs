@@ -28,9 +28,9 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithRelay()
     {
-        //addRelay = true;
-        //return this;
         throw new NotImplementedException("Relay protocol is not yet implemented");
+        addRelay = true;
+        return this;
     }
 
     public ILibp2pPeerFactoryBuilder WithQuic()

@@ -13,11 +13,16 @@ public static class ServiceProviderExtensions
 {
     public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
     {
+        return services.AddLibp2p<Libp2pPeerFactoryBuilder>(factorySetup is null ? null : new Func<IPeerFactoryBuilder, IPeerFactoryBuilder>(b => factorySetup((ILibp2pPeerFactoryBuilder)b)))
+            .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>());
+    }
+
+    public static IServiceCollection AddLibp2p<TPeerFactoryBuilder>(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
+        where TPeerFactoryBuilder : IPeerFactoryBuilder
+    {
         return services
-            .AddSingleton(sp => new Libp2pPeerFactoryBuilder(sp))
-            .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>())
             .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
-            .AddSingleton(sp => factorySetup is null ? sp.GetRequiredService<Libp2pPeerFactoryBuilder>() : factorySetup(sp.GetRequiredService<Libp2pPeerFactoryBuilder>()))
+            .AddSingleton(sp => factorySetup is null ? ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp) : factorySetup(ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp)))
             .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
             .AddSingleton<MultiplexerSettings>()
             .AddSingleton<PubsubRouter>()
