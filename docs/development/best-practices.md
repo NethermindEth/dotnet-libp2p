@@ -3,6 +3,7 @@
 ## Package exchange
 
 Protocol can do handshake and exchange real payload, using any kind of data format. The messages are usually encoded via:
+
 - simple text;
 - protobuf;
 - or go as just a binary data stream.
@@ -15,18 +16,22 @@ Varint is a network friendly encoding of dynamic length positive integer up to 9
 ## Using protobuf
 
 There is a protobuf generator, that can be used to easily generate C# types in a unified manner. To integrate it, you need to:
+
 - Add `Libp2p.Generators.ProtobufGenerator` as analyzer to the project:
+
   ```xml
       <ProjectReference Include="..\Libp2p.Generators.ProtobufGenerator\Libp2p.Generators.ProtobufGenerator.csproj" 
           OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
   ```
+
 - Add `.proto` files for the structures needed and set "Build action" = "C# analyzer additional file" for each;
 - Add `option csharp_namespace = "<namespace>";` if the classes should belong in a particular namespace;
 - Build the project.
 
-## Testing 
+## Testing
 
 We use `NUnit` and `NSubstitute` to test, with some additional packages
+
 ```xml
     <PackageReference Include="NSubstitute" Version="5.0.0"/>
     <PackageReference Include="NSubstitute.Analyzers.CSharp" Version="1.0.16"/>
