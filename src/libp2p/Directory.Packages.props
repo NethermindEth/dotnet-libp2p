@@ -36,5 +36,7 @@
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.11.2" />
     <PackageVersion Include="SimpleBase" Version="4.0.2" />
     <PackageVersion Include="System.Runtime.Caching" Version="7.0.0" />
+    <PackageVersion Include="Libp2p.Generators.Protobuf" Version="$(ProtobufVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
   </ItemGroup>
 </Project>
