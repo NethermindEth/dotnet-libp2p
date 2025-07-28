@@ -17,22 +17,22 @@ using Libp2p.Protocols.KadDht.InternalTable.Logging;
 using Libp2p.Protocols.KadDht.InternalTable.Caching;
 using Libp2p.Protocols.KadDht.InternalTable.Threading;
 using Nethermind.Libp2p.Core;
+using ILogger = Libp2p.Protocols.KadDht.InternalTable.Logging.ILogger;
 
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 
-public class NodeHealthTracker<TKey, TNode>(
+public class NodeHealthTracker<TNode>(
     KademliaConfig<TNode> config,
-    IRoutingTable<TNode> routingTable,
+    IRoutingTable<TNode, ValueHash256> routingTable,
     INodeHashProvider<TNode> nodeHashProvider,
-    IKademliaMessageSender<TKey, TNode> kademliaMessageSender,
+    IKademliaMessageSender<ValueHash256, TNode> kademliaMessageSender,
     ILogManager logManager
 ) : INodeHealthTracker<TNode> where TNode : notnull
 {
-    private readonly Microsoft.Extensions.Logging.ILogger _logger = logManager.GetClassLogger<NodeHealthTracker<TKey, TNode>>();
-
+    private readonly ILogger _logger = logManager.GetClassLogger<NodeHealthTracker<TNode>>();
     private readonly ConcurrentDictionary<ValueHash256, bool> _isRefreshing = new();
-    private readonly LruCache<ValueHash256, int> _peerFailures = new(1024, "peer failure");
+    private readonly LruCache<ValueHash256, int> _peerFailures = new(1024, TimeSpan.FromMinutes(5));
     private readonly ValueHash256 _currentNodeIdAsHash = nodeHashProvider.GetHash(config.CurrentNodeId);
     private readonly TimeSpan _refreshPingTimeout = config.RefreshPingTimeout;
 
@@ -46,37 +46,39 @@ public class NodeHealthTracker<TKey, TNode>(
         ValueHash256 nodeHash = nodeHashProvider.GetHash(toRefresh);
         if (_isRefreshing.TryAdd(nodeHash, true))
         {
-            Task.Run(async () =>
-            {
-                // First, we delay in case any new message come and clear the refresh task, so we don't need to send any ping.
-                await Task.Delay(100);
-                if (!_isRefreshing.ContainsKey(nodeHash))
-                {
-                    return;
-                }
+            Task.Run(() => RefreshNodeAsync(toRefresh, nodeHash));
+        }
+    }
 
-                // OK, fine, we'll ping it.
-                using CancellationTokenSource cts = new CancellationTokenSource(_refreshPingTimeout);
-                try
-                {
-                    await kademliaMessageSender.Ping(toRefresh, cts.Token);
-                    OnIncomingMessageFrom(toRefresh);
-                }
-                catch (OperationCanceledException)
-                {
-                    OnRequestFailed(toRefresh);
-                }
-                catch (Exception e)
-                {
-                    OnRequestFailed(toRefresh);
-                    if (_logger.IsDebug) _logger.Debug($"Error while refreshing node {toRefresh}, {e}");
-                }
+    private async Task RefreshNodeAsync(TNode toRefresh, ValueHash256 nodeHash)
+    {
+        // First, we delay in case any new message come and clear the refresh task, so we don't need to send any ping.
+        await Task.Delay(100);
+        if (!_isRefreshing.ContainsKey(nodeHash))
+        {
+            return;
+        }
 
-                if (_isRefreshing.TryRemove(nodeHash, out _))
-                {
-                    routingTable.Remove(nodeHash);
-                }
-            });
+        // OK, fine, we'll ping it.
+        using CancellationTokenSource cts = new CancellationTokenSource(_refreshPingTimeout);
+        try
+        {
+            await kademliaMessageSender.Ping(nodeHash, cts.Token);
+            OnIncomingMessageFrom(toRefresh);
+        }
+        catch (OperationCanceledException)
+        {
+            OnRequestFailed(toRefresh);
+        }
+        catch (Exception e)
+        {
+            OnRequestFailed(toRefresh);
+            _logger.LogDebug(e, "Error while refreshing node {Node}", toRefresh);
+        }
+
+        if (_isRefreshing.TryRemove(nodeHash, out _))
+        {
+            routingTable.Remove(nodeHash);
         }
     }
 
@@ -101,7 +103,6 @@ public class NodeHealthTracker<TKey, TNode>(
                 TryRefresh(toRefresh);
             }
         }
-        _peerFailures.Delete(nodeHashProvider.GetHash(node));
     }
 
     /// <summary>
@@ -126,5 +127,3 @@ public class NodeHealthTracker<TKey, TNode>(
         _peerFailures.Set(hash, currentFailure + 1);
     }
 }
-
-

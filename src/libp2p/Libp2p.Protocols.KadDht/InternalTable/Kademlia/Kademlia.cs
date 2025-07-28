@@ -1,37 +1,32 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
-
 using Microsoft.Extensions.Logging;
-using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-
-
-
 using System.Diagnostics;
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 
-public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnull
+public class Kademlia<TNode, TKey> : IKademlia<TNode, TKey> where TNode : notnull
 {
-    private readonly IKademliaMessageSender<TKey, TNode> _kademliaMessageSender;
-    private readonly IKeyOperator<TKey, TNode> _keyOperator;
-    private readonly IRoutingTable<TNode> _routingTable;
-    private readonly ILookupAlgo<TNode> _lookupAlgo;
+    private readonly IKademliaMessageSender<TNode, TKey> _kademliaMessageSender;
+    private readonly IKeyOperator<TNode, TKey> _keyOperator;
+    private readonly IRoutingTable<TNode, TKey> _routingTable;
+    private readonly ILookupAlgo<TNode, TKey> _lookupAlgo;
     private readonly INodeHealthTracker<TNode> _nodeHealthTracker;
-    private readonly Microsoft.Extensions.Logging.ILogger _logger;
+    private readonly ILogger _logger;
 
     private readonly TNode _currentNodeId;
-    private readonly ValueHash256 _currentNodeIdAsHash;
+    private readonly TKey _currentNodeIdAsKey;
     private readonly int _kSize;
     private readonly TimeSpan _refreshInterval;
     private readonly IReadOnlyList<TNode> _bootNodes;
 
     public Kademlia(
-        IKeyOperator<TKey, TNode> keyOperator,
-        IKademliaMessageSender<TKey, TNode> sender,
-        IRoutingTable<TNode> routingTable,
-        ILookupAlgo<TNode> lookupAlgo,
-        Microsoft.Extensions.Logging.ILogger<Kademlia<TKey, TNode>> logger,
+        IKeyOperator<TNode, TKey> keyOperator,
+        IKademliaMessageSender<TNode, TKey> sender,
+        IRoutingTable<TNode, TKey> routingTable,
+        ILookupAlgo<TNode, TKey> lookupAlgo,
+        ILogger<Kademlia<TNode, TKey>> logger,
         INodeHealthTracker<TNode> nodeHealthTracker,
         KademliaConfig<TNode> config)
     {
@@ -43,7 +38,7 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
         _logger = logger;
 
         _currentNodeId = config.CurrentNodeId;
-        _currentNodeIdAsHash = _keyOperator.GetNodeHash(_currentNodeId);
+        _currentNodeIdAsKey = _keyOperator.GetKey(_currentNodeId);
         _kSize = config.KSize;
         _refreshInterval = config.RefreshInterval;
         _bootNodes = config.BootNodes;
@@ -55,13 +50,13 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
 
     public void AddOrRefresh(TNode node)
     {
-        // It add to routing table and does the whole refresh logid.
+        // It add to routing table and does the whole refresh logic.
         _nodeHealthTracker.OnIncomingMessageFrom(node);
     }
 
     public void Remove(TNode node)
     {
-        _routingTable.Remove(_keyOperator.GetNodeHash(node));
+        _routingTable.Remove(_keyOperator.GetKey(node));
     }
 
     public TNode[] GetAllAtDistance(int i)
@@ -71,22 +66,23 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
 
     private bool SameAsSelf(TNode node)
     {
-        return _keyOperator.GetNodeHash(node) == _currentNodeIdAsHash;
+        // Use null-conditional and EqualityComparer for safety
+        var key = _keyOperator.GetKey(node);
+        return key != null && EqualityComparer<TKey>.Default.Equals(key, _currentNodeIdAsKey);
     }
 
-    public Task<TNode[]> LookupNodesClosest(TKey key, CancellationToken token, int? k = null)
+    public Task<TNode[]> LookupNodesClosest(TKey key, CancellationToken? token, int? k = null)
     {
         return _lookupAlgo.Lookup(
-            _keyOperator.GetKeyHash(key),
+            key,
             k ?? _kSize,
-            async (nextNode, token) =>
+            async (nextNode, innerToken) =>
             {
                 if (SameAsSelf(nextNode))
                 {
-                    ValueHash256 keyHash = _keyOperator.GetKeyHash(key);
-                    return _routingTable.GetKNearestNeighbour(keyHash);
+                    return _routingTable.GetKNearestNeighbour(key);
                 }
-                return await _kademliaMessageSender.FindNeighbours(nextNode, key, token);
+                return await _kademliaMessageSender.FindNeighbours(nextNode, key, innerToken);
             },
             token
         );
@@ -106,16 +102,13 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
     public async Task Bootstrap(CancellationToken token)
     {
         Stopwatch sw = Stopwatch.StartNew();
-
         int onlineBootNodes = 0;
-
-        // Check bootnodes is online
-        await Parallel.ForEachAsync(_bootNodes, token, async (node, token) =>
+        // Avoid parameter hiding
+        await Parallel.ForEachAsync(_bootNodes, token, async (node, innerToken) =>
         {
             try
             {
-                // Should be added on Pong.
-                await _kademliaMessageSender.Ping(node, token);
+                await _kademliaMessageSender.Ping(node, innerToken);
                 onlineBootNodes++;
             }
             catch (OperationCanceledException)
@@ -123,23 +116,19 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
                 // Unreachable
             }
         });
-
-        if (_logger.IsEnabled(LogLevel.Information)) 
+        if (_logger.IsEnabled(LogLevel.Information))
             _logger.LogInformation("Online bootnodes: {OnlineBootNodes}", onlineBootNodes);
-
-        TKey currentNodeIdAsKey = _keyOperator.GetKey(_currentNodeId);
-        await LookupNodesClosest(currentNodeIdAsKey, token);
-
+        await LookupNodesClosest(_currentNodeIdAsKey, token);
         token.ThrowIfCancellationRequested();
-
         // Refreshes all bucket. one by one. That is not empty.
         // A refresh means to do a k-nearest node lookup for a random hash for that particular bucket.
-        foreach ((ValueHash256 Prefix, int Distance, KBucket<TNode> Bucket) in _routingTable.IterateBuckets())
+        foreach ((TKey prefix, int distance, KBucket<TNode> _) in _routingTable.IterateBuckets())
         {
-            var keyToLookup = _keyOperator.CreateRandomKeyAtDistance(Prefix, Distance);
-            await LookupNodesClosest(keyToLookup, token);
+            var keyBytes = _keyOperator.CreateRandomKeyAtDistance(prefix, distance);
+            var keyToLookup = _keyOperator.GetKeyFromBytes<TKey>(keyBytes); // Specify TKey explicitly
+            var nodes = await LookupNodesClosest(keyToLookup, token);
+            _logger.LogInformation("Lookup nodes closest for bucket {Prefix} {Distance} {Nodes}", prefix, distance, nodes.Length);
         }
-
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug($"Bootstrap completed. Took {sw}.");
@@ -149,10 +138,8 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
 
     public TNode[] GetKNeighbour(TKey target, TNode? excluding = default, bool excludeSelf = false)
     {
-        ValueHash256? excludeHash = null;
-        if (excluding != null) excludeHash = _keyOperator.GetNodeHash(excluding);
-        ValueHash256 hash = _keyOperator.GetKeyHash(target);
-        return _routingTable.GetKNearestNeighbour(hash, excludeHash, excludeSelf);
+        TKey excludeKey = excluding is not null ? _keyOperator.GetKey(excluding) : default!;
+        return _routingTable.GetKNearestNeighbour(target, excludeKey, excludeSelf);
     }
 
     public event EventHandler<TNode> OnNodeAdded
@@ -163,7 +150,7 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
 
     public IEnumerable<TNode> IterateNodes()
     {
-        foreach ((ValueHash256 _, int _, KBucket<TNode> Bucket) in _routingTable.IterateBuckets())
+        foreach ((TKey _, int _, KBucket<TNode> Bucket) in _routingTable.IterateBuckets())
         {
             foreach (var node in Bucket.GetAll())
             {
@@ -172,5 +159,3 @@ public class Kademlia<TKey, TNode> : IKademlia<TKey, TNode> where TNode : notnul
         }
     }
 }
-
-

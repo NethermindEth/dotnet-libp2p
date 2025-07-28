@@ -136,6 +136,11 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Caching
             return false;
         }
 
+        public void Delete(TKey key)
+        {
+            Remove(key);
+        }
+
         /// <summary>
         /// Clears all items from the cache.
         /// </summary>

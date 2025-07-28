@@ -128,5 +128,7 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Logging
         /// Checks if error level is enabled.
         /// </summary>
         bool IsError { get; }
+
+        void LogDebug<TNode>(Exception exception, string errorWhileRefreshingNodeNode, TNode toRefresh) where TNode : notnull;
     }
 } 

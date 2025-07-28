@@ -25,10 +25,11 @@ public class TestChannel : IChannel
         return _channel.Reverse;
     }
 
-    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+    public ValueTask<ReadResult> ReadAsync(byte[] length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        int messageLength,
         CancellationToken token = default)
     {
-        return _channel.ReadAsync(length, blockingMode, token);
+        return _channel.ReadAsync(length, blockingMode, token: token);
     }
 
     public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)

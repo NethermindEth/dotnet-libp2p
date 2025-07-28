@@ -1,10 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
-
-using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-
-
 using Libp2p.Protocols.KadDht.InternalTable.Crypto;
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia

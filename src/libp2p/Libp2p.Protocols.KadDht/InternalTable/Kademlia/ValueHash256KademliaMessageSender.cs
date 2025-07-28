@@ -44,10 +44,14 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
         {
              try
             {
-                // Convert ValueHash256 to PeerId
                 PeerId peerId = FindPeerId(receiver);
-                var result = await _kadDhtProtocol.FindNeighbours(peerId, target, token);
-                return result;
+                var peerIds = await _kadDhtProtocol.FindNeighbours(peerId, target, token);
+                var valueHashes = new ValueHash256[peerIds.Length];
+                for (int i = 0; i < peerIds.Length; i++)
+                {
+                    valueHashes[i] = new ValueHash256(peerIds[i].Bytes);
+                }
+                return valueHashes;
             }
             catch (Exception e)
             {
@@ -66,17 +70,17 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
 
             // This is a simple implementation that assumes the ValueHash256 is directly derived from the PeerId
             // In a full implementation, we would need to maintain bidirectional mappings
-            
+
             // For ValueHash256 instances derived directly from PeerId bytes, we can reverse the mapping
             byte[] peerIdBytes = hash.Bytes;
             peerId = new PeerId(peerIdBytes);
-            
+
             // Cache the mapping for future use
             _peerIdCache[hash] = peerId;
-            
+
             return peerId;
         }
-        
+
         // Method to register a known mapping between a PeerId and its ValueHash256 representation
         public void RegisterPeerId(PeerId peerId, ValueHash256 hash)
         {

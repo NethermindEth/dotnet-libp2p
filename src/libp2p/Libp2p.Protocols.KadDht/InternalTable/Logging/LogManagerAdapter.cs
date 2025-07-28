@@ -18,9 +18,6 @@ using Libp2p.Protocols.KadDht.InternalTable.Caching;
 using Libp2p.Protocols.KadDht.InternalTable.Threading;
 using Nethermind.Libp2p.Core;
 
-
-using Microsoft.Extensions.Logging;
-
 namespace Libp2p.Protocols.KadDht.InternalTable.Logging
 {
     /// <summary>
@@ -36,7 +33,7 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Logging
         /// <param name="loggerFactory">The Microsoft.Extensions.Logging.ILoggerFactory to adapt.</param>
         public LogManagerAdapter(ILoggerFactory loggerFactory)
         {
-            _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+            _loggerFactory = loggerFactory;
         }
 
         /// <inheritdoc />

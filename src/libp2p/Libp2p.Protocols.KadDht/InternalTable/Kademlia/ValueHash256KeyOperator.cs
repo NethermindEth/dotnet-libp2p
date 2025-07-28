@@ -1,5 +1,4 @@
 using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-using Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 using System;
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
@@ -16,49 +15,73 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
             return node;
         }
 
-        public ValueHash256 GetKeyHash(ValueHash256 key)
+        public byte[] CreateRandomKeyAtDistance(ValueHash256 prefix, int distance)
         {
-            return key;
+            var random = new Random();
+            var bytes = new byte[32];
+            random.NextBytes(bytes);
+            // Set the prefix bits up to the given distance
+            int fullBytes = distance / 8;
+            int remainingBits = distance % 8;
+            var prefixBytes = prefix.Bytes;
+            for (int i = 0; i < fullBytes && i < 32; i++)
+                bytes[i] = prefixBytes[i];
+            if (fullBytes < 32 && remainingBits > 0)
+            {
+                byte mask = (byte)(0xFF << (8 - remainingBits));
+                bytes[fullBytes] = (byte)((prefixBytes[fullBytes] & mask) | (bytes[fullBytes] & ~mask));
+            }
+            return bytes;
+        }
+
+        public int GetDistance<TKey>(TKey k1, TKey k2)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TKey GetKeyFromBytes<TKey>(byte[] keyBytes)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueHash256 GetKeyHash(byte[] key)
+        {
+            if (key == null)
+                throw new ArgumentNullException(nameof(key));
+            return new ValueHash256(key);
         }
 
         public ValueHash256 GetNodeHash(ValueHash256 node)
         {
+            // For ValueHash256, the node is the hash itself
             return node;
         }
 
-        public ValueHash256 CreateRandomKeyAtDistance(ValueHash256 nodePrefix, int depth)
+
+        /// <summary>
+        /// Ensures a byte array has the specified length.
+        /// </summary>
+        private static byte[] NormalizeLength(byte[] input, int targetLength)
         {
-            // This is a simplistic implementation - would need to be improved for production
-
-            // Create a random hash
-            var random = new Random();
-            byte[] result = new byte[32];
-            random.NextBytes(result);
-
-            // Ensure it's at the specified distance
-            int byteIndex = depth / 8;
-            int bitIndex = depth % 8;
-
-            if (byteIndex < 32)
+            if (input.Length == targetLength)
             {
-                // Flip the bit at the specified depth
-                result[byteIndex] ^= (byte)(1 << bitIndex);
-
-                // Ensure lower bits match for distance
-                for (int i = byteIndex + 1; i < 32; i++)
-                {
-                    result[i] = nodePrefix.Bytes[i];
-                }
-
-                // If not the first bit in a byte, ensure higher bits in the byte match too
-                if (bitIndex > 0)
-                {
-                    byte mask = (byte)(0xFF << (bitIndex + 1));
-                    result[byteIndex] = (byte)((result[byteIndex] & ~mask) | (nodePrefix.Bytes[byteIndex] & mask));
-                }
+                return input;
             }
 
-            return new ValueHash256(result);
+            var result = new byte[targetLength];
+
+            if (input.Length < targetLength)
+            {
+                // Pad with zeros
+                Buffer.BlockCopy(input, 0, result, 0, input.Length);
+            }
+            else
+            {
+                // Truncate
+                Buffer.BlockCopy(input, 0, result, 0, targetLength);
+            }
+
+            return result;
         }
     }
 }

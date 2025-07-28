@@ -1,17 +1,16 @@
 using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-using Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 using System;
 using System.Collections.Generic;
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
 {
-    public class ValueHash256RoutingTable : IRoutingTable<ValueHash256>
+    public class ValueHash256RoutingTable : IRoutingTable<ValueHash256, ValueHash256>
     {
         private readonly KBucketTree<ValueHash256> _kBucketTree;
 
         public ValueHash256RoutingTable(KBucketTree<ValueHash256> kBucketTree)
         {
-            _kBucketTree = kBucketTree ?? throw new ArgumentNullException(nameof(kBucketTree));
+            _kBucketTree = kBucketTree;
         }
 
         public event EventHandler<ValueHash256>? OnNodeAdded
@@ -20,19 +19,31 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
             remove => _kBucketTree.OnNodeAdded -= value;
         }
 
-        public BucketAddResult TryAddOrRefresh(in ValueHash256 hash, ValueHash256 item, out ValueHash256? toRefresh)
+        public BucketAddResult TryAddOrRefresh(in ValueHash256 key, ValueHash256 item, out ValueHash256? toRefresh)
         {
-            return _kBucketTree.TryAddOrRefresh(hash, item, out toRefresh);
+            var result = _kBucketTree.TryAddOrRefresh(key, item, out var toRefreshValue);
+            toRefresh = toRefreshValue;
+            return result;
         }
 
-        public bool Remove(in ValueHash256 hash)
+        public BucketAddResult TryAddOrRefresh(in ValueHash256 key, ValueHash256 item, out ValueHash256 toRefresh)
         {
-            return _kBucketTree.Remove(hash);
+            throw new NotImplementedException();
         }
 
-        public ValueHash256[] GetKNearestNeighbour(ValueHash256 hash, ValueHash256? exclude = null, bool excludeSelf = false)
+        public bool Remove(in ValueHash256 key)
         {
-            return _kBucketTree.GetKNearestNeighbour(hash, exclude, excludeSelf);
+            return _kBucketTree.Remove(key);
+        }
+
+        public ValueHash256[] GetKNearestNeighbour(ValueHash256 key, ValueHash256 exclude = default, bool excludeSelf = false)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueHash256[] GetKNearestNeighbour(ValueHash256 key, ValueHash256? exclude = default, bool excludeSelf = false)
+        {
+            return _kBucketTree.GetKNearestNeighbour(key, exclude, excludeSelf);
         }
 
         public ValueHash256[] GetAllAtDistance(int i)
@@ -45,9 +56,14 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia
             return _kBucketTree.IterateBuckets();
         }
 
-        public ValueHash256 GetByHash(ValueHash256 nodeId)
+        ValueHash256 IRoutingTable<ValueHash256, ValueHash256>.GetByKey(ValueHash256 key)
         {
-            return _kBucketTree.GetByHash(nodeId);
+            throw new NotImplementedException();
+        }
+
+        public ValueHash256? GetByKey(ValueHash256 key)
+        {
+            return _kBucketTree.GetByKey(key);
         }
 
         public void LogDebugInfo()

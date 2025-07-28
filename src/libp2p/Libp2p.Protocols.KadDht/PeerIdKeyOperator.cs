@@ -11,19 +11,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Security.Cryptography;
 using Libp2p.Protocols.KadDht.InternalTable.Crypto;
 using Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 using Libp2p.Protocols.KadDht.InternalTable.Logging;
 using Libp2p.Protocols.KadDht.InternalTable.Caching;
 using Libp2p.Protocols.KadDht.InternalTable.Threading;
 using Nethermind.Libp2p.Core;
-
-
-using System;
-using System.Security.Cryptography;
-using Nethermind.Libp2p.Core;
-using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-using Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 
 namespace Libp2p.Protocols.KadDht
 {
@@ -47,6 +41,23 @@ namespace Libp2p.Protocols.KadDht
             ValueHash256 bHash = GetKey(b);
             
             return aHash.GetDistance(bHash);
+        }
+
+        /// <summary>
+        /// Gets the distance between two keys of type TKey.
+        /// </summary>
+        /// <typeparam name="TKey">The type of the keys.</typeparam>
+        /// <param name="a">The first key.</param>
+        /// <param name="b">The second key.</param>
+        /// <returns>The distance between the two keys.</returns>
+        public int GetDistance<TKey>(TKey a, TKey b)
+        {
+            if (a is PeerId peerIdA && b is PeerId peerIdB)
+            {
+                return GetDistance(peerIdA, peerIdB);
+            }
+            
+            throw new ArgumentException($"Unsupported key type: {typeof(TKey)}");
         }
 
         /// <summary>
@@ -78,6 +89,22 @@ namespace Libp2p.Protocols.KadDht
         }
 
         /// <summary>
+        /// Gets a key from bytes for type TKey.
+        /// </summary>
+        /// <typeparam name="TKey">The type of the key to create.</typeparam>
+        /// <param name="bytes">The byte array to convert to a key.</param>
+        /// <returns>A key of type TKey.</returns>
+        public TKey GetKeyFromBytes<TKey>(byte[] bytes)
+        {
+            if (typeof(TKey) == typeof(PeerId))
+            {
+                return (TKey)(object)new PeerId(bytes);
+            }
+            
+            throw new ArgumentException($"Unsupported key type: {typeof(TKey)}");
+        }
+
+        /// <summary>
         /// Gets a key representation of the byte array.
         /// </summary>
         /// <param name="key">The byte array to convert to a key.</param>
@@ -103,6 +130,24 @@ namespace Libp2p.Protocols.KadDht
         public ValueHash256 GetNodeHash(PeerId peerId)
         {
             return GetKey(peerId);
+        }
+
+        /// <summary>
+        /// Converts a ValueHash256 back to a PeerId.
+        /// </summary>
+        /// <param name="hash">The ValueHash256 to convert.</param>
+        /// <returns>The corresponding PeerId.</returns>
+        public PeerId GetPeerId(ValueHash256 hash)
+        {
+            // First check if we have this hash in our cache
+            var cachedPeerId = _hashCache.FirstOrDefault(kvp => kvp.Value.Equals(hash)).Key;
+            if (cachedPeerId != null)
+            {
+                return cachedPeerId;
+            }
+
+            // If not found in cache, create a new PeerId from the hash bytes
+            return new PeerId(hash.Bytes);
         }
 
         /// <summary>

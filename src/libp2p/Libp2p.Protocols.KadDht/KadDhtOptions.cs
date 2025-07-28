@@ -15,8 +15,6 @@ using Libp2p.Protocols.KadDht.InternalTable.Caching;
 using Libp2p.Protocols.KadDht.InternalTable.Threading;
 using Nethermind.Libp2p.Core;
 
-using Nethermind.Libp2p.Core;
-
 namespace Libp2p.Protocols.KadDht
 {
     /// <summary>

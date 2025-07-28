@@ -3,7 +3,7 @@
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 
-public interface IIteratorNodeLookup<TKey, TNode>
+public interface IIteratorNodeLookup<TNode, TKey> where TNode : notnull
 {
     IAsyncEnumerable<TNode> Lookup(TKey target, CancellationToken token);
 }

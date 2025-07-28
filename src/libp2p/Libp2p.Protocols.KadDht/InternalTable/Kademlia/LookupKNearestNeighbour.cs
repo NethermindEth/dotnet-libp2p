@@ -3,24 +3,16 @@
 
 using System;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Libp2p.Protocols.KadDht.InternalTable.Crypto;
-using Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 using Libp2p.Protocols.KadDht.InternalTable.Logging;
-using Libp2p.Protocols.KadDht.InternalTable.Caching;
 using Libp2p.Protocols.KadDht.InternalTable.Threading;
-using Nethermind.Libp2p.Core;
-
-
-using System.Diagnostics.CodeAnalysis;
+using ILogger = Libp2p.Protocols.KadDht.InternalTable.Logging.ILogger;
 
 namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 
@@ -32,35 +24,35 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Kademlia;
 /// earlier as it converge to the content faster, but take more query for findnodes due to a more strict stop
 /// condition.
 /// </summary>
-public class LookupKNearestNeighbour<TKey, TNode>(
-    IRoutingTable<TNode> routingTable,
+public class LookupKNearestNeighbour<TNode>(
+    IRoutingTable<TNode, ValueHash256> routingTable,
     INodeHashProvider<TNode> nodeHashProvider,
     INodeHealthTracker<TNode> nodeHealthTracker,
     KademliaConfig<TNode> config,
-    ILogManager logManager) : ILookupAlgo<TNode> where TNode : notnull
+    Microsoft.Extensions.Logging.ILogger logger) : ILookupAlgo<TNode, ValueHash256> where TNode : notnull
 {
     private readonly TimeSpan _findNeighbourHardTimeout = config.LookupFindNeighbourHardTimout;
-    private readonly Microsoft.Extensions.Logging.ILogger _logger = logManager.GetClassLogger<LookupKNearestNeighbour<TKey, TNode>>();
+    private readonly Microsoft.Extensions.Logging.ILogger _logger = logger;
 
     public async Task<TNode[]> Lookup(
-        ValueHash256 targetHash,
+        ValueHash256 targetKey,
         int k,
         Func<TNode, CancellationToken, Task<TNode[]?>> findNeighbourOp,
         CancellationToken token
     )
     {
-        if (_logger.IsDebug) _logger.Debug($"Initiate lookup for hash {targetHash}");
+        _logger.LogDebug("Initiate lookup for key {TargetKey}", targetKey);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         token = cts.Token;
 
-        ConcurrentDictionary<ValueHash256, TNode> queried = new();
-        ConcurrentDictionary<ValueHash256, TNode> seen = new();
+        var queried = new ConcurrentDictionary<ValueHash256, TNode>();
+        var seen = new ConcurrentDictionary<ValueHash256, TNode>();
 
-        IComparer<ValueHash256> comparer = Comparer<ValueHash256>.Create((h1, h2) =>
-            Hash256XorUtils.Compare(h1, h2, targetHash));
-        IComparer<ValueHash256> comparerReverse = Comparer<ValueHash256>.Create((h1, h2) =>
-            Hash256XorUtils.Compare(h2, h1, targetHash));
+        IComparer<ValueHash256> comparer = Comparer<ValueHash256>.Create((k1, k2) =>
+            Hash256XorUtils.Compare(k1, k2, targetKey));
+        IComparer<ValueHash256> comparerReverse = Comparer<ValueHash256>.Create((k1, k2) =>
+            Hash256XorUtils.Compare(k2, k1, targetKey));
 
         McsLock queueLock = new McsLock();
 
@@ -70,11 +62,11 @@ public class LookupKNearestNeighbour<TKey, TNode>(
         // Ordered by highest distance. Added on result. Get popped as result.
         PriorityQueue<(ValueHash256, TNode), ValueHash256> finalResult = new(comparerReverse);
 
-        foreach (TNode node in routingTable.GetKNearestNeighbour(targetHash, default))
+        foreach (TNode node in routingTable.GetKNearestNeighbour(targetKey, default))
         {
-            ValueHash256 nodeHash = nodeHashProvider.GetHash(node);
-            seen.TryAdd(nodeHash, node);
-            bestSeen.Enqueue((nodeHash, node), nodeHash);
+            ValueHash256 nodeKey = nodeHashProvider.GetHash(node);
+            seen.TryAdd(nodeKey, node);
+            bestSeen.Enqueue((nodeKey, node), nodeKey);
         }
 
         TaskCompletionSource roundComplete = new TaskCompletionSource(token);
@@ -83,38 +75,32 @@ public class LookupKNearestNeighbour<TKey, TNode>(
         int queryingTask = 0;
         bool finished = false;
 
-        Task[] worker = Enumerable.Range(0, config.Alpha).Select((i) => Task.Run(async () =>
+        Task[] worker = Enumerable.Range(0, config.Alpha).Select(i => Task.Run(async () =>
         {
             while (!finished)
             {
                 token.ThrowIfCancellationRequested();
-                if (!TryGetNodeToQuery(out (ValueHash256 hash, TNode node)? toQuery))
+                if (!TryGetNodeToQuery(out (ValueHash256 key, TNode node)? toQuery))
                 {
                     if (queryingTask > 0)
                     {
-                        // Need to wait for all querying tasks first here.
                         await Task.WhenAny(roundComplete.Task, Task.Delay(100, token));
                         continue;
                     }
-
-                    // No node to query and running query.
-                    if (_logger.IsTrace) _logger.Trace("Stopping lookup. No node to query.");
+                    _logger.LogTrace("Stopping lookup. No node to query.");
                     break;
                 }
-
                 try
                 {
                     if (ShouldStopDueToNoBetterResult(out var round))
                     {
-                        if (_logger.IsTrace) _logger.Trace("Stopping lookup. No better result.");
+                        _logger.LogTrace("Stopping lookup. No better result.");
                         break;
                     }
-
-                    queried.TryAdd(toQuery.Value.hash, toQuery.Value.node);
+                    queried.TryAdd(toQuery.Value.key, toQuery.Value.node);
                     (TNode, TNode[]? neighbours)? result = await WrappedFindNeighbourOp(toQuery.Value.node);
                     if (result == null) continue;
-
-                    ProcessResult(toQuery.Value.hash, toQuery.Value.node, result, round);
+                    ProcessResult(toQuery.Value.key, toQuery.Value.node, result, round);
                 }
                 finally
                 {
@@ -124,8 +110,6 @@ public class LookupKNearestNeighbour<TKey, TNode>(
             }
         }, token)).ToArray();
 
-        // When any of the worker is finished, we consider the whole query as done.
-        // This prevent this operation from hanging on a timed out request
         await Task.WhenAny(worker);
         finished = true;
         await cts.CancelAsync();
@@ -134,81 +118,64 @@ public class LookupKNearestNeighbour<TKey, TNode>(
 
         async Task<(TNode target, TNode[]? retVal)> WrappedFindNeighbourOp(TNode node)
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            cts.CancelAfter(_findNeighbourHardTimeout);
-
+            using var cts2 = CancellationTokenSource.CreateLinkedTokenSource(token);
+            cts2.CancelAfter(_findNeighbourHardTimeout);
             try
             {
-                // targetHash is implied in findNeighbourOp
-                var ret = await findNeighbourOp(node, cts.Token);
+                var ret = await findNeighbourOp(node, cts2.Token);
                 nodeHealthTracker.OnIncomingMessageFrom(node);
-
                 return (node, ret);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException e)
             {
                 nodeHealthTracker.OnRequestFailed(node);
+                _logger.LogWarning(e, "Find neighbour op failed.");
                 return (node, null);
             }
             catch (Exception e)
             {
                 nodeHealthTracker.OnRequestFailed(node);
-                if (_logger.IsWarn) _logger.Warn($"Find neighbour op failed. {e}");
-                if (_logger.IsDebug) _logger.Debug($"Find neighbour op failed. {e}");
+                _logger.LogWarning(e, "Find neighbour op failed.");
                 return (node, null);
             }
         }
 
-        bool TryGetNodeToQuery([NotNullWhen(true)] out (ValueHash256, TNode)? toQuery)
+        bool TryGetNodeToQuery(out (ValueHash256, TNode)? toQuery)
         {
             using McsLock.Disposable _ = queueLock.Acquire();
             if (bestSeen.Count == 0)
             {
                 toQuery = default;
-                // No more node to query.
-                // Note: its possible that there are other worker currently which may add to bestSeen.
                 return false;
             }
-
             Interlocked.Increment(ref queryingTask);
             toQuery = bestSeen.Dequeue();
             return true;
         }
 
-        void ProcessResult(ValueHash256 hash, TNode toQuery, (TNode, TNode[]? neighbours)? valueTuple, int round)
+        void ProcessResult(ValueHash256 key, TNode toQuery, (TNode, TNode[]? neighbours)? valueTuple, int round)
         {
             using var _ = queueLock.Acquire();
-
-            finalResult.Enqueue((hash, toQuery), hash);
+            finalResult.Enqueue((key, toQuery), key);
             while (finalResult.Count > k)
             {
                 finalResult.Dequeue();
             }
-
             TNode[]? neighbours = valueTuple?.neighbours;
             if (neighbours == null) return;
-
             foreach (TNode neighbour in neighbours)
             {
-                ValueHash256 neighbourHash = nodeHashProvider.GetHash(neighbour);
-
-                // Already queried, we ignore
-                if (queried.ContainsKey(neighbourHash)) continue;
-
-                // When seen already dont record
-                if (!seen.TryAdd(neighbourHash, neighbour)) continue;
-
-                bestSeen.Enqueue((neighbourHash, neighbour), neighbourHash);
-
+                ValueHash256 neighbourKey = nodeHashProvider.GetHash(neighbour);
+                if (queried.ContainsKey(neighbourKey)) continue;
+                if (!seen.TryAdd(neighbourKey, neighbour)) continue;
+                bestSeen.Enqueue((neighbourKey, neighbour), neighbourKey);
                 if (closestNodeRound < round)
                 {
                     if (finalResult.Count < k)
                     {
                         closestNodeRound = round;
                     }
-
-                    // If the worst item in final result is worst that this neighbour, update closes node round
-                    if (finalResult.TryPeek(out (ValueHash256 hash, TNode node) worstResult, out ValueHash256 _) && comparer.Compare(neighbourHash, worstResult.hash) < 0)
+                    if (finalResult.TryPeek(out (ValueHash256 key, TNode node) worstResult, out ValueHash256 _) && comparer.Compare(neighbourKey, worstResult.key) < 0)
                     {
                         closestNodeRound = round;
                     }
@@ -226,22 +193,13 @@ public class LookupKNearestNeighbour<TKey, TNode>(
         bool ShouldStopDueToNoBetterResult(out int round)
         {
             using var _ = queueLock.Acquire();
-
             round = Interlocked.Increment(ref currentRound);
             if (finalResult.Count >= k && round - closestNodeRound >= (config.Alpha * 2))
             {
-                // No closer node for more than or equal to _alpha*2 round.
-                // Assume exit condition
-                // Why not just _alpha?
-                // Because there could be currently running work that may increase closestNodeRound.
-                // So including this worker, assume no more
-                if (_logger.IsTrace) _logger.Trace($"No more closer node. Round: {round}, closestNodeRound {closestNodeRound}");
+                _logger.LogTrace("No more closer node. Round: {Round}, closestNodeRound {ClosestNodeRound}", round, closestNodeRound);
                 return true;
             }
-
             return false;
         }
     }
 }
-
-

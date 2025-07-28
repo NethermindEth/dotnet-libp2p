@@ -67,7 +67,7 @@ namespace Libp2p.Protocols.KadDht.InternalTable.Crypto
             return _bytes.SequenceEqual(other._bytes);
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             return obj is ValueHash256 other && Equals(other);
         }
