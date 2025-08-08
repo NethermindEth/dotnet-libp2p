@@ -65,9 +65,31 @@ public class ChatService
     {
         if (_pubsubRouter != null)
         {
-            var topicPeers = new List<PeerId>();
+            // Get connected peers from the current sessions in the router
+            var connectedPeerIds = new List<PeerId>();
 
-            foreach (var peerId in topicPeers)
+            try
+            {
+                // Get peers from direct connections
+                // The router doesn't expose a direct way to get peers subscribed to a topic,
+                // so we'll track the peers we see connected via the network
+                var routerState = _pubsubRouter as IRoutingStateContainer;
+                if (routerState != null)
+                {
+                    // Try to get peers from the router's internal state
+                    foreach (var peerId in routerState.ConnectedPeers)
+                    {
+                        connectedPeerIds.Add(peerId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Error getting peers: {ex.Message}");
+            }
+
+            // Update connected peers dictionary
+            foreach (var peerId in connectedPeerIds)
             {
                 string peerIdStr = peerId.ToString();
                 if (!_connectedPeers.ContainsKey(peerIdStr))
@@ -76,30 +98,25 @@ public class ChatService
                     _connectedPeers[peerIdStr] = new ConnectedPeer
                     {
                         PeerId = peerIdStr,
-                        Address = "Unknown", // We don't have address info from just the topic
+                        Address = "Connected via libp2p",
                         ConnectedAt = DateTime.Now,
-                        UserAgent = "Unknown"
+                        UserAgent = "Libp2p peer"
                     };
 
-                    AddLog($"Connected to peer: {peerIdStr}");
+                    AddLog($"New peer connected: {peerIdStr}");
                 }
             }
 
             // Check for disconnected peers
-            var disconnectedPeers = new List<string>();
-            foreach (var peer in _connectedPeers)
-            {
-                if (!topicPeers.Contains(new PeerId(peer.Key)))
-                {
-                    disconnectedPeers.Add(peer.Key);
-                }
-            }
+            var disconnectedPeers = _connectedPeers.Keys
+                .Where(key => !connectedPeerIds.Any(p => p.ToString() == key))
+                .ToList();
 
             foreach (var peerId in disconnectedPeers)
             {
                 if (_connectedPeers.TryRemove(peerId, out var peer))
                 {
-                    AddLog($"Disconnected from peer: {peerId}");
+                    AddLog($"Peer disconnected: {peerId}");
                 }
             }
         }
@@ -167,6 +184,12 @@ public class ChatService
     {
         var chatMsg = new ChatMessage(message, _peer.Identity.PeerId.ToString(), nickName);
         _topic.Publish(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(chatMsg)));
+
+        // Add own message immediately to the messages list
+        lock (_messages)
+        {
+            _messages.Add($"{nickName} (me): {message}");
+        }
     }
 
     public void Stop()

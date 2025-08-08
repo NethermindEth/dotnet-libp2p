@@ -9,16 +9,24 @@ using PubsubChat;
 
 Regex omittedLogs = new(".*(MDnsDiscoveryProtocol|IpTcpProtocol).*");
 
+bool headless = args.Contains("--headless");
+
 var services = new ServiceCollection()
     .AddLibp2p(builder => builder.WithPubsub())
     .AddLogging(builder =>
+    {
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information)
-               .AddSimpleConsole(l =>
-               {
-                   l.SingleLine = true;
-                   l.TimestampFormat = "[HH:mm:ss.fff]";
-               })
-               .AddFilter((_, type, lvl) => !omittedLogs.IsMatch(type!)))
+               .AddFilter((_, type, lvl) => !omittedLogs.IsMatch(type!));
+
+        if (headless)
+        {
+            builder.AddSimpleConsole(l =>
+            {
+                l.SingleLine = true;
+                l.TimestampFormat = "[HH:mm:ss.fff]";
+            });
+        }
+    })
     .BuildServiceProvider();
 
 var chatService = new ChatService(services);
@@ -26,7 +34,7 @@ await chatService.StartAsync();
 
 string nickName = "libp2p-dotnet";
 
-if (!args.Contains("--headless"))
+if (!headless)
 {
     Gui.RunGui(chatService, nickName);
 }
