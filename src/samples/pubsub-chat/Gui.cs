@@ -7,6 +7,11 @@ using Timer = System.Threading.Timer;
 
 public static class Gui
 {
+    private static bool _autoScrollMessages = true;
+    private static bool _autoScrollLogs = true;
+    private static DateTime _lastUserScrollMessages = DateTime.MinValue;
+    private static DateTime _lastUserScrollLogs = DateTime.MinValue;
+
     public static void RunGui(ChatService chatService, string nickName)
     {
         Application.Init();
@@ -48,8 +53,27 @@ public static class Gui
             ReadOnly = true,
             WordWrap = true
         };
+
+        messagesView.KeyPress += (args) =>
+        {
+            if (args.KeyEvent.Key == Key.CursorUp || args.KeyEvent.Key == Key.CursorDown ||
+                args.KeyEvent.Key == Key.PageUp || args.KeyEvent.Key == Key.PageDown)
+            {
+                _lastUserScrollMessages = DateTime.Now;
+                if (messagesView.TopRow >= messagesView.Lines - messagesView.Frame.Height)
+                {
+                    _autoScrollMessages = true;
+                }
+                else
+                {
+                    _autoScrollMessages = false;
+                }
+            }
+        };
+
         var messagesTab = new TabView.Tab("Messages", messagesView);
         tabView.AddTab(messagesTab, true);
+
         var logsView = new TextView
         {
             X = 0,
@@ -59,6 +83,24 @@ public static class Gui
             ReadOnly = true,
             WordWrap = true
         };
+
+        logsView.KeyPress += (args) =>
+        {
+            if (args.KeyEvent.Key == Key.CursorUp || args.KeyEvent.Key == Key.CursorDown ||
+                args.KeyEvent.Key == Key.PageUp || args.KeyEvent.Key == Key.PageDown)
+            {
+                _lastUserScrollLogs = DateTime.Now;
+                if (logsView.TopRow >= logsView.Lines - logsView.Frame.Height)
+                {
+                    _autoScrollLogs = true;
+                }
+                else
+                {
+                    _autoScrollLogs = false;
+                }
+            }
+        };
+
         var logsTab = new TabView.Tab("Logs", logsView);
         tabView.AddTab(logsTab, false);
 
@@ -128,11 +170,15 @@ public static class Gui
                 lock (chatService.Messages)
                 {
                     messagesView.Text = string.Join("\n", chatService.Messages);
-                    if (tabView.SelectedTab == messagesTab)
+                    if (tabView.SelectedTab == messagesTab && _autoScrollMessages)
                     {
                         if (messagesView.Lines > 0)
                         {
-                            messagesView.CursorPosition = new Point(0, Math.Max(0, messagesView.Lines - 1));
+                            // Check if 5 seconds have passed since last manual scroll
+                            if ((DateTime.Now - _lastUserScrollMessages).TotalSeconds > 5)
+                            {
+                                messagesView.CursorPosition = new Point(0, Math.Max(0, messagesView.Lines - 1));
+                            }
                         }
                     }
                 }
@@ -140,11 +186,14 @@ public static class Gui
                 lock (chatService.Logs)
                 {
                     logsView.Text = string.Join("\n", chatService.Logs);
-                    if (tabView.SelectedTab == logsTab)
+                    if (tabView.SelectedTab == logsTab && _autoScrollLogs)
                     {
                         if (logsView.Lines > 0)
                         {
-                            logsView.CursorPosition = new Point(0, Math.Max(0, logsView.Lines - 1));
+                            if ((DateTime.Now - _lastUserScrollLogs).TotalSeconds > 5)
+                            {
+                                logsView.CursorPosition = new Point(0, Math.Max(0, logsView.Lines - 1));
+                            }
                         }
                     }
                 }
