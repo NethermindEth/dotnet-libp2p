@@ -169,13 +169,13 @@ public class Identity
                     X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
                     ISigner signer = SignerUtilities.GetSigner("SHA-256withECDSA");
 
-                    ECPublicKeyParameters publicKeyParamters = new(
+                    ECPublicKeyParameters publicKeyParameters = new(
                             "ECDSA",
                             curve.Curve.DecodePoint(PublicKey.Data.ToArray()),
                             new ECDomainParameters(curve)
                             );
 
-                    signer.Init(false, publicKeyParamters);
+                    signer.Init(false, publicKeyParameters);
                     signer.BlockUpdate(message, 0, message.Length);
                     return signer.VerifySignature(signature);
                 }

@@ -14,8 +14,8 @@ public class DataWindowTests
         for (int bytesToSendCase = 0; bytesToSendCase < 500; bytesToSendCase++)
         {
             int bytesToSend = bytesToSendCase;
-            int windowUdatesNeeded = (bytesToSend - 1) / WindowSize;
-            int finalAvailable = WindowSize - bytesToSend + WindowSize * windowUdatesNeeded;
+            int windowUpdatesNeeded = (bytesToSend - 1) / WindowSize;
+            int finalAvailable = WindowSize - bytesToSend + WindowSize * windowUpdatesNeeded;
 
             var w = new RemoteDataWindow(WindowSize);
             Task spendingTask = Task.Run(async () =>
@@ -28,7 +28,7 @@ public class DataWindowTests
             });
 
             await Task.Delay(bytesToSend % 5);
-            for (int i = 0; i < windowUdatesNeeded; i++)
+            for (int i = 0; i < windowUpdatesNeeded; i++)
             {
                 int val = w.Extend(WindowSize);
             }

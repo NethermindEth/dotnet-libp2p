@@ -102,7 +102,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
 
-        public ConnectionInitiation InititatedBy { get; internal set; }
+        public ConnectionInitiation InitiatedBy { get; internal set; }
         public Multiaddress Address { get; internal set; }
     }
 
@@ -247,7 +247,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     return;
                 }
                 logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
-                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InitiatedBy == ConnectionInitiation.Remote)
                 {
                     _ = session.DisconnectAsync();
                 }
@@ -305,8 +305,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
                 else if (mesh.Value.Count > _settings.HighestDegree)
                 {
-                    PeerId[] peerstoPrune = mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree).ToArray();
-                    foreach (PeerId? peerId in peerstoPrune)
+                    PeerId[] peersToPrune = mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree).ToArray();
+                    foreach (PeerId? peerId in peersToPrune)
                     {
                         mesh.Value.Remove(peerId);
                         ControlPrune prune = new() { TopicID = mesh.Key, Backoff = 60 };
@@ -381,7 +381,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return Canceled;
         }
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
 
         lock (peer)
         {
@@ -449,7 +449,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger) { Address = addr, InititatedBy = ConnectionInitiation.Remote });
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
         lock (existingPeer)
         {
 

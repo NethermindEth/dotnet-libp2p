@@ -24,7 +24,7 @@ public class ChannelBus(TestContextLoggerFactory? fac = null)
 
         if (!channels.TryAdd(serverId, col))
         {
-            throw new Exception("Test listener with such peer id alread exists.");
+            throw new Exception("Test listener with such peer id already exists.");
         }
 
         logger?.LogDebug($"Listen {serverId}");
