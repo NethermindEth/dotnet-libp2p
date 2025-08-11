@@ -7,5 +7,5 @@ public enum MessageValidity
     Accepted,
     Ignored,
     Rejected,
-    Trottled
+    Throttled
 }

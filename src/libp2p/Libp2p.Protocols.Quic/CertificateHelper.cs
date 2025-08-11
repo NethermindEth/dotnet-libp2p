@@ -18,14 +18,14 @@ public class CertificateHelper
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
     {
         Span<byte> signature = identity.Sign(ContentToSignFromTlsPublicKey(sessionKey.ExportSubjectPublicKeyInfo()));
-        AsnWriter asnWrtier = new(AsnEncodingRules.DER);
-        asnWrtier.PushSequence();
-        asnWrtier.WriteOctetString(identity.PublicKey.ToByteArray());
-        asnWrtier.WriteOctetString(signature);
-        asnWrtier.PopSequence();
+        AsnWriter asnWriter = new(AsnEncodingRules.DER);
+        asnWriter.PushSequence();
+        asnWriter.WriteOctetString(identity.PublicKey.ToByteArray());
+        asnWriter.WriteOctetString(signature);
+        asnWriter.PopSequence();
 
-        Span<byte> pubkeyExtension = stackalloc byte[asnWrtier.GetEncodedLength()];
-        int d = asnWrtier.Encode(pubkeyExtension);
+        Span<byte> pubkeyExtension = stackalloc byte[asnWriter.GetEncodedLength()];
+        int d = asnWriter.Encode(pubkeyExtension);
 
         Span<byte> bytes = stackalloc byte[20];
         Random random = new();
