@@ -29,6 +29,7 @@
     <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
 
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.RequestResponse\Libp2p.Protocols.RequestResponse.csproj" />
   </ItemGroup>
 
   <ItemGroup>
