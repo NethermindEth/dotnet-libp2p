@@ -8,7 +8,7 @@ using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder.WithQuic().AddAppLayerProtocol<ChatProtocol>())
+    .AddLibp2p(builder => builder.WithQuic().AddProtocol<ChatProtocol>())
     .AddLogging(builder =>
         builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Trace)
             .AddSimpleConsole(l =>

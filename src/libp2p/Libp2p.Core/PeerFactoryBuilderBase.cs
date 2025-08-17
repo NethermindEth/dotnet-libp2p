@@ -48,7 +48,6 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
 
     private readonly List<ProtocolRef> _appLayerProtocols = [];
-    public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
     internal readonly IServiceProvider ServiceProvider;
 
@@ -57,7 +56,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
     }
 
-    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;

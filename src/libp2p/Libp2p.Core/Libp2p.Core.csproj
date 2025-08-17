@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -14,14 +14,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Dto\SignedEnvelope.proto" />
-  </ItemGroup>
-
-  <ItemGroup>
     <AdditionalFiles Include="Dto\KeyPair.proto" CopyToOutputDirectory="Never" />
-    <AdditionalFiles Include="Dto\PeerRecord.proto">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </AdditionalFiles>
+    <AdditionalFiles Include="Dto\PeerRecord.proto" CopyToOutputDirectory="Never" />
+    <AdditionalFiles Include="Dto\SignedEnvelope.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup>
@@ -45,10 +40,6 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AdditionalFiles Include="Dto\SignedEnvelope.proto" />
   </ItemGroup>
 
 </Project>
