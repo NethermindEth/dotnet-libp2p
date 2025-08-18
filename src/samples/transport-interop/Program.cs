@@ -50,9 +50,9 @@ try
         Stopwatch handshakeStartInstant = Stopwatch.StartNew();
         ISession remotePeer = await localPeer.DialAsync((Multiaddress)listenerAddr);
 
-        Stopwatch pingIstant = Stopwatch.StartNew();
+        Stopwatch pingTimeSpent = Stopwatch.StartNew();
         await remotePeer.DialAsync<PingProtocol>();
-        long pingRTT = pingIstant.ElapsedMilliseconds;
+        long pingRTT = pingTimeSpent.ElapsedMilliseconds;
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
@@ -85,13 +85,13 @@ try
         Log("Starting to listen...");
         ILocalPeer localPeer = peerFactory.Create();
 
-        CancellationTokenSource listennTcs = new();
-        await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
+        CancellationTokenSource listenTcs = new();
+        await localPeer.StartListenAsync([builder.MakeAddress(ip)], listenTcs.Token);
         localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
         db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
-        await listennTcs.CancelAsync();
+        await listenTcs.CancelAsync();
         return -1;
     }
 }
@@ -134,7 +134,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
         ProtocolRef transport = _transport switch
         {
             "tcp" => Get<IpTcpProtocol>(),
-            // TODO: Improve QUIC imnteroperability
+            // TODO: Improve QUIC interoperability
             "quic-v1" => Get<QuicProtocol>(),
             _ => throw new NotImplementedException(),
         };

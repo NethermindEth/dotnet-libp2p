@@ -94,7 +94,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId, new(messageId, message));
                     continue;
-                case MessageValidity.Trottled:
+                case MessageValidity.Throttled:
                     continue;
             }
 

@@ -106,7 +106,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 _logger?.LogDebug("TLS Authentication Exception Details: {StackTrace}", ex.StackTrace);
                 return;
             }
-            _logger?.LogDebug("Subdialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
+            _logger?.LogDebug("SubDialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
             IChannel upChannel = context.Upgrade();
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             await ExchangeData(sslStream, upChannel, _logger);
