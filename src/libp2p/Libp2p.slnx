@@ -17,6 +17,8 @@
     <Project Path="Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Quic/Libp2p.Protocols.Quic.csproj" />
     <Project Path="Libp2p.Protocols.Relay/Libp2p.Protocols.Relay.csproj" />
+    <Project Path="Libp2p.Protocols.RequestResponse/Libp2p.Protocols.RequestResponse.csproj" />
+    <Project Path="Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj" />
     <Project Path="Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj" />
