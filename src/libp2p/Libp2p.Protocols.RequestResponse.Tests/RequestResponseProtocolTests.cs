@@ -64,7 +64,7 @@ public class TestResponse : IMessage<TestResponse>
         CodedOutputStream.ComputeInt32Size(ProcessedValue);
 }
 
-public class GenericRequestResponseProtocolTests
+public class RequestResponseProtocolTests
 {
     [Test]
     public async Task SetsPropertiesCorrectly()
@@ -78,7 +78,7 @@ public class GenericRequestResponseProtocolTests
                 ProcessedValue = req.Value * 2,
             }));
 
-        var protocol = new GenericRequestResponseProtocol<TestRequest, TestResponse>(
+        var protocol = new RequestResponseProtocol<TestRequest, TestResponse>(
             protocolId, handler);
 
         Assert.That(protocol.Id, Is.EqualTo(protocolId));
@@ -98,7 +98,7 @@ public class GenericRequestResponseProtocolTests
 public class RequestResponseExtensionsTests
 {
     [Test]
-    public void AddGenericRequestResponseProtocol_RegistersProtocolCorrectly()
+    public void AddRequestResponseProtocol_RegistersProtocolCorrectly()
     {
         const string protocolId = "test-extension-protocol";
         var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
@@ -112,34 +112,34 @@ public class RequestResponseExtensionsTests
                 ProcessedValue = req.Value * 2,
             }));
 
-        var result = mockBuilder.AddGenericRequestResponseProtocol<TestRequest, TestResponse>(
+        var result = mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
             protocolId,
             handler,
             isExposed: true);
 
         Assert.That(result, Is.EqualTo(mockBuilder), "Extension method should return the same builder with the protocol instance added.");
 
-        // Verify that AddAppLayerProtocol was called with a GenericRequestResponseProtocol instance
+        // Verify that AddAppLayerProtocol was called with a RequestResponseProtocol instance
         mockBuilder.Received(1).AddAppLayerProtocol(
-            Arg.Is<GenericRequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
+            Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
             Arg.Is<bool>(exposed => exposed == true));
     }
 
     [Test]
-    public void AddGenericRequestResponseProtocol_NullProtocolId_ThrowsArgumentNullException()
+    public void AddRequestResponseProtocol_NullProtocolId_ThrowsArgumentNullException()
     {
         var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
         var handler = new Func<TestRequest, ISessionContext, Task<TestResponse>>((req, ctx) =>
             Task.FromResult(new TestResponse()));
 
         Assert.Throws<ArgumentNullException>(() =>
-            mockBuilder.AddGenericRequestResponseProtocol<TestRequest, TestResponse>(
+            mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
                 null!,
                 handler));
     }
 
     [Test]
-    public void AddGenericRequestResponseProtocol_EmptyProtocolId_CreatesProtocolWithEmptyId()
+    public void AddRequestResponseProtocol_EmptyProtocolId_CreatesProtocolWithEmptyId()
     {
         const string protocolId = "";
         var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
@@ -148,7 +148,7 @@ public class RequestResponseExtensionsTests
         var handler = new Func<TestRequest, ISessionContext, Task<TestResponse>>((req, ctx) =>
             Task.FromResult(new TestResponse()));
 
-        var result = mockBuilder.AddGenericRequestResponseProtocol<TestRequest, TestResponse>(
+        var result = mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
             protocolId,
             handler);
 
@@ -156,7 +156,7 @@ public class RequestResponseExtensionsTests
 
         // Verify that AddAppLayerProtocol was called with empty protocol ID
         mockBuilder.Received(1).AddAppLayerProtocol(
-            Arg.Is<GenericRequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
+            Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
             Arg.Is<bool>(exposed => exposed == true));
     }
 }

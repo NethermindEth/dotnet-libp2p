@@ -4,7 +4,7 @@ The RequestResponse Protocol provides a generic, type-safe implementation of req
 
 ## Overview
 
-The `GenericRequestResponseProtocol<TRequest, TResponse>` class implements the `ISessionProtocol<TRequest, TResponse>` interface, providing:
+The `RequestResponseProtocol<TRequest, TResponse>` class implements the `ISessionProtocol<TRequest, TResponse>` interface, providing:
 
 - **Type Safety**: Strongly typed request and response messages
 - **Protocol Buffers**: Automatic serialization/deserialization using Google.Protobuf
@@ -22,7 +22,7 @@ using Nethermind.Libp2p.Protocols;
 
 // Register the protocol with a handler function
 var peerFactory = new PeerFactoryBuilder()
-    .AddGenericRequestResponseProtocol<ExampleRequest, ExampleResponse>(
+    .AddRequestResponseProtocol<ExampleRequest, ExampleResponse>(
         protocolId: "/example/1.0.0",
         handler: HandleExampleRequest,
         loggerFactory: loggerFactory,
@@ -60,7 +60,7 @@ var request = new ExampleRequest
     Limit = 10
 };
 
-var response = await session.DialAsync<GenericRequestResponseProtocol<ExampleRequest, ExampleResponse>,
+var response = await session.DialAsync<RequestResponseProtocol<ExampleRequest, ExampleResponse>,
                                       ExampleRequest,
                                       ExampleResponse>(request);
 
@@ -80,7 +80,7 @@ The server-side handling is automatic when you register the protocol with a hand
 
 ## Protocol Implementation Details
 
-### GenericRequestResponseProtocol<TRequest, TResponse>
+### RequestResponseProtocol<TRequest, TResponse>
 
 The core protocol class provides:
 
@@ -98,7 +98,7 @@ The core protocol class provides:
 The extension class provides a convenient builder method:
 
 ```csharp
-public static IPeerFactoryBuilder AddGenericRequestResponseProtocol<TRequest, TResponse>(
+public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
     this IPeerFactoryBuilder builder,
     string protocolId,
     Func<TRequest, ISessionContext, Task<TResponse>> handler,

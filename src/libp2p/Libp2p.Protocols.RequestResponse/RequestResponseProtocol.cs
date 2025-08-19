@@ -1,35 +1,33 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
-using System;
-using System.Threading.Tasks;
-using System.IO;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class GenericRequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRequest, TResponse>
+public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRequest, TResponse>
     where TRequest : class, IMessage<TRequest>, new()
     where TResponse : class, IMessage<TResponse>, new()
 {
     private readonly string _protocolId;
     private readonly Func<TRequest, ISessionContext, Task<TResponse>> _handler;
-    private readonly ILogger<GenericRequestResponseProtocol<TRequest, TResponse>>? _logger;
+    private readonly ILogger<RequestResponseProtocol<TRequest, TResponse>>? _logger;
 
     private readonly MessageParser<TRequest> _requestParser;
     private readonly MessageParser<TResponse> _responseParser;
 
-    public GenericRequestResponseProtocol(
+    public RequestResponseProtocol(
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
         ILoggerFactory? loggerFactory = null)
     {
         _protocolId = protocolId ?? throw new ArgumentNullException(nameof(protocolId));
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
-        _logger = loggerFactory?.CreateLogger<GenericRequestResponseProtocol<TRequest, TResponse>>();
+        _logger = loggerFactory?.CreateLogger<RequestResponseProtocol<TRequest, TResponse>>();
+        _requestParser = new MessageParser<TRequest>(() => new TRequest());
+        _responseParser = new MessageParser<TResponse>(() => new TResponse());
     }
 
     public string Id => _protocolId;

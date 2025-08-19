@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 public static class RequestResponseExtensions
 {
-    public static IPeerFactoryBuilder AddGenericRequestResponseProtocol<TRequest, TResponse>(
+    public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
         this IPeerFactoryBuilder builder,
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
@@ -20,7 +20,7 @@ public static class RequestResponseExtensions
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
     {
-        var protocol = new GenericRequestResponseProtocol<TRequest, TResponse>(
+        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
             protocolId,
             handler,
             loggerFactory);
