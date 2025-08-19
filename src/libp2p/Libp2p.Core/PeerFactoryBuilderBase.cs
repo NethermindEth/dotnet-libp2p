@@ -49,12 +49,10 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     private readonly List<ProtocolRef> _appLayerProtocols = [];
 
-    internal readonly IServiceProvider ServiceProvider;
+    public IServiceProvider ServiceProvider { protected set; get; }
 
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
-    {
-        ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
-    }
+        => ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
 
     public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {

@@ -14,4 +14,5 @@ public interface IPeerFactoryBuilder
     /// <returns>The same builder for chaining calls</returns>
     IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol;
     IPeerFactory Build();
+    IServiceProvider ServiceProvider { get; }
 }

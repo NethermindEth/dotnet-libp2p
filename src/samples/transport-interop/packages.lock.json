@@ -1403,7 +1403,7 @@
       "Nethermind.Libp2p.Protocols.RequestResponse": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }

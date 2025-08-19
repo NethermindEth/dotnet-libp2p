@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System;
-using System.Threading.Tasks;
 using Google.Protobuf;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 
@@ -15,7 +14,6 @@ public static class RequestResponseExtensions
         this IPeerFactoryBuilder builder,
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
-        ILoggerFactory? loggerFactory = null,
         bool isExposed = true)
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
@@ -23,8 +21,8 @@ public static class RequestResponseExtensions
         var protocol = new RequestResponseProtocol<TRequest, TResponse>(
             protocolId,
             handler,
-            loggerFactory);
+            builder.ServiceProvider.GetService<ILoggerFactory>());
 
-        return builder.AddAppLayerProtocol(protocol, isExposed);
+        return builder.AddProtocol(protocol, isExposed);
     }
 }

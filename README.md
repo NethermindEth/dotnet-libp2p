@@ -63,6 +63,7 @@ The target is to provide a performant well-tested implementation of a wide range
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
 |                    | /meshsub/1.2.0     | 🚧             |
+| request-response   |                    | ✅             |
 | perf               | /perf/1.0.0        | 🚧             |
 | **Discovery**
 | mDns               | basic w/o DNS-SD   | ✅             |
