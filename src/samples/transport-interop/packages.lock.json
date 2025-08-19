@@ -1297,6 +1297,7 @@
           "Nethermind.Libp2p.Protocols.Pubsub": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.PubsubPeerDiscovery": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Relay": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.RequestResponse": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Tls": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Yamux": "[1.0.0, )"
         }
@@ -1396,6 +1397,14 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.28.3, )",
+          "Nethermind.Libp2p.Core": "[1.0.0, )"
+        }
+      },
+      "Nethermind.Libp2p.Protocols.RequestResponse": {
+        "type": "Project",
+        "dependencies": {
+          "Google.Protobuf": "[3.28.3, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
