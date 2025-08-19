@@ -19,6 +19,8 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
     {
         return $"ref#{RefId}({Protocol.Id})";
     }
+
+    public static implicit operator ProtocolRef[](ProtocolRef pr) => [pr];
 }
 
 
@@ -46,16 +48,13 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
 
     private readonly List<ProtocolRef> _appLayerProtocols = [];
-    public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
-    internal readonly IServiceProvider ServiceProvider;
+    public IServiceProvider ServiceProvider { protected set; get; }
 
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
-    {
-        ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
-    }
+        => ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
 
-    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
@@ -63,7 +62,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     protected abstract ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols);
 
-    private Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
+    private readonly Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
 
     protected ProtocolRef[] Connect(ProtocolRef[] protocols, params ProtocolRef[][] upgradeToStacks)
     {

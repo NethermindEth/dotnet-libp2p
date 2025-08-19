@@ -6,7 +6,6 @@ using System.Net.Sockets;
 
 namespace Nethermind.Libp2p.Protocols.Identify;
 
-
 // Picked from https://gist.github.com/angularsen/f77b53ee9966fcd914025e25a2b3a085 creds: Andreas Gullberg Larsen
 public static class IPAddressExtensions
 {

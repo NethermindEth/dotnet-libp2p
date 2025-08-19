@@ -15,7 +15,7 @@ public static class ServiceProviderExtensions
     private static TracerProvider? tracerProvider;
     private static Activity? rootActivity;
 
-    // Simple OLTP tracing settup
+    // Simple OLTP tracing setup
     public static IServiceCollection AddTracing(this IServiceCollection services, string? appName = null, ActivitySource? activitySource = null, bool createRootActivity = false)
     {
         activitySource ??= DefaultActivitySource;

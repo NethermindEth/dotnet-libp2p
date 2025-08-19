@@ -9,13 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Dto\MuxerPacket.proto" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AdditionalFiles Include="Dto\MuxerPacket.proto">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </AdditionalFiles>
+    <AdditionalFiles Include="Dto\MuxerPacket.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup>

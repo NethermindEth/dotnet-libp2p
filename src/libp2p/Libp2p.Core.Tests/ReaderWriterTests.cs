@@ -77,7 +77,7 @@ public class ReaderWriterTests
     }
 
     [Test]
-    public async Task Test_ChannelReadsNithing_WhenItIsDontWaitAndEmpty()
+    public async Task Test_ChannelReadsNothing_WhenItIsDontWaitAndEmpty()
     {
         Channel.ReaderWriter readerWriter = new();
         ReadOnlySequence<byte> anyData = await readerWriter.ReadAsync(0, ReadBlockingMode.DontWait).OrThrow();

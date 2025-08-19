@@ -160,7 +160,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     public INewSessionContext UpgradeToSession(Session session, ProtocolRef proto, bool isListener, Activity? activity)
     {
         PeerId? remotePeerId = session.State.RemotePeerId ??
-            throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialiazed before session creation");
+            throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
         lock (Sessions)
         {
@@ -347,9 +347,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         _logger?.LogInformation($"Upgrade and bind {parentProtocol} to {top}, listen={isListener}");
 
         Task upgradeTask;
-        Activity? upgrageActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
-        upgrageActivity?.SetTag("parent", activity?.DisplayName);
-        upgrageActivity?.SetTag("proto", top.Protocol.Id);
+        Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
+        upgradeActivity?.SetTag("parent", activity?.DisplayName);
+        upgradeActivity?.SetTag("proto", top.Protocol.Id);
 
         try
         {
@@ -357,20 +357,20 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             {
                 case IConnectionProtocol tProto:
                     {
-                        ConnectionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        ConnectionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
                         upgradeTask = isListener ? tProto.ListenAsync(downChannel, ctx) : tProto.DialAsync(downChannel, ctx);
                         break;
                     }
                 case ISessionProtocol sProto:
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
                         upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
                         break;
                     }
                 default:
                     if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
                         upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
                         break;
                     }
@@ -393,7 +393,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                         System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
                         if (dialAsyncMethod != null)
                         {
-                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgrageActivity);
+                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
                             upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
                             break;
                         }
@@ -418,14 +418,14 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 }
                 _ = downChannel.CloseAsync();
                 _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
-                upgrageActivity?.Dispose();
+                upgradeActivity?.Dispose();
             });
 
             return upgradeTask;
         }
         catch
         {
-            upgrageActivity?.Dispose();
+            upgradeActivity?.Dispose();
             throw;
         }
     }

@@ -32,7 +32,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
         if (localPeerId is null)
         {
-            throw new Libp2pException("Peer addresse lacks peer id");
+            throw new Libp2pException("Peer address lacks peer id");
         }
 
         try
@@ -82,7 +82,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 Multiaddress[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
                     .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
                     .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();
-                _logger?.LogTrace("Inst disc {0}, nmsg: {1}", e.ServiceInstanceName, e.Message);
+                _logger?.LogTrace("Inst disc {0}, msg: {1}", e.ServiceInstanceName, e.Message);
                 if (records.Length != 0 && !peers.Contains(records[0]) && localPeerId != records[0].Get<P2P>().ToString())
                 {
                     List<string> peerAddresses = [];

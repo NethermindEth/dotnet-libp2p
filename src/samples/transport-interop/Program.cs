@@ -4,6 +4,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
+using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using StackExchange.Redis;
@@ -49,9 +50,9 @@ try
         Stopwatch handshakeStartInstant = Stopwatch.StartNew();
         ISession remotePeer = await localPeer.DialAsync((Multiaddress)listenerAddr);
 
-        Stopwatch pingIstant = Stopwatch.StartNew();
+        Stopwatch pingTimeSpent = Stopwatch.StartNew();
         await remotePeer.DialAsync<PingProtocol>();
-        long pingRTT = pingIstant.ElapsedMilliseconds;
+        long pingRTT = pingTimeSpent.ElapsedMilliseconds;
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
@@ -63,7 +64,7 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            List<NetworkInterface> d = NetworkInterface.GetAllNetworkInterfaces()!
+            List<NetworkInterface> interfaces = NetworkInterface.GetAllNetworkInterfaces()!
                  .Where(i => i.Name == "eth0" ||
                     (i.OperationalStatus == OperationalStatus.Up &&
                      i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
@@ -84,13 +85,13 @@ try
         Log("Starting to listen...");
         ILocalPeer localPeer = peerFactory.Create();
 
-        CancellationTokenSource listennTcs = new();
-        await localPeer.StartListenAsync([builder.MakeAddress(ip)], listennTcs.Token);
+        CancellationTokenSource listenTcs = new();
+        await localPeer.StartListenAsync([builder.MakeAddress(ip)], listenTcs.Token);
         localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
         db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
-        await listennTcs.CancelAsync();
+        await listenTcs.CancelAsync();
         return -1;
     }
 }
@@ -105,67 +106,68 @@ static void PrintResult(string info) => Console.WriteLine(info);
 
 class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryBuilder, PeerFactory>
 {
-    private readonly string transport;
-    private readonly string? muxer;
-    private readonly string? security;
-    private static IPeerFactoryBuilder? defaultPeerFactoryBuilder;
+    private readonly string _transport;
+    private readonly string? _muxer;
+    private readonly string? _encryption;
 
-    public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? security)
+    public TestPlansPeerFactoryBuilder(string transport, string? muxer, string? encryption)
         : base(new ServiceCollection()
-              .AddLogging(builder =>
+            .AddLibp2p<TestPlansPeerFactoryBuilder>()
+            .AddLogging(builder =>
                 builder.SetMinimumLevel(LogLevel.Trace)
                     .AddSimpleConsole(l =>
                     {
                         l.SingleLine = true;
                         l.TimestampFormat = "[HH:mm:ss.FFF]";
                     }))
-              .AddScoped(_ => defaultPeerFactoryBuilder!)
-              .BuildServiceProvider())
+            .BuildServiceProvider())
     {
-        defaultPeerFactoryBuilder = this;
-        this.transport = transport;
-        this.muxer = muxer;
-        this.security = security;
+        _transport = transport;
+        _muxer = muxer;
+        _encryption = encryption;
     }
 
-    private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport"];
+    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport"];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
-        ProtocolRef[] transportStack = [transport switch
+        ProtocolRef transport = _transport switch
         {
             "tcp" => Get<IpTcpProtocol>(),
-            // TODO: Improve QUIC imnteroperability
+            // TODO: Improve QUIC interoperability
             "quic-v1" => Get<QuicProtocol>(),
             _ => throw new NotImplementedException(),
-        }];
+        };
 
-        ProtocolRef[] selector = [Get<MultistreamProtocol>()];
-        Connect(transportStack, selector);
+        ProtocolRef[] selector = null!;
 
-        if (!stacklessProtocols.Contains(transport))
+        if (stacklessProtocols.Contains(_transport))
         {
-            ProtocolRef[] securityStack = [security switch
+            selector = Connect(transport, Get<MultistreamProtocol>());
+        }
+        else
+        {
+            ProtocolRef encryption = _encryption switch
             {
                 "noise" => Get<NoiseProtocol>(),
                 _ => throw new NotImplementedException(),
-            }];
-            ProtocolRef[] muxerStack = [muxer switch
+            };
+            ProtocolRef muxer = _muxer switch
             {
                 "yamux" => Get<YamuxProtocol>(),
                 _ => throw new NotImplementedException(),
-            }];
+            };
 
-            selector = Connect(selector, transportStack, [Get<MultistreamProtocol>()], muxerStack, [Get<MultistreamProtocol>()]);
+            selector = Connect(transport, Get<MultistreamProtocol>(), encryption, Get<MultistreamProtocol>(), muxer, Get<MultistreamProtocol>());
         }
 
         ProtocolRef[] apps = [Get<IdentifyProtocol>(), Get<PingProtocol>()];
         Connect(selector, apps);
 
-        return transportStack;
+        return transport;
     }
 
-    public string MakeAddress(string ip = "0.0.0.0", string port = "0") => transport switch
+    public string MakeAddress(string ip = "0.0.0.0", string port = "0") => _transport switch
     {
         "tcp" => $"/ip4/{ip}/tcp/{port}",
         "quic-v1" => $"/ip4/{ip}/udp/{port}/quic-v1",
