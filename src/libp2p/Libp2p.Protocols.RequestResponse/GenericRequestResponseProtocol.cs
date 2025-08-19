@@ -19,6 +19,9 @@ public class GenericRequestResponseProtocol<TRequest, TResponse> : ISessionProto
     private readonly Func<TRequest, ISessionContext, Task<TResponse>> _handler;
     private readonly ILogger<GenericRequestResponseProtocol<TRequest, TResponse>>? _logger;
 
+    private readonly MessageParser<TRequest> _requestParser;
+    private readonly MessageParser<TResponse> _responseParser;
+
     public GenericRequestResponseProtocol(
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
@@ -38,31 +41,17 @@ public class GenericRequestResponseProtocol<TRequest, TResponse> : ISessionProto
             _logger?.LogDebug("Starting ListenAsync for protocol {ProtocolId} from peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            int requestSize = await channel.ReadVarintAsync();
-            _logger?.LogTrace("Received request size: {RequestSize} bytes", requestSize);
-
-            if (requestSize <= 0)
-            {
-                _logger?.LogWarning("Invalid request size: {RequestSize}", requestSize);
-                throw new InvalidDataException($"Invalid request size: {requestSize}");
-            }
-
-            ReadOnlySequence<byte> requestData = await channel.ReadAsync(requestSize, ReadBlockingMode.WaitAll).OrThrow();
-            _logger?.LogTrace("Received request data: {RequestSize} bytes", requestData.Length);
-
-            TRequest request = new TRequest().Descriptor.Parser.ParseFrom(requestData.ToArray()) as TRequest
-                ?? throw new InvalidDataException("Failed to deserialize request");
+            TRequest request = await channel.ReadPrefixedProtobufAsync(_requestParser);
+            _logger?.LogTrace("Received request of type {RequestType}", typeof(TRequest).Name);
 
             _logger?.LogDebug("Successfully deserialized the response");
 
             TResponse response = await _handler(request, context);
+
             _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
+            _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
 
-            byte[] responseBytes = response.ToByteArray();
-            _logger?.LogTrace("Serialized response: {ResponseSize} bytes", responseBytes.Length);
-
-            await channel.WriteVarintAsync(responseBytes.Length);
-            await channel.WriteAsync(new ReadOnlySequence<byte>(responseBytes));
+            await channel.WriteSizeAndProtobufAsync(response);
 
             _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
 
@@ -82,29 +71,13 @@ public class GenericRequestResponseProtocol<TRequest, TResponse> : ISessionProto
             _logger?.LogDebug("Starting DialAsync for protocol {ProtocolId} to peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            byte[] requestBytes = request.ToByteArray();
-            _logger?.LogTrace("Serialized request: {RequestSize} bytes", requestBytes.Length);
-
-            await channel.WriteVarintAsync(requestBytes.Length);
-            await channel.WriteAsync(new ReadOnlySequence<byte>(requestBytes));
+            await channel.WriteSizeAndProtobufAsync(request);
 
             _logger?.LogDebug("Request sent, waiting for response");
 
-            int responseSize = await channel.ReadVarintAsync();
-            _logger?.LogTrace("Received response size: {ResponseSize} bytes", responseSize);
+            TResponse response = await channel.ReadPrefixedProtobufAsync(_responseParser);
 
-            if (responseSize <= 0)
-            {
-                _logger?.LogWarning("Invalid response size: {ResponseSize}", responseSize);
-                throw new InvalidDataException($"Invalid response size: {responseSize}");
-            }
-
-            ReadOnlySequence<byte> responseData = await channel.ReadAsync(responseSize, ReadBlockingMode.WaitAll).OrThrow();
-            _logger?.LogTrace("Received response data: {ResponseSize} bytes", responseData.Length);
-
-            TResponse response = new TResponse().Descriptor.Parser.ParseFrom(responseData.ToArray()) as TResponse
-                ?? throw new InvalidDataException("Failed to deserialize response");
-
+            _logger?.LogTrace("Received request of type {RequestType}", typeof(TResponse).Name);
             _logger?.LogDebug("Successfully deserialized the response");
 
             return response;
