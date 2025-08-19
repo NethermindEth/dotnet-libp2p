@@ -85,7 +85,7 @@ The server-side handling is automatic when you register the protocol with a hand
 The core protocol class provides:
 
 - **Constructor Parameters**:
-  - `protocolId`: Unique identifier for the protocol (e.g., "/myapp/1.0.0")
+  - `protocolId`: Unique identifier for the protocol (e.g., "/my-app/1.0.0")
   - `handler`: Async function to process requests and generate responses
   - `loggerFactory`: Optional logger factory for debugging
 
@@ -102,7 +102,6 @@ public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse
     this IPeerFactoryBuilder builder,
     string protocolId,
     Func<TRequest, ISessionContext, Task<TResponse>> handler,
-    ILoggerFactory? loggerFactory = null,
     bool isExposed = true)
 ```
 
@@ -110,7 +109,6 @@ public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse
 - `builder`: The peer factory builder to extend
 - `protocolId`: Unique protocol identifier
 - `handler`: Function to handle incoming requests
-- `loggerFactory`: Optional logging factory
 - `isExposed`: Whether the protocol should be advertised to other peers
 
 ## Type Constraints

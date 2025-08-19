@@ -93,8 +93,8 @@
       },
       "Google.Protobuf": {
         "type": "Transitive",
-        "resolved": "3.28.3",
-        "contentHash": "OewySX3aQCdKfMJsj2DzBMXQJPI+lm0CBzamU9ViFu3CU9tXYrQWqJ1CZ+/UWtkwOjUeIzbXmoOjRc7B8pbMrA=="
+        "resolved": "3.31.1",
+        "contentHash": "gSnJbUmGiOTdWddPhqzrEscHq9Ls6sqRDPB9WptckyjTUyx70JOOAaDLkFff8gManZNN3hllQ4aQInnQyq/Z/A=="
       },
       "IPNetwork2": {
         "type": "Transitive",
@@ -1306,7 +1306,7 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.4.0, )",
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Microsoft.Extensions.DependencyInjection": "[9.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[9.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
@@ -1317,7 +1317,7 @@
       "Nethermind.Libp2p.Protocols.Identify": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.IpTcp": "[1.0.0, )"
@@ -1348,7 +1348,7 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.4.0, )",
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Noise.NET": "[1.0.0, )",
           "libsodium": "[1.0.20, )"
@@ -1363,7 +1363,7 @@
       "Nethermind.Libp2p.Protocols.Plaintext": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -1371,7 +1371,7 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.4.0, )",
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Identify": "[1.0.0, )"
         }
@@ -1396,14 +1396,14 @@
       "Nethermind.Libp2p.Protocols.Relay": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
       "Nethermind.Libp2p.Protocols.RequestResponse": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.3, )",
+          "Google.Protobuf": "[3.31.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }

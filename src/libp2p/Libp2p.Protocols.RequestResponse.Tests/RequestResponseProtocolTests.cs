@@ -4,11 +4,8 @@
 using NUnit.Framework;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
-using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Nethermind.Libp2p.Core;
-using System.Text;
-using Nethermind.Libp2p.Core.TestsBase;
 
 namespace Nethermind.Libp2p.Protocols.Tests;
 
@@ -30,7 +27,7 @@ public class TestRequest : IMessage<TestRequest>
     public int CalculateSize() => CodedOutputStream.ComputeStringSize(Message) + CodedOutputStream.ComputeInt32Size(Value);
 }
 
-// Mock interface initialisation for IMessage->TestResponse
+// Mock interface initialization for IMessage->TestResponse
 public class TestResponse : IMessage<TestResponse>
 {
     public string Echo { get; set; }
@@ -83,7 +80,7 @@ public class RequestResponseProtocolTests
 
         Assert.That(protocol.Id, Is.EqualTo(protocolId));
 
-        // Deserialisation handler check
+        // Deserialization handler check
         var sampleRequest = new TestRequest { Message = "hi", Value = 5 };
         var result = await handler(sampleRequest, null);
 
@@ -103,7 +100,7 @@ public class RequestResponseExtensionsTests
         const string protocolId = "test-extension-protocol";
         var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
 
-        mockBuilder.AddAppLayerProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
+        mockBuilder.AddProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
 
         var handler = new Func<TestRequest, ISessionContext, Task<TestResponse>>((req, ctx) =>
             Task.FromResult(new TestResponse
@@ -119,8 +116,8 @@ public class RequestResponseExtensionsTests
 
         Assert.That(result, Is.EqualTo(mockBuilder), "Extension method should return the same builder with the protocol instance added.");
 
-        // Verify that AddAppLayerProtocol was called with a RequestResponseProtocol instance
-        mockBuilder.Received(1).AddAppLayerProtocol(
+        // Verify that AddProtocol was called with a RequestResponseProtocol instance
+        mockBuilder.Received(1).AddProtocol(
             Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
             Arg.Is<bool>(exposed => exposed == true));
     }
@@ -143,7 +140,7 @@ public class RequestResponseExtensionsTests
     {
         const string protocolId = "";
         var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
-        mockBuilder.AddAppLayerProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
+        mockBuilder.AddProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
 
         var handler = new Func<TestRequest, ISessionContext, Task<TestResponse>>((req, ctx) =>
             Task.FromResult(new TestResponse()));
@@ -154,8 +151,8 @@ public class RequestResponseExtensionsTests
 
         Assert.That(result, Is.EqualTo(mockBuilder));
 
-        // Verify that AddAppLayerProtocol was called with empty protocol ID
-        mockBuilder.Received(1).AddAppLayerProtocol(
+        // Verify that AddProtocol was called with empty protocol ID
+        mockBuilder.Received(1).AddProtocol(
             Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
             Arg.Is<bool>(exposed => exposed == true));
     }

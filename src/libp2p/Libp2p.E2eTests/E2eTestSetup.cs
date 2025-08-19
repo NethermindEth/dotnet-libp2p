@@ -51,7 +51,7 @@ public class E2eTestSetup : IAsyncDisposable
 
     protected virtual IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
     {
-        return builder.AddAppLayerProtocol<IncrementNumberTestProtocol>();
+        return builder.AddProtocol<IncrementNumberTestProtocol>();
     }
 
     protected virtual IServiceCollection ConfigureServices(IServiceCollection col)

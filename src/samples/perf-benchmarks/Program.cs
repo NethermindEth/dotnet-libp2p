@@ -11,7 +11,7 @@ using Nethermind.Libp2p;
 await Task.Delay(1000);
 {
     ServiceProvider serviceProvider = new ServiceCollection()
-        .AddLibp2p(builder => builder.AddAppLayerProtocol<PerfProtocol>())
+        .AddLibp2p(builder => builder.AddProtocol<PerfProtocol>())
         //.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information).AddSimpleConsole(l=>l.SingleLine = true))
         .BuildServiceProvider();
 
@@ -38,7 +38,7 @@ await Task.Delay(1000);
 
 {
     IPeerFactory peerFactory = NoStackPeerFactoryBuilder.Create
-        .AddAppLayerProtocol<PerfProtocol>()
+        .AddProtocol<PerfProtocol>()
         .Build();
 
     ILocalPeer peer = peerFactory.Create();
