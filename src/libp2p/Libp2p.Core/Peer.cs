@@ -24,7 +24,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
 
-    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
+    readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
 
     public override string ToString()
@@ -121,7 +121,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for address {addr}");
+                    _logger?.LogDebug($"Failed to start listener for address {addr}: {t.Exception?.Message}");
                     return null;
                 }
 
