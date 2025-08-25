@@ -1,13 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
-using System.Text;
 using Nethermind.Libp2p.Core;
 
 internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
-    private static readonly ConsoleReader Reader = new();
+    private static readonly ConsoleReader ConsoleReader = new();
     private readonly ConsoleColor defaultConsoleColor = Console.ForegroundColor;
 
     public string Id => "/chat/1.0.0";
@@ -19,23 +17,22 @@ internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
         {
             for (; ; )
             {
-                ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
+                string aLine = await channel.ReadLineAsync();
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("{0}", Encoding.UTF8.GetString(read).Replace("\r", "").Replace("\n\n", ""));
+                Console.WriteLine("{0}", aLine);
                 Console.ForegroundColor = defaultConsoleColor;
                 Console.Write("> ");
             }
         });
         for (; ; )
         {
-            string line = await Reader.ReadLineAsync();
+            string line = await ConsoleReader.ReadLineAsync();
             if (line == "exit")
             {
                 return;
             }
             Console.Write("> ");
-            byte[] buf = Encoding.UTF8.GetBytes(line + "\n\n");
-            await channel.WriteAsync(new ReadOnlySequence<byte>(buf));
+            await channel.WriteLineAsync(line);
         }
     }
 }

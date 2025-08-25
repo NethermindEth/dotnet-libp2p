@@ -14,26 +14,33 @@ public partial class MainPage : ContentPage
 
         _ = Task.Run(async () =>
         {
-            chatProtocol = new ChatProtocol() { OnServerMessage = (msg) => AddLine("AI", msg) };
+            try
+            {
+                chatProtocol = new ChatProtocol() { OnServerMessage = (msg) => AddLine("AI", msg) };
 
-            ServiceProvider serviceProvider = new ServiceCollection()
-                .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddAppLayerProtocol(chatProtocol))
-                .BuildServiceProvider();
+                ServiceProvider serviceProvider = new ServiceCollection()
+                    .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddAppLayerProtocol(chatProtocol))
+                    .BuildServiceProvider();
 
-            IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
+                IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
-            CancellationTokenSource ts = new();
+                CancellationTokenSource ts = new();
 
-            Multiaddress remoteAddr = "/ip4/0.0.0.0/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
 
-            await using ILocalPeer localPeer = peerFactory.Create();
+                await using ILocalPeer localPeer = peerFactory.Create();
 
-            ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
+                ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
-            await remotePeer.DialAsync<ChatProtocol>(ts.Token);
+                await remotePeer.DialAsync<ChatProtocol>(ts.Token);
 
-            AddLine("System", "Connected");
-
+                AddLine("System", "Connected");
+                await Task.Delay(-1, ts.Token);
+            }
+            catch (Exception e)
+            {
+                AddLine("System", $"Problem, {e}");
+            }
             //{ server
             //Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
             //await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
@@ -58,27 +65,30 @@ public partial class MainPage : ContentPage
 
             //}
             //}
-            await Task.Delay(-1, ts.Token);
         });
     }
 
     private void AddLine(string from, string msg)
     {
-        Content.Spans.Add(new Span
+        Dispatcher.Dispatch(() =>
         {
-            Text = $"{from}: ",
-            FontAttributes = FontAttributes.Bold,
-        });
+            Content.Spans.Add(new Span
+            {
+                Text = $"{from}: ",
+                FontAttributes = FontAttributes.Bold,
+            });
 
-        Content.Spans.Add(new Span
-        {
-            Text = msg,
+            Content.Spans.Add(new Span
+            {
+                Text = msg,
+            });
         });
     }
 
     private void Button_Clicked(object sender, EventArgs e)
     {
         chatProtocol?.OnClientMessage?.Invoke(Msg.Text);
+        AddLine("me", Msg.Text);
         Msg.Text = "";
         Msg.Focus();
     }

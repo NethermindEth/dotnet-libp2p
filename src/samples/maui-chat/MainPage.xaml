@@ -5,9 +5,7 @@
              x:Class="MauiChat.MainPage" Title="Chat">
 
     <ScrollView>
-        <Grid
-            Padding="30,0"
-           >
+        <Grid Padding="30,0" >
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"></RowDefinition>
                 <RowDefinition Height="60"></RowDefinition>
@@ -20,23 +18,13 @@
                 <Label>
                     <Label.FormattedText>
                         <FormattedString x:Name="Content">
-                            <Span Text="Name: " FontAttributes="Bold" />
-                            <Span Text="message" />
-                            <Span Text="{x:Static system:Environment.NewLine}"/>
-                            
+                            <Span Text="Chat will start soon..." FontAttributes="Bold" />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
             </ScrollView>
-            <Entry Grid.Row="1" x:Name="Msg"
-                Placeholder="Enter chat message"
-                Text="{Binding UserName}"
-                Keyboard="Default"
-                ClearButtonVisibility="WhileEditing"
-                MaxLength="50"
-            />
+            <Entry Grid.Row="1" x:Name="Msg" Placeholder="Enter a message" Keyboard="Default" ClearButtonVisibility="WhileEditing" />
             <Button Text="Send" Grid.Row="1" Grid.Column="1" Margin="3" Clicked="Button_Clicked"></Button>
         </Grid>
     </ScrollView>
-
 </ContentPage>

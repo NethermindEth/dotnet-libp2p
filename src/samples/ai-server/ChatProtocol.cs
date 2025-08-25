@@ -34,9 +34,25 @@ internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await client.PostAsync("http://localhost:11434/api/generate", content);
-            var result = await response.Content.ReadAsStringAsync();
+            var stream = await response.Content.ReadAsStreamAsync();
 
-            await channel.WriteLineAsync(result);
+            using var reader = new StreamReader(stream);
+
+            var sb = new StringBuilder();
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("response", out var resp))
+                {
+                    sb.Append(resp.GetString());
+                }
+            }
+
+            await channel.WriteLineAsync(sb.ToString());
         }
     }
 }
