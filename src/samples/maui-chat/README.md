@@ -1,9 +1,10 @@
 
 # Prerequisites
 
-Development requires .NET Multi-platform UI development workload installed. it was tested using x86_x64 Android Emulator, but probably would work on other platforms.
+Development requires MS Visual Studio `.NET Multi-platform UI development` workload installed.
+It was tested using x86_x64 Android Emulator, but probably would work on other Android platforms.
 
-In case ofissues with starting up the app, workload restore may be needed:
+In case of issues with starting it up, workload restore may be needed:
 
 ```
 dotnet workload restore
