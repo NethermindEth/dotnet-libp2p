@@ -276,7 +276,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 dialActivity?.Dispose();
                 throw dialingResult.Exception;
             }
-            throw new Libp2pException("Not able to dial the peer");
+            throw new Libp2pException($"Not able to dial the peer. {dialingResult.Exception?.Message}");
         }
 
         dialActivity?.AddEvent(new ActivityEvent("connected"));

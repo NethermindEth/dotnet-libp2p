@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFrameworks>net9.0-android;net9.0-ios;net9.0-maccatalyst</TargetFrameworks>
@@ -60,9 +60,24 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libsodium" />
+	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\armeabi-v7a\libsodium" />
+	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86\libsodium">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </AndroidNativeLibrary>
+	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libsodium" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
 		<PackageReference Include="Nethermind.Libp2p" Version="1.0.0-preview.45" />
+	</ItemGroup>
+
+	<ItemGroup>
+    <AndroidNativeLibrary Update="Platforms\Android\jniLibs\x86_64\libsodium">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </AndroidNativeLibrary>
 	</ItemGroup>
 
 </Project>

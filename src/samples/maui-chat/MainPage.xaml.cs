@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
@@ -19,6 +20,12 @@ public partial class MainPage : ContentPage
                 chatProtocol = new ChatProtocol() { OnServerMessage = (msg) => AddLine("AI", msg) };
 
                 ServiceProvider serviceProvider = new ServiceCollection()
+                    .AddLogging(logging =>
+                    {
+                        logging.ClearProviders();
+                        logging.AddDebug();   // logs to platform debug output
+                        logging.AddConsole(); // works on Windows/macOS
+                    })
                     .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddAppLayerProtocol(chatProtocol))
                     .BuildServiceProvider();
 
@@ -81,7 +88,7 @@ public partial class MainPage : ContentPage
 
             Content.Spans.Add(new Span
             {
-                Text = msg,
+                Text = msg + "\n",
             });
         });
     }
