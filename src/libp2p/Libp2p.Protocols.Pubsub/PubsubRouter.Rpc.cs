@@ -15,6 +15,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         try
         {
+            // Check if peer is graylisted
+            if (peerState.TryGetValue(peerId, out var peer) &&
+                peer.ScoringState.Score < 0) // checking for negative score for now, can change threshold
+            {
+                logger?.LogDebug($"Ignoring RPC from graylisted peer {peerId} (score: {peer.ScoringState.Score})");
+                return;
+            }
+
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             lock (this)
             {
@@ -88,11 +96,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
+            bool isFirstDelivery = !_messageCache.Contains(messageId);
+            bool isValid = true;
+
             switch (VerifyMessage?.Invoke(message))
             {
                 case MessageValidity.Rejected:
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId, new(messageId, message));
+                    isValid = false;
+
+                    // Track invalid message for peer scoring (P4)
+                    if (peerState.TryGetValue(peerId, out var invalidPeer))
+                    {
+                        _scoreManager.OnInvalidMessage(invalidPeer.ScoringState, message.Topic);
+                    }
                     continue;
                 case MessageValidity.Throttled:
                     continue;
@@ -101,10 +119,23 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
                 _limboMessageCache!.Add(messageId, new(messageId, message));
+                isValid = false;
+
+                // Track invalid message for peer scoring (P4)
+                if (peerState.TryGetValue(peerId, out var sigInvalidPeer))
+                {
+                    _scoreManager.OnInvalidMessage(sigInvalidPeer.ScoringState, message.Topic);
+                }
                 continue;
             }
 
             _messageCache.Add(messageId, new(messageId, message));
+
+            // Track first message delivery for peer scoring (P2)
+            if (isFirstDelivery && isValid && peerState.TryGetValue(peerId, out var validPeer))
+            {
+                _scoreManager.OnFirstMessageDelivery(validPeer.ScoringState, message.Topic);
+            }
 
             PeerId author = new(message.From.ToArray());
             OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
