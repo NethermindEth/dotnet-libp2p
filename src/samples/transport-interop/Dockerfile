@@ -4,7 +4,7 @@ WORKDIR /app
 COPY . ./
 RUN ls && cd ./src/samples/transport-interop && dotnet publish -c Release -o /out
 
-FROM mcr.microsoft.com/dotnet/runtime:9.0-jammy
+FROM mcr.microsoft.com/dotnet/runtime:9.0-noble
 WORKDIR /app
 
 RUN apt update -y && \
