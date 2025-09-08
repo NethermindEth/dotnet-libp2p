@@ -1,121 +1,117 @@
 # KadDHT Demo
 
-This is a demonstration of the Kademlia Distributed Hash Table (KadDHT) protocol implementation in libp2p.
+This is a basic integration demo of the Kademlia Distributed Hash Table (KadDHT) core algorithm implementation in .NET libp2p.
 
 ## Overview
 
-The Kademlia DHT is a distributed hash table that provides efficient lookup of values by keys in a peer-to-peer network. It is used in libp2p for:
+The Kademlia DHT is a distributed hash table that provides efficient lookup of values by keys in a peer-to-peer network. This demo showcases the **core Kademlia algorithm components** without full network transport.
 
-- Content routing (finding which peers have a specific piece of content)
-- Peer routing (finding peers by their ID)
-- Value storage and retrieval (storing and retrieving arbitrary data)
+## What This Demo Demonstrates
 
-## Features
+This simple console application demonstrates:
 
-This demo application demonstrates the following features:
+- ✅ **Kademlia component construction** - Shows how to wire together all required abstractions
+- ✅ **Routing table management** - Creates a KBucketTree and populates it with nodes  
+- ✅ **Node lookup algorithm** - Executes the k-nearest neighbor search algorithm
+- ✅ **Simulated network transport** - Uses a mock message sender for testing
+- ✅ **Dependency injection patterns** - Demonstrates proper abstraction usage
 
-- Connecting to other peers
-- Storing values in the DHT
-- Retrieving values from the DHT
-- Announcing that you provide a specific key
-- Finding providers for a specific key
-- Finding peers closest to a specific key
+## What This Demo Does NOT Demonstrate
 
-## Usage
+- ❌ **Real network transport** - Uses simulated responses, not actual libp2p protocols
+- ❌ **Value storage/retrieval** - No `PutValue`/`GetValue` operations
+- ❌ **Provider operations** - No content provider announcements or lookups
+- ❌ **Protocol Buffers** - No actual message serialization/deserialization
+- ❌ **Multi-peer networking** - Single-node simulation only
+- ❌ **Bootstrap process** - No connection to real DHT networks
 
-### Running the Demo
+## Running the Demo
 
 ```bash
+cd src/samples/kad-dht-demo
 dotnet run
 ```
 
-### Commands
-
-Once the application is running, you can use the following commands:
-
-- `connect <multiaddr>` - Connect to a peer using its multiaddress
-- `put <key> <value>` - Store a value in the DHT
-- `get <key>` - Retrieve a value from the DHT
-- `provide <key>` - Announce that you provide a key
-- `find-providers <key>` - Find providers for a key
-- `find-peers <key>` - Find peers closest to a key
-- `exit` - Exit the application
-
-### Example Session
+### Expected Output
 
 ```
-KadDHT Demo
-===========
-Local peer ID: 12D3KooWRMeUdkn4QKr8XWrGRKXzgMgZUgPMrwZbDwxd1G2voXqH
-Listening on: /ip4/127.0.0.1/tcp/50001, /ip4/192.168.1.100/tcp/50001
-
-Available commands:
-  connect <multiaddr> - Connect to a peer
-  put <key> <value> - Store a value in the DHT
-  get <key> - Retrieve a value from the DHT
-  provide <key> - Announce that you provide a key
-  find-providers <key> - Find providers for a key
-  find-peers <key> - Find peers closest to a key
-  exit - Exit the application
-
-> connect /ip4/192.168.1.101/tcp/50001/p2p/12D3KooWJLpZF9LgQa92Pt3CtMEsJQPuEkSvYPGjjQTjkdPyeg8K
-Connecting to /ip4/192.168.1.101/tcp/50001/p2p/12D3KooWJLpZF9LgQa92Pt3CtMEsJQPuEkSvYPGjjQTjkdPyeg8K...
-Connected to peer 12D3KooWJLpZF9LgQa92Pt3CtMEsJQPuEkSvYPGjjQTjkdPyeg8K
-
-> put hello world
-Putting value for key 'hello'...
-Value stored successfully
-
-> get hello
-Getting value for key 'hello'...
-Value: world
-
-> provide hello
-Announcing provider for key 'hello'...
-Provider announced successfully
-
-> find-providers hello
-Finding providers for key 'hello'...
-Found 2 providers:
-  12D3KooWRMeUdkn4QKr8XWrGRKXzgMgZUgPMrwZbDwxd1G2voXqH
-  12D3KooWJLpZF9LgQa92Pt3CtMEsJQPuEkSvYPGjjQTjkdPyeg8K
+Kademlia demo starting. Seeding table and running one lookup...
+[13:45:32.123] dbug: DemoMessageSender[0] Simulated FindNeighbours to TestNode{...}: returned 2 nodes
+[13:45:32.128] dbug: DemoMessageSender[0] Simulated FindNeighbours to TestNode{...}: returned 1 nodes  
+[13:45:32.133] dbug: DemoMessageSender[0] Simulated FindNeighbours to TestNode{...}: returned 3 nodes
+Lookup complete.
 ```
 
-## Implementation Details
+## Code Structure
 
-This demo uses the libp2p KadDHT protocol implementation, which follows the [libp2p Kademlia DHT specification](https://github.com/libp2p/specs/tree/master/kad-dht).
-
-The KadDHT protocol is implemented as a libp2p protocol that can be added to a libp2p host using the `AddKadDht` extension method:
+The demo creates and configures all Kademlia components:
 
 ```csharp
-services.AddLibp2p(builder =>
+// Core abstractions
+IKeyOperator<PublicKey, ValueHash256, TestNode> keyOperator = new PublicKeyKeyOperator();
+IKademliaMessageSender<PublicKey, TestNode> transport = new DemoMessageSender(logManager);
+IRoutingTable<ValueHash256, TestNode> routingTable = new KBucketTree<ValueHash256, TestNode>(...);
+ILookupAlgo<ValueHash256, TestNode> lookupAlgo = new LookupKNearestNeighbour<ValueHash256, TestNode>(...);
+
+// Main Kademlia instance  
+var kad = new Kademlia<PublicKey, ValueHash256, TestNode>(...);
+
+// Seed routing table with random nodes
+for (int i = 0; i < 64; i++)
 {
-    builder.AddKadDht(options =>
-    {
-        options.EnableServerMode = true;
-        options.EnableClientMode = true;
-        options.EnableValueStorage = true;
-        options.EnableProviderStorage = true;
-        options.BucketSize = 20;
-        options.Alpha = 3;
-    });
-});
+    nodeHealthTracker.OnIncomingMessageFrom(new TestNode { Id = RandomPublicKey() });
+}
+
+// Execute one lookup to exercise the algorithm
+_ = await kad.LookupNodesClosest(RandomPublicKey(), CancellationToken.None);
 ```
 
-The implementation includes:
-- A Kademlia routing table
-- DHT value storage and retrieval
-- Provider record management
-- Peer discovery and routing
+## Configuration
 
-## Network Protocol
+The demo uses these Kademlia parameters:
 
-The KadDHT protocol uses Protocol Buffers for message serialization and follows the libp2p protocol negotiation flow. The protocol ID is `/ipfs/kad/1.0.0` by default.
+```csharp
+KademliaConfig<TestNode> config = new()
+{
+    KSize = 16,        // K-bucket size (nodes per bucket)
+    Alpha = 3,         // Lookup concurrency (parallel requests)  
+    Beta = 2,          // Accelerated lookup parameter
+};
+```
 
-Messages include:
-- PING - Check if a peer is alive
-- FIND_NODE - Find nodes closest to a key
-- GET_VALUE - Get a value from the DHT
-- PUT_VALUE - Store a value in the DHT
-- ADD_PROVIDER - Announce that you provide a key
-- GET_PROVIDERS - Find providers for a key 
+## Mock Transport
+
+The `DemoMessageSender` simulates network behavior:
+
+- **5ms simulated latency** per request
+- **0-3 random nodes** returned per `FindNeighbours` call
+- **Proper async/await patterns** matching real transport
+- **Logging integration** for observability
+
+## Architecture Components
+
+This demo exercises the following Kademlia implementation components:
+
+| Component | Implementation | Purpose |
+|-----------|----------------|---------|
+| **Routing Table** | `KBucketTree<THash, TNode>` | Stores known peers in k-buckets |
+| **Lookup Algorithm** | `LookupKNearestNeighbour<THash, TNode>` | Finds closest nodes to a target |
+| **Key Operations** | `PublicKeyKeyOperator` | Handles key/hash conversions |
+| **Node Health** | `NodeHealthTracker<TNode>` | Manages peer liveness |
+| **Transport** | `DemoMessageSender` | Mock network message sender |
+
+
+## Next Steps
+
+1. **Real libp2p transport** with protocol negotiation (`/ipfs/kad/1.0.0`)
+2. **Protocol Buffers messages** like for `PING`, `FIND_NODE`, `PUT_VALUE`.
+3. **Value storage backend** for `GetValue`/`PutValue` operations  
+4. **Provider record management** for content routing
+5. **Bootstrap node discovery** and network joining
+6. **Multi-peer testing** with real network behavior
+
+## Related Documentation
+
+- [Kademlia Paper](https://pdos.csail.mit.edu/~petar/papers/maymounkov-kademlia-lncs.pdf)
+- [libp2p Kad-DHT Specification](https://github.com/libp2p/specs/tree/master/kad-dht)
+- [Project Documentation](../../../README.md) 

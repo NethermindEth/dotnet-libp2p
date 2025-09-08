@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package Nethermind.Libp2p.Protocols.KadDht.Dto;
+
+// Basic connectivity messages
+message PingRequest {}
+message PingResponse {}
+
+// Helper messages
+message PublicKeyBytes {
+  bytes value = 1;
+}
+
+message Node {
+  bytes publicKey = 1; // raw public key bytes
+  repeated string multiaddrs = 2; // optional, for future use
+}
+
+// Node discovery messages
+message FindNeighboursRequest {
+  PublicKeyBytes target = 1;
+}
+
+message FindNeighboursResponse {
+  repeated Node neighbours = 1;
+}
+
+// Value storage messages
+message PutValueRequest {
+  bytes key = 1;
+  bytes value = 2;
+  bytes signature = 3; // For value validation
+  int64 timestamp = 4; // Unix timestamp for freshness
+  bytes publisher = 5; // PeerId of the publisher
+}
+
+message PutValueResponse {
+  bool success = 1;
+  string error = 2; // Error message if success is false
+}
+
+message GetValueRequest {
+  bytes key = 1;
+}
+
+message GetValueResponse {
+  bytes value = 1;
+  bool found = 2;
+  bytes signature = 3; // Signature for validation
+  int64 timestamp = 4; // Unix timestamp
+  bytes publisher = 5; // PeerId of the original publisher
+}
+
+// Provider record messages  
+message Provider {
+  bytes peer_id = 1; // PeerId bytes
+  repeated string multiaddrs = 2; // How to connect to this provider
+  int64 timestamp = 3; // When this provider record was created
+}
+
+message AddProviderRequest {
+  bytes key = 1; // Key being provided
+  bytes provider_id = 2; // PeerId of the provider
+  repeated string multiaddrs = 3; // Provider's addresses
+}
+
+message AddProviderResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message GetProvidersRequest {
+  bytes key = 1;
+  int32 count = 2; // Maximum number of providers to return
+}
+
+message GetProvidersResponse {
+  repeated Provider providers = 1;
+}

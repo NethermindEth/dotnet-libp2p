@@ -12,7 +12,7 @@ namespace KadDhtDemo
     {
         public static async Task Main(string[] args)
         {
-            using ILoggerFactory logManager = LoggerFactory.Create(builder =>
+            using ILoggerFactory logManager = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
             {
                 builder
                     .SetMinimumLevel(LogLevel.Debug)
@@ -21,6 +21,8 @@ namespace KadDhtDemo
                         o.SingleLine = true;
                         o.TimestampFormat = "HH:mm:ss.fff ";
                     });
+                // Simple file logging (basic) - append raw lines
+                builder.AddProvider(new SimpleFileLoggerProvider(Path.Combine(AppContext.BaseDirectory, "kad-demo.log")));
             });
 
             IKeyOperator<PublicKey, ValueHash256, TestNode> keyOperator = new PublicKeyKeyOperator();
@@ -43,11 +45,8 @@ namespace KadDhtDemo
 
             Console.WriteLine("Kademlia demo starting. Seeding table and running one lookup...");
 
-            // Seed some nodes locally so the routing table isn't empty
-            for (int i = 0; i < 64; i++)
-            {
-                nodeHealthTracker.OnIncomingMessageFrom(new TestNode { Id = RandomPublicKey() });
-            }
+            // Distance-diverse deterministic seeding to encourage bucket splits
+            SeedDeterministic(config.CurrentNodeId.Id.Hash, nodeHealthTracker, maxDistance: 14, perDistance: 4);
 
             // Run a single lookup to exercise the path
             _ = await kad.LookupNodesClosest(RandomPublicKey(), CancellationToken.None);
@@ -59,6 +58,19 @@ namespace KadDhtDemo
             Span<byte> randomBytes = stackalloc byte[64];
             Random.Shared.NextBytes(randomBytes);
             return new PublicKey(randomBytes);
+        }
+
+    private static void SeedDeterministic(ValueHash256 baseHash, INodeHealthTracker<TestNode> tracker, int maxDistance, int perDistance)
+        {
+            for (int d = 1; d <= maxDistance; d++)
+            {
+                for (int i = 0; i < perDistance; i++)
+                {
+            var targetHash = ValueHash256.GetRandomHashAtDistance(baseHash, d);
+            var pk = PublicKey.FromHash(targetHash);
+                    tracker.OnIncomingMessageFrom(new TestNode { Id = pk });
+                }
+            }
         }
     }
 

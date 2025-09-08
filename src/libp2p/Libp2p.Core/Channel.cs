@@ -43,11 +43,11 @@ public class Channel : IChannel
     public IWriter Writer { get => _writer; }
 
 
-    public ValueTask<ReadResult> ReadAsync(byte[] length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-        int messageLength,
+    public ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)
     {
-        return Reader.ReadAsync(length, blockingMode, token: token);
+        return Reader.ReadAsync(length, blockingMode, token);
     }
 
     public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
@@ -98,8 +98,8 @@ public class Channel : IChannel
         private readonly Channel? _externalCompletionMonitor;
         internal bool _eow = false;
 
-        public async ValueTask<ReadResult> ReadAsync(byte[] length,
-            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, int messageLength,
+        public async ValueTask<ReadResult> ReadAsync(int length,
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
             CancellationToken token = default)
         {
             try

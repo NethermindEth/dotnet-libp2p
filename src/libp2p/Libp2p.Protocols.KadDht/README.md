@@ -1,0 +1,257 @@
+# Libp2p.Protocols.KadDht
+
+Implementation of the Kademlia Distributed Hash Table (DHT) protocol for .NET libp2p.
+
+## Overview
+
+This package provides a complete implementation of the Kademlia DHT protocol as specified in the [libp2p specifications](https://github.com/libp2p/specs/tree/master/kad-dht). The implementation includes:
+
+- **Core Kademlia Algorithm**: Complete routing table management with K-buckets and XOR distance calculations
+- **DHT Value Storage**: Store and retrieve key-value pairs across the network  
+- **Provider Records**: Announce and discover content providers
+- **Network Protocol**: Full libp2p protocol integration with protobuf message definitions
+- **Multiple Operation Modes**: Client and server modes for different deployment scenarios
+
+## Features
+
+### Core DHT Operations
+- `PutValue` - Store values in the DHT
+- `GetValue` - Retrieve values from the DHT
+- `Provide` - Announce as a content provider
+- `FindProviders` - Discover content providers
+- `FindNode` - Locate nodes closest to a key
+- `Ping` - Check node connectivity
+
+### Storage Systems
+- **In-memory Value Store**: Thread-safe storage with TTL and capacity limits
+- **In-memory Provider Store**: Provider record management with automatic cleanup
+- **Configurable Limits**: Control storage capacity and record lifetimes
+
+### Network Integration
+- **Request-Response Protocols**: Efficient protobuf-based messaging
+- **Sub-protocol Routing**: Dedicated protocols for each DHT operation
+- **Error Handling**: Comprehensive error handling and logging
+- **Cancellation Support**: Full async/await with cancellation tokens
+
+## Usage
+
+### Basic Setup
+
+```csharp
+// Configure DHT options
+var options = new KadDhtOptions
+{
+    Mode = KadDhtMode.Server,  // or KadDhtMode.Client
+    KSize = 20,                // K-bucket size
+    Alpha = 3,                 // Concurrency parameter
+    MaxStoredValues = 1000,    // Storage limits
+    RecordTtl = TimeSpan.FromHours(24)
+};
+
+// Define bootstrap nodes (known DHT participants)
+var bootstrapNodes = new[]
+{
+    new DhtNode(new PeerId("12D3KooW..."), new PublicKey(publicKeyBytes), new[] { "/ip4/1.2.3.4/tcp/4001" }),
+    // Add more bootstrap nodes...
+};
+
+// Add complete Kad-DHT to libp2p peer factory
+var peer = new ServiceCollection()
+    .AddLibp2p(builder => builder
+        .WithQuic()
+        .AddKadDht(options => 
+        {
+            options.Mode = KadDhtMode.Server;
+            options.KSize = 20;
+            options.Alpha = 3;
+        }, bootstrapNodes))
+    .BuildServiceProvider()
+    .GetRequiredService<ILocalPeer>();
+
+// Start DHT participation (run in background)
+_ = Task.Run(() => peer.RunKadDhtAsync(cancellationToken));
+```
+
+### DHT Operations
+
+```csharp
+// Get the DHT protocol instance
+var kadDht = peer.GetKadDht();
+if (kadDht == null) throw new InvalidOperationException("Kad-DHT not configured");
+
+// Store a value (automatically replicated to K closest nodes)
+byte[] key = Encoding.UTF8.GetBytes("my-key");
+byte[] value = Encoding.UTF8.GetBytes("my-value");
+bool stored = await kadDht.PutValueAsync(key, value);
+
+// Retrieve a value (searches local storage + network if not found)
+byte[]? retrievedValue = await kadDht.GetValueAsync(key);
+
+// Announce as provider for content
+bool provided = await kadDht.ProvideAsync(key);
+
+// Find providers for content
+var providers = await kadDht.FindProvidersAsync(key, maxCount: 10);
+
+// Add known nodes to routing table
+var knownNode = new DhtNode(new PeerId("12D3KooW..."), new PublicKey(bytes));
+kadDht.AddNode(knownNode);
+
+// Get DHT statistics
+var stats = kadDht.GetStatistics();
+Console.WriteLine($"Routing table size: {stats["RoutingTableSize"]}");
+Console.WriteLine($"Stored values: {stats["StoredValues"]}");
+```
+
+### Configuration Options
+
+```csharp
+public class KadDhtOptions
+{
+    public int KSize { get; set; } = 20;                    // K-bucket size
+    public int Alpha { get; set; } = 3;                     // Concurrency
+    public KadDhtMode Mode { get; set; } = Server;          // Operating mode
+    public TimeSpan RecordTtl { get; set; } = 24h;         // Record lifetime
+    public int MaxStoredValues { get; set; } = 1000;       // Storage limit
+    public int MaxValueSize { get; set; } = 65536;         // Max value size
+    public int MaxProvidersPerKey { get; set; } = 20;      // Provider limit
+}
+```
+
+### Operating Modes
+
+#### Server Mode (`KadDhtMode.Server`)
+- Participates fully in the DHT network
+- Stores values and provider records from other nodes
+- Responds to all DHT queries
+- Suitable for stable, long-running nodes
+
+#### Client Mode (`KadDhtMode.Client`)  
+- Participates in routing but doesn't store records
+- Can query the DHT but doesn't serve data
+- Lighter resource usage
+- Suitable for mobile or ephemeral nodes
+
+## Protocol Details
+
+### Message Types
+
+The implementation supports all standard Kademlia DHT messages:
+
+```protobuf
+// Basic connectivity
+message PingRequest {}
+message PingResponse {}
+
+// Node discovery  
+message FindNeighboursRequest { PublicKeyBytes target = 1; }
+message FindNeighboursResponse { repeated Node neighbours = 1; }
+
+// Value operations
+message PutValueRequest { bytes key = 1; bytes value = 2; /* ... */ }
+message GetValueRequest { bytes key = 1; }
+
+// Provider operations
+message AddProviderRequest { bytes key = 1; bytes provider_id = 2; /* ... */ }
+message GetProvidersRequest { bytes key = 1; int32 count = 2; }
+```
+
+### Protocol IDs
+
+- Base: `/ipfs/kad/1.0.0`
+- Ping: `/ipfs/kad/1.0.0/ping`
+- FindNeighbours: `/ipfs/kad/1.0.0/findneighbours`
+- PutValue: `/ipfs/kad/1.0.0/putvalue`
+- GetValue: `/ipfs/kad/1.0.0/getvalue`
+- AddProvider: `/ipfs/kad/1.0.0/addprovider`
+- GetProviders: `/ipfs/kad/1.0.0/getproviders`
+
+## Architecture
+
+### Core Components
+
+```
+KadDhtProtocol (Main API)
+├── IValueStore (Value storage interface)
+│   └── InMemoryValueStore (Default implementation)
+├── IProviderStore (Provider records interface)  
+│   └── InMemoryProviderStore (Default implementation)
+└── KadDhtProtocolExtensions (Network protocol handlers)
+```
+
+### Integration Points
+
+- **Kademlia Algorithm**: Uses the core `IKademlia<TPublicKey, TNode>` implementation
+- **libp2p Transport**: Integrates via `ISessionProtocol` and request-response patterns
+- **Storage Layer**: Pluggable storage interfaces for values and provider records
+- **Logging**: Comprehensive structured logging throughout
+
+## Performance Characteristics
+
+### Memory Usage
+- In-memory stores use `ConcurrentDictionary` for thread safety
+- Automatic cleanup of expired records reduces memory growth
+- Configurable limits prevent unbounded storage
+
+### Network Efficiency
+- Size-prefixed protobuf messages minimize bandwidth
+- Request-response pattern reduces connection overhead
+- Concurrent operations with configurable parallelism (Alpha parameter)
+
+### Scalability
+- O(log N) routing table lookups using XOR distance
+- Bounded storage regardless of network size
+- Efficient cleanup prevents resource leaks
+
+## Error Handling
+
+- **Network Errors**: Automatic retry with exponential backoff (TODO)
+- **Validation Errors**: Reject invalid requests with detailed logging
+- **Storage Errors**: Graceful degradation with comprehensive error reporting
+- **Timeout Handling**: Full cancellation token support throughout
+
+## Monitoring and Diagnostics
+
+```csharp
+// Get current DHT statistics
+var stats = kadDht.GetStatistics();
+Console.WriteLine($"Stored values: {stats["StoredValues"]}");
+Console.WriteLine($"Provider keys: {stats["ProviderKeys"]}");
+Console.WriteLine($"Mode: {stats["Mode"]}");
+
+// Perform maintenance operations
+int cleanedUp = await kadDht.PerformMaintenanceAsync();
+```
+
+## Thread Safety
+
+All components are designed for concurrent use:
+- Storage implementations use `ConcurrentDictionary`
+- Cleanup operations use semaphores to prevent conflicts
+- Protocol handlers are stateless and thread-safe
+- Logging is thread-safe throughout
+
+## Testing
+
+The implementation includes comprehensive tests covering:
+- Basic DHT operations (put/get values, provide/find providers)
+- Storage layer functionality with TTL and capacity limits
+- Protocol message handling and error conditions
+- Concurrent access patterns and thread safety
+
+Run tests with:
+```bash
+dotnet test src/libp2p/Libp2p.Protocols.KadDht.Tests/
+```
+
+## Future Enhancements
+
+- **Persistent Storage**: Database-backed storage implementations
+- **Network Operations**: Full network traversal for distributed operations  
+- **Advanced Routing**: Bucket refresh and network maintenance
+- **Security Features**: Value validation and signature verification
+- **Metrics Integration**: Prometheus/OpenTelemetry support
+
+## License
+
+This project is licensed under LGPL-3.0-only. See the license headers in individual files for details.

@@ -40,7 +40,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
                 Mode = KadDhtMode.Server
             };
 
-            _protocol = new KadDhtProtocol(_localPeer, _loggerFactory, _options);
+            _protocol = new KadDhtProtocol(_localPeer, _loggerFactory, _options, null, null, null);
         }
 
         [Test]
