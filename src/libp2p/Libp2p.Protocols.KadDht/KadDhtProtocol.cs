@@ -5,8 +5,12 @@ using System.Collections.Concurrent;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Integration;
+using Libp2p.Protocols.KadDht.RequestResponse;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -28,39 +32,37 @@ public class KadDhtProtocol : ISessionProtocol
     private readonly IKademlia<PublicKey, DhtNode>? _kademlia;
     private readonly DhtNode _localDhtNode;
     private readonly DhtKeyOperator _keyOperator;
-    private readonly DhtMessageSender _messageSender;
 
     public string Id => "/ipfs/kad/1.0.0";
 
     public KadDhtProtocol(
         ILocalPeer localPeer,
-        ILoggerFactory? loggerFactory = null,
-        KadDhtOptions? options = null,
-        IValueStore? valueStore = null,
-        IProviderStore? providerStore = null,
-        IEnumerable<DhtNode>? bootstrapNodes = null)
+        Kademlia.IKademliaMessageSender<PublicKey, DhtNode> messageSender,
+        KadDhtOptions options,
+        IValueStore valueStore,
+        IProviderStore providerStore,
+        ILoggerFactory? loggerFactory = null)
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<KadDhtProtocol>();
-        _options = options ?? new KadDhtOptions();
-        _valueStore = valueStore ?? new InMemoryValueStore(_options.MaxStoredValues, loggerFactory);
-        _providerStore = providerStore ?? new InMemoryProviderStore(_options.MaxProvidersPerKey, loggerFactory);
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _valueStore = valueStore ?? throw new ArgumentNullException(nameof(valueStore));
+        _providerStore = providerStore ?? throw new ArgumentNullException(nameof(providerStore));
         _operationLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         // Initialize Kademlia algorithm components
         _keyOperator = new DhtKeyOperator();
-        _messageSender = new DhtMessageSender(localPeer, loggerFactory, _options.OperationTimeout);
         
         // Create local DHT node representation
         var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
-            _localDhtNode = new DhtNode
-            {
-                PeerId = _localPeer.Identity.PeerId,
-                PublicKey = localPublicKey,
-                Multiaddrs = Array.Empty<string>()
-            };
+        _localDhtNode = new DhtNode
+        {
+            PeerId = _localPeer.Identity.PeerId,
+            PublicKey = localPublicKey,
+            Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
+        };
 
-        // Initialize Kademlia algorithm if we have the necessary dependencies
+        // Initialize Kademlia algorithm with proper network message sender
         try
         {
             var nodeHashProvider = new DhtNodeHashProvider();
@@ -70,23 +72,33 @@ public class KadDhtProtocol : ISessionProtocol
                 KSize = _options.KSize,
                 Alpha = _options.Alpha,
                 RefreshInterval = _options.RefreshInterval,
-                BootNodes = bootstrapNodes?.ToArray() ?? Array.Empty<DhtNode>()
+                BootNodes = Array.Empty<DhtNode>() // Bootstrap nodes will be added via AddNode method
             };
 
             var routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, loggerFactory);
             
-            // Kademlia message sender integration is not available because DhtMessageSender does not implement IKademliaMessageSender.
-            // Fallback: skip full Kademlia initialization and run in local-only mode.
-            _logger?.LogWarning("DhtMessageSender does not implement IKademliaMessageSender; running Kad-DHT in local-only mode (no network lookups/replication).");
-            _kademlia = null;
+            // Create additional Kademlia dependencies
+            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, routingTable, nodeHashProvider, messageSender, loggerFactory ?? NullLoggerFactory.Instance);
+            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, loggerFactory ?? NullLoggerFactory.Instance);
+            
+            // Initialize Kademlia algorithm with network message sender
+            _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
+                _keyOperator, 
+                messageSender, 
+                routingTable, 
+                lookupAlgo,
+                loggerFactory ?? NullLoggerFactory.Instance,
+                nodeHealthTracker,
+                kademliaConfig);
 
             _logger?.LogInformation("Kad-DHT protocol initialized with full Kademlia algorithm in {Mode} mode with K={KSize}, Alpha={Alpha}",
                 _options.Mode, _options.KSize, _options.Alpha);
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to initialize Kademlia algorithm, running in local-only mode: {Error}", ex.Message);
+            _logger?.LogError(ex, "Failed to initialize Kademlia algorithm: {Error}", ex.Message);
             _kademlia = null;
+            throw;
         }
     }
 
@@ -168,10 +180,8 @@ public class KadDhtProtocol : ISessionProtocol
                             {
                                 _logger?.LogTrace("Replicating value to node {NodeId}", node.PeerId);
                                 
-                                // TODO: Implement actual PutValue protocol query to the node
-                                // This requires extending DhtMessageSender with PutValue operation
-                                // For now, return true to simulate success
-                                await Task.Delay(10, cancellationToken); // Simulate network operation
+                                // Send PutValue request to the node using network protocols
+                                await PutValueToNodeAsync(node, key, storedValue, cancellationToken);
                                 return true;
                             }
                             catch (Exception ex)
@@ -260,15 +270,18 @@ public class KadDhtProtocol : ISessionProtocol
                         try
                         {
                             // Query this node for the value using the GetValue protocol
-                            // This would use the DhtMessageSender to send GetValueRequest
-                            // For now, we'll implement basic logic here
                             cancellationToken.ThrowIfCancellationRequested();
                             
                             _logger?.LogTrace("Querying node {NodeId} for value", node.PeerId);
                             
-                            // TODO: Implement actual GetValue protocol query to the node
-                            // This requires extending DhtMessageSender with GetValue operation
-                            
+                            // Get value from remote node using network protocols
+                            var remoteValue = await GetValueFromNodeAsync(node, key, cancellationToken);
+                            if (remoteValue != null)
+                            {
+                                _logger?.LogInformation("Found value on remote node {NodeId} for key hash {KeyHash}",
+                                    node.PeerId, Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
+                                return remoteValue;
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -340,7 +353,6 @@ public class KadDhtProtocol : ISessionProtocol
             }
 
             // For client mode, we would need to send the provider record to appropriate nodes
-            // For now, just reject the operation
             _logger?.LogWarning("Provide operation rejected in client mode");
             return false;
         }
@@ -446,6 +458,78 @@ public class KadDhtProtocol : ISessionProtocol
         await Task.CompletedTask;
         
         _logger?.LogDebug("Kad-DHT ListenAsync completed with peer {RemotePeerId}", context.State.RemotePeerId);
+    }
+
+    #endregion
+
+    #region Network Operations
+
+    /// <summary>
+    /// Send PutValue request to a remote node.
+    /// </summary>
+    private async Task PutValueToNodeAsync(DhtNode node, byte[] key, StoredValue value, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Connect to the remote node
+            var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
+
+            // Create PutValue request
+            var request = new PutValueRequest
+            {
+                Key = Google.Protobuf.ByteString.CopyFrom(key),
+                Value = Google.Protobuf.ByteString.CopyFrom(value.Value),
+                Timestamp = value.Timestamp,
+                Publisher = Google.Protobuf.ByteString.CopyFrom(value.Publisher.Bytes.ToArray()),
+                Signature = Google.Protobuf.ByteString.Empty // TODO: Implement proper signing
+            };
+
+            // Send the request using the registered protocol
+            var response = await session.DialAsync<KadDhtPutValueProtocol, PutValueRequest, PutValueResponse>(
+                request, cancellationToken);
+
+            _logger?.LogTrace("Successfully sent PutValue to node {NodeId}", node.PeerId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to send PutValue to node {NodeId}: {Error}", node.PeerId, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get value from a remote node.
+    /// </summary>
+    private async Task<byte[]?> GetValueFromNodeAsync(DhtNode node, byte[] key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Connect to the remote node
+            var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
+
+            // Create GetValue request
+            var request = new GetValueRequest
+            {
+                Key = Google.Protobuf.ByteString.CopyFrom(key)
+            };
+
+            // Send the request using the registered protocol
+            var response = await session.DialAsync<KadDhtGetValueProtocol, GetValueRequest, GetValueResponse>(
+                request, cancellationToken);
+
+            if (response.Found && response.Value != null)
+            {
+                _logger?.LogTrace("Successfully retrieved value from node {NodeId}", node.PeerId);
+                return response.Value.ToByteArray();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to get value from node {NodeId}: {Error}", node.PeerId, ex.Message);
+            throw;
+        }
     }
 
     #endregion

@@ -45,21 +45,25 @@ public static class KadDhtIntegrationExtensions
             throw new InvalidOperationException("Unable to access underlying Services collection from IPeerFactoryBuilder (expected a public 'Services' property).");
         }
 
-    services.AddSingleton<KadDhtProtocol>(serviceProvider =>
-        {
-            var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
-            var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
+        // Register the LibP2P Kademlia message sender
+        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>, LibP2pKademliaMessageSender>();
 
-            return new KadDhtProtocol(
-                localPeer,
-                loggerFactory,
-                options,
-                valueStore,
-                providerStore,
-                bootstrapNodes);
-        });
-    // Register the high level session protocol once
-    builder = builder.AddProtocol<KadDhtProtocol>();
+        services.AddSingleton<KadDhtProtocol>(serviceProvider =>
+            {
+                var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
+                var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
+                var messageSender = serviceProvider.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
+
+                return new KadDhtProtocol(
+                    localPeer,
+                    messageSender,
+                    options,
+                    valueStore,
+                    providerStore,
+                    loggerFactory);
+            });
+        // Register the high level session protocol once
+        builder = builder.AddProtocol<KadDhtProtocol>();
 
         // Register the protocol extensions for network handlers
         var dhtOptions = options;

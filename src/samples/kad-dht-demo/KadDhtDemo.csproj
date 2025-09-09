@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.KadDht\Libp2p.Protocols.KadDht.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p\Libp2p.csproj" />
   </ItemGroup>
 
 </Project> 
