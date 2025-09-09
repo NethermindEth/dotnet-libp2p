@@ -20,6 +20,12 @@ public interface ILocalPeer : IAsyncDisposable
 
     Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default);
 
+    /// <summary>
+    /// Get a protocol instance by type.
+    /// </summary>
+    /// <typeparam name="T">The protocol type to retrieve.</typeparam>
+    /// <returns>The protocol instance, or null if not found.</returns>
+    T? GetProtocol<T>() where T : class, IProtocol;
 
     ObservableCollection<Multiaddress> ListenAddresses { get; }
 

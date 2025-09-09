@@ -45,7 +45,7 @@ internal static class TypeAdapters
     /// </summary>
     public static TestNode ToTestNode(this DhtNode dhtNode)
     {
-        return new TestNode { Id = dhtNode.PublicKey };
+        return new TestNode(dhtNode.PeerId);
     }
 
     /// <summary>
@@ -55,8 +55,8 @@ internal static class TypeAdapters
     {
         return new DhtNode
         {
-            PeerId = testNode.Id.ToPeerId(),
-            PublicKey = testNode.Id
+            PeerId = testNode.Id,
+            PublicKey = testNode.Id.ToKademliaKey()
         };
     }
 }

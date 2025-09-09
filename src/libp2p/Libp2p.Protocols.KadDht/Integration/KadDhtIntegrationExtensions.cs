@@ -83,7 +83,12 @@ public static class KadDhtIntegrationExtensions
     /// <returns>A DhtNode instance.</returns>
     // Conversion retained for potential future usage with full integration
     public static DhtNode ToDhtNode(this PeerId peerId, IEnumerable<string>? multiaddrs = null)
-        => new DhtNode(peerId, new Kademlia.PublicKey(peerId.Bytes.ToArray()), multiaddrs);
+        => new DhtNode
+        {
+            PeerId = peerId,
+            PublicKey = new Kademlia.PublicKey(peerId.Bytes.ToArray()),
+            Multiaddrs = multiaddrs?.ToArray() ?? Array.Empty<string>()
+        };
 
     /// <summary>
     /// Bootstrap and run the DHT in the background.

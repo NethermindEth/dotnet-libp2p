@@ -75,7 +75,7 @@ public sealed class KademliaSessionManager : ISessionManager
             _config.KSize,
             async (nextNode, token) =>
             {
-                if (_keyOperator.GetKeyHash(nextNode.Id).Equals(currentNodeIdAsHash))
+                if (_keyOperator.GetNodeHash(nextNode).Equals(currentNodeIdAsHash))
                 {
                     ValueHash256 keyHash = _keyOperator.GetKeyHash(key);
                     return _routingTable.GetKNearestNeighbour(keyHash);

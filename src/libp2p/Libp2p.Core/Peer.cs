@@ -210,6 +210,16 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
+    /// <summary>
+    /// Get a protocol instance by type.
+    /// </summary>
+    /// <typeparam name="T">The protocol type to retrieve.</typeparam>
+    /// <returns>The protocol instance, or null if not found.</returns>
+    public T? GetProtocol<T>() where T : class, IProtocol
+    {
+        return GetProtocolInstance<T>() as T;
+    }
+
     public async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
