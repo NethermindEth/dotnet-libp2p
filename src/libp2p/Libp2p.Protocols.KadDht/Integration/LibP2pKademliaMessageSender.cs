@@ -153,7 +153,34 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
         {
             var addresses = new List<Multiaddress>();
             
-            // Strategy: Common local network address patterns for development/testing
+            // Strategy 1: Real libp2p bootstrap node addresses
+            var knownBootstrapAddresses = new Dictionary<string, string[]>
+            {
+                ["QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"] = new[] { "/ip4/104.131.131.82/tcp/4001" },
+                ["QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"] = new[] { "/dnsaddr/bootstrap.libp2p.io" },
+                ["QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb"] = new[] { "/dnsaddr/bootstrap.libp2p.io" },
+                ["QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp"] = new[] { "/dnsaddr/bootstrap.libp2p.io" },
+                ["QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa"] = new[] { "/dnsaddr/bootstrap.libp2p.io" },
+                ["QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt"] = new[] { "/dnsaddr/bootstrap.libp2p.io" }
+            };
+            
+            // Check if this is a known bootstrap node
+            if (knownBootstrapAddresses.TryGetValue(peerId.ToString(), out var bootstrapAddrs))
+            {
+                foreach (var addr in bootstrapAddrs)
+                {
+                    try
+                    {
+                        addresses.Add(Multiaddress.Decode($"{addr}/p2p/{peerId}"));
+                    }
+                    catch
+                    {
+                        // Ignore malformed addresses
+                    }
+                }
+            }
+            
+            // Strategy 2: Common local network address patterns for development/testing
             var commonPorts = new[] { 4001, 4002, 4003, 8080, 9000, 9001 };
             var localIps = new[] { "127.0.0.1" };
             

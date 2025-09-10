@@ -41,9 +41,35 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            var line = $"{DateTime.UtcNow:O} {logLevel,-5} {_category} {formatter(state, exception)}";
-            if (exception != null) line += " | " + exception;
-            _writer.WriteLine(line);
+            try
+            {
+                var message = formatter(state, exception);
+                var timestamp = DateTime.UtcNow.ToString("HH:mm:ss.fff");
+                var line = $"{timestamp} {logLevel,-5} {_category} {message}";
+                
+                // Truncate very long lines to prevent overflow
+                if (line.Length > 2000)
+                {
+                    line = line.Substring(0, 1997) + "...";
+                }
+                
+                if (exception != null)
+                {
+                    var exceptionStr = exception.ToString();
+                    if (exceptionStr.Length > 500)
+                    {
+                        exceptionStr = exceptionStr.Substring(0, 497) + "...";
+                    }
+                    line += " | " + exceptionStr;
+                }
+                
+                _writer.WriteLine(line);
+            }
+            catch (Exception logEx)
+            {
+                // Fail silently to prevent logging exceptions from crashing the app
+                Console.WriteLine($"Logging error: {logEx.Message}");
+            }
         }
     }
 }
