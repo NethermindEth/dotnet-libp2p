@@ -8,6 +8,7 @@
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.14.0" />
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.4.0" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="DnsClient" Version="1.8.0" />
     <PackageVersion Include="Google.Protobuf" Version="$(ProtobufVersion)" />
     <PackageVersion Include="Google.Protobuf.Tools" Version="$(ProtobufVersion)" />
     <PackageVersion Include="libsodium" Version="1.0.20" />
