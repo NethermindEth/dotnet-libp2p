@@ -28,7 +28,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
     public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => [.. IpHelper.GetListenerAddresses().Select(a => ToTcpMultiAddress(a, peerId))];
 
-    public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>();
+    public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>() && !addr.Has<WebSocketSecure>();
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {

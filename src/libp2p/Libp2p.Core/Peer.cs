@@ -23,6 +23,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     protected readonly PeerStore _peerStore = peerStore;
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
+    protected readonly MultiaddrResolver _multiaddrResolver = new();
 
     Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
@@ -213,6 +214,12 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     public async Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
+
+        if (remotePeerId is null)
+        {
+            throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
+        }
+
         ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
 
         if (existingSession is not null)
@@ -220,14 +227,35 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             return existingSession;
         }
 
-        Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
+        List<Multiaddress> resolvedAddrs = [];
+
         foreach (Multiaddress addr in addrs)
+        {
+            // TODO: Remove ToBlockingEnumerable call in favor of async linq after migration to .NET 10
+            foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addr).ToBlockingEnumerable(cancellationToken: token).Distinct())
+            {
+                resolvedAddrs.Add(resolvedAddr);
+            }
+        }
+
+        if (resolvedAddrs is { Count: 0 })
+        {
+            throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
+        }
+
+        if (resolvedAddrs.Any(a => a.GetPeerId() != remotePeerId))
+        {
+            throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have mutiple different peer ids");
+        }
+
+        Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
+        foreach (Multiaddress addr in resolvedAddrs)
         {
             cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
         Task timeoutTask = Task.Delay(ConnectionTimeout, token);
-        Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. addrs.Select(addr => DialAsync(addr, cancellations[addr].Token))]);
+        Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr => DialAsyncCore(addr, cancellations[addr].Token))]);
 
         if (wait == timeoutTask)
         {
@@ -247,7 +275,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         return firstConnected;
     }
 
-    public async Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default)
+    public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
+
+    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token = default)
     {
         Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
         dialActivity?.SetTag("parent", peerActivity?.DisplayName);
