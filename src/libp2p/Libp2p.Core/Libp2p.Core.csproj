@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="DnsClient" />
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
