@@ -20,6 +20,10 @@ public class KadDhtPingProtocol : RequestResponseProtocol<PingRequest, PingRespo
 
     private static async Task<PingResponse> HandlePingRequest(PingRequest request, ISessionContext context)
     {
-        return new PingResponse();
+        
+        return new PingResponse
+        {
+            // To do: Indicate success or other status if needed
+        };
     }
 }

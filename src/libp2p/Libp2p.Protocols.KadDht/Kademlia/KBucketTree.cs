@@ -167,7 +167,28 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
         if (leftEntries.Count == 0 || rightEntries.Count == 0)
         {
             _skippedEmptySideSplits++;
-            if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Skipping split at depth {depth} due to empty side (left={leftEntries.Count}, right={rightEntries.Count})");
+            if (_logger.IsEnabled(LogLevel.Debug)) 
+            {
+                _logger.LogDebug($"Skipping split at depth {depth} due to empty side (left={leftEntries.Count}, right={rightEntries.Count})");
+                if (_logger.IsEnabled(LogLevel.Trace) && leftEntries.Count + rightEntries.Count > 0)
+                {
+                    var allHashes = leftEntries.Concat(rightEntries).Select(x => Convert.ToHexString(x.Item1.Bytes, 0, Math.Min(4, x.Item1.Bytes.Length))).Take(5);
+                    _logger.LogTrace($"Sample hashes at depth {depth}: {string.Join(", ", allHashes)}");
+                    _logger.LogTrace($"Current node prefix: {Convert.ToHexString(node.Prefix.Bytes, 0, Math.Min(4, node.Prefix.Bytes.Length))}");
+                    
+                    // Show bit analysis for first few nodes
+                    var firstFew = leftEntries.Concat(rightEntries).Take(3);
+                    foreach (var (hash, peer) in firstFew)
+                    {
+                        bool bit = GetBit(hash, depth);
+                        _logger.LogTrace($"Node {Convert.ToHexString(hash.Bytes, 0, Math.Min(4, hash.Bytes.Length))} bit at depth {depth}: {(bit ? 1 : 0)} (obj: {peer.GetHashCode()})");
+                    }
+                    
+                    // Show all unique hashes
+                    var uniqueHashes = leftEntries.Concat(rightEntries).Select(x => Convert.ToHexString(x.Item1.Bytes, 0, Math.Min(4, x.Item1.Bytes.Length))).Distinct().ToList();
+                    _logger.LogTrace($"Unique hash prefixes: {string.Join(", ", uniqueHashes)} (total: {uniqueHashes.Count})");
+                }
+            }
             return false;
         }
 

@@ -50,8 +50,6 @@ public class PublicKey
         Span<byte> raw = stackalloc byte[64];
         Random.Shared.NextBytes(raw);
         var pk = new PublicKey(raw);
-        pk._hash = hash;
-        pk._hashComputed = true;
         return pk;
     }
 }

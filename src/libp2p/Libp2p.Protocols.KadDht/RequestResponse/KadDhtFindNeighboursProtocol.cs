@@ -20,10 +20,10 @@ public class KadDhtFindNeighboursProtocol : RequestResponseProtocol<FindNeighbou
 
     private static async Task<FindNeighboursResponse> HandleFindNeighboursRequest(FindNeighboursRequest request, ISessionContext context)
     {
-        
         return new FindNeighboursResponse
         {
-            // Neighbours = { ... }
+            // To do: Populate with actual routing table results:
+            // Neighbours = { routingTable.FindClosestNodes(request.Target, kValue) }
         };
     }
 }

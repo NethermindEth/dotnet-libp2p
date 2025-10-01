@@ -10,7 +10,7 @@ namespace Libp2p.Protocols.KadDht.Integration;
 /// Represents a DHT node with libp2p integration.
 /// Bridges between Kademlia algorithm types and libp2p types.
 /// </summary>
-public sealed class DhtNode : IEquatable<DhtNode>
+public sealed class DhtNode : IEquatable<DhtNode>, IComparable<DhtNode>
 {
     public required PeerId PeerId { get; init; }
     public required PublicKey PublicKey { get; init; }
@@ -23,6 +23,13 @@ public sealed class DhtNode : IEquatable<DhtNode>
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
         return PeerId.Equals(other.PeerId);
+    }
+
+    public int CompareTo(DhtNode? other)
+    {
+        if (other is null) return 1;
+        if (ReferenceEquals(this, other)) return 0;
+        return string.Compare(PeerId.ToString(), other.PeerId.ToString(), StringComparison.Ordinal);
     }
 
     public override bool Equals(object? obj) => obj is DhtNode other && Equals(other);
