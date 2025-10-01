@@ -91,6 +91,11 @@
           "Microsoft.CSharp": "4.0.1"
         }
       },
+      "DnsClient": {
+        "type": "Transitive",
+        "resolved": "1.8.0",
+        "contentHash": "RRwtaCXkXWsx0mmsReGDqCbRLtItfUbkRJlet1FpdciVhyMGKcPd57T1+8Jki9ojHlq9fntVhXQroOOgRak8DQ=="
+      },
       "Google.Protobuf": {
         "type": "Transitive",
         "resolved": "3.31.1",
@@ -418,8 +423,8 @@
       },
       "Nethermind.Multiformats.Address": {
         "type": "Transitive",
-        "resolved": "1.1.8",
-        "contentHash": "+nRuuVXjj/Okj/RAJtJUZ/nDRjwMfjJnF1+4Z7gKX2MjMsxR92KPJbsP4fY4IaEwXMDjNJsXJu78z2C06tElzw==",
+        "resolved": "1.1.9",
+        "contentHash": "1SQz4yMKkFABtZmQVxeUhKUwJhS/tUUG1BosGZHiVPT5nUf2N+sBA/Jv70OK3/RE64fK+LHjeB7dOq2g2GI7TA==",
         "dependencies": {
           "BinaryEncoding": "1.4.0",
           "Nethermind.Multiformats.Base": "2.0.3-preview.1",
@@ -1493,11 +1498,12 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.4.0, )",
+          "DnsClient": "[1.8.0, )",
           "Google.Protobuf": "[3.31.1, )",
           "Microsoft.Extensions.DependencyInjection": "[9.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[9.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
-          "Nethermind.Multiformats.Address": "[1.1.8, )",
+          "Nethermind.Multiformats.Address": "[1.1.9, )",
           "SimpleBase": "[4.0.2, )"
         }
       },

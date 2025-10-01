@@ -94,15 +94,19 @@ namespace KadDhtDemo
                 bool useRealNetwork = args.Contains("--network") || args.Contains("-n");
                 bool showHelp = args.Contains("--help") || args.Contains("-h");
                 
-                // Default comprehensive bootstrap nodes for libp2p network
                 var defaultBootstrapAddresses = new List<string>
                 {
-                    // Protocol Labs bootstrap nodes
+                    // DNS-based addresses
+                    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+                    "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+                    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+                    "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+                    
+                    // IP addresses
                     "/ip4/145.40.118.135/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     "/ip4/145.40.118.135/udp/4001/quic-v1/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     "/ip6/2604:1380:40e1:9c00::1/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     "/ip6/2604:1380:40e1:9c00::1/udp/4001/quic-v1/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-                    "/ip6/2604:1380:40e1:9c00::1/udp/4001/quic/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     
                     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
                     "/ip4/139.178.91.71/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
@@ -473,31 +477,55 @@ namespace KadDhtDemo
                     {
                         logger.LogInformation("🌐 Attempting to connect to {Count} real bootstrap peers...", bootstrapAddresses.Count);
                         
-                        foreach (var addr in bootstrapAddresses)
+                        var resolver = new MultiaddrResolver();
+                        
+                        foreach (var addr in bootstrapAddresses.Take(3))
                         {
                             try
                             {
                                 var multiaddr = Multiaddress.Decode(addr);
-                                var p2pComponent = multiaddr.Protocols.FirstOrDefault(p => p.Name == "p2p");
-                                if (p2pComponent != null)
+                                
+                                logger.LogInformation("🔍 Resolving {Address}...", addr);
+                                
+                                var resolvedAddresses = new List<Multiaddress>();
+                                await foreach (var resolved in resolver.Resolve(multiaddr))
                                 {
-                                    var targetPeerId = new PeerId(p2pComponent.Value.ToString()!);
-                                    logger.LogInformation("🔄 Attempting real connection to bootstrap peer {PeerId} at {Address}", 
-                                        targetPeerId, addr);
+                                    resolvedAddresses.Add(resolved);
+                                }
+                                
+                                logger.LogInformation("✅ Resolved to {Count} address(es):", resolvedAddresses.Count);
+                                foreach (var resolved in resolvedAddresses.Take(2)) // Show first 2
+                                {
+                                    logger.LogInformation("   → {ResolvedAddress}", resolved);
+                                }
+                                
+                                if (resolvedAddresses.Count > 0)
+                                {
+                                    var targetAddress = resolvedAddresses.First();
+                                    logger.LogInformation("🔄 Attempting real connection to {Address}", targetAddress);
                                     
-                                    // Try to dial the real bootstrap peer using the multiaddress
-                                    var connectTask = localPeer.DialAsync(multiaddr, CancellationToken.None);
+                                    var connectTask = localPeer.DialAsync(targetAddress, CancellationToken.None);
                                     var timeoutTask = Task.Delay(TimeSpan.FromSeconds(15));
                                     var completedTask = await Task.WhenAny(connectTask, timeoutTask);
                                     
                                     if (completedTask == connectTask && !connectTask.IsFaulted)
                                     {
                                         var session = await connectTask;
-                                        logger.LogInformation("✅ Successfully connected to real bootstrap peer {PeerId}", targetPeerId);
+                                        logger.LogInformation("✅ Successfully connected to bootstrap peer {PeerId}!", 
+                                            session.RemoteAddress.GetPeerId());
+                                        
+                                        var remotePeerId = session.RemoteAddress.GetPeerId();
+                                        if (remotePeerId != null)
+                                        {
+                                            var bootstrapNode = TestNode.WithNetworkAddress(
+                                                remotePeerId.ToKademliaKey(), 
+                                                "remote", null);
+                                            logger.LogInformation("📋 Added bootstrap peer to local routing table");
+                                        }
                                     }
                                     else
                                     {
-                                        logger.LogWarning("⚠️  Failed to connect to real bootstrap peer {PeerId}: timeout or error", targetPeerId);
+                                        logger.LogWarning("⏰ Connection timeout to {Address}", targetAddress);
                                     }
                                 }
                             }
@@ -944,33 +972,18 @@ namespace KadDhtDemo
             {
                 try
                 {
-                    // This is a placeholder for real implementation
-                    // 1. Resolve the TestNode to actual multiaddresses
-                    // 2. Use _localPeer.DialAsync() to establish connection
-                    // 3. Return the active session
+                    _log.LogDebug("Attempting to connect to {Receiver}", receiver.Id);
                     
-                    // For demonstration, we simulate connection attempts
-                    var receiverPeerId = receiver.Id.ToPeerId();
-                    
-                    // Simulate connection attempt delay
-                    await Task.Delay(Random.Shared.Next(50, 300), token);
-
-                    // In real implementation:
-                    // var multiaddrs = ResolveMultiaddresses(receiver);
-                    // var session = await _localPeer.DialAsync(receiverPeerId, multiaddrs, token);
-                    // return session;
-
-                    // For now, simulate connection success/failure
-                    if (Random.Shared.NextDouble() < 0.85) // 85% success rate
+                    if (receiver.Multiaddress == null)
                     {
-                        _log.LogDebug("Simulated successful connection to {Receiver}", receiver.Id);
-                        return null; // Would return actual session in real implementation
-                    }
-                    else
-                    {
-                        _log.LogDebug("Simulated connection failure to {Receiver}", receiver.Id);
+                        _log.LogWarning("No multiaddress available for {Receiver}", receiver.Id);
                         return null;
                     }
+
+                    var session = await _localPeer.DialAsync(receiver.Multiaddress, token);
+                    
+                    _log.LogDebug("Successfully connected to {Receiver}", receiver.Id);
+                    return session;
                 }
                 catch (Exception ex)
                 {
