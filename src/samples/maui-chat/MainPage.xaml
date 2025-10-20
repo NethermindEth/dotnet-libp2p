@@ -17,7 +17,7 @@
       <ScrollView Grid.ColumnSpan="2">
         <Label>
           <Label.FormattedText>
-            <FormattedString x:Name="Content">
+            <FormattedString x:Name="ChatContent">
               <Span Text="Chat will start soon..." FontAttributes="Bold" />
               <Span Text="{x:Static system:Environment.NewLine}" FontAttributes="Bold" />
             </FormattedString>

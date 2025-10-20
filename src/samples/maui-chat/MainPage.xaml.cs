@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p;
@@ -33,8 +36,8 @@ public partial class MainPage : ContentPage
 
                 CancellationTokenSource ts = new();
 
-                Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
-                //Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                //Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
 
                 await using ILocalPeer localPeer = peerFactory.Create();
 
@@ -80,13 +83,13 @@ public partial class MainPage : ContentPage
     {
         Dispatcher.Dispatch(() =>
         {
-            Content.Spans.Add(new Span
+            ChatContent.Spans.Add(new Span
             {
                 Text = $"{from}: ",
                 FontAttributes = FontAttributes.Bold,
             });
 
-            Content.Spans.Add(new Span
+            ChatContent.Spans.Add(new Span
             {
                 Text = msg + "\n",
             });
