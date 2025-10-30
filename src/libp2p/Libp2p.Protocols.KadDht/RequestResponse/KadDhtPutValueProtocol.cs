@@ -20,7 +20,7 @@ public class KadDhtPutValueProtocol : RequestResponseProtocol<PutValueRequest, P
 
     private static async Task<PutValueResponse> HandlePutValueRequest(PutValueRequest request, ISessionContext context)
     {
-        
+
         return new PutValueResponse
         {
             Success = true,

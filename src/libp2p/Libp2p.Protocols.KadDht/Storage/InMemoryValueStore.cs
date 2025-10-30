@@ -29,14 +29,17 @@ public class InMemoryValueStore : IValueStore
 
     public Task<bool> PutValueAsync(ReadOnlyMemory<byte> key, StoredValue value, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _logger?.LogTrace("Cancellation requested when storing value; proceeding for in-memory store");
+        }
 
         string keyString = Convert.ToBase64String(key.Span);
-        
+
         // Check capacity and enforce limits
         if (_values.Count >= _maxValues && !_values.ContainsKey(keyString))
         {
-            _logger?.LogWarning("Value store at capacity ({MaxValues}), cannot store new value for key {Key}", 
+            _logger?.LogWarning("Value store at capacity ({MaxValues}), cannot store new value for key {Key}",
                 _maxValues, keyString[..Math.Min(keyString.Length, 16)] + "...");
             return Task.FromResult(false);
         }
@@ -51,14 +54,14 @@ public class InMemoryValueStore : IValueStore
         _values.AddOrUpdate(keyString, value, (_, existingValue) =>
         {
             // Replace if the new value is newer (higher timestamp)
-            if (value.Timestamp > existingValue.Timestamp)
+            if (value.Timestamp >= existingValue.Timestamp)
             {
-                _logger?.LogDebug("Updated value for key {Key} with newer timestamp {Timestamp}", 
+                _logger?.LogDebug("Updated value for key {Key} with newer timestamp {Timestamp}",
                     keyString[..Math.Min(keyString.Length, 16)] + "...", value.Timestamp);
                 return value;
             }
-            
-            _logger?.LogDebug("Kept existing value for key {Key} (newer timestamp {ExistingTimestamp} vs {NewTimestamp})", 
+
+            _logger?.LogDebug("Kept existing value for key {Key} (newer timestamp {ExistingTimestamp} vs {NewTimestamp})",
                 keyString[..Math.Min(keyString.Length, 16)] + "...", existingValue.Timestamp, value.Timestamp);
             return existingValue;
         });
@@ -68,10 +71,13 @@ public class InMemoryValueStore : IValueStore
 
     public Task<StoredValue?> GetValueAsync(ReadOnlyMemory<byte> key, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _logger?.LogTrace("Cancellation requested when retrieving value; returning current snapshot");
+        }
 
         string keyString = Convert.ToBase64String(key.Span);
-        
+
         if (_values.TryGetValue(keyString, out StoredValue? value))
         {
             if (value.IsExpired)
@@ -80,7 +86,7 @@ public class InMemoryValueStore : IValueStore
                 _values.TryRemove(keyString, out _);
                 return Task.FromResult<StoredValue?>(null);
             }
-            
+
             _logger?.LogTrace("Retrieved value for key {Key}", keyString[..Math.Min(keyString.Length, 16)] + "...");
             return Task.FromResult<StoredValue?>(value);
         }
@@ -91,10 +97,13 @@ public class InMemoryValueStore : IValueStore
 
     public Task<bool> HasValueAsync(ReadOnlyMemory<byte> key, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _logger?.LogTrace("Cancellation requested when checking value existence; continuing for in-memory store");
+        }
 
         string keyString = Convert.ToBase64String(key.Span);
-        
+
         if (_values.TryGetValue(keyString, out StoredValue? value))
         {
             if (value.IsExpired)
@@ -110,11 +119,14 @@ public class InMemoryValueStore : IValueStore
 
     public Task<bool> RemoveValueAsync(ReadOnlyMemory<byte> key, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _logger?.LogTrace("Cancellation requested when removing value; continuing for in-memory store");
+        }
 
         string keyString = Convert.ToBase64String(key.Span);
         bool removed = _values.TryRemove(keyString, out _);
-        
+
         if (removed)
         {
             _logger?.LogDebug("Removed value for key {Key}", keyString[..Math.Min(keyString.Length, 16)] + "...");
@@ -127,11 +139,11 @@ public class InMemoryValueStore : IValueStore
     {
         // Use semaphore to prevent concurrent cleanup operations
         await _cleanupSemaphore.WaitAsync(cancellationToken);
-        
+
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            
+
             var expiredKeys = new List<string>();
             var now = DateTime.UtcNow;
 

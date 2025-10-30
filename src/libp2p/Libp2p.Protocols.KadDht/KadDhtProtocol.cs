@@ -27,7 +27,7 @@ public class KadDhtProtocol : ISessionProtocol
     private readonly IValueStore _valueStore;
     private readonly IProviderStore _providerStore;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _operationLocks;
-    
+
     // Kademlia algorithm components
     private readonly IKademlia<PublicKey, DhtNode>? _kademlia;
     private readonly DhtNode _localDhtNode;
@@ -52,7 +52,7 @@ public class KadDhtProtocol : ISessionProtocol
 
         // Initialize Kademlia algorithm components
         _keyOperator = new DhtKeyOperator();
-        
+
         // Create local DHT node representation
         var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
         _localDhtNode = new DhtNode
@@ -76,16 +76,16 @@ public class KadDhtProtocol : ISessionProtocol
             };
 
             var routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, loggerFactory);
-            
+
             // Create additional Kademlia dependencies
             var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, routingTable, nodeHashProvider, messageSender, loggerFactory ?? NullLoggerFactory.Instance);
             var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, loggerFactory ?? NullLoggerFactory.Instance);
-            
+
             // Initialize Kademlia algorithm with network message sender
             _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
-                _keyOperator, 
-                messageSender, 
-                routingTable, 
+                _keyOperator,
+                messageSender,
+                routingTable,
                 lookupAlgo,
                 loggerFactory ?? NullLoggerFactory.Instance,
                 nodeHealthTracker,
@@ -141,7 +141,7 @@ public class KadDhtProtocol : ISessionProtocol
             if (_options.Mode == KadDhtMode.Server)
             {
                 localStoreSuccess = await _valueStore.PutValueAsync(key, storedValue, cancellationToken);
-                
+
                 if (localStoreSuccess)
                 {
                     _logger?.LogInformation("Successfully stored value locally for key hash {KeyHash}",
@@ -179,7 +179,7 @@ public class KadDhtProtocol : ISessionProtocol
                             try
                             {
                                 _logger?.LogTrace("Replicating value to node {NodeId}", node.PeerId);
-                                
+
                                 // Send PutValue request to the node using network protocols
                                 await PutValueToNodeAsync(node, key, storedValue, cancellationToken);
                                 return true;
@@ -271,9 +271,9 @@ public class KadDhtProtocol : ISessionProtocol
                         {
                             // Query this node for the value using the GetValue protocol
                             cancellationToken.ThrowIfCancellationRequested();
-                            
+
                             _logger?.LogTrace("Querying node {NodeId} for value", node.PeerId);
-                            
+
                             // Get value from remote node using network protocols
                             var remoteValue = await GetValueFromNodeAsync(node, key, cancellationToken);
                             if (remoteValue != null)
@@ -337,7 +337,7 @@ public class KadDhtProtocol : ISessionProtocol
                 };
 
                 bool added = await _providerStore.AddProviderAsync(key, providerRecord, cancellationToken);
-                
+
                 if (added)
                 {
                     _logger?.LogInformation("Successfully announced as provider for key hash {KeyHash}",
@@ -397,7 +397,7 @@ public class KadDhtProtocol : ISessionProtocol
             }
 
             // TODO: Implement network lookup using the Kademlia algorithm if we need more providers
-            
+
             return providerPeerIds;
         }
         catch (Exception ex)
@@ -430,9 +430,9 @@ public class KadDhtProtocol : ISessionProtocol
 
         // The actual protocol interactions would be implemented using sub-protocols
         // registered in the KadDhtProtocolExtensions
-        
+
         await Task.CompletedTask;
-        
+
         _logger?.LogDebug("Kad-DHT DialAsync completed with peer {RemotePeerId}", context.State.RemotePeerId);
     }
 
@@ -456,7 +456,7 @@ public class KadDhtProtocol : ISessionProtocol
         // registered in the KadDhtProtocolExtensions
 
         await Task.CompletedTask;
-        
+
         _logger?.LogDebug("Kad-DHT ListenAsync completed with peer {RemotePeerId}", context.State.RemotePeerId);
     }
 
@@ -547,7 +547,7 @@ public class KadDhtProtocol : ISessionProtocol
         if (_kademlia != null)
         {
             _logger?.LogInformation("Starting Kademlia algorithm background processes");
-            
+
             try
             {
                 await _kademlia.Run(cancellationToken);
@@ -578,7 +578,7 @@ public class KadDhtProtocol : ISessionProtocol
         if (_kademlia != null)
         {
             _logger?.LogInformation("Starting DHT bootstrap process");
-            
+
             try
             {
                 await _kademlia.Bootstrap(cancellationToken);
@@ -603,7 +603,7 @@ public class KadDhtProtocol : ISessionProtocol
     public void AddNode(DhtNode node)
     {
         if (node == null) throw new ArgumentNullException(nameof(node));
-        
+
         _kademlia?.AddOrRefresh(node);
         _logger?.LogTrace("Added node {NodeId} to routing table", node.PeerId);
     }
@@ -620,7 +620,7 @@ public class KadDhtProtocol : ISessionProtocol
 
             // Clean up expired values
             int expiredValues = await _valueStore.CleanupExpiredValuesAsync(cancellationToken);
-            
+
             // Clean up expired providers
             int expiredProviders = await _providerStore.CleanupExpiredProvidersAsync(cancellationToken);
 

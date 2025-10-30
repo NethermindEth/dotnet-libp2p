@@ -62,7 +62,7 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
 
         TreeNode current = _root;
         // As in, what would be the depth of the node assuming all branch on the traversal is populated.
-    int logDistance = THash.MaxDistance - THash.CalculateLogDistance(_currentNodeHash, nodeHash);
+        int logDistance = THash.MaxDistance - THash.CalculateLogDistance(_currentNodeHash, nodeHash);
         int depth = 0;
         while (true)
         {
@@ -77,10 +77,10 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
                 if (resp is BucketAddResult.Added or BucketAddResult.Refreshed)
                 {
                     if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Successfully added/refreshed node {node} in bucket at depth {depth}");
-                        if ((_splitCount + _evictionAttempts) % 100 == 0)
-                        {
-                            if (_logger.IsEnabled(LogLevel.Debug)) LogTreeStatistics();
-                        }
+                    if ((_splitCount + _evictionAttempts) % 100 == 0)
+                    {
+                        if (_logger.IsEnabled(LogLevel.Debug)) LogTreeStatistics();
+                    }
                     return resp;
                 }
 
@@ -95,7 +95,7 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
 
                 if (resp == BucketAddResult.Full) _evictionAttempts++;
 
-                    if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Failed to add node {Short(nodeHash)} {node}. Bucket at depth {depth} is full. {_k} {current.Bucket.GetAllWithHash().Count()}");
+                if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Failed to add node {Short(nodeHash)} {node}. Bucket at depth {depth} is full. {_k} {current.Bucket.GetAllWithHash().Count()}");
                 return resp;
             }
 
@@ -167,7 +167,7 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
         if (leftEntries.Count == 0 || rightEntries.Count == 0)
         {
             _skippedEmptySideSplits++;
-            if (_logger.IsEnabled(LogLevel.Debug)) 
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug($"Skipping split at depth {depth} due to empty side (left={leftEntries.Count}, right={rightEntries.Count})");
                 if (_logger.IsEnabled(LogLevel.Trace) && leftEntries.Count + rightEntries.Count > 0)
@@ -175,7 +175,7 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
                     var allHashes = leftEntries.Concat(rightEntries).Select(x => Convert.ToHexString(x.Item1.Bytes, 0, Math.Min(4, x.Item1.Bytes.Length))).Take(5);
                     _logger.LogTrace($"Sample hashes at depth {depth}: {string.Join(", ", allHashes)}");
                     _logger.LogTrace($"Current node prefix: {Convert.ToHexString(node.Prefix.Bytes, 0, Math.Min(4, node.Prefix.Bytes.Length))}");
-                    
+
                     // Show bit analysis for first few nodes
                     var firstFew = leftEntries.Concat(rightEntries).Take(3);
                     foreach (var (hash, peer) in firstFew)
@@ -183,7 +183,7 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
                         bool bit = GetBit(hash, depth);
                         _logger.LogTrace($"Node {Convert.ToHexString(hash.Bytes, 0, Math.Min(4, hash.Bytes.Length))} bit at depth {depth}: {(bit ? 1 : 0)} (obj: {peer.GetHashCode()})");
                     }
-                    
+
                     // Show all unique hashes
                     var uniqueHashes = leftEntries.Concat(rightEntries).Select(x => Convert.ToHexString(x.Item1.Bytes, 0, Math.Min(4, x.Item1.Bytes.Length))).Distinct().ToList();
                     _logger.LogTrace($"Unique hash prefixes: {string.Join(", ", uniqueHashes)} (total: {uniqueHashes.Count})");
@@ -448,15 +448,15 @@ public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode
 
         TraverseTree(_root, 0);
 
-    _logger.LogDebug($"Tree Statistics:\n" +
-             $"Total Nodes: {totalNodes}\n" +
-             $"Total Buckets: {totalBuckets}\n" +
-             $"Max Depth: {maxDepth}\n" +
-             $"Total Items: {totalItems}\n" +
-             $"Average Items per Bucket: {(double)totalItems / totalBuckets:F2}\n" +
-             $"Splits: {_splitCount}\n" +
-             $"EvictionAttempts: {_evictionAttempts}\n" +
-             $"SkippedEmptySideSplits: {_skippedEmptySideSplits}");
+        _logger.LogDebug($"Tree Statistics:\n" +
+                 $"Total Nodes: {totalNodes}\n" +
+                 $"Total Buckets: {totalBuckets}\n" +
+                 $"Max Depth: {maxDepth}\n" +
+                 $"Total Items: {totalItems}\n" +
+                 $"Average Items per Bucket: {(double)totalItems / totalBuckets:F2}\n" +
+                 $"Splits: {_splitCount}\n" +
+                 $"EvictionAttempts: {_evictionAttempts}\n" +
+                 $"SkippedEmptySideSplits: {_skippedEmptySideSplits}");
     }
     private static string Short(THash h)
     {

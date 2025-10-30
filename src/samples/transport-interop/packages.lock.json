@@ -1468,7 +1468,7 @@
           "Microsoft.Extensions.Logging.Abstractions": "[9.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.RequestResponse": "[1.0.0, )",
-          "Nethermind.Multiformats.Address": "[1.1.8, )"
+          "Nethermind.Multiformats.Address": "[1.1.9, )"
         }
       },
       "Nethermind.Libp2p": {

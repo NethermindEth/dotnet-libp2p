@@ -10,7 +10,7 @@ namespace Libp2p.Protocols.KadDht.Kademlia;
 public class TestNode
 {
     public PublicKey Id { get; init; } = default!;
-    
+
     /// <summary>
     /// The multiaddress of the node for real network connectivity.
     /// Should be in format: /ip4/HOST/tcp/PORT/p2p/PEERID
@@ -29,7 +29,7 @@ public class TestNode
     {
         // Generate a random port if not specified
         var tcpPort = port ?? Random.Shared.Next(4000, 8000);
-        
+
         // Create a proper libp2p PeerId from the Kademlia PublicKey
         // Convert Kademlia PublicKey to libp2p PublicKey format
         var keyBytes = publicKey.Bytes.ToArray();
@@ -38,19 +38,19 @@ public class TestNode
             Type = KeyType.Ed25519,
             Data = Google.Protobuf.ByteString.CopyFrom(keyBytes)
         };
-        
+
         var peerId = new PeerId(libp2pPublicKey);
-        
+
         // Create valid libp2p multiaddress
         var multiaddress = Multiformats.Address.Multiaddress.Decode($"/ip4/{host}/tcp/{tcpPort}/p2p/{peerId}");
-        
-        return new TestNode 
-        { 
+
+        return new TestNode
+        {
             Id = publicKey,
             Multiaddress = multiaddress
         };
     }
-    
+
     /// <summary>
     /// Creates a TestNode for simulation mode (no multiaddress needed).
     /// </summary>
@@ -58,8 +58,8 @@ public class TestNode
     /// <returns>TestNode for simulation use</returns>
     public static TestNode ForSimulation(PublicKey publicKey)
     {
-        return new TestNode 
-        { 
+        return new TestNode
+        {
             Id = publicKey,
             Multiaddress = null
         };

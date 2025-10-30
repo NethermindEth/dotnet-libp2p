@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
-    ValueTask<ReadResult> ReadAsync(int length, 
+    ValueTask<ReadResult> ReadAsync(int length,
         ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default);
 

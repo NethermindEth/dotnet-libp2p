@@ -10,20 +10,34 @@ namespace Libp2p.Protocols.KadDht.RequestResponse;
 
 /// <summary>
 /// KadDht Ping protocol implementation using request-response pattern.
+/// Handles DHT ping requests for connectivity testing and node discovery.
 /// </summary>
 public class KadDhtPingProtocol : RequestResponseProtocol<PingRequest, PingResponse>
 {
+    private static ILogger<KadDhtPingProtocol>? _logger;
+
     public KadDhtPingProtocol(ILoggerFactory? loggerFactory = null)
         : base("/ipfs/kad/1.0.0/ping", HandlePingRequest, loggerFactory)
     {
+        _logger = loggerFactory?.CreateLogger<KadDhtPingProtocol>();
     }
 
-    private static async Task<PingResponse> HandlePingRequest(PingRequest request, ISessionContext context)
+    private static Task<PingResponse> HandlePingRequest(PingRequest request, ISessionContext context)
     {
-        
-        return new PingResponse
+        try
         {
-            // To do: Indicate success or other status if needed
-        };
+            var remotePeer = context.State.RemoteAddress?.ToString() ?? "unknown";
+            _logger?.LogDebug("Processing DHT ping request from {RemotePeer}", remotePeer);
+
+            // TODO: Add requesting peer to routing table when routing table service is available
+
+            _logger?.LogDebug("Responding to DHT PING request with PingResponse");
+            return Task.FromResult(new PingResponse());
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error processing DHT PING request");
+            return Task.FromResult(new PingResponse());
+        }
     }
 }

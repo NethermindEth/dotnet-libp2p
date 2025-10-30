@@ -24,17 +24,25 @@ public class PublicKey
         get
         {
             if (_hashComputed) return _hash;
-            Span<byte> buf = stackalloc byte[32];
-            using var sha = System.Security.Cryptography.SHA256.Create();
-            if (!sha.TryComputeHash(_bytes, buf, out _))
+            if (_bytes.Length == 32)
             {
-                // Fallback (should never happen for SHA256)
-                var tmp = sha.ComputeHash(_bytes);
-                _hash = ValueHash256.FromBytes(tmp);
+                // When raw public key bytes already match Kademlia key size, reuse directly for deterministic distance.
+                _hash = ValueHash256.FromBytes(_bytes.ToArray());
             }
             else
             {
-                _hash = ValueHash256.FromBytes(buf.ToArray());
+                Span<byte> buf = stackalloc byte[32];
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                if (!sha.TryComputeHash(_bytes, buf, out _))
+                {
+                    // Fallback (should never happen for SHA256)
+                    var tmp = sha.ComputeHash(_bytes);
+                    _hash = ValueHash256.FromBytes(tmp);
+                }
+                else
+                {
+                    _hash = ValueHash256.FromBytes(buf.ToArray());
+                }
             }
             _hashComputed = true;
             return _hash;

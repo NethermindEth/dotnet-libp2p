@@ -35,13 +35,13 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
     public async Task<TestNode[]> FindNeighbours(TestNode receiver, PublicKey target, CancellationToken token)
     {
         // Dial remote using RequestResponse
-    ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
-    // Using the generated DTO namespace (capital P2P) until proto regeneration unifies casing
-    var req = new FindNeighboursRequest
+        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
+        // Using the generated DTO namespace (capital P2P) until proto regeneration unifies casing
+        var req = new FindNeighboursRequest
         {
-        Target = new PublicKeyBytes { Value = ByteString.CopyFrom(target.Bytes.ToArray()) }
+            Target = new PublicKeyBytes { Value = ByteString.CopyFrom(target.Bytes.ToArray()) }
         };
-    var resp = await session.DialAsync<RequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>, FindNeighboursRequest, FindNeighboursResponse>(req);
+        var resp = await session.DialAsync<RequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>, FindNeighboursRequest, FindNeighboursResponse>(req);
 
         // Map to TestNode[]
         return resp.Neighbours
@@ -51,8 +51,8 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
 
     public async Task Ping(TestNode receiver, CancellationToken token)
     {
-    ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
-    var _ = await session.DialAsync<RequestResponseProtocol<PingRequest, PingResponse>, PingRequest, PingResponse>(new PingRequest());
+        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
+        var _ = await session.DialAsync<RequestResponseProtocol<PingRequest, PingResponse>, PingRequest, PingResponse>(new PingRequest());
     }
 
     private Multiaddress GetFirstAddress(TestNode node)

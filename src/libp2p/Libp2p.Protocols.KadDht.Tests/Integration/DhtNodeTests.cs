@@ -62,7 +62,12 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void Constructor_WithConstructorParameters_ShouldCreateInstance()
         {
             // Act
-            var node = new DhtNode(_peerId, _publicKey, _multiaddrs);
+            var node = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey,
+                Multiaddrs = _multiaddrs
+            };
 
             // Assert
             Assert.That(node.PeerId, Is.EqualTo(_peerId));
@@ -71,25 +76,19 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         }
 
         [Test]
-        public void Constructor_WithNullPeerId_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new DhtNode(null!, _publicKey));
-        }
-
-        [Test]
-        public void Constructor_WithNullPublicKey_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new DhtNode(_peerId, null!));
-        }
-
-        [Test]
         public void Equals_WithSamePeerId_ShouldReturnTrue()
         {
             // Arrange
-            var node1 = new DhtNode(_peerId, _publicKey);
-            var node2 = new DhtNode(_peerId, new PublicKey(new byte[32])); // Different public key
+            var node1 = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey
+            };
+            var node2 = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = new PublicKey(new byte[32])
+            }; // Different public key
 
             // Act & Assert
             Assert.That(node1.Equals(node2), Is.True);
@@ -101,8 +100,16 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void Equals_WithDifferentPeerId_ShouldReturnFalse()
         {
             // Arrange
-            var node1 = new DhtNode(_peerId, _publicKey);
-            var node2 = new DhtNode(new PeerId(new byte[32]), _publicKey);
+            var node1 = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey
+            };
+            var node2 = new DhtNode
+            {
+                PeerId = new PeerId(new byte[32]),
+                PublicKey = _publicKey
+            };
 
             // Act & Assert
             Assert.That(node1.Equals(node2), Is.False);
@@ -114,7 +121,11 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void Equals_WithNull_ShouldReturnFalse()
         {
             // Arrange
-            var node = new DhtNode(_peerId, _publicKey);
+            var node = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey
+            };
 
             // Act & Assert
             Assert.That(node.Equals(null), Is.False);
@@ -125,8 +136,16 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void GetHashCode_WithSamePeerId_ShouldReturnSameValue()
         {
             // Arrange
-            var node1 = new DhtNode(_peerId, _publicKey);
-            var node2 = new DhtNode(_peerId, new PublicKey(new byte[32]));
+            var node1 = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey
+            };
+            var node2 = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = new PublicKey(new byte[32])
+            };
 
             // Act & Assert
             Assert.That(node1.GetHashCode(), Is.EqualTo(node2.GetHashCode()));
@@ -136,7 +155,11 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void ToString_ShouldReturnFormattedString()
         {
             // Arrange
-            var node = new DhtNode(_peerId, _publicKey);
+            var node = new DhtNode
+            {
+                PeerId = _peerId,
+                PublicKey = _publicKey
+            };
 
             // Act
             string result = node.ToString();

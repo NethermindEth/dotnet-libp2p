@@ -20,10 +20,10 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void Setup()
         {
             _hashProvider = new DhtNodeHashProvider();
-            
+
             var peerId = new PeerId(new byte[32]);
             _publicKey = new PublicKey(new byte[32] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32 });
-            
+
             _node = new DhtNode
             {
                 PeerId = peerId,
@@ -96,7 +96,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
             // Arrange
             var peerId1 = new PeerId(new byte[32] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
             var peerId2 = new PeerId(new byte[32] { 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2 });
-            
+
             var node1 = new DhtNode { PeerId = peerId1, PublicKey = _publicKey };
             var node2 = new DhtNode { PeerId = peerId2, PublicKey = _publicKey };
 

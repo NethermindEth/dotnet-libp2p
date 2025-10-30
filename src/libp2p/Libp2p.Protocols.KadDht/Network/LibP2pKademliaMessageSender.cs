@@ -1,106 +1,124 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
+using System;
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
-using Multiformats.Address;
-using Nethermind.Libp2p.Core;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.RequestResponse;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Multiformats.Address;
+using Nethermind.Libp2p.Core;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
-using Nethermind.Libp2p.Core.Dto;
 
 namespace Libp2p.Protocols.KadDht.Network;
 
 /// <summary>
 /// Real libp2p implementation of Kademlia message sender using actual networking protocols.
 /// </summary>
-public class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMessageSender<TPublicKey, TNode>, IDisposable, IAsyncDisposable
+public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMessageSender<TPublicKey, TNode>, IDisposable, IAsyncDisposable
     where TPublicKey : notnull
     where TNode : class, IComparable<TNode>
 {
     private readonly ILocalPeer _localPeer;
     private readonly ILogger<LibP2pKademliaMessageSender<TPublicKey, TNode>> _logger;
     private readonly ConcurrentDictionary<TNode, ISession> _activeSessions = new();
-    private readonly SemaphoreSlim _connectionSemaphore = new(Environment.ProcessorCount);
+    private readonly SemaphoreSlim _connectionSemaphore;
+    private bool _disposed;
 
     public LibP2pKademliaMessageSender(ILocalPeer localPeer, ILoggerFactory? loggerFactory = null)
     {
-        _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
-        _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender<TPublicKey, TNode>>() ?? 
-                  Microsoft.Extensions.Logging.Abstractions.NullLogger<LibP2pKademliaMessageSender<TPublicKey, TNode>>.Instance;
+        ArgumentNullException.ThrowIfNull(localPeer);
+        _localPeer = localPeer;
+
+        var factory = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = factory.CreateLogger<LibP2pKademliaMessageSender<TPublicKey, TNode>>();
+
+        _connectionSemaphore = new SemaphoreSlim(Environment.ProcessorCount);
     }
 
-    /// <summary>
-    /// Send a ping message to a peer using libp2p DHT protocol.
-    /// </summary>
     public async Task Ping(TNode receiver, CancellationToken token)
     {
-        await _connectionSemaphore.WaitAsync(token);
+        ThrowIfDisposed();
+
+        var acquired = false;
         try
         {
+            await _connectionSemaphore.WaitAsync(token).ConfigureAwait(false);
+            acquired = true;
+
             _logger.LogDebug("Pinging node {Node} via libp2p", receiver);
 
-            var session = await GetOrCreateSession(receiver, token);
-            if (session == null)
+            var session = await GetOrCreateSession(receiver, token).ConfigureAwait(false);
+            if (session is null)
             {
                 throw new InvalidOperationException($"Failed to establish session with {receiver}");
             }
 
-            // Use the ping protocol to send a real DHT ping message
-            var response = await session.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-                new PingRequest(), token);
-            
+            await session
+                .DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(new PingRequest(), token)
+                .ConfigureAwait(false);
+
             _logger.LogTrace("Ping to {Node} completed successfully", receiver);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Ping to {Node} cancelled", receiver);
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogWarning("Ping to {Node} failed: {Error}", receiver, ex.Message);
-            
+
             if (_activeSessions.TryRemove(receiver, out var failedSession))
             {
-                try { await failedSession.DisconnectAsync(); } catch { }
+                await SafeDisconnectAsync(failedSession).ConfigureAwait(false);
             }
+
             throw;
         }
         finally
         {
-            _connectionSemaphore.Release();
+            if (acquired)
+            {
+                _connectionSemaphore.Release();
+            }
         }
     }
 
-    /// <summary>
-    /// Find nearest neighbours to a target key using real libp2p DHT protocol.
-    /// </summary>
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)
     {
-        await _connectionSemaphore.WaitAsync(token);
+        ThrowIfDisposed();
+
+        var acquired = false;
         try
         {
+            await _connectionSemaphore.WaitAsync(token).ConfigureAwait(false);
+            acquired = true;
+
             _logger.LogDebug("Finding neighbours from {Node} for target {Target} via libp2p", receiver, target);
 
-            var session = await GetOrCreateSession(receiver, token);
-            if (session == null)
+            var session = await GetOrCreateSession(receiver, token).ConfigureAwait(false);
+            if (session is null)
             {
                 _logger.LogWarning("Failed to establish session with {Node} for FindNeighbours", receiver);
                 return Array.Empty<TNode>();
             }
 
-            // Convert target key to protobuf format
-            var targetBytes = ConvertKeyToBytes(target);
-            var request = new FindNeighboursRequest 
-            { 
-                Target = new PublicKeyBytes { Value = Google.Protobuf.ByteString.CopyFrom(targetBytes) }
-            };
+            var request = BuildFindNeighboursRequest(target);
 
-            var response = await session.DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(
-                request, token);
+            var response = await session
+                .DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(request, token)
+                .ConfigureAwait(false);
 
-            // Convert protobuf response back to TNode objects
             var neighbours = new List<TNode>();
             foreach (var nodeProto in response.Neighbours)
             {
-                if (ConvertProtoToNode(nodeProto) is TNode node)
+                if (ConvertProtoToNode(nodeProto) is { } node)
                 {
                     neighbours.Add(node);
                 }
@@ -109,51 +127,73 @@ public class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMessageSe
             _logger.LogTrace("Found {Count} neighbours from {Node}", neighbours.Count, receiver);
             return neighbours.ToArray();
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("FindNeighbours from {Node} cancelled", receiver);
+            return Array.Empty<TNode>();
+        }
         catch (Exception ex)
         {
             _logger.LogWarning("FindNeighbours from {Node} failed: {Error}", receiver, ex.Message);
-            
-            // Remove failed session
+
             if (_activeSessions.TryRemove(receiver, out var failedSession))
             {
-                try { await failedSession.DisconnectAsync(); } catch { }
+                await SafeDisconnectAsync(failedSession).ConfigureAwait(false);
             }
-            
+
             return Array.Empty<TNode>();
         }
         finally
         {
-            _connectionSemaphore.Release();
+            if (acquired)
+            {
+                _connectionSemaphore.Release();
+            }
         }
     }
 
-    /// <summary>
-    /// Get or create a session to the specified node.
-    /// </summary>
+    private FindNeighboursRequest BuildFindNeighboursRequest(TPublicKey target)
+    {
+        var targetBytes = ConvertKeyToBytes(target);
+        return new FindNeighboursRequest
+        {
+            Target = new PublicKeyBytes { Value = Google.Protobuf.ByteString.CopyFrom(targetBytes) }
+        };
+    }
+
     private async Task<ISession?> GetOrCreateSession(TNode node, CancellationToken token)
     {
-        // Check if we already have an active session
-        if (_activeSessions.TryGetValue(node, out var existingSession))
+        if (_activeSessions.TryGetValue(node, out var existing))
         {
-            return existingSession;
+            return existing;
+        }
+
+        var multiaddress = GetMultiaddressForNode(node);
+        if (multiaddress is null)
+        {
+            return null;
         }
 
         try
         {
-            // Get multiaddress for the node
-            var multiaddress = GetMultiaddressForNode(node);
-            if (multiaddress == null)
+            var session = await _localPeer.DialAsync(multiaddress, token).ConfigureAwait(false);
+
+            if (_activeSessions.TryAdd(node, session))
             {
-                _logger.LogWarning("No valid multiaddress found for node {Node}", node);
-                return null;
+                return session;
             }
 
-            var session = await _localPeer.DialAsync(multiaddress, token);
-            
-            // Cache the session
-            _activeSessions[node] = session;
-            
+            if (_activeSessions.TryGetValue(node, out var cached))
+            {
+                await SafeDisconnectAsync(session).ConfigureAwait(false);
+                return cached;
+            }
+
             return session;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -162,111 +202,131 @@ public class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMessageSe
         }
     }
 
-    /// <summary>
-    /// Convert a target key to bytes for protobuf serialization.
-    /// </summary>
-    private byte[] ConvertKeyToBytes(TPublicKey key)
+    private static byte[] ConvertKeyToBytes(TPublicKey key)
     {
-        // This is a simplified conversion - in real implementation this would depend on TKey type
-        if (key is byte[] bytes) return bytes;
-        if (key is string str) return System.Text.Encoding.UTF8.GetBytes(str);
-        
-        // Fallback: serialize as string
-        return System.Text.Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty);
+        switch (key)
+        {
+            case byte[] bytes:
+                return bytes;
+            case ReadOnlyMemory<byte> rom:
+                return rom.ToArray();
+            case PublicKey kadPublicKey:
+                return kadPublicKey.Hash.Bytes;
+            case ValueHash256 valueHash:
+                return valueHash.Bytes;
+            default:
+                return Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty);
+        }
     }
 
-    /// <summary>
-    /// Convert a protobuf Node to TNode type.
-    /// </summary>
     private TNode? ConvertProtoToNode(Node nodeProto)
     {
-        // This conversion depends on the actual TNode type
-        // For demo purposes, we assume TNode can be constructed from the proto data
-        
-        // If TNode is DhtNode, we can construct it directly
-        if (typeof(TNode).Name == nameof(Integration.DhtNode))
+        if (typeof(TNode) != typeof(Integration.DhtNode))
         {
-            try
-            {
-                var libp2pPublicKey = Nethermind.Libp2p.Core.Dto.PublicKey.Parser.ParseFrom(nodeProto.PublicKey.ToByteArray());
-                var peerId = new PeerId(libp2pPublicKey);
-                
-                var kademliaPublicKey = new Kademlia.PublicKey(nodeProto.PublicKey.ToByteArray());
-                
-                var multiaddrs = nodeProto.Multiaddrs.ToArray();
-
-                var dhtNode = new Integration.DhtNode
-                {
-                    PeerId = peerId,
-                    PublicKey = kademliaPublicKey,
-                    Multiaddrs = multiaddrs
-                };
-                
-                return (TNode)(object)dhtNode;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Failed to convert proto node to DhtNode: {Error}", ex.Message);
-                return null;
-            }
-        }
-        
-        _logger.LogWarning("Unsupported node type conversion: {Type}", typeof(TNode).Name);
-        return null;
-    }
-
-    /// <summary>
-    /// Get multiaddress for a node.
-    /// </summary>
-    private Multiaddress? GetMultiaddressForNode(TNode node)
-    {
-        if (node is Integration.DhtNode dhtNode && dhtNode.Multiaddrs.Count > 0)
-        {
-            // Try each multiaddress until we find one that works
-            foreach (var multiaddr in dhtNode.Multiaddrs)
-            {
-                try
-                {
-                    _logger.LogDebug("Attempting to decode multiaddress: '{Multiaddr}' for node {Node}", multiaddr, node);
-                    return Multiaddress.Decode(multiaddr);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug("Failed to decode multiaddress '{Multiaddr}': {Error}", multiaddr, ex.Message);
-                }
-            }
-            
-            _logger.LogWarning("No valid multiaddress found for node {Node}", node);
+            _logger.LogWarning("Unsupported node type conversion: {Type}", typeof(TNode).Name);
             return null;
         }
-        
-        _logger.LogWarning("Cannot extract multiaddress from node type {Type}", typeof(TNode).Name);
-        return null;
+
+        try
+        {
+            var publicKeyBytes = nodeProto.PublicKey.ToByteArray();
+            if (publicKeyBytes.Length == 0)
+            {
+                _logger.LogDebug("Node proto missing public key");
+                return null;
+            }
+
+            var kadPublicKey = new PublicKey(publicKeyBytes);
+            var peerId = new PeerId(publicKeyBytes);
+
+            var dhtNode = new Integration.DhtNode
+            {
+                PublicKey = kadPublicKey,
+                PeerId = peerId,
+                Multiaddrs = nodeProto.Multiaddrs.Count > 0 ? nodeProto.Multiaddrs.ToArray() : Array.Empty<string>()
+            };
+
+            return (TNode)(object)dhtNode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to convert proto node to DhtNode");
+            return null;
+        }
     }
 
-    /// <summary>
-    /// Dispose of all active sessions.
-    /// </summary>
-    public async ValueTask DisposeAsync()
+    private Multiaddress? GetMultiaddressForNode(TNode node)
     {
-        foreach (var session in _activeSessions.Values)
+        if (node is not Integration.DhtNode dhtNode)
         {
+            _logger.LogWarning("Cannot extract multiaddress from node type {Type}", typeof(TNode).Name);
+            return null;
+        }
+
+        foreach (var raw in dhtNode.Multiaddrs)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
             try
             {
-                await session.DisconnectAsync();
+                _logger.LogDebug("Attempting to decode multiaddress: '{Multiaddr}' for node {Node}", raw, node);
+                return Multiaddress.Decode(raw);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Error disposing session: {Error}", ex.Message);
+                _logger.LogDebug("Failed to decode multiaddress '{Multiaddr}': {Error}", raw, ex.Message);
             }
         }
-        
+
+        _logger.LogWarning("No valid multiaddress found for node {Node}", node);
+        return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
+        var sessions = _activeSessions.ToArray();
+        foreach (var (_, session) in sessions)
+        {
+            await SafeDisconnectAsync(session).ConfigureAwait(false);
+        }
+
         _activeSessions.Clear();
         _connectionSemaphore.Dispose();
     }
 
     public void Dispose()
     {
-        DisposeAsync().AsTask().Wait();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task SafeDisconnectAsync(ISession session)
+    {
+        try
+        {
+            await session.DisconnectAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Error disposing session: {Error}", ex.Message);
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(LibP2pKademliaMessageSender<TPublicKey, TNode>));
+        }
     }
 }

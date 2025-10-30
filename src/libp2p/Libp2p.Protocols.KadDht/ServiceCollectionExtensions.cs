@@ -3,6 +3,7 @@
 
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
+using Libp2p.Protocols.KadDht.RequestResponse;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Add KadDht protocol and all related services to the service collection.
     /// </summary>
-    public static IServiceCollection AddKadDht(this IServiceCollection services, 
+    public static IServiceCollection AddKadDht(this IServiceCollection services,
         Action<KadDhtOptions>? configureOptions = null)
     {
         var options = new KadDhtOptions();
@@ -28,17 +29,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(options);
 
         // Register storage services
-        services.AddSingleton<IValueStore>(sp => 
+        services.AddSingleton<IValueStore>(sp =>
             new InMemoryValueStore(options.MaxStoredValues, sp.GetService<ILoggerFactory>()));
-        services.AddSingleton<IProviderStore>(sp => 
+        services.AddSingleton<IProviderStore>(sp =>
             new InMemoryProviderStore(options.MaxProvidersPerKey, sp.GetService<ILoggerFactory>()));
 
+        // Register shared routing table state for protocol handlers
+        // This allows incoming DHT requests to query and update the routing table
+        services.AddSingleton<SharedDhtState>(sp => new SharedDhtState(sp.GetService<ILoggerFactory>()));
+
         // Register message sender by use LibP2pKademliaMessageSender for real network operations
-        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp => 
+        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
         {
             var localPeer = sp.GetRequiredService<ILocalPeer>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
-            return (Kademlia.IKademliaMessageSender<PublicKey, DhtNode>)new Network.LibP2pKademliaMessageSender<PublicKey, DhtNode>(localPeer, loggerFactory);
+            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory);
         });
 
         // Register main KadDht protocol dependency injection
@@ -62,77 +67,146 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static ILibp2pPeerFactoryBuilder WithKadDht(this ILibp2pPeerFactoryBuilder builder)
     {
-        // Protocol handlers that will delegate to the KadDht service
-        async Task<PingResponse> HandlePingRequest(PingRequest request, ISessionContext context)
-        {
-            // To do: Just return a successful ping response for now, next step shuld include routing table updates
-            return new PingResponse();
-        }
+        // Retrieve shared state from service provider - this will be available when protocols are registered
+        var sharedState = builder.ServiceProvider.GetService<SharedDhtState>();
 
-        async Task<FindNeighboursResponse> HandleFindNeighboursRequest(FindNeighboursRequest request, ISessionContext context)
-        {
-            // To do: query the local routing table
-            return new FindNeighboursResponse();
-        }
+        // Register protocol handlers that access SharedDhtState through closure
+        builder.AddRequestResponseProtocol<PingRequest, PingResponse>("/ipfs/kad/1.0.0/ping",
+            (request, context) =>
+            {
+                // Basic ping response with session information logging
+                try
+                {
+                    var remotePeer = context.State.RemoteAddress?.ToString() ?? "unknown";
+                    var remotePeerId = context.State.RemoteAddress?.GetPeerId();
 
-        async Task<PutValueResponse> HandlePutValueRequest(PutValueRequest request, ISessionContext context)
-        {
-            try
-            {
-                // To do: tdelegate to the KadDhtProtocol service
-                return new PutValueResponse { Success = true };
-            }
-            catch
-            {
-                return new PutValueResponse { Success = false };
-            }
-        }
+                    Console.WriteLine($"[DHT-PING] Received ping from {remotePeer}");
 
-        async Task<GetValueResponse> HandleGetValueRequest(GetValueRequest request, ISessionContext context)
-        {
-            try
-            {
-                // To do: delegate to the KadDhtProtocol service
-                return new GetValueResponse { Found = false };
-            }
-            catch
-            {
-                return new GetValueResponse { Found = false };
-            }
-        }
+                    // Add requesting peer to routing table if we have shared state
+                    if (sharedState != null && remotePeerId != null)
+                    {
+                        try
+                        {
+                            var publicKey = new PublicKey(remotePeerId.Bytes);
+                            var dhtNode = new DhtNode
+                            {
+                                PeerId = remotePeerId,
+                                PublicKey = publicKey,
+                                Multiaddrs = new[] { remotePeer }
+                            };
+                            sharedState.AddOrUpdatePeer(publicKey, dhtNode);
+                            Console.WriteLine($"[DHT-PING] Added peer {remotePeerId} to routing table ({sharedState.PeerCount} total peers)");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[DHT-PING] Failed to add peer to routing table: {ex.Message}");
+                        }
+                    }
 
-        async Task<AddProviderResponse> HandleAddProviderRequest(AddProviderRequest request, ISessionContext context)
-        {
-            try
-            {
-                // To do: replace with actual implementation
-                return new AddProviderResponse { Success = true };
-            }
-            catch
-            {
-                return new AddProviderResponse { Success = false };
-            }
-        }
+                    return Task.FromResult(new PingResponse());
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[DHT-PING] Error processing ping: {ex.Message}");
+                    return Task.FromResult(new PingResponse());
+                }
+            });
 
-        async Task<GetProvidersResponse> HandleGetProvidersRequest(GetProvidersRequest request, ISessionContext context)
-        {
-            try
+        builder.AddRequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>("/ipfs/kad/1.0.0/find_node",
+            (request, context) =>
             {
-                // To do: delegate to the KadDhtProtocol service
-                return new GetProvidersResponse();
-            }
-            catch
-            {
-                return new GetProvidersResponse();
-            }
-        }
+                // Enhanced find neighbours with target key logging and actual routing table queries
+                try
+                {
+                    var remotePeer = context.State.RemoteAddress?.ToString() ?? "unknown";
+                    var remotePeerId = context.State.RemoteAddress?.GetPeerId();
+                    var targetKeyHex = request.Target?.Value?.ToByteArray() != null
+                        ? Convert.ToHexString(request.Target.Value.ToByteArray()[..Math.Min(8, request.Target.Value.Length)])
+                        : "null";
 
-        builder.AddRequestResponseProtocol<PingRequest, PingResponse>("/ipfs/kad/1.0.0/ping", HandlePingRequest);
-        builder.AddRequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>("/ipfs/kad/1.0.0/find_neighbours", HandleFindNeighboursRequest);
-        builder.AddRequestResponseProtocol<PutValueRequest, PutValueResponse>("/ipfs/kad/1.0.0/put_value", HandlePutValueRequest);
-        builder.AddRequestResponseProtocol<GetValueRequest, GetValueResponse>("/ipfs/kad/1.0.0/get_value", HandleGetValueRequest);
-        builder.AddRequestResponseProtocol<AddProviderRequest, AddProviderResponse>("/ipfs/kad/1.0.0/add_provider", HandleAddProviderRequest);
-        builder.AddRequestResponseProtocol<GetProvidersRequest, GetProvidersResponse>("/ipfs/kad/1.0.0/get_providers", HandleGetProvidersRequest);
+                    Console.WriteLine($"[DHT-FIND_NODE] Received find_node request from {remotePeer} for target {targetKeyHex}");
+
+                    // Add requesting peer to routing table
+                    if (sharedState != null && remotePeerId != null)
+                    {
+                        try
+                        {
+                            var publicKey = new PublicKey(remotePeerId.Bytes);
+                            var dhtNode = new DhtNode
+                            {
+                                PeerId = remotePeerId,
+                                PublicKey = publicKey,
+                                Multiaddrs = new[] { remotePeer }
+                            };
+                            sharedState.AddOrUpdatePeer(publicKey, dhtNode);
+                        }
+                        catch { /* Ignore errors adding peer */ }
+                    }
+
+                    // Query routing table and return actual closest nodes
+                    var response = new FindNeighboursResponse();
+
+                    if (sharedState != null && request.Target?.Value != null)
+                    {
+                        try
+                        {
+                            // Convert target to PublicKey
+                            var targetBytes = request.Target.Value.ToByteArray();
+                            var targetKey = new PublicKey(targetBytes);
+
+                            // Get K nearest neighbors from routing table
+                            var nearestPeers = sharedState.GetKNearestPeers(targetKey, k: 16);
+
+                            // Convert to response format
+                            foreach (var peer in nearestPeers)
+                            {
+                                var node = new Nethermind.Libp2P.Protocols.KadDht.Dto.Node
+                                {
+                                    PublicKey = Google.Protobuf.ByteString.CopyFrom(peer.PublicKey.Bytes)
+                                };
+
+                                // Add multiaddresses if available
+                                if (peer.Multiaddrs != null)
+                                {
+                                    foreach (var addr in peer.Multiaddrs)
+                                    {
+                                        node.Multiaddrs.Add(addr);
+                                    }
+                                }
+
+                                response.Neighbours.Add(node);
+                            }
+
+                            Console.WriteLine($"[DHT-FIND_NODE] Returning {response.Neighbours.Count} neighbours from routing table (total: {sharedState.PeerCount} peers)");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[DHT-FIND_NODE] Error querying routing table: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[DHT-FIND_NODE] No shared state or invalid target, returning empty response");
+                    }
+
+                    return Task.FromResult(response);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[DHT-FIND_NODE] Error processing find_node: {ex.Message}");
+                    return Task.FromResult(new FindNeighboursResponse());
+                }
+            });
+
+        // Keep existing placeholder handlers for other protocols until they're implemented
+        builder.AddRequestResponseProtocol<PutValueRequest, PutValueResponse>("/ipfs/kad/1.0.0/put_value",
+            (request, context) => Task.FromResult(new PutValueResponse { Success = true }));
+        builder.AddRequestResponseProtocol<GetValueRequest, GetValueResponse>("/ipfs/kad/1.0.0/get_value",
+            (request, context) => Task.FromResult(new GetValueResponse { Found = false }));
+        builder.AddRequestResponseProtocol<AddProviderRequest, AddProviderResponse>("/ipfs/kad/1.0.0/add_provider",
+            (request, context) => Task.FromResult(new AddProviderResponse { Success = true }));
+        builder.AddRequestResponseProtocol<GetProvidersRequest, GetProvidersResponse>("/ipfs/kad/1.0.0/get_providers",
+            (request, context) => Task.FromResult(new GetProvidersResponse()));
 
         return builder;
     }

@@ -8,7 +8,7 @@ namespace Libp2p.Protocols.KadDht.Kademlia;
 
 public class PublicKeyKeyOperator : IKeyOperator<PublicKey, ValueHash256, global::Libp2p.Protocols.KadDht.TestNode>
 {
-    public PublicKey GetKey(global::Libp2p.Protocols.KadDht.TestNode node) 
+    public PublicKey GetKey(global::Libp2p.Protocols.KadDht.TestNode node)
     {
         var peerId = node.Id;
         return TypeAdapters.ToKademliaKey(peerId);

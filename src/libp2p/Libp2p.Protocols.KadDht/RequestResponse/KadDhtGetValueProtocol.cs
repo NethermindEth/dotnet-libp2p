@@ -20,7 +20,7 @@ public class KadDhtGetValueProtocol : RequestResponseProtocol<GetValueRequest, G
 
     private static async Task<GetValueResponse> HandleGetValueRequest(GetValueRequest request, ISessionContext context)
     {
-        
+
         return new GetValueResponse
         {
             Found = false,

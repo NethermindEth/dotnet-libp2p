@@ -8,6 +8,7 @@ using NUnit.Framework;
 using NSubstitute;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 
@@ -17,7 +18,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
     public class DhtMessageSenderTests
     {
         private ILocalPeer _localPeer;
-        private ILogger<DhtMessageSender> _logger;
+        private ILoggerFactory _loggerFactory;
         private DhtMessageSender _messageSender;
         private DhtNode _targetNode;
 
@@ -25,8 +26,8 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void Setup()
         {
             _localPeer = Substitute.For<ILocalPeer>();
-            _logger = Substitute.For<ILogger<DhtMessageSender>>();
-            _messageSender = new DhtMessageSender(_localPeer, _logger);
+            _loggerFactory = new TestContextLoggerFactory();
+            _messageSender = new DhtMessageSender(_localPeer, _loggerFactory);
 
             var peerId = new PeerId(new byte[32]);
             var publicKey = new PublicKey(new byte[32]);
@@ -37,153 +38,83 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
             };
         }
 
+        [TearDown]
+        public async Task TearDown()
+        {
+            await _localPeer.DisposeAsync();
+            (_loggerFactory as IDisposable)?.Dispose();
+        }
+
         [Test]
         public void Constructor_WithValidParameters_ShouldCreateInstance()
         {
             // Act & Assert
-            Assert.DoesNotThrow(() => new DhtMessageSender(_localPeer, _logger));
+            Assert.DoesNotThrow(() => new DhtMessageSender(_localPeer, _loggerFactory));
         }
 
         [Test]
         public void Constructor_WithNullLocalPeer_ShouldThrowArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new DhtMessageSender(null!, _logger));
+            Assert.Throws<ArgumentNullException>(() => new DhtMessageSender(null!, _loggerFactory));
         }
 
         [Test]
-        public async Task PingAsync_ShouldReturnFalseWhenNotImplemented()
+        public void Ping_WithNullReceiver_ShouldThrowArgumentNullException()
         {
-            // Act
-            bool result = await _messageSender.PingAsync(_targetNode, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.False);
+            // Act & Assert
+            Assert.ThrowsAsync<ArgumentNullException>(() =>
+                _messageSender.Ping(null!, CancellationToken.None));
         }
 
         [Test]
-        public async Task FindNeighboursAsync_ShouldReturnEmptyArrayWhenNotImplemented()
+        public void FindNeighbours_WithNullReceiver_ShouldThrowArgumentNullException()
         {
-            // Arrange
-            var targetKey = new PublicKey(new byte[32]);
+            
+            var target = new PublicKey(new byte[32]);
 
-            // Act
-            var result = await _messageSender.FindNeighboursAsync(_targetNode, targetKey, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result, Is.Empty);
+            // Act & Assert
+            Assert.ThrowsAsync<ArgumentNullException>(() =>
+                _messageSender.FindNeighbours(null!, target, CancellationToken.None));
         }
 
         [Test]
-        public async Task GetValueAsync_ShouldReturnNullWhenNotImplemented()
+        public void FindNeighbours_WithNullTarget_ShouldThrowArgumentNullException()
         {
-            // Arrange
-            var key = new byte[32];
-
-            // Act
-            byte[]? result = await _messageSender.GetValueAsync(_targetNode, key, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.Null);
+            // Act & Assert
+            Assert.ThrowsAsync<ArgumentNullException>(() =>
+                _messageSender.FindNeighbours(_targetNode, null!, CancellationToken.None));
         }
 
         [Test]
-        public async Task PutValueAsync_ShouldReturnFalseWhenNotImplemented()
+        public void Ping_WithCancellationToken_ShouldRespectCancellation()
         {
-            // Arrange
-            var key = new byte[32];
-            var value = new byte[64];
-
-            // Act
-            bool result = await _messageSender.PutValueAsync(_targetNode, key, value, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.False);
-        }
-
-        [Test]
-        public async Task FindProvidersAsync_ShouldReturnEmptyArrayWhenNotImplemented()
-        {
-            // Arrange
-            var key = new byte[32];
-
-            // Act
-            var result = await _messageSender.FindProvidersAsync(_targetNode, key, 10, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result, Is.Empty);
-        }
-
-        [Test]
-        public async Task AddProviderAsync_ShouldReturnFalseWhenNotImplemented()
-        {
-            // Arrange
-            var key = new byte[32];
-            var provider = new DhtNode
-            {
-                PeerId = new PeerId(new byte[32]),
-                PublicKey = new PublicKey(new byte[32])
-            };
-
-            // Act
-            bool result = await _messageSender.AddProviderAsync(_targetNode, key, provider, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.False);
-        }
-
-        [Test]
-        public async Task PingAsync_WithCancellationToken_ShouldRespectCancellation()
-        {
-            // Arrange
+            
             using var cts = new CancellationTokenSource();
             cts.Cancel();
 
+            _localPeer.DialAsync(Arg.Any<PeerId>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromCanceled<ISession>(cts.Token));
+
             // Act & Assert
-            var result = await _messageSender.PingAsync(_targetNode, cts.Token);
-            Assert.That(result, Is.False); // Should complete quickly and return false
+            Assert.ThrowsAsync<TaskCanceledException>(() =>
+                _messageSender.Ping(_targetNode, cts.Token));
         }
 
         [Test]
-        public async Task FindNeighboursAsync_WithNullTarget_ShouldReturnEmptyArray()
+        public void FindNeighbours_WithCancellationToken_ShouldRespectCancellation()
         {
-            // Arrange
-            var targetKey = new PublicKey(new byte[32]);
+            
+            var target = new PublicKey(new byte[32]);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
 
-            // Act
-            var result = await _messageSender.FindNeighboursAsync(null!, targetKey, CancellationToken.None);
+            _localPeer.DialAsync(Arg.Any<PeerId>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromCanceled<ISession>(cts.Token));
 
-            // Assert
-            Assert.That(result, Is.Empty);
-        }
-
-        [Test]
-        public async Task GetValueAsync_WithNullTarget_ShouldReturnNull()
-        {
-            // Arrange
-            var key = new byte[32];
-
-            // Act
-            byte[]? result = await _messageSender.GetValueAsync(null!, key, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.Null);
-        }
-
-        [Test]
-        public async Task PutValueAsync_WithNullTarget_ShouldReturnFalse()
-        {
-            // Arrange
-            var key = new byte[32];
-            var value = new byte[64];
-
-            // Act
-            bool result = await _messageSender.PutValueAsync(null!, key, value, CancellationToken.None);
-
-            // Assert
-            Assert.That(result, Is.False);
+            // Act & Assert
+            Assert.ThrowsAsync<TaskCanceledException>(() =>
+                _messageSender.FindNeighbours(_targetNode, target, cts.Token));
         }
     }
 }

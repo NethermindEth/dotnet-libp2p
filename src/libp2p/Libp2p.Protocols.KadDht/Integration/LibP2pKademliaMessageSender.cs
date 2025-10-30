@@ -30,7 +30,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
         _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender>();
         _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(10);
 
-        _logger?.LogInformation("LibP2p Kademlia message sender initialized with timeout {Timeout}ms", 
+        _logger?.LogInformation("LibP2p Kademlia message sender initialized with timeout {Timeout}ms",
             _operationTimeout.TotalMilliseconds);
     }
 
@@ -86,7 +86,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
 
             // Convert response to DhtNode array
             var nodes = response.Neighbours.Select(ConvertToDhtNode).ToArray();
-            
+
             _logger?.LogDebug("Received {Count} neighbours from {NodeId}", nodes.Length, receiver.PeerId);
             return nodes;
         }
@@ -108,10 +108,10 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
     private async Task<ISession> DialNodeAsync(DhtNode targetNode, CancellationToken cancellationToken)
     {
         _logger?.LogDebug("Attempting to dial node {NodeId} using multiple strategies", targetNode.PeerId);
-        
+
         // Strategy 1: Try to find known addresses from peer store or common patterns
         var knownAddresses = await GetKnownAddressesAsync(targetNode.PeerId);
-        
+
         // Strategy 2: Try direct connection with known addresses
         foreach (var address in knownAddresses)
         {
@@ -127,7 +127,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
                 _logger?.LogTrace(innerEx, "Failed to dial {Address} for node {NodeId}", address, targetNode.PeerId);
             }
         }
-        
+
         // Strategy 3: Fallback to basic peer ID only (for mDNS discovered peers)
         try
         {
@@ -152,7 +152,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
         try
         {
             var addresses = new List<Multiaddress>();
-            
+
             // Strategy 1: Real libp2p bootstrap node addresses
             var knownBootstrapAddresses = new Dictionary<string, string[]>
             {
@@ -163,7 +163,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
                 ["QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa"] = new[] { "/dnsaddr/bootstrap.libp2p.io" },
                 ["QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt"] = new[] { "/dnsaddr/bootstrap.libp2p.io" }
             };
-            
+
             // Check if this is a known bootstrap node
             if (knownBootstrapAddresses.TryGetValue(peerId.ToString(), out var bootstrapAddrs))
             {
@@ -179,11 +179,11 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
                     }
                 }
             }
-            
+
             // Strategy 2: Common local network address patterns for development/testing
             var commonPorts = new[] { 4001, 4002, 4003, 8080, 9000, 9001 };
             var localIps = new[] { "127.0.0.1" };
-            
+
             foreach (var ip in localIps)
             {
                 foreach (var port in commonPorts)
@@ -192,7 +192,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
                     {
                         // TCP addresses (most common for libp2p)
                         addresses.Add(Multiaddress.Decode($"/ip4/{ip}/tcp/{port}/p2p/{peerId}"));
-                        
+
                         // QUIC addresses (modern transport)
                         addresses.Add(Multiaddress.Decode($"/ip4/{ip}/udp/{port}/quic-v1/p2p/{peerId}"));
                     }
@@ -202,7 +202,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
                     }
                 }
             }
-            
+
             _logger?.LogTrace("Generated {Count} candidate addresses for peer {PeerId}", addresses.Count, peerId);
             return addresses;
         }

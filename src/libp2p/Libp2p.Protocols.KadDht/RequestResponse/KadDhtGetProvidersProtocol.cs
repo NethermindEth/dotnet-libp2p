@@ -20,7 +20,7 @@ public class KadDhtGetProvidersProtocol : RequestResponseProtocol<GetProvidersRe
 
     private static async Task<GetProvidersResponse> HandleGetProvidersRequest(GetProvidersRequest request, ISessionContext context)
     {
-        
+
         return new GetProvidersResponse
         {
             // Providers = { ... }

@@ -42,7 +42,7 @@ public sealed class DhtMessageSender : IKademliaMessageSender<PublicKey, DhtNode
             // For now, we'll use a simple connection test
             // In a full implementation, this would dial the ping sub-protocol
             var session = await _localPeer.DialAsync(receiver.PeerId, cts.Token);
-            
+
             // Dispose the session immediately - ping is just a connectivity test
             await session.DisconnectAsync();
 
@@ -67,7 +67,7 @@ public sealed class DhtMessageSender : IKademliaMessageSender<PublicKey, DhtNode
 
         try
         {
-            _logger?.LogTrace("Sending FindNeighbours to {PeerId} for target {TargetHash}", 
+            _logger?.LogTrace("Sending FindNeighbours to {PeerId} for target {TargetHash}",
                 receiver.PeerId, Convert.ToHexString(target.Bytes));
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -86,7 +86,7 @@ public sealed class DhtMessageSender : IKademliaMessageSender<PublicKey, DhtNode
                         Value = ByteString.CopyFrom(target.Bytes)
                     }
                 };
-                
+
                 // Send the request via session DialAsync
                 var response = await session.DialAsync<RequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>, FindNeighboursRequest, FindNeighboursResponse>(
                     request, cts.Token);
@@ -114,7 +114,7 @@ public sealed class DhtMessageSender : IKademliaMessageSender<PublicKey, DhtNode
                     }
                 }
 
-                _logger?.LogTrace("FindNeighbours to {PeerId} returned {Count} neighbours", 
+                _logger?.LogTrace("FindNeighbours to {PeerId} returned {Count} neighbours",
                     receiver.PeerId, neighbours.Count);
 
                 return neighbours.ToArray();

@@ -25,6 +25,12 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Storage
             _valueStore = new InMemoryValueStore(maxValues: 100, loggerFactory: _loggerFactory);
         }
 
+        [TearDown]
+        public void TearDown()
+        {
+            (_loggerFactory as IDisposable)?.Dispose();
+        }
+
         [Test]
         public void Constructor_WithDefaultParameters_ShouldCreateInstance()
         {

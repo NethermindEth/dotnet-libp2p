@@ -20,7 +20,7 @@ public class KadDhtAddProviderProtocol : RequestResponseProtocol<AddProviderRequ
 
     private static async Task<AddProviderResponse> HandleAddProviderRequest(AddProviderRequest request, ISessionContext context)
     {
-        
+
         return new AddProviderResponse
         {
             Success = true,

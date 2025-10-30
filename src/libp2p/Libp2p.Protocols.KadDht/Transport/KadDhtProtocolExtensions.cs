@@ -174,7 +174,7 @@ public static class KadDhtProtocolExtensions
                 {
                     var providers = await dhtProviderStore.GetProvidersAsync(req.Key.ToByteArray(), req.Count);
                     var response = new GetProvidersResponse();
-                    
+
                     foreach (var provider in providers)
                     {
                         response.Providers.Add(new Provider

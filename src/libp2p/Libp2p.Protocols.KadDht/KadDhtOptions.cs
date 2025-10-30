@@ -89,7 +89,7 @@ public enum KadDhtMode
     /// Client mode - participates in routing but doesn't store records
     /// </summary>
     Client,
-    
+
     /// <summary>
     /// Server mode - participates fully in the DHT network
     /// </summary>

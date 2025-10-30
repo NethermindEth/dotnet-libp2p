@@ -22,7 +22,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
     IKeyOperator<TPublicKey, THash, TNode> keyOperator) : IIteratorNodeLookup<TPublicKey, TNode> where TNode : notnull where THash : struct, IKademiliaHash<THash>
 {
     // logging removed for net8 minimal build path
-    private static class _logger { public static bool IsEnabled(object _) => false; public static void LogDebug(string s){} public static void LogTrace(string s){} }
+    private static class _logger { public static bool IsEnabled(object _) => false; public static void LogDebug(string s) { } public static void LogTrace(string s) { } }
     private readonly THash _currentNodeIdAsHash = keyOperator.GetNodeHash(kademliaConfig.CurrentNodeId);
 
     // Small lru of unreachable nodes, prevent retrying. Pretty effective, although does not improve discovery overall.
@@ -44,7 +44,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
     public async IAsyncEnumerable<TNode> Lookup(TPublicKey target, [EnumeratorCancellation] CancellationToken token)
     {
         THash targetHash = keyOperator.GetKeyHash(target);
-    // debug disabled
+        // debug disabled
 
         using var cts = token.CreateChildTokenSource();
         token = cts.Token;
@@ -147,7 +147,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
             }
         }
 
-    // trace disabled
+        // trace disabled
         yield break;
 
         bool ShouldStop()
@@ -224,7 +224,7 @@ public static class CancellationTokenExtensions
             cancellationTokenSource.Dispose();
         }
 
-    public async Task WhenAllSucceed(params Task[] allTasks)
+        public async Task WhenAllSucceed(params Task[] allTasks)
         {
             CancellationTokenSource source = cancellationTokenSource;
 
