@@ -39,7 +39,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         public void AddKadDht_WithNullBuilder_ShouldThrowArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
+            Assert.Throws<ArgumentNullException>(() =>
                 KadDhtIntegrationExtensions.AddKadDht(null!));
         }
 

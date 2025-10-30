@@ -135,7 +135,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Storage
         {
             // Arrange
             var smallStore = new InMemoryValueStore(maxValues: 2);
-            
+
             var value1 = new StoredValue
             {
                 Value = Encoding.UTF8.GetBytes("value1"),

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
+using System.Collections.Generic;
+using System.Linq;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
@@ -63,5 +65,49 @@ public class TestNode
             Id = publicKey,
             Multiaddress = null
         };
+    }
+
+    /// <summary>
+    /// Creates a TestNode that reuses an existing multiaddress
+    /// </summary>
+    public static TestNode WithMultiaddress(PublicKey publicKey, Multiaddress multiaddress)
+    {
+        return new TestNode
+        {
+            Id = publicKey,
+            Multiaddress = multiaddress
+        };
+    }
+
+    /// <summary>
+    /// Creates a TestNode from a multiaddress string, validating that it is decodable.
+    /// </summary>
+    public static TestNode WithMultiaddress(PublicKey publicKey, string multiaddress)
+        => WithMultiaddress(publicKey, Multiaddress.Decode(multiaddress));
+
+    /// <summary>
+    /// Attempts to create a TestNode from a sequence of multiaddress strings, returning a simulation node if none are valid.
+    /// </summary>
+    public static TestNode FromMultiaddresses(PublicKey publicKey, IEnumerable<string> multiaddresses)
+    {
+        Multiaddress? fallback = null;
+        foreach (var address in multiaddresses)
+        {
+            try
+            {
+                var decoded = Multiaddress.Decode(address);
+                fallback ??= decoded;
+
+                if (decoded.Protocols.Any(p => p.Name == "ip4" || p.Name == "ip6"))
+                {
+                    return WithMultiaddress(publicKey, decoded);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return fallback is not null ? WithMultiaddress(publicKey, fallback) : ForSimulation(publicKey);
     }
 }

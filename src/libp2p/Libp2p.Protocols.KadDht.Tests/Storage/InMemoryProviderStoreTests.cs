@@ -181,7 +181,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Storage
         {
             // Arrange
             var key = Encoding.UTF8.GetBytes("test-key");
-            
+
             // Add 5 providers
             for (int i = 0; i < 5; i++)
             {
@@ -266,7 +266,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Storage
         {
             // Arrange
             var key = Encoding.UTF8.GetBytes("test-key");
-            
+
             var validProvider = new ProviderRecord
             {
                 PeerId = new PeerId(new byte[32] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }),

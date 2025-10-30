@@ -48,7 +48,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
         public void Constructor_WithNullLocalPeer_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
+            Assert.Throws<ArgumentNullException>(() =>
                 new LibP2pKademliaMessageSender<PublicKey, DhtNode>(null!, _loggerFactory));
         }
 
@@ -56,7 +56,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
         public void Constructor_WithNullLoggerFactory_DoesNotThrow()
         {
             // Act & Assert
-            Assert.DoesNotThrow(() => 
+            Assert.DoesNotThrow(() =>
                 new LibP2pKademliaMessageSender<PublicKey, DhtNode>(_mockLocalPeer, null));
         }
 
@@ -89,7 +89,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             // Arrange
             var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
             var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
-            
+
             _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
                 .Returns(Task.FromException<ISession>(new Exception("Connection failed")));
 
@@ -117,7 +117,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             // Arrange
             var receiverNode = CreateDhtNode("12D3KooWReceiver", "/ip4/127.0.0.1/tcp/4001");
             var targetKey = new PublicKey(new byte[32]);
-            
+
             var mockSession = Substitute.For<ISession>();
             var expectedResponse = new FindNeighboursResponse();
             expectedResponse.Neighbours.Add(new Nethermind.Libp2P.Protocols.KadDht.Dto.Node
@@ -150,7 +150,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             var receiverNode = CreateDhtNode("12D3KooWReceiver", "/ip4/127.0.0.1/tcp/4001");
             var targetKey = new PublicKey(new byte[32]);
             var multiaddr = Multiaddress.Decode(receiverNode.Multiaddrs[0]);
-            
+
             _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
                 .Returns(Task.FromException<ISession>(new Exception("Connection failed")));
 
@@ -185,12 +185,12 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             var targetKeyBytes = new byte[32];
             targetKeyBytes[0] = 42;
             var targetKey = new PublicKey(targetKeyBytes);
-            
+
             var mockSession = Substitute.For<ISession>();
             FindNeighboursRequest? capturedRequest = null;
 
             mockSession.DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(
-                Arg.Do<FindNeighboursRequest>(req => capturedRequest = req), 
+                Arg.Do<FindNeighboursRequest>(req => capturedRequest = req),
                 Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(new FindNeighboursResponse()));
 
@@ -235,7 +235,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             // Arrange
             var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
             var mockSession = Substitute.For<ISession>();
-            
+
             // First call succeeds
             mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
                 Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
@@ -266,10 +266,10 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             // Arrange
             var node1 = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
             var node2 = CreateDhtNode("12D3KooWTest2", "/ip4/127.0.0.1/tcp/4002");
-            
+
             var mockSession1 = Substitute.For<ISession>();
             var mockSession2 = Substitute.For<ISession>();
-            
+
             mockSession1.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
                 Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(new PingResponse()));
@@ -300,7 +300,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network
             // Arrange
             var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
             var mockSession = Substitute.For<ISession>();
-            
+
             mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
                 Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(new PingResponse()));

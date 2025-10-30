@@ -70,7 +70,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         [Test]
         public void FindNeighbours_WithNullReceiver_ShouldThrowArgumentNullException()
         {
-            
+
             var target = new PublicKey(new byte[32]);
 
             // Act & Assert
@@ -89,7 +89,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         [Test]
         public void Ping_WithCancellationToken_ShouldRespectCancellation()
         {
-            
+
             using var cts = new CancellationTokenSource();
             cts.Cancel();
 
@@ -104,7 +104,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration
         [Test]
         public void FindNeighbours_WithCancellationToken_ShouldRespectCancellation()
         {
-            
+
             var target = new PublicKey(new byte[32]);
             using var cts = new CancellationTokenSource();
             cts.Cancel();

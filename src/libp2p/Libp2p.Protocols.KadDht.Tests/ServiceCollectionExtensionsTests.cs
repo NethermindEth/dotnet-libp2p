@@ -47,7 +47,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
         [Test]
         public void AddKadDht_RegistersAllRequiredServices()
         {
-            
+
             _services.AddKadDht();
             using var serviceProvider = _services.BuildServiceProvider();
 
@@ -67,7 +67,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
             var customAlpha = 5;
             var customMode = KadDhtMode.Client;
 
-            
+
             _services.AddKadDht(options =>
             {
                 options.KSize = customKSize;
@@ -87,7 +87,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
         [Test]
         public void AddKadDht_WithDefaultOptions_UsesDefaults()
         {
-            
+
             _services.AddKadDht();
             using var serviceProvider = _services.BuildServiceProvider();
             var options = serviceProvider.GetRequiredService<KadDhtOptions>();
@@ -102,7 +102,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
         [Test]
         public void AddKadDht_RegistersInMemoryValueStore()
         {
-            
+
             _services.AddKadDht(options => options.MaxStoredValues = 500);
             using var serviceProvider = _services.BuildServiceProvider();
             var valueStore = serviceProvider.GetRequiredService<IValueStore>();
@@ -118,7 +118,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
             _services.AddKadDht();
             using var serviceProvider = _services.BuildServiceProvider();
 
-            
+
             var options1 = serviceProvider.GetRequiredService<KadDhtOptions>();
             var options2 = serviceProvider.GetRequiredService<KadDhtOptions>();
             var sharedState1 = serviceProvider.GetRequiredService<SharedDhtState>();
@@ -139,7 +139,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
             using var serviceProvider = _services.BuildServiceProvider();
             var builder = new TestPeerFactoryBuilder(serviceProvider);
 
-            
+
             var result = builder.WithKadDht();
 
             // Assert
@@ -162,7 +162,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
         [Test]
         public void AddKadDht_CanResolveAllDependenciesWithoutErrors()
         {
-            
+
             _services.AddKadDht();
             using var serviceProvider = _services.BuildServiceProvider();
 

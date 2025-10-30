@@ -89,6 +89,11 @@ namespace KadDhtDemo
     {
         internal static class Program
         {
+            private sealed record RealNetworkSetup(
+                Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode> Sender,
+                TestNode LocalNode,
+                IReadOnlyList<Multiaddress> AdvertisedAddresses);
+
             public static async Task Main(string[] args)
             {
                 bool useRealNetwork = args.Contains("--network") || args.Contains("-n");
@@ -126,6 +131,7 @@ namespace KadDhtDemo
                 };
                 
                 var bootstrapAddresses = new List<string>();
+                var listenAddressOverrides = new List<string>();
                 
                 // Parse custom bootstrap addresses from command line
                 for (int i = 0; i < args.Length; i++)
@@ -135,10 +141,15 @@ namespace KadDhtDemo
                         bootstrapAddresses.Add(args[i + 1]);
                         i++;
                     }
+                    else if ((args[i] == "--listen" || args[i] == "-l") && i + 1 < args.Length)
+                    {
+                        listenAddressOverrides.Add(args[i + 1]);
+                        i++;
+                    }
                 }
                 
                 // Use default bootstrap nodes if none specified and in network mode
-                if (bootstrapAddresses.Count == 0 && (args.Contains("--network") || args.Contains("-n")))
+                if (bootstrapAddresses.Count == 0 && useRealNetwork)
                 {
                     bootstrapAddresses.AddRange(defaultBootstrapAddresses);
                 }
@@ -160,6 +171,14 @@ namespace KadDhtDemo
                         Console.WriteLine($"  {addr}");
                     }
                 }
+                if (listenAddressOverrides.Count > 0)
+                {
+                    Console.WriteLine($"Requested listen addresses: {listenAddressOverrides.Count}");
+                    foreach (var addr in listenAddressOverrides)
+                    {
+                        Console.WriteLine($"  {addr}");
+                    }
+                }
                 Console.WriteLine();
 
                 using ILoggerFactory logManager = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
@@ -177,21 +196,34 @@ namespace KadDhtDemo
                 IKeyOperator<PublicKey, ValueHash256, TestNode> keyOperator = new TestNodeKeyOperator();
                 
                 Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode> transport;
+                RealNetworkSetup? realNetwork = null;
                 
                 if (useRealNetwork)
                 {
                     Console.WriteLine("🌐 Real libp2p network mode activated!");
                     Console.WriteLine("Note: This demonstrates real libp2p protocol integration.");
-                    Console.WriteLine("Connection failures are expected since TestNodes have no multiaddresses.");
+                    Console.WriteLine("Make sure your chosen listen address is reachable (firewall/router rules).");
                     Console.WriteLine("The Kademlia algorithm and real libp2p transport are fully functional.");
                     Console.WriteLine();
-                    transport = await CreateRealNetworkTransport(logManager, bootstrapAddresses);
+                    realNetwork = await CreateRealNetworkTransport(logManager, bootstrapAddresses, listenAddressOverrides);
+                    transport = realNetwork.Sender;
                 }
                 else
                 {
                     Console.WriteLine("🔧 Using simulation transport for standalone demo.");
                     Console.WriteLine();
                     transport = new DemoMessageSender(logManager);
+                }
+
+                if (realNetwork is not null)
+                {
+                    Console.WriteLine("📣 Advertised listen addresses:");
+                    foreach (var addr in realNetwork.AdvertisedAddresses)
+                    {
+                        Console.WriteLine($"  {addr}");
+                    }
+                    Console.WriteLine($"🆔 Local peer ID: {realNetwork.LocalNode.Id.ToPeerId()}");
+                    Console.WriteLine();
                 }
 
                 var bootstrapNodes = new List<TestNode>();
@@ -229,7 +261,7 @@ namespace KadDhtDemo
                                 var publicKey = peerId.ToKademliaKey();
                                 
                                 // Create TestNode with the actual IP and port from the bootstrap address
-                                var bootstrapNode = TestNode.WithNetworkAddress(publicKey, ipAddress, port);
+                                var bootstrapNode = TestNode.WithMultiaddress(publicKey, multiaddr);
                                 bootstrapNodes.Add(bootstrapNode);
                                 
                                 var ipType = ip4Component != null ? "IPv4" : "IPv6";
@@ -263,7 +295,7 @@ namespace KadDhtDemo
                 KademliaConfig<TestNode> config = new()
                 {
                     CurrentNodeId = useRealNetwork 
-                        ? TestNode.WithNetworkAddress(RandomPublicKey(), "127.0.0.1", null)
+                        ? realNetwork!.LocalNode
                         : TestNode.ForSimulation(RandomPublicKey()),
                     KSize = 16,
                     Alpha = 3,
@@ -389,6 +421,56 @@ namespace KadDhtDemo
                 Console.WriteLine("\nDemo complete! All Kademlia components exercised.");
             }
 
+            private static IEnumerable<Multiaddress> BuildListenAddresses(List<string>? overrides)
+            {
+                if (overrides is null || overrides.Count == 0)
+                {
+                    yield return Multiaddress.Decode("/ip4/0.0.0.0/tcp/0");
+                    yield return Multiaddress.Decode("/ip6/::/tcp/0");
+                    yield break;
+                }
+
+                foreach (var address in overrides)
+                {
+                    var stripped = StripPeerIdComponent(address);
+                    yield return Multiaddress.Decode(stripped);
+                }
+            }
+
+            private static string StripPeerIdComponent(string multiaddr)
+            {
+                var idx = multiaddr.IndexOf("/p2p/", StringComparison.OrdinalIgnoreCase);
+                return idx >= 0 ? multiaddr[..idx] : multiaddr;
+            }
+
+            private static Multiaddress AppendPeerId(Multiaddress address, PeerId peerId)
+            {
+                var addressString = address.ToString();
+                if (addressString.Contains("/p2p/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return address;
+                }
+
+                return Multiaddress.Decode($"{addressString}/p2p/{peerId}");
+            }
+
+            private static Multiaddress? SelectAdvertisableAddress(IEnumerable<Multiaddress> addresses)
+            {
+                Multiaddress? fallback = null;
+                foreach (var address in addresses)
+                {
+                    fallback ??= address;
+                    var text = address.ToString();
+                    if (!text.Contains("/ip4/0.0.0.0", StringComparison.OrdinalIgnoreCase) &&
+                        !text.Contains("/ip6/::", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return address;
+                    }
+                }
+
+                return fallback;
+            }
+
             private static void ShowUsage()
             {
                 Console.WriteLine("KadDHT Demo - Kademlia Distributed Hash Table");
@@ -398,6 +480,7 @@ namespace KadDhtDemo
                 Console.WriteLine("  dotnet run -- --network       # Run with real libp2p networking");
                 Console.WriteLine("  dotnet run -- -n              # Short form for network mode");
                 Console.WriteLine("  dotnet run -- --bootstrap <addr>  # Add bootstrap peer address");
+                Console.WriteLine("  dotnet run -- --listen <addr>     # Bind to specific listen address");
                 Console.WriteLine("  dotnet run -- --help          # Show this help");
                 Console.WriteLine();
                 Console.WriteLine("Modes:");
@@ -409,17 +492,22 @@ namespace KadDhtDemo
                 Console.WriteLine("                               # Example: /ip4/127.0.0.1/tcp/40001/p2p/12D3Koo...");
                 Console.WriteLine("                               # Can be used multiple times");
                 Console.WriteLine("                               # Default: Uses comprehensive libp2p bootstrap nodes");
+                Console.WriteLine("  --listen <multiaddr>         # Bind locally (omit /p2p/...)");
                 Console.WriteLine();
                 Console.WriteLine("Examples:");
                 Console.WriteLine("  dotnet run                    # Safe simulation demo");
                 Console.WriteLine("  dotnet run -- --network       # Real peer connections with default bootstrap nodes");
+                Console.WriteLine("  dotnet run -- --network --listen /ip4/0.0.0.0/tcp/4001");
                 Console.WriteLine("  dotnet run -- --network --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/12D3Koo...");
                 Console.WriteLine();
                 Console.WriteLine("Note: Network mode automatically uses 18 production libp2p bootstrap nodes");
                 Console.WriteLine("      including IPv4/IPv6 TCP and QUIC variants for maximum compatibility.");
             }
 
-            private static async Task<Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode>> CreateRealNetworkTransport(ILoggerFactory loggerFactory, List<string>? bootstrapAddresses = null)
+            private static async Task<RealNetworkSetup> CreateRealNetworkTransport(
+                ILoggerFactory loggerFactory,
+                List<string>? bootstrapAddresses = null,
+                List<string>? listenAddressOverrides = null)
             {
                 var logger = loggerFactory.CreateLogger("RealNetworkTransport");
                 
@@ -447,20 +535,28 @@ namespace KadDhtDemo
                     var peerFactory = services.GetRequiredService<IPeerFactory>();
                     var localIdentity = new Identity();
                     var localPeer = peerFactory.Create(localIdentity);
+                    var kadPublicKey = new PublicKey(localIdentity.PublicKey.Data.Span);
 
                     logger.LogInformation("🆔 Local peer created with ID: {PeerId}", localPeer.Identity.PeerId);
 
-                    var listenAddresses = new[] { 
-                        Multiaddress.Decode("/ip4/0.0.0.0/tcp/0"),
-                        Multiaddress.Decode("/ip6/::/tcp/0")        
-                    };
+                    var listenAddresses = BuildListenAddresses(listenAddressOverrides).ToArray();
                     await localPeer.StartListenAsync(listenAddresses, CancellationToken.None);
 
                     logger.LogInformation("🔊 Listening on real network addresses:");
-                    foreach (var addr in localPeer.ListenAddresses)
+                    var actualListenAddresses = localPeer.ListenAddresses.ToList();
+                    foreach (var addr in actualListenAddresses)
                     {
                         logger.LogInformation("  📍 {Address}", addr);
                     }
+
+                    var announcedAddresses = actualListenAddresses
+                        .Select(addr => AppendPeerId(addr, localPeer.Identity.PeerId))
+                        .ToList();
+
+                    var advertisedAddress = SelectAdvertisableAddress(announcedAddresses);
+                    var localNode = advertisedAddress is not null
+                        ? TestNode.WithMultiaddress(kadPublicKey, advertisedAddress)
+                        : TestNode.ForSimulation(kadPublicKey);
 
                     localPeer.OnConnected += session =>
                     {
@@ -517,9 +613,13 @@ namespace KadDhtDemo
                                         var remotePeerId = session.RemoteAddress.GetPeerId();
                                         if (remotePeerId != null)
                                         {
-                                            var bootstrapNode = TestNode.WithNetworkAddress(
-                                                remotePeerId.ToKademliaKey(), 
-                                                "remote", null);
+                                            var announcementAddress = AppendPeerId(
+                                                session.RemoteAddress ?? targetAddress,
+                                                remotePeerId);
+
+                                            var bootstrapNode = TestNode.WithMultiaddress(
+                                                remotePeerId.ToKademliaKey(),
+                                                announcementAddress);
                                             logger.LogInformation("📋 Added bootstrap peer to local routing table");
                                         }
                                     }
@@ -539,14 +639,17 @@ namespace KadDhtDemo
                     logger.LogInformation("✅ libp2p transport with DHT protocols initialized successfully");
                     logger.LogInformation("🚀 Node is now participating in the libp2p DHT network");
 
-                    return adaptedSender;
+                    return new RealNetworkSetup(adaptedSender, localNode, announcedAddresses);
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "❌ Failed to initialize real libp2p transport: {Error}", ex.Message);
                     logger.LogWarning("Falling back to enhanced network simulation");
                     
-                    return new NetworkSimulationTransport(loggerFactory);
+                    return new RealNetworkSetup(
+                        new NetworkSimulationTransport(loggerFactory),
+                        TestNode.ForSimulation(RandomPublicKey()),
+                        Array.Empty<Multiaddress>());
                 }
             }
 
@@ -746,7 +849,7 @@ namespace KadDhtDemo
                 // Use the TestNode's actual multiaddress if available, otherwise create a placeholder
                 var multiaddrs = testNode.Multiaddress != null 
                     ? new[] { testNode.Multiaddress.ToString() }
-                    : new[] { $"/ip4/127.0.0.1/tcp/4001/p2p/{peerId}" }; // Use valid port instead of 0
+                    : Array.Empty<string>();
                 
                 return new DhtNode
                 {
@@ -761,9 +864,12 @@ namespace KadDhtDemo
             /// </summary>
             private static TestNode ConvertDhtNodeToTestNode(DhtNode dhtNode)
             {
-                // Always use factory method to ensure proper multiaddress generation
-                // Don't try to parse the potentially invalid multiaddress from DhtNode.Multiaddrs
-                return TestNode.WithNetworkAddress(dhtNode.PublicKey, "127.0.0.1", null);
+                if (dhtNode.Multiaddrs is { Count: > 0 })
+                {
+                    return TestNode.FromMultiaddresses(dhtNode.PublicKey, dhtNode.Multiaddrs);
+                }
+
+                return TestNode.ForSimulation(dhtNode.PublicKey);
             }
 
             /// <summary>
