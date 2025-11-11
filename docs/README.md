@@ -4,7 +4,7 @@ Libp2p network stack includes all necessary to bypass typical networking obstacl
 
 The following package includes links to protocols and provides them assembled in a single convenient LibP2P library:
 
-```
+```sh
 dotnet add package Nethermind.Libp2p --prerelease
 ```
 
@@ -13,6 +13,7 @@ The library requires [.NET 8](https://dotnet.microsoft.com/en-us/download) or hi
 ## Basic usage
 
 .NET libp2p is IoC friendly. `AddLibp2p` service collection extension allows to provide basic customization:
+
 - add user define protocols
 - customize included ones
 - change libp2p core behavior
@@ -53,6 +54,7 @@ int answer = await remotePeer.DialAsync<SomeProtocol, string, int>("what is answ
 1. Write your protocol
 
 Libp2p protocols can be divided into 3 layers:
+
 - Transport layer protocols, that actively use peer address to discover network and establish connection
 - Connection layer protocols
 - Application layer protocols, that rely on an established session and are used to exchange an actual payload
@@ -73,10 +75,10 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
     // called when you dial a remote peer
     public async Task<int> DialAsync(IChannel downChannel, ISessionContext context, string request)
     {
-        // `downChannel` contains various method to send and receive data
-        // you can write a string with \n at the end
+        // `downChannel` contains various methods to send and receive data
+        // for example, you can write a line
         await downChannel.WriteLineAsync(request);
-        // or read an integer
+        // or read an variable size integer
         return await downChannel.ReadVarintAsync();
     }
 
@@ -93,8 +95,9 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 - `context` holds information about local and remote peers. It allows more connections to be initiated within the current session.
 
 ### Further exploration
+
 - Add [logging and tracing](./logging-tracing.md)
-- Go check samples dir! It include chat apps, pubsub, discovery and more
+- Go check samples dir! It includes chat apps, pubsub, discovery and more
 - If the protocol is symmetric (i.e. listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class.
 - Need more information about other connected peers - check `IPeerStore`
 - Conventions and more potentially useful tips can be found in [the best practices list](./development/best-practices.md)
