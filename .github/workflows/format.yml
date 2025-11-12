@@ -22,3 +22,8 @@ jobs:
       - name: Format whitespace
         working-directory: ${{ env.WORKING_DIR }}
         run: dotnet format whitespace . --folder --verify-no-changes
+
+      - name: Check spelling
+        uses: streetsidesoftware/cspell-action@v7
+        with:
+          args: --config ./.cspell.json --no-progress --no-color
