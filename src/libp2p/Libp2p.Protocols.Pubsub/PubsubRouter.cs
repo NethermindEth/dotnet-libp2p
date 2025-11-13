@@ -48,6 +48,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             TokenSource = new CancellationTokenSource();
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
+
+            // Initialize peer scoring state
+            ScoringState = new PeerState(peerId);
         }
 
         public enum PubsubProtocol
@@ -102,8 +105,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
 
+        public PeerState ScoringState { get; init; }
+
         public ConnectionInitiation InitiatedBy { get; internal set; }
-        public Multiaddress Address { get; internal set; }
+        public Multiaddress? Address { get; internal set; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -126,6 +131,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private readonly TtlCache<MessageId, MessageWithId> _messageCache;
     private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
     private readonly TtlCache<(PeerId, MessageId)> _dontWantMessages;
+    private readonly PeerScoreManager _scoreManager;
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -168,6 +174,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
         _dontWantMessages = new(_settings.MessageCacheTtl);
+        _scoreManager = new PeerScoreManager(_settings, logger);
     }
 
     public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
