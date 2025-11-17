@@ -255,7 +255,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
         if (resolvedAddrs.Any(a => a.GetPeerId() != remotePeerId))
         {
-            throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have mutiple different peer ids");
+            throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have multiple different peer ids");
         }
 
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];

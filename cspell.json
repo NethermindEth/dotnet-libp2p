@@ -86,6 +86,7 @@
         "quic",
         "readerwriter",
         "reconnections",
+        "reentrancy",
         "refstruct",
         "runtimeinformation",
         "schannel",
