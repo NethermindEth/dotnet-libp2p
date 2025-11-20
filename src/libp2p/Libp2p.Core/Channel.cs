@@ -43,7 +43,8 @@ public class Channel : IChannel
     public IWriter Writer { get => _writer; }
 
 
-    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+    public ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)
     {
         return Reader.ReadAsync(length, blockingMode, token);
@@ -98,7 +99,8 @@ public class Channel : IChannel
         internal bool _eow = false;
 
         public async ValueTask<ReadResult> ReadAsync(int length,
-            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default)
         {
             try
             {
