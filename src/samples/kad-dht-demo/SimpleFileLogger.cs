@@ -46,13 +46,13 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
                 var message = formatter(state, exception);
                 var timestamp = DateTime.UtcNow.ToString("HH:mm:ss.fff");
                 var line = $"{timestamp} {logLevel,-5} {_category} {message}";
-                
+
                 // Truncate very long lines to prevent overflow
                 if (line.Length > 2000)
                 {
                     line = line.Substring(0, 1997) + "...";
                 }
-                
+
                 if (exception != null)
                 {
                     var exceptionStr = exception.ToString();
@@ -62,7 +62,7 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
                     }
                     line += " | " + exceptionStr;
                 }
-                
+
                 _writer.WriteLine(line);
             }
             catch (Exception logEx)

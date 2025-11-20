@@ -4,6 +4,7 @@
 using Nethermind.Libp2p.Core.Extensions;
 
 namespace Nethermind.Libp2p.Core.Tests;
+
 internal class TaskHelperTests
 {
 
