@@ -18,7 +18,7 @@ public class PerfProtocol : ISessionProtocol
         _logger = loggerFactory?.CreateLogger<PerfProtocol>();
     }
 
-    public const long TotalLoad = 1024L * 1024 * 100;
+    public const long TotalLoad = 1024L * 100;
     private Random rand = new();
 
     public async Task DialAsync(IChannel downChannel, ISessionContext context)
