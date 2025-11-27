@@ -4,6 +4,7 @@
 using NUnit.Framework;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
+
 class TestPingProtocol : ISessionProtocol
 {
     public string Id => "test-ping";
