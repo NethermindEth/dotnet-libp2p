@@ -27,12 +27,12 @@ jobs:
     steps:
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: true
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -42,7 +42,6 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
-            -p:Commit=${{ github.sha }} \
             -p:Version=${{ github.event.inputs.version }}
 
       - name: Test
@@ -50,11 +49,11 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet test Libp2p.Core.Tests ${{ env.PACK_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests ${{ env.PACK_OPTS }}
+          dotnet test --project Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
+          #dotnet test --project Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test --project Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test --project Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.PACK_OPTS }}
 
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
