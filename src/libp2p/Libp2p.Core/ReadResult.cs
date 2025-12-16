@@ -4,6 +4,7 @@
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core;
+
 public readonly struct ReadResult
 {
     public static ReadResult Ended = new() { Result = IOResult.Ended };
