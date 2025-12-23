@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ready_wrapper</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Sample.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Update="FSharp.Core" Version="10.0.100" />
+	</ItemGroup>
+
+  <!--a lot are likely unused-->
+	<ItemGroup>
+	  <PackageReference Include="Google.Protobuf" Version="3.33.2" />
+	  <PackageReference Include="Nethermind.Libp2p" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Identify" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.IpTcp" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.MDns" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Multistream" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Noise" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Plaintext" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Pubsub" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.PubsubPeerDiscovery" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Quic" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.RequestResponse" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Tls" Version="*-*" />
+	  <PackageReference Include="Nethermind.Libp2p.Protocols.Yamux" Version="*-*" />
+	</ItemGroup>
+</Project>
