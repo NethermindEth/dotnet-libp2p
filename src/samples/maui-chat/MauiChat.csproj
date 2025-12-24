@@ -38,7 +38,21 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'tizen'">6.5</SupportedOSPlatformVersion>
-		<PublishAot>True</PublishAot>
+		
+		<!-- 
+			NativeAOT Configuration:
+			- iOS/Mac Catalyst: NativeAOT is officially supported
+			- Android: NativeAOT is experimental and NOT yet supported with MAUI (xamarin_app_init missing)
+			- Windows: NativeAOT is not applicable for MAUI
+			See: https://learn.microsoft.com/en-us/dotnet/maui/deployment/nativeaot
+		-->
+		<PublishAot Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">true</PublishAot>
+		<PublishAot Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">true</PublishAot>
+		
+		<!-- Enable trimming and AOT analyzers for all platforms for compatibility checking -->
+		<IsAotCompatible>true</IsAotCompatible>
+		<SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+		<TrimmerSingleWarn>false</TrimmerSingleWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -60,14 +74,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
-    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libsodium" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libsodium.so" />
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libmsquic.so" />
     
 	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\armeabi-v7a\libsodium" />
-	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86\libsodium" />
 
-    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libsodium.so" />
-
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86\libsodium2.so">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AndroidNativeLibrary>
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libmsquic.so" />
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libcrypto.so" />
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libssl.so" />
@@ -76,7 +90,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
-		<PackageReference Include="Nethermind.Libp2p" Version="1.0.0-preview.51" />
-	</ItemGroup>
+    <ProjectReference Include="..\..\libp2p\Libp2p\Libp2p.csproj" />
+  </ItemGroup>
 
 </Project>

@@ -7,7 +7,6 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
-using StackExchange.Redis;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;

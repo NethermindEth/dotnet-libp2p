@@ -8,6 +8,38 @@ using Nethermind.Libp2p.Core;
 
 namespace MauiChat;
 
+public class Prov(Action<string, string> addLine) : ILoggerProvider
+{
+    private Action<string, string> addLine = addLine;
+
+    public ILogger CreateLogger(string categoryName)
+    {
+        return new Log(addLine);
+    }
+
+    public void Dispose()
+    {
+
+    }
+
+    public class Log(Action<string, string> addLine) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            return null;
+        }
+
+        public bool IsEnabled(LogLevel logLevel)
+        {
+            return true;
+        }
+
+        void ILogger.Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            addLine(logLevel.ToString(), state?.ToString());
+        }
+    }
+}
 public partial class MainPage : ContentPage
 {
     ChatProtocol? chatProtocol;
@@ -28,6 +60,8 @@ public partial class MainPage : ContentPage
                         logging.ClearProviders();
                         logging.AddDebug();   // logs to platform debug output
                         logging.AddConsole(); // works on Windows/macOS
+                        logging.SetMinimumLevel(LogLevel.Trace);
+                        logging.AddProvider(new Prov(AddLine));
                     })
                     .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddProtocol(chatProtocol))
                     .BuildServiceProvider();
@@ -45,7 +79,7 @@ public partial class MainPage : ContentPage
 
                 await remotePeer.DialAsync<ChatProtocol>(ts.Token);
 
-                AddLine("System", "Connected");
+                AddLine("System", $"Connected");
                 await Task.Delay(-1, ts.Token);
             }
             catch (Exception e)

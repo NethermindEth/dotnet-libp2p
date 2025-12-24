@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -17,7 +18,7 @@ public static class ServiceProviderExtensions
             .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>());
     }
 
-    public static IServiceCollection AddLibp2p<TPeerFactoryBuilder>(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
+    public static IServiceCollection AddLibp2p<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPeerFactoryBuilder>(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
         where TPeerFactoryBuilder : IPeerFactoryBuilder
     {
         return services

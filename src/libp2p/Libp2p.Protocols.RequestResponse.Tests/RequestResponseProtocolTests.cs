@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using NUnit.Framework;
-using Google.Protobuf;
-using Google.Protobuf.Reflection;
 using NSubstitute;
 using Nethermind.Libp2p.Core;
 

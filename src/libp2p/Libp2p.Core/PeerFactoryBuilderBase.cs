@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -24,13 +25,13 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 }
 
 
-public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
+public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : IPeerFactory
 {
     private readonly HashSet<IProtocol> protocolInstances = [];
 
-    private TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+    private TProtocol CreateProtocolInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
     {
         if (instance is not null)
         {
@@ -54,7 +55,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
         => ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
 
-    public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
@@ -84,7 +85,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
         return previous;
     }
 
-    protected ProtocolRef Get<TProtocol>() where TProtocol : IProtocol
+    protected ProtocolRef Get<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>() where TProtocol : IProtocol
     {
         return new ProtocolRef(CreateProtocolInstance<TProtocol>(ServiceProvider));
     }
