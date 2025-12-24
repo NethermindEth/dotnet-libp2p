@@ -25,7 +25,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
     protected readonly MultiaddrResolver _multiaddrResolver = new();
 
-    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
+    readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     public ObservableCollection<Session> Sessions { get; } = [];
 
     public override string ToString()
@@ -122,7 +122,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for address {addr}");
+                    _logger?.LogDebug($"Failed to start listener for address {addr}: {t.Exception?.Message}");
                     return null;
                 }
 
@@ -306,7 +306,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 dialActivity?.Dispose();
                 throw dialingResult.Exception;
             }
-            throw new Libp2pException("Not able to dial the peer");
+            throw new Libp2pException($"Not able to dial the peer. {dialingResult.Exception?.Message}");
         }
 
         dialActivity?.AddEvent(new ActivityEvent("connected"));

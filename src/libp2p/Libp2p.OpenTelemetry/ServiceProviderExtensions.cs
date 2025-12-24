@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
-using OpenTelemetry;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 using System.Diagnostics;
 
 namespace Nethermind.Libp2p.OpenTelemetry;

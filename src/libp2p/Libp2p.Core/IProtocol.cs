@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Nethermind.Libp2p.Core;
 
