@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Yamux;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
@@ -39,7 +40,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
         channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
 
-        Dictionary<int, ChannelState> channels = [];
+        ConcurrentDictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
         Timer? timer = null;
 
@@ -173,13 +174,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     bool spent = channels[header.StreamID].LocalWindow.TrySpend((int)data.Length);
                     if (!spent)
                     {
-                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window spent out of budget", session.Id, header.StreamID);
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local window spent out of budget", session.Id, header.StreamID);
                         await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.InternalError);
                         return;
                     }
 
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Spent window, was {available}, became {new}", session.Id,
-                           header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
+                               header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
 
                     _ = channels[header.StreamID].Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
@@ -196,7 +197,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 {
                     int oldSize = channels[header.StreamID].RemoteWindow.Available;
                     int newSize = channels[header.StreamID].RemoteWindow.Extend(header.Length);
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window update requested: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window update received: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
@@ -239,7 +240,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 upChannel.GetAwaiter().OnCompleted(() =>
                 {
-                    channels.Remove(streamId);
+                    channels.TryRemove(streamId, out ChannelState? _);
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
                 });
 
@@ -272,13 +273,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             {
                                 int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.Channel!.CancellationToken);
 
+                                _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
+
                                 await WriteHeaderAsync(contextId, channel,
                                     new YamuxHeader
                                     {
                                         Type = YamuxHeaderType.Data,
                                         Length = sendingSize,
                                         StreamID = streamId
-                                    }, upData.Slice(i, sendingSize));
+                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()));
                                 i += sendingSize;
                             }
                         }
@@ -307,7 +310,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                               StreamID = streamId
                           });
                         _ = upChannel.CloseAsync();
-                        channels.Remove(streamId);
+                        channels.TryRemove(streamId, out ChannelState? _);
 
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Unexpected error, closing: {error}", contextId, streamId, e.Message);
                     }
@@ -344,16 +347,19 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         {
             if (result == IOResult.Ok)
             {
-                int extendedBy = channels[streamId].LocalWindow.ExtendIfNeeded();
-                if (extendedBy is not 0)
+                if (channels.TryGetValue(streamId, out ChannelState? channelState))
                 {
-                    _ = WriteHeaderAsync(sessionId, channel,
-                        new YamuxHeader
-                        {
-                            Type = YamuxHeaderType.WindowUpdate,
-                            Length = extendedBy,
-                            StreamID = streamId
-                        });
+                    int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
+                    if (extendedBy is not 0)
+                    {
+                        _ = WriteHeaderAsync(sessionId, channel,
+                            new YamuxHeader
+                            {
+                                Type = YamuxHeaderType.WindowUpdate,
+                                Length = extendedBy,
+                                StreamID = streamId
+                            });
+                    }
                 }
             }
         }

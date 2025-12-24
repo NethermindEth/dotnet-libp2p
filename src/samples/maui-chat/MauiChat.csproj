@@ -5,14 +5,13 @@
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
 		<!-- Uncomment to also build the tizen app. You will need to install tizen by following this: https://github.com/Samsung/Tizen.NET -->
 		<!-- <TargetFrameworks>$(TargetFrameworks);net10.0-tizen</TargetFrameworks> -->
-
 		<!-- Note for MacCatalyst:
 		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
 		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
 		The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
 		either BOTH runtimes must be indicated or ONLY macatalyst-x64. -->
-		<!-- For example: <RuntimeIdentifiers>net10.0-androidmaccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
-    <RuntimeIdentifiers>linux-bionic-arm64</RuntimeIdentifiers>
+		<!-- For example: <RuntimeIdentifiers>net10.0-android;maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
+    <!--<RuntimeIdentifiers>android-arm64;android-x64;win-x64</RuntimeIdentifiers>-->
 		<OutputType>Exe</OutputType>
 		<RootNamespace>MauiChat</RootNamespace>
 		<UseMaui>true</UseMaui>
@@ -67,7 +66,7 @@
 	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\armeabi-v7a\libsodium" />
 	  <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86\libsodium" />
 
-    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libsodium" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libsodium.so" />
 
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libmsquic.so" />
     <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libcrypto.so" />
@@ -77,7 +76,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
-		<PackageReference Include="Nethermind.Libp2p" Version="1.0.0-preview.45" />
+		<PackageReference Include="Nethermind.Libp2p" Version="1.0.0-preview.51" />
 	</ItemGroup>
 
 </Project>

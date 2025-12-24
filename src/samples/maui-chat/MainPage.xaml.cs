@@ -29,15 +29,15 @@ public partial class MainPage : ContentPage
                         logging.AddDebug();   // logs to platform debug output
                         logging.AddConsole(); // works on Windows/macOS
                     })
-                    .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddAppLayerProtocol(chatProtocol))
+                    .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddProtocol(chatProtocol))
                     .BuildServiceProvider();
 
                 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
                 CancellationTokenSource ts = new();
 
-                //Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
-                Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                //Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
 
                 await using ILocalPeer localPeer = peerFactory.Create();
 
