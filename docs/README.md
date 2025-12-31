@@ -82,7 +82,7 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 
     // called when you listen and someone dials you
     public async Task ListenAsync(IChannel downChannel, ISessionContext context)
-    {.
+    {
         string question = await downChannel.ReadLineAsync();
         await downChannel.WriteVarintAsync(question.GetHashCode());
     }
