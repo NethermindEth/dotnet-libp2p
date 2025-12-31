@@ -82,7 +82,7 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 
     // called when you listen and someone dials you
     public async Task ListenAsync(IChannel downChannel, ISessionContext context)
-    {
+    {.
         string question = await downChannel.ReadLineAsync();
         await downChannel.WriteVarintAsync(question.GetHashCode());
     }
@@ -91,6 +91,7 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 
 - The `downChannel` is used to receive from and send data to the transport layer.
 - `context` holds information about local and remote peers. It allows more connections to be initiated within the current session.
+- The current implementation for IChannel is Nethermind.Libp2p.Core.Channel and supports reading and writing by multiple threads
 
 ### Further exploration
 - Add [logging and tracing](./logging-tracing.md)
