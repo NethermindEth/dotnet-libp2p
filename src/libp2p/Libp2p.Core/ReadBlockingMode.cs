@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 namespace Nethermind.Libp2p.Core;
+
 public enum ReadBlockingMode
 {
     WaitAll,

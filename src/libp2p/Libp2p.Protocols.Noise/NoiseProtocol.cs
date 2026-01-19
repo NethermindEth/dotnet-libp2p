@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -239,7 +239,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
                 int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
+                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten));
                 if (writeResult != IOResult.Ok)
                 {
                     logger?.LogDebug("End sending, due to {}", writeResult);
@@ -271,11 +271,14 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
                 int bytesRead = transport.ReadMessage(dataReadResult.Data.ToArray(), buffer);
 
-                IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
-                if (writeResult != IOResult.Ok)
+                if (bytesRead != 0)
                 {
-                    logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
-                    return;
+                    IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                    if (writeResult != IOResult.Ok)
+                    {
+                        logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
+                        return;
+                    }
                 }
             }
         });
