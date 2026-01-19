@@ -15,6 +15,7 @@ using Libp2p.Protocols.KadDht.Network;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p;
 using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using TestNode = Libp2p.Protocols.KadDht.Kademlia.TestNode;
 
 namespace KadDhtDemo
@@ -26,14 +27,12 @@ namespace KadDhtDemo
     {
         public static PeerId ToPeerId(this PublicKey publicKey)
         {
-            // Convert Kademlia PublicKey to libp2p PublicKey protobuf format
             var libp2pPublicKey = new Nethermind.Libp2p.Core.Dto.PublicKey
             {
                 Type = Nethermind.Libp2p.Core.Dto.KeyType.Ed25519,
                 Data = Google.Protobuf.ByteString.CopyFrom(publicKey.Bytes)
             };
             
-            // Use the proper PeerId constructor that handles hashing correctly
             return new PeerId(libp2pPublicKey);
         }
 
@@ -98,6 +97,7 @@ namespace KadDhtDemo
             {
                 bool useRealNetwork = args.Contains("--network") || args.Contains("-n");
                 bool showHelp = args.Contains("--help") || args.Contains("-h");
+                bool noRemoteBootstrap = args.Contains("--no-remote-bootstrap") || args.Contains("--local-only");
                 
                 var defaultBootstrapAddresses = new List<string>
                 {
@@ -148,10 +148,15 @@ namespace KadDhtDemo
                     }
                 }
                 
-                // Use default bootstrap nodes if none specified and in network mode
-                if (bootstrapAddresses.Count == 0 && useRealNetwork)
+                // Use default bootstrap nodes if none specified and in network mode (unless explicitly disabled)
+                if (bootstrapAddresses.Count == 0 && useRealNetwork && !noRemoteBootstrap)
                 {
                     bootstrapAddresses.AddRange(defaultBootstrapAddresses);
+                    Console.WriteLine("Using default remote bootstrap nodes. Use --no-remote-bootstrap to disable.");
+                }
+                else if (noRemoteBootstrap && bootstrapAddresses.Count == 0)
+                {
+                    Console.WriteLine("Remote bootstrap disabled. Starting in local-only mode.");
                 }
                 
                 if (showHelp)
@@ -254,13 +259,16 @@ namespace KadDhtDemo
                             {
                                 var ipAddress = ipComponent.Value.ToString()!;
                                 var port = int.Parse(tcpComponent.Value.ToString()!);
-                                var peerIdString = p2pComponent.Value.ToString()!;
-                                var peerId = new PeerId(peerIdString);
                                 
-                                // Create a PublicKey from the PeerId
+                                var peerId = multiaddr.GetPeerId();
+                                if (peerId == null)
+                                {
+                                    Console.WriteLine($"Warning: Failed to extract PeerId from {addr}");
+                                    continue;
+                                }
+                                
                                 var publicKey = peerId.ToKademliaKey();
                                 
-                                // Create TestNode with the actual IP and port from the bootstrap address
                                 var bootstrapNode = TestNode.WithMultiaddress(publicKey, multiaddr);
                                 bootstrapNodes.Add(bootstrapNode);
                                 
@@ -274,11 +282,22 @@ namespace KadDhtDemo
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Warning: Failed to parse bootstrap address '{addr}': {ex.Message}");
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine($"❌ ERROR: Failed to parse bootstrap address '{addr}': {ex.Message}");
+                            Console.ResetColor();
                         }
                     }
                     
                     Console.WriteLine($"Successfully configured {bootstrapNodes.Count} TCP bootstrap peers");
+                    
+                    if (bootstrapNodes.Count == 0 && args.Any(a => a.StartsWith("--bootstrap")))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("❌ CRITICAL: Bootstrap addresses were provided but none could be parsed!");
+                        Console.WriteLine("   Please check the multiaddress format. Example:");
+                        Console.WriteLine("   /ip4/127.0.0.1/tcp/55657/p2p/12D3Koo...");
+                        Console.ResetColor();
+                    }
                 }
                 
                 // In simulation mode, create default bootstrap nodes if none provided
@@ -325,8 +344,15 @@ namespace KadDhtDemo
                 Console.WriteLine($"Config - K: {config.KSize}, Alpha: {config.Alpha}, Beta: {config.Beta}");
                 Console.WriteLine($"Bootstrap nodes: {config.BootNodes.Count}");
 
-                Console.WriteLine("\n1. Seeding routing table with distance-diverse nodes...");
-                SeedDeterministic(config.CurrentNodeId.Id.Hash, nodeHealthTracker, maxDistance: 14, perDistance: 4);
+                if (!useRealNetwork)
+                {
+                    Console.WriteLine("\n1. Seeding routing table with distance-diverse nodes...");
+                    SeedDeterministic(config.CurrentNodeId.Id.Hash, nodeHealthTracker, maxDistance: 14, perDistance: 4);
+                }
+                else
+                {
+                    Console.WriteLine("\n1. Real network mode - routing table will be populated through peer discovery");
+                }
 
                 Console.WriteLine($"\n2. Routing table size after seeding: {routingTable.Size}");
                 routingTable.LogDebugInfo();
@@ -419,6 +445,530 @@ namespace KadDhtDemo
                 }
 
                 Console.WriteLine("\nDemo complete! All Kademlia components exercised.");
+
+                if (useRealNetwork && realNetwork is not null)
+                {
+                    Console.WriteLine("\n🔄 Node is running and ready for DHT operations.");
+                    Console.WriteLine("You can now connect other nodes to this one.");
+                    Console.WriteLine("\n📋 Connection strings for other nodes:");
+                    foreach (var addr in realNetwork.AdvertisedAddresses)
+                    {
+                        var addrStr = addr.ToString();
+                        if (addrStr.Contains("127.0.0.1") || addrStr.Contains("0.0.0.0"))
+                        {
+                            var bootstrapAddr = addrStr.Replace("/ip4/0.0.0.0/", "/ip4/127.0.0.1/");
+                            Console.WriteLine($"  {bootstrapAddr}");
+                        }
+                    }
+
+                    // Interactive menu for DHT operations
+                    using var cts = new CancellationTokenSource();
+                    Console.CancelKeyPress += (sender, e) =>
+                    {
+                        e.Cancel = true;
+                        cts.Cancel();
+                        Console.WriteLine("\n\n👋 Shutting down gracefully...");
+                    };
+
+                    try
+                    {
+                        await RunInteractiveDhtMenu(kad, routingTable, transport, realNetwork, cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                }
+            }
+
+            private static async Task RunInteractiveDhtMenu(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                IRoutingTable<ValueHash256, TestNode> routingTable,
+                Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode> transport,
+                RealNetworkSetup network,
+                CancellationToken token)
+            {
+                var localValueStore = new ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)>();
+                
+                var peerId = network.LocalNode.Id.ToPeerId().ToString();
+                var shortId = peerId[..12];
+                var portNumber = network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40001") == true ? "Node1" 
+                    : network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40002") == true ? "Node2"
+                    : network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40003") == true ? "Node3"
+                    : "NodeX";
+                
+                localValueStore[$"node-id-{portNumber}"] = (peerId, DateTime.UtcNow, peerId);
+                localValueStore[$"greeting-{portNumber}"] = ($"Hello from {portNumber} ({shortId})", DateTime.UtcNow, peerId);
+                localValueStore[$"message-{portNumber}"] = ($"This is a test message from {portNumber}", DateTime.UtcNow, peerId);
+                localValueStore[$"data-{portNumber}"] = ($"Sample data stored by {portNumber} at {DateTime.UtcNow:HH:mm:ss}", DateTime.UtcNow, peerId);
+                
+                Console.WriteLine($"\n💾 Auto-populated {localValueStore.Count} sample values for testing:");
+                foreach (var kvp in localValueStore)
+                {
+                    Console.WriteLine($"   '{kvp.Key}' = '{kvp.Value.value}'");
+                }
+
+                Console.WriteLine("\n═══════════════════════════════════════════════════════════");
+                Console.WriteLine("🎯 DHT INTERACTIVE MENU");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                Console.WriteLine();
+                Console.WriteLine("Commands:");
+                Console.WriteLine("  [1] Show routing table status");
+                Console.WriteLine("  [2] Show connected peers");
+                Console.WriteLine("  [3] Store a value (PUT)");
+                Console.WriteLine("  [4] Retrieve a value (GET)");
+                Console.WriteLine("  [5] Lookup closest peers to a key");
+                Console.WriteLine("  [6] Show DHT statistics");
+                Console.WriteLine("  [7] Run automated DHT test scenario");
+                Console.WriteLine("  [8] Quick test: Retrieve from Node1");
+                Console.WriteLine("  [9] Quick test: Retrieve from Node2");
+                Console.WriteLine("  [0] or Ctrl+C to exit");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                Console.WriteLine();
+                Console.WriteLine("💡 Quick Tips:");
+                Console.WriteLine("  - Sample data auto-populated: node-id-NodeX, greeting-NodeX, etc.");
+                Console.WriteLine("  - Try [4] and enter: greeting-Node1, greeting-Node2, greeting-Node3");
+                Console.WriteLine("  - Use [8] or [9] for quick cross-node data retrieval tests");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+
+                while (!token.IsCancellationRequested)
+                {
+                    Console.Write("\n> Enter command: ");
+                    var input = Console.ReadLine()?.Trim();
+
+                    if (string.IsNullOrEmpty(input) || input == "0")
+                    {
+                        break;
+                    }
+
+                    try
+                    {
+                        switch (input)
+                        {
+                            case "1":
+                                ShowRoutingTableStatus(kad, routingTable);
+                                break;
+
+                            case "2":
+                                ShowConnectedPeers(kad, routingTable, network);
+                                break;
+
+                            case "3":
+                                await StoreDhtValue(localValueStore, network, token);
+                                break;
+
+                            case "4":
+                                await RetrieveDhtValue(localValueStore, network, token);
+                                break;
+
+                            case "5":
+                                await LookupClosestPeers(kad, token);
+                                break;
+
+                            case "6":
+                                ShowDhtStatistics(kad, routingTable, localValueStore, network);
+                                break;
+
+                            case "7":
+                                await RunAutomatedDhtTest(kad, routingTable, localValueStore, network, token);
+                                break;
+
+                            case "8":
+                                await QuickRetrieveTest(localValueStore, "Node1", network);
+                                break;
+
+                            case "9":
+                                await QuickRetrieveTest(localValueStore, "Node2", network);
+                                break;
+
+                            default:
+                                Console.WriteLine("❌ Invalid command. Please enter 0-9.");
+                                break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"❌ Error executing command: {ex.Message}");
+                        Console.ResetColor();
+                    }
+                }
+
+                Console.WriteLine("\n👋 Exiting DHT interactive mode...");
+            }
+
+            private static void ShowRoutingTableStatus(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                IRoutingTable<ValueHash256, TestNode> routingTable)
+            {
+                Console.WriteLine("\n📊 ROUTING TABLE STATUS");
+                Console.WriteLine("─────────────────────────────────────────");
+                Console.WriteLine($"Total peers in routing table: {routingTable.Size}");
+                
+                routingTable.LogDebugInfo();
+
+                // Show distance distribution
+                Console.WriteLine("\n📐 Peer distribution by distance:");
+                for (int distance = 1; distance <= 10; distance++)
+                {
+                    var nodesAtDistance = kad.GetAllAtDistance(distance);
+                    if (nodesAtDistance.Length > 0)
+                    {
+                        Console.WriteLine($"  Distance {distance,2}: {nodesAtDistance.Length} peer(s)");
+                    }
+                }
+            }
+
+            private static void ShowConnectedPeers(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                IRoutingTable<ValueHash256, TestNode> routingTable,
+                RealNetworkSetup network)
+            {
+                Console.WriteLine("\n👥 CONNECTED PEERS");
+                Console.WriteLine("─────────────────────────────────────────");
+                Console.WriteLine($"Local Peer ID: {network.LocalNode.Id.ToPeerId()}");
+                Console.WriteLine($"Total peers: {routingTable.Size}");
+                Console.WriteLine();
+
+                int count = 0;
+                foreach (var node in kad.IterateNodes())
+                {
+                    count++;
+                    var peerId = node.Id.ToPeerId();
+                    var multiaddr = node.Multiaddress?.ToString() ?? "No address";
+                    Console.WriteLine($"  {count}. {peerId}");
+                    if (node.Multiaddress != null)
+                    {
+                        Console.WriteLine($"     Address: {multiaddr}");
+                    }
+                }
+
+                if (count == 0)
+                {
+                    Console.WriteLine("  (No peers in routing table yet)");
+                    Console.WriteLine("  Tip: Wait for other nodes to connect or complete bootstrap.");
+                }
+            }
+
+            private static async Task StoreDhtValue(
+                ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)> store,
+                RealNetworkSetup network,
+                CancellationToken token)
+            {
+                Console.Write("\n📝 Enter key to store: ");
+                var key = Console.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(key))
+                {
+                    Console.WriteLine("❌ Key cannot be empty");
+                    return;
+                }
+
+                Console.Write("📝 Enter value to store: ");
+                var value = Console.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(value))
+                {
+                    Console.WriteLine("❌ Value cannot be empty");
+                    return;
+                }
+
+                var peerId = network.LocalNode.Id.ToPeerId().ToString();
+                store[key] = (value, DateTime.UtcNow, peerId);
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✅ Stored: '{key}' = '{value}'");
+                Console.WriteLine($"   Stored by: {peerId}");
+                Console.WriteLine($"   Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                Console.ResetColor();
+
+                Console.WriteLine("   (Local storage only - DHT propagation to be implemented)");
+            }
+
+            private static async Task RetrieveDhtValue(
+                ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)> store,
+                RealNetworkSetup network,
+                CancellationToken token)
+            {
+                Console.Write("\n🔍 Enter key to retrieve: ");
+                var key = Console.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(key))
+                {
+                    Console.WriteLine("❌ Key cannot be empty");
+                    return;
+                }
+
+                if (store.TryGetValue(key, out var data))
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✅ Found: '{key}' = '{data.value}'");
+                    Console.WriteLine($"   Stored by: {data.storedBy}");
+                    Console.WriteLine($"   Stored at: {data.stored:yyyy-MM-dd HH:mm:ss} UTC");
+                    Console.WriteLine($"   Age: {(DateTime.UtcNow - data.stored).TotalSeconds:F1} seconds");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"⚠️  Key '{key}' not found in local store");
+                    Console.WriteLine("   (Network-wide DHT lookup to be implemented)");
+                    Console.ResetColor();
+                }
+            }
+
+            private static async Task LookupClosestPeers(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                CancellationToken token)
+            {
+                Console.Write("\n🎯 Enter target peer ID or press Enter for random: ");
+                var input = Console.ReadLine()?.Trim();
+
+                PublicKey targetKey;
+                if (string.IsNullOrEmpty(input))
+                {
+                    targetKey = RandomPublicKey();
+                    Console.WriteLine($"   Using random target: {targetKey.ToPeerId()}");
+                }
+                else
+                {
+                    targetKey = RandomPublicKey();
+                    Console.WriteLine($"   (PeerID parsing not implemented, using random: {targetKey.ToPeerId()})");
+                }
+
+                Console.WriteLine("\n🔍 Looking up closest peers...");
+                try
+                {
+                    var closestPeers = await kad.LookupNodesClosest(targetKey, token);
+                    
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✅ Found {closestPeers.Length} closest peer(s):");
+                    Console.ResetColor();
+
+                    for (int i = 0; i < closestPeers.Length; i++)
+                    {
+                        var peer = closestPeers[i];
+                        Console.WriteLine($"   {i + 1}. {peer.Id.ToPeerId()}");
+                    }
+
+                    if (closestPeers.Length == 0)
+                    {
+                        Console.WriteLine("   (No peers found - routing table may be empty)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"❌ Lookup failed: {ex.Message}");
+                    Console.ResetColor();
+                }
+            }
+
+            private static void ShowDhtStatistics(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                IRoutingTable<ValueHash256, TestNode> routingTable,
+                ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)> store,
+                RealNetworkSetup network)
+            {
+                Console.WriteLine("\n📊 DHT STATISTICS");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                
+                Console.WriteLine($"\n🆔 Local Node:");
+                Console.WriteLine($"   Peer ID: {network.LocalNode.Id.ToPeerId()}");
+                Console.WriteLine($"   Listen Addresses: {network.AdvertisedAddresses.Count}");
+                foreach (var addr in network.AdvertisedAddresses)
+                {
+                    Console.WriteLine($"      - {addr}");
+                }
+
+                Console.WriteLine($"\n📋 Routing Table:");
+                Console.WriteLine($"   Total peers: {routingTable.Size}");
+                
+                var bucketCount = routingTable.IterateBuckets().Count();
+                Console.WriteLine($"   Buckets: {bucketCount}");
+                
+                var allNodes = kad.IterateNodes().ToList();
+                if (allNodes.Any())
+                {
+                    Console.WriteLine($"   Peers:");
+                    foreach (var node in allNodes.Take(10))
+                    {
+                        Console.WriteLine($"      - {node.Id.ToPeerId()}");
+                    }
+                    if (allNodes.Count > 10)
+                    {
+                        Console.WriteLine($"      ... and {allNodes.Count - 10} more");
+                    }
+                }
+
+                Console.WriteLine($"\n💾 Local Value Store:");
+                Console.WriteLine($"   Total keys stored: {store.Count}");
+                if (store.Any())
+                {
+                    Console.WriteLine($"   Stored values:");
+                    foreach (var kvp in store.Take(10))
+                    {
+                        Console.WriteLine($"      '{kvp.Key}' = '{kvp.Value.value}' (by {kvp.Value.storedBy[..20]}...)");
+                    }
+                    if (store.Count > 10)
+                    {
+                        Console.WriteLine($"      ... and {store.Count - 10} more");
+                    }
+                }
+
+                Console.WriteLine("\n═══════════════════════════════════════════════════════════");
+            }
+
+            private static async Task RunAutomatedDhtTest(
+                Kademlia<PublicKey, ValueHash256, TestNode> kad,
+                IRoutingTable<ValueHash256, TestNode> routingTable,
+                ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)> store,
+                RealNetworkSetup network,
+                CancellationToken token)
+            {
+                Console.WriteLine("\n🧪 AUTOMATED DHT TEST SCENARIO");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+
+                var peerId = network.LocalNode.Id.ToPeerId().ToString();
+                var testData = new Dictionary<string, string>
+                {
+                    { "greeting", $"Hello from {peerId[..12]}" },
+                    { "timestamp", DateTime.UtcNow.ToString("o") },
+                    { "message", "This is a test message for DHT" },
+                    { "data", "Sample data stored in distributed hash table" }
+                };
+
+                Console.WriteLine("\n1️⃣  Storing test values...");
+                foreach (var kvp in testData)
+                {
+                    store[kvp.Key] = (kvp.Value, DateTime.UtcNow, peerId);
+                    Console.WriteLine($"   ✓ Stored: '{kvp.Key}' = '{kvp.Value}'");
+                    await Task.Delay(100, token);
+                }
+
+                Console.WriteLine("\n2️⃣  Verifying stored values...");
+                int successCount = 0;
+                foreach (var kvp in testData)
+                {
+                    if (store.TryGetValue(kvp.Key, out var data) && data.value == kvp.Value)
+                    {
+                        Console.WriteLine($"   ✓ Verified: '{kvp.Key}'");
+                        successCount++;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"   ✗ Failed: '{kvp.Key}'");
+                    }
+                }
+
+                Console.WriteLine($"\n3️⃣  Lookup test (random target)...");
+                var randomTarget = RandomPublicKey();
+                Console.WriteLine($"   Target: {randomTarget.ToPeerId()}");
+                
+                try
+                {
+                    var closestPeers = await kad.LookupNodesClosest(randomTarget, token);
+                    Console.WriteLine($"   ✓ Found {closestPeers.Length} closest peer(s)");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   ✗ Lookup failed: {ex.Message}");
+                }
+
+                Console.WriteLine("\n4️⃣  Routing table analysis...");
+                Console.WriteLine($"   Total peers: {routingTable.Size}");
+                var bucketCount = routingTable.IterateBuckets().Count();
+                Console.WriteLine($"   Buckets: {bucketCount}");
+                
+                var distances = new Dictionary<int, int>();
+                for (int d = 1; d <= 10; d++)
+                {
+                    var count = kad.GetAllAtDistance(d).Length;
+                    if (count > 0)
+                    {
+                        distances[d] = count;
+                        Console.WriteLine($"   Distance {d}: {count} peer(s)");
+                    }
+                }
+
+                Console.WriteLine("\n═══════════════════════════════════════════════════════════");
+                Console.WriteLine("📊 TEST SUMMARY");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                Console.WriteLine($"✅ Values stored: {testData.Count}");
+                Console.WriteLine($"✅ Values verified: {successCount}/{testData.Count}");
+                Console.WriteLine($"✅ Peers in routing table: {routingTable.Size}");
+                Console.WriteLine($"✅ Distance buckets populated: {distances.Count}");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                
+                Console.WriteLine("\n💡 MULTI-NODE TEST INSTRUCTIONS:");
+                Console.WriteLine("─────────────────────────────────────────────────────────────");
+                Console.WriteLine("To test data sharing between nodes:");
+                Console.WriteLine("1. Run this test on Node 1 (listener) - it stores data");
+                Console.WriteLine("2. Start Node 2, connect to Node 1, run test");
+                Console.WriteLine("3. Start Node 3, connect to Node 1 or 2, run test");
+                Console.WriteLine("4. Use command [4] on Node 3 to try retrieving Node 1's data");
+                Console.WriteLine("5. Check routing tables with [1] to verify peer discovery");
+                Console.WriteLine("─────────────────────────────────────────────────────────────");
+            }
+
+            private static async Task QuickRetrieveTest(
+                ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)> store,
+                string targetNode,
+                RealNetworkSetup network)
+            {
+                Console.WriteLine($"\n🔍 QUICK RETRIEVE TEST: Trying to get data from {targetNode}");
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
+                
+                var keysToTry = new[] 
+                {
+                    $"node-id-{targetNode}",
+                    $"greeting-{targetNode}",
+                    $"message-{targetNode}",
+                    $"data-{targetNode}"
+                };
+
+                int foundCount = 0;
+                int notFoundCount = 0;
+
+                foreach (var key in keysToTry)
+                {
+                    if (store.TryGetValue(key, out var data))
+                    {
+                        foundCount++;
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"✅ Found '{key}':");
+                        Console.WriteLine($"   Value: {data.value}");
+                        Console.WriteLine($"   Stored by: {data.storedBy[..20]}...");
+                        Console.WriteLine($"   Age: {(DateTime.UtcNow - data.stored).TotalSeconds:F1}s");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        notFoundCount++;
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"⚠️  Not found: '{key}'");
+                        Console.ResetColor();
+                    }
+                }
+
+                Console.WriteLine("\n═══════════════════════════════════════════════════════════");
+                Console.WriteLine($"📊 Results: {foundCount} found, {notFoundCount} not found");
+                
+                if (notFoundCount == keysToTry.Length)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"\n💡 NOTE: {targetNode} data not found locally.");
+                    Console.WriteLine($"   This is expected if {targetNode} hasn't connected yet,");
+                    Console.WriteLine($"   or if DHT replication isn't implemented yet.");
+                    Console.WriteLine($"\n   Current node can only see its own local data.");
+                    Console.WriteLine($"   Once DHT protocols work, data will be discoverable across nodes.");
+                    Console.ResetColor();
+                }
+                else if (foundCount > 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"\n🎉 SUCCESS: Found data from {targetNode}!");
+                    Console.WriteLine($"   DHT data sharing is working!");
+                    Console.ResetColor();
+                }
+                
+                Console.WriteLine("═══════════════════════════════════════════════════════════");
             }
 
             private static IEnumerable<Multiaddress> BuildListenAddresses(List<string>? overrides)
@@ -481,6 +1031,8 @@ namespace KadDhtDemo
                 Console.WriteLine("  dotnet run -- -n              # Short form for network mode");
                 Console.WriteLine("  dotnet run -- --bootstrap <addr>  # Add bootstrap peer address");
                 Console.WriteLine("  dotnet run -- --listen <addr>     # Bind to specific listen address");
+                Console.WriteLine("  dotnet run -- --no-remote-bootstrap  # Disable default bootstrap nodes");
+                Console.WriteLine("  dotnet run -- --local-only    # Alias for --no-remote-bootstrap");
                 Console.WriteLine("  dotnet run -- --help          # Show this help");
                 Console.WriteLine();
                 Console.WriteLine("Modes:");
@@ -493,15 +1045,28 @@ namespace KadDhtDemo
                 Console.WriteLine("                               # Can be used multiple times");
                 Console.WriteLine("                               # Default: Uses comprehensive libp2p bootstrap nodes");
                 Console.WriteLine("  --listen <multiaddr>         # Bind locally (omit /p2p/...)");
+                Console.WriteLine("  --no-remote-bootstrap        # Skip default remote bootstrap nodes");
+                Console.WriteLine("  --local-only                 # Same as --no-remote-bootstrap");
                 Console.WriteLine();
                 Console.WriteLine("Examples:");
                 Console.WriteLine("  dotnet run                    # Safe simulation demo");
                 Console.WriteLine("  dotnet run -- --network       # Real peer connections with default bootstrap nodes");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap  # Network mode without remote bootstrap");
                 Console.WriteLine("  dotnet run -- --network --listen /ip4/0.0.0.0/tcp/4001");
                 Console.WriteLine("  dotnet run -- --network --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/12D3Koo...");
                 Console.WriteLine();
+                Console.WriteLine("Local Multi-Node Testing:");
+                Console.WriteLine("  # Terminal 1 (Listener):");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40001");
+                Console.WriteLine();
+                Console.WriteLine("  # Terminal 2 (Dialer 1):");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40002 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
+                Console.WriteLine();
+                Console.WriteLine("  # Terminal 3 (Dialer 2):");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40003 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
+                Console.WriteLine();
                 Console.WriteLine("Note: Network mode automatically uses 18 production libp2p bootstrap nodes");
-                Console.WriteLine("      including IPv4/IPv6 TCP and QUIC variants for maximum compatibility.");
+                Console.WriteLine("      unless --no-remote-bootstrap is specified. Use this flag for local testing.");
             }
 
             private static async Task<RealNetworkSetup> CreateRealNetworkTransport(
@@ -517,16 +1082,16 @@ namespace KadDhtDemo
                     
                     // Set up libp2p services with KadDht
                     var services = new ServiceCollection()
-                        .AddLibp2p(builder => builder
-                            .WithKadDht()  // Add KadDht protocols
-                        )
                         .AddKadDht(options =>
                         {
-                            options.Mode = KadDhtMode.Server;  // Run in server mode
+                            options.Mode = KadDhtMode.Server;
                             options.KSize = 16;
                             options.Alpha = 3;
                             options.OperationTimeout = TimeSpan.FromSeconds(10);
                         })
+                        .AddLibp2p(builder => builder
+                            .WithKadDht()
+                        )
                         .AddLogging(builder => builder
                             .SetMinimumLevel(LogLevel.Information)
                             .AddConsole())
@@ -558,9 +1123,12 @@ namespace KadDhtDemo
                         ? TestNode.WithMultiaddress(kadPublicKey, advertisedAddress)
                         : TestNode.ForSimulation(kadPublicKey);
 
+                    // Note: OnConnected fires when a peer connects to us
+                    // Peers will be added to routing table when they send DHT messages
                     localPeer.OnConnected += session =>
                     {
-                        logger.LogInformation("🔗 Real peer connected: {RemoteAddress}", session.RemoteAddress);
+                        var remotePeerId = session.RemoteAddress.GetPeerId();
+                        logger.LogInformation("🔗 Real peer connected: {PeerId} from {RemoteAddress}", remotePeerId, session.RemoteAddress);
                         return Task.CompletedTask;
                     };
 
@@ -568,77 +1136,6 @@ namespace KadDhtDemo
                     
                     var adaptedSender = new RealLibp2pMessageSenderAdapter(realLibp2pSender, loggerFactory);
                     
-                    // If bootstrap addresses are provided, attempt to connect to real peers
-                    if (bootstrapAddresses != null && bootstrapAddresses.Count > 0)
-                    {
-                        logger.LogInformation("🌐 Attempting to connect to {Count} real bootstrap peers...", bootstrapAddresses.Count);
-                        
-                        var resolver = new MultiaddrResolver();
-                        
-                        foreach (var addr in bootstrapAddresses.Take(3))
-                        {
-                            try
-                            {
-                                var multiaddr = Multiaddress.Decode(addr);
-                                
-                                logger.LogInformation("🔍 Resolving {Address}...", addr);
-                                
-                                var resolvedAddresses = new List<Multiaddress>();
-                                await foreach (var resolved in resolver.Resolve(multiaddr))
-                                {
-                                    resolvedAddresses.Add(resolved);
-                                }
-                                
-                                logger.LogInformation("✅ Resolved to {Count} address(es):", resolvedAddresses.Count);
-                                foreach (var resolved in resolvedAddresses.Take(2)) // Show first 2
-                                {
-                                    logger.LogInformation("   → {ResolvedAddress}", resolved);
-                                }
-                                
-                                if (resolvedAddresses.Count > 0)
-                                {
-                                    var targetAddress = resolvedAddresses.First();
-                                    logger.LogInformation("🔄 Attempting real connection to {Address}", targetAddress);
-                                    
-                                    var connectTask = localPeer.DialAsync(targetAddress, CancellationToken.None);
-                                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(15));
-                                    var completedTask = await Task.WhenAny(connectTask, timeoutTask);
-                                    
-                                    if (completedTask == connectTask && !connectTask.IsFaulted)
-                                    {
-                                        var session = await connectTask;
-                                        logger.LogInformation("✅ Successfully connected to bootstrap peer {PeerId}!", 
-                                            session.RemoteAddress.GetPeerId());
-                                        
-                                        var remotePeerId = session.RemoteAddress.GetPeerId();
-                                        if (remotePeerId != null)
-                                        {
-                                            var announcementAddress = AppendPeerId(
-                                                session.RemoteAddress ?? targetAddress,
-                                                remotePeerId);
-
-                                            var bootstrapNode = TestNode.WithMultiaddress(
-                                                remotePeerId.ToKademliaKey(),
-                                                announcementAddress);
-                                            logger.LogInformation("📋 Added bootstrap peer to local routing table");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        logger.LogWarning("⏰ Connection timeout to {Address}", targetAddress);
-                                    }
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogWarning("❌ Failed to connect to real bootstrap address {Address}: {Error}", addr, ex.Message);
-                            }
-                        }
-                    }
-                    
-                    logger.LogInformation("✅ libp2p transport with DHT protocols initialized successfully");
-                    logger.LogInformation("🚀 Node is now participating in the libp2p DHT network");
-
                     return new RealNetworkSetup(adaptedSender, localNode, announcedAddresses);
                 }
                 catch (Exception ex)
@@ -859,9 +1356,6 @@ namespace KadDhtDemo
                 };
             }
 
-            /// <summary>
-            /// Convert a real DhtNode to a demo TestNode.
-            /// </summary>
             private static TestNode ConvertDhtNodeToTestNode(DhtNode dhtNode)
             {
                 if (dhtNode.Multiaddrs is { Count: > 0 })

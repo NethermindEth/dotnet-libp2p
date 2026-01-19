@@ -59,11 +59,13 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 throw new InvalidOperationException($"Failed to establish session with {receiver}");
             }
 
+            _logger.LogInformation("Session established for {Node}, now dialing DHT ping protocol...", receiver);
+
             await session
                 .DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(new PingRequest(), token)
                 .ConfigureAwait(false);
 
-            _logger.LogTrace("Ping to {Node} completed successfully", receiver);
+            _logger.LogInformation("✅ Ping to {Node} completed successfully", receiver);
         }
         catch (OperationCanceledException)
         {

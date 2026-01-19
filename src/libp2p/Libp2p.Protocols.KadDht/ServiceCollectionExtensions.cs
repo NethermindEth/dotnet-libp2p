@@ -46,7 +46,6 @@ public static class ServiceCollectionExtensions
             return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory);
         });
 
-        // Register main KadDht protocol dependency injection
         services.AddSingleton<KadDhtProtocol>(sp =>
         {
             var localPeer = sp.GetRequiredService<ILocalPeer>();
@@ -67,50 +66,15 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static ILibp2pPeerFactoryBuilder WithKadDht(this ILibp2pPeerFactoryBuilder builder)
     {
-        // Retrieve shared state from service provider - this will be available when protocols are registered
+        var loggerFactory = builder.ServiceProvider.GetService<ILoggerFactory>();
+
+        builder.AddProtocol(new KadDhtPingProtocol(loggerFactory), isExposed: true);
+
         var sharedState = builder.ServiceProvider.GetService<SharedDhtState>();
 
-        // Register protocol handlers that access SharedDhtState through closure
-        builder.AddRequestResponseProtocol<PingRequest, PingResponse>("/ipfs/kad/1.0.0/ping",
-            (request, context) =>
-            {
-                // Basic ping response with session information logging
-                try
-                {
-                    var remotePeer = context.State.RemoteAddress?.ToString() ?? "unknown";
-                    var remotePeerId = context.State.RemoteAddress?.GetPeerId();
-
-                    Console.WriteLine($"[DHT-PING] Received ping from {remotePeer}");
-
-                    // Add requesting peer to routing table if we have shared state
-                    if (sharedState != null && remotePeerId != null)
-                    {
-                        try
-                        {
-                            var publicKey = new PublicKey(remotePeerId.Bytes);
-                            var dhtNode = new DhtNode
-                            {
-                                PeerId = remotePeerId,
-                                PublicKey = publicKey,
-                                Multiaddrs = new[] { remotePeer }
-                            };
-                            sharedState.AddOrUpdatePeer(publicKey, dhtNode);
-                            Console.WriteLine($"[DHT-PING] Added peer {remotePeerId} to routing table ({sharedState.PeerCount} total peers)");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[DHT-PING] Failed to add peer to routing table: {ex.Message}");
-                        }
-                    }
-
-                    return Task.FromResult(new PingResponse());
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[DHT-PING] Error processing ping: {ex.Message}");
-                    return Task.FromResult(new PingResponse());
-                }
-            });
+        if (sharedState != null)
+        {
+        }
 
         builder.AddRequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>("/ipfs/kad/1.0.0/find_node",
             (request, context) =>
