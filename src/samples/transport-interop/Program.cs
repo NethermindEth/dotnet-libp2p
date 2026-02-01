@@ -15,16 +15,43 @@ using System.Net.Sockets;
 
 try
 {
-    string transport = Environment.GetEnvironmentVariable("transport")!;
-    string muxer = Environment.GetEnvironmentVariable("muxer")!;
-    string security = Environment.GetEnvironmentVariable("security")!;
+    string transport = Environment.GetEnvironmentVariable("TRANSPORT")!;
+    if (string.IsNullOrEmpty(transport))
+    {
+        throw new Exception("TRANSPORT environment variable is required");
+    }
+    
+    // For QUIC, muxer and security are built-in and not required
+    bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport";
+    
+    string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
+    if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
+    {
+        throw new Exception("MUXER environment variable is required");
+    }
+    string security = Environment.GetEnvironmentVariable("SECURE_CHANNEL") ?? "";
+    if (string.IsNullOrEmpty(security) && !isStacklessProtocol)
+    {
+        throw new Exception("SECURE_CHANNEL environment variable is required");
+    }
 
-    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("is_dialer")!);
-    string ip = Environment.GetEnvironmentVariable("ip") ?? "0.0.0.0";
+    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("IS_DIALER")!);
+     if (string.IsNullOrEmpty(isDialer.ToString()))
+    {
+        throw new Exception("IS_DIALER environment variable is required");
+    }
+    string ip = Environment.GetEnvironmentVariable("LISTENER_IP") ?? "0.0.0.0";
 
-    string redisAddr = Environment.GetEnvironmentVariable("redis_addr") ?? "redis:6379";
+    string redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "";
 
-    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("test_timeout_seconds") ?? "180");
+    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("TEST_TIMEOUT_SECS") ?? "180");
+
+    string testKey= Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
+     if (string.IsNullOrEmpty(testKey))
+    {
+        throw new Exception("TEST_KEY environment variable is required");
+    }
+    string redisKey = $"{testKey}_listener_multiaddr";    
 
     TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();
@@ -41,7 +68,7 @@ try
 
         CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
         string? listenerAddr = null;
-        while ((listenerAddr = await db.ListRightPopAsync("listenerAddr")) is null)
+        while ((listenerAddr = await db.ListRightPopAsync(redisKey)) is null)
         {
             await Task.Delay(10, cts.Token);
         }
@@ -56,7 +83,10 @@ try
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
-        PrintResult($"{{\"handshakePlusOneRTTMillis\": {handshakePlusOneRTT}, \"pingRTTMilllis\": {pingRTT}}}");
+        PrintResult("latency:");
+        PrintResult($"  handshake_plus_one_rtt: {handshakePlusOneRTT}");
+        PrintResult($"  ping_rtt: {pingRTT}");
+        PrintResult("  unit: ms");
         Log("Done");
         return 0;
     }
@@ -89,7 +119,7 @@ try
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listenTcs.Token);
         localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
-        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
+        db.ListRightPush(new RedisKey(redisKey), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
         await listenTcs.CancelAsync();
         return -1;
