@@ -8,21 +8,26 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Always-needed packages -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageReference Include="NRedisStack" Version="0.13.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
-    <PackageReference Include="Nethermind.Libp2p" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Core" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Quic" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.IpTcp" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Noise" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Ping" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Yamux" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Identify" Version="1.0.0-preview.51" />
-    <PackageReference Include="Nethermind.Libp2p.Protocols.Multistream" Version="1.0.0-preview.51" />
+  </ItemGroup>
+
+
+  <ItemGroup >
+    <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p\Libp2p.csproj" />
   </ItemGroup>
 
 </Project>

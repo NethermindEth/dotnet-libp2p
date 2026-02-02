@@ -21,3 +21,26 @@ Optional:
 ```sh
 docker build -f ./src/samples/transport-interop/Dockerfile .
 ```
+
+## Development
+
+This sample uses local `libp2p` project references 
+
+Build and run:
+
+```sh
+# build with project references
+dotnet build
+
+# run the sample
+dotnet run
+```
+
+Project reference example (these are the paths we use in the repo):
+
+```xml
+<ProjectReference Include="..\\..\\libp2p\\Libp2p.Core\\Libp2p.Core.csproj" />
+<ProjectReference Include="..\\..\\libp2p\\Libp2p.Protocols.Quic\\Libp2p.Protocols.Quic.csproj" />
+<ProjectReference Include="..\\..\\libp2p\\Libp2p.Protocols.IpTcp\\Libp2p.Protocols.IpTcp.csproj" />
+```
+
