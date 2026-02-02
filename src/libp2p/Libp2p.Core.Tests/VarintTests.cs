@@ -1,4 +1,5 @@
 namespace Nethermind.Libp2p.Core.Tests;
+
 public class VarintTests
 {
    [Test]

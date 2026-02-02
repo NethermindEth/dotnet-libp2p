@@ -8,6 +8,7 @@ namespace Nethermind.Libp2p.Core.Tests;
 public class MultiaddrResolverTests
 {
     [Explicit("DNS may change")]
+    [Ignore("Flaky in CI: depends on external DNS infrastructure")]
     [Test]
     public async Task Test()
     {

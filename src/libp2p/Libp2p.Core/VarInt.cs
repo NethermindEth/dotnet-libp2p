@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 namespace Nethermind.Libp2p.Core;
+
 using System.Runtime.CompilerServices;
 public static class VarInt
 {
