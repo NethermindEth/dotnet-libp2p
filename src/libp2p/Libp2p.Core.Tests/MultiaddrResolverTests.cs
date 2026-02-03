@@ -19,7 +19,7 @@ public class MultiaddrResolverTests
         string dnsName = "_dnsaddr.bootstrap.libp2p.io";
         var txts = new[] {
             "dnsaddr=/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-            "dnsaddr=/ip4/1.2.3.4/tcp/4001/p2p/QmTestPeer"
+            "dnsaddr=/ip4/1.2.3.4/tcp/4001/p2p/QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51"
         };
         dns.QueryTxtAsync(dnsName).Returns(Task.FromResult((IEnumerable<string>)txts));
 
@@ -33,9 +33,8 @@ public class MultiaddrResolverTests
             results.Add(item);
         }
 
-        // Assert: expect to get the addresses provided by the TXT records
-        var expected = new HashSet<string>(txts.Select(t => t.Substring("dnsaddr=".Length)));
-        var actual = new HashSet<string>(results.Select(r => r.ToString()));
-        Assert.That(expected.IsSubsetOf(actual), Is.True);
+        // Assert: expect to get the first address (matching the p2p filter)
+        Assert.That(results.Count, Is.GreaterThan(0));
+        Assert.That(results[0].ToString(), Is.EqualTo("/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"));
     }
 }

@@ -36,12 +36,12 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-restore
         run: |
-          dotnet test --project Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.PACK_OPTS }}
+          dotnet test --project Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
+          dotnet test --project Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
