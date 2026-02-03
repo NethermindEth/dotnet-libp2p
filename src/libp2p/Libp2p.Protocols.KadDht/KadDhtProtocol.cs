@@ -75,11 +75,13 @@ public class KadDhtProtocol : ISessionProtocol
                 BootNodes = Array.Empty<DhtNode>() // Bootstrap nodes will be added via AddNode method
             };
 
-            var routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, loggerFactory);
+            // Use NullLoggerFactory if loggerFactory is null
+            var effectiveLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+            var routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, effectiveLoggerFactory);
 
             // Create additional Kademlia dependencies
-            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, routingTable, nodeHashProvider, messageSender, loggerFactory ?? NullLoggerFactory.Instance);
-            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, loggerFactory ?? NullLoggerFactory.Instance);
+            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, routingTable, nodeHashProvider, messageSender, effectiveLoggerFactory);
+            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
 
             // Initialize Kademlia algorithm with network message sender
             _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
@@ -478,9 +480,9 @@ public class KadDhtProtocol : ISessionProtocol
             var request = new PutValueRequest
             {
                 Key = Google.Protobuf.ByteString.CopyFrom(key),
-                Value = Google.Protobuf.ByteString.CopyFrom(value.Value),
+                Value = Google.Protobuf.ByteString.CopyFrom(value.Value ?? Array.Empty<byte>()),
                 Timestamp = value.Timestamp,
-                Publisher = Google.Protobuf.ByteString.CopyFrom(value.Publisher.Bytes.ToArray()),
+                Publisher = Google.Protobuf.ByteString.CopyFrom(value.Publisher?.Bytes?.ToArray() ?? Array.Empty<byte>()),
                 Signature = Google.Protobuf.ByteString.Empty // TODO: Implement proper signing
             };
 

@@ -34,9 +34,9 @@ public sealed class DhtNode : IEquatable<DhtNode>, IComparable<DhtNode>
 
     public override bool Equals(object? obj) => obj is DhtNode other && Equals(other);
 
-    public override int GetHashCode() => PeerId.GetHashCode();
+    public override int GetHashCode() => PeerId?.GetHashCode() ?? PublicKey.GetHashCode();
 
-    public override string ToString() => $"DhtNode({PeerId})";
+    public override string ToString() => PeerId != null ? $"DhtNode({PeerId})" : $"DhtNode({PublicKey})";
 
     public static bool operator ==(DhtNode? left, DhtNode? right) => Equals(left, right);
     public static bool operator !=(DhtNode? left, DhtNode? right) => !Equals(left, right);

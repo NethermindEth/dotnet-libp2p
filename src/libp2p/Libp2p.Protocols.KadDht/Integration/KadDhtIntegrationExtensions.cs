@@ -34,16 +34,20 @@ public static class KadDhtIntegrationExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        // Cast to ILibp2pPeerFactoryBuilder to access Services property
+        if (builder is not ILibp2pPeerFactoryBuilder libp2pBuilder)
+        {
+            throw new InvalidOperationException(
+                "AddKadDht requires an ILibp2pPeerFactoryBuilder implementation. " +
+                "Use AddLibp2p() to create the builder.");
+        }
+
         // Configure options
         var options = new KadDhtOptions();
         configure?.Invoke(options);
 
-        // Obtain the IServiceCollection via a reflected 'Services' property on the concrete builder implementation.
-        var servicesProperty = builder.GetType().GetProperty("Services", BindingFlags.Public | BindingFlags.Instance);
-        if (servicesProperty?.GetValue(builder) is not IServiceCollection services)
-        {
-            throw new InvalidOperationException("Unable to access underlying Services collection from IPeerFactoryBuilder (expected a public 'Services' property).");
-        }
+        // Access the service collection directly (no reflection needed!)
+        var services = libp2pBuilder.Services;
 
         // Register the LibP2P Kademlia message sender
         services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>, LibP2pKademliaMessageSender>();
@@ -54,12 +58,13 @@ public static class KadDhtIntegrationExtensions
                 var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
                 var messageSender = serviceProvider.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
 
+                // valueStore and providerStore are captured from outer scope and guaranteed non-null by AddKadDht
                 return new KadDhtProtocol(
                     localPeer,
                     messageSender,
                     options,
-                    valueStore,
-                    providerStore,
+                    valueStore!,
+                    providerStore!,
                     loggerFactory);
             });
         // Register the high level session protocol once

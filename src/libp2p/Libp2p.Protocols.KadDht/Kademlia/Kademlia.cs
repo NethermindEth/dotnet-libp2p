@@ -106,18 +106,42 @@ public class Kademlia<TPublicKey, THash, TNode> : IKademlia<TPublicKey, TNode>
 
         int onlineBootNodes = 0;
 
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation($"🚀 Starting bootstrap with {_bootNodes.Count} boot nodes");
+        }
+
         // Check bootnodes is online
         await Parallel.ForEachAsync(_bootNodes, token, async (node, token) =>
         {
             try
             {
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation($"📡 Pinging boot node: {node}");
+                }
                 // Should be added on Pong.
                 await _kademliaMessageSender.Ping(node, token);
-                onlineBootNodes++;
+                Interlocked.Increment(ref onlineBootNodes);
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation($"✅ Boot node online: {node}");
+                }
             }
             catch (OperationCanceledException)
             {
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug($"⚠️ Ping to boot node {node} was cancelled");
+                }
                 // Unreachable
+            }
+            catch (Exception ex)
+            {
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(ex, $"❌ Ping to boot node {node} failed: {ex.Message}");
+                }
             }
         });
 

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
-using System.Collections.Concurrent;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
+using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,12 +11,12 @@ namespace Libp2p.Protocols.KadDht;
 
 /// <summary>
 /// Shared state for DHT protocol handlers to access routing table and peer information.
-/// This allows incoming protocol requests to query and update the routing table.
+/// This allows incoming protocol requests to query and update the routing table efficiently.
 /// </summary>
 public class SharedDhtState
 {
     private readonly ILogger<SharedDhtState> _logger;
-    private readonly ConcurrentDictionary<PublicKey, DhtNode> _knownPeers = new();
+    private IRoutingTable<ValueHash256, DhtNode>? _routingTable;
 
     /// <summary>
     /// Gets the local peer's public key.
@@ -28,26 +28,32 @@ public class SharedDhtState
     /// </summary>
     public int KValue { get; set; } = 16;
 
-    public SharedDhtState(ILoggerFactory? loggerFactory = null)
+    /// <summary>
+    /// Gets the distributed value store for the DHT.
+    /// </summary>
+    public DhtValueStore ValueStore { get; }
+
+    /// <summary>
+    /// Creates shared DHT state with optional routing table reference.
+    /// </summary>
+    /// <param name="routingTable">Optional routing table for efficient peer lookups. If null, GetKNearestPeers returns empty array.</param>
+    /// <param name="loggerFactory">Optional logger factory.</param>
+    public SharedDhtState(IRoutingTable<ValueHash256, DhtNode>? routingTable = null, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
+        _routingTable = routingTable;
+        ValueStore = new DhtValueStore(loggerFactory);
     }
 
     /// <summary>
-    /// Add or update a known peer in the shared state.
+    /// Updates the routing table reference. This allows late initialization of the routing table
+    /// after SharedDhtState has been created and registered in DI container.
     /// </summary>
-    public void AddOrUpdatePeer(PublicKey key, DhtNode node)
+    /// <param name="routingTable">The routing table to use for peer lookups.</param>
+    public void SetRoutingTable(IRoutingTable<ValueHash256, DhtNode> routingTable)
     {
-        _knownPeers[key] = node;
-        _logger.LogTrace("Added/updated peer {PeerId} in shared state", key);
-    }
-
-    /// <summary>
-    /// Get a peer by public key.
-    /// </summary>
-    public DhtNode? GetPeer(PublicKey key)
-    {
-        return _knownPeers.TryGetValue(key, out var node) ? node : null;
+        _routingTable = routingTable;
+        _logger.LogInformation("Routing table updated with {PeerCount} peers", routingTable.Size);
     }
 
     /// <summary>
@@ -57,53 +63,24 @@ public class SharedDhtState
     {
         if (k <= 0) k = KValue;
 
-        if (_knownPeers.IsEmpty)
+        if (_routingTable == null)
         {
-            _logger.LogDebug("No known peers in routing table");
+            _logger.LogDebug("No routing table available");
             return Array.Empty<DhtNode>();
         }
 
-        var targetHash = targetKey.Hash;
-
-        // Calculate XOR distance to all known peers and sort by distance (smaller ValueHash256 means closer)
-        var sortedPeers = _knownPeers
-            .Select(kvp => new
-            {
-                Node = kvp.Value,
-                Distance = ValueHash256.XorDistance(kvp.Key.Hash, targetHash)
-            })
-            .OrderBy(x => x.Distance)
+        // O(log n) lookup using k-buckets
+        var closestPeers = _routingTable
+            .GetKNearestNeighbour(targetKey.Hash)
             .Take(k)
-            .Select(x => x.Node)
             .ToArray();
 
-        _logger.LogDebug("Found {Count} nearest peers to target {Target}", sortedPeers.Length, targetKey);
-        return sortedPeers;
+        _logger.LogDebug("Found {Count} nearest peers to target using routing table", closestPeers.Length);
+        return closestPeers;
     }
 
     /// <summary>
-    /// Get all known peers.
+    /// Get count of peers in routing table.
     /// </summary>
-    public DhtNode[] GetAllPeers()
-    {
-        return _knownPeers.Values.ToArray();
-    }
-
-    /// <summary>
-    /// Get count of known peers.
-    /// </summary>
-    public int PeerCount => _knownPeers.Count;
-
-    /// <summary>
-    /// Remove a peer from shared state.
-    /// </summary>
-    public bool RemovePeer(PublicKey key)
-    {
-        var removed = _knownPeers.TryRemove(key, out _);
-        if (removed)
-        {
-            _logger.LogTrace("Removed peer {PeerId} from shared state", key);
-        }
-        return removed;
-    }
+    public int PeerCount => _routingTable?.Size ?? 0;
 }

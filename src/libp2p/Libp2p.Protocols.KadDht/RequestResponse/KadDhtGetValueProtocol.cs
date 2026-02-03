@@ -20,7 +20,8 @@ public class KadDhtGetValueProtocol : RequestResponseProtocol<GetValueRequest, G
 
     private static async Task<GetValueResponse> HandleGetValueRequest(GetValueRequest request, ISessionContext context)
     {
-
+        // Note: The actual retrieval logic is handled by the registered handler in ServiceCollectionExtensions
+        // This is just the protocol wrapper
         return new GetValueResponse
         {
             Found = false,

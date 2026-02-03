@@ -185,11 +185,14 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests
             public TestPeerFactoryBuilder(IServiceProvider serviceProvider)
             {
                 ServiceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+                Services = new ServiceCollection();
             }
 
             public IReadOnlyList<IProtocol> Protocols => _protocols;
 
             public IServiceProvider ServiceProvider { get; }
+            
+            public IServiceCollection Services { get; }
 
             public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true)
                 where TProtocol : IProtocol

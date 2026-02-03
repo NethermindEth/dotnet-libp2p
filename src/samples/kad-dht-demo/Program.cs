@@ -13,6 +13,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Network;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
@@ -91,7 +92,12 @@ namespace KadDhtDemo
             private sealed record RealNetworkSetup(
                 Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode> Sender,
                 TestNode LocalNode,
-                IReadOnlyList<Multiaddress> AdvertisedAddresses);
+                IReadOnlyList<Multiaddress> AdvertisedAddresses,
+                System.Collections.Concurrent.ConcurrentDictionary<PeerId, Multiaddress> ConnectedPeers,
+                PeerStore? PeerStore = null,
+                ILocalPeer? LocalPeer = null,
+                DhtClient? DhtClient = null,
+                SharedDhtState? SharedDhtState = null);
 
             public static async Task Main(string[] args)
             {
@@ -337,6 +343,104 @@ namespace KadDhtDemo
                 {
                     Console.WriteLine($"Node added to routing table: {node.Id}");
                 };
+                
+                // Create routing table adapter for SharedDhtState (converts TestNode to DhtNode)
+                IRoutingTable<ValueHash256, DhtNode> dhtRoutingTable = new RoutingTableAdapter<ValueHash256, TestNode, DhtNode>(
+                    routingTable,
+                    testNode => new DhtNode
+                    {
+                        PeerId = testNode.Multiaddress?.GetPeerId(), // Extract PeerId from multiaddress
+                        PublicKey = testNode.Id,
+                        Multiaddrs = testNode.Multiaddress != null ? new[] { testNode.Multiaddress.ToString() } : Array.Empty<string>()
+                    });
+                
+                // If real network mode, update SharedDhtState with routing table
+                if (useRealNetwork && realNetwork != null && realNetwork.LocalPeer != null)
+                {
+                    // Get the SharedDhtState from DI (same instance protocol handlers use)
+                    var existingSharedDhtState = realNetwork.SharedDhtState;
+                    
+                    if (existingSharedDhtState != null)
+                    {
+                        // Update the routing table reference (protocol handlers will now use it)
+                        existingSharedDhtState.SetRoutingTable(dhtRoutingTable);
+                        existingSharedDhtState.LocalPeerKey = config.CurrentNodeId.Id;
+                        existingSharedDhtState.KValue = config.KSize;
+                        
+                        // Recreate DhtClient with SAME SharedDhtState (ensures storage unity)
+                        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+                        var newLibP2pSender = new LibP2pKademliaMessageSender<PublicKey, DhtNode>(realNetwork.LocalPeer, loggerFactory);
+                        var newDhtClient = new DhtClient(existingSharedDhtState, newLibP2pSender, loggerFactory);
+                        
+                        // Update realNetwork record with new DhtClient (keeps SAME SharedDhtState)
+                        realNetwork = realNetwork with 
+                        { 
+                            DhtClient = newDhtClient
+                        };
+                        
+                        Console.WriteLine($"✅ SharedDhtState updated with routing table ({routingTable.Size} peers) for production scalability");
+                    }
+                    else
+                    {
+                        Console.WriteLine("⚠️ SharedDhtState not available from DI - routing table not updated");
+                    }
+                }
+                
+                // In real network mode, integrate connected peers into routing table
+                if (useRealNetwork && realNetwork != null)
+                {
+                    var peerIntegrationLogger = logManager.CreateLogger("PeerIntegration");
+                    var peerStore = realNetwork.PeerStore;
+                    
+                    if (peerStore == null)
+                    {
+                        peerIntegrationLogger.LogWarning("⚠️ PeerStore not available, peer integration disabled");
+                    }
+                    else
+                    {
+                        // Optimized peer integration: Fast poll (500ms) for new connections
+                        peerIntegrationLogger.LogInformation("🔄 Setting up peer integration (500ms poll interval)...");
+                        
+                        _ = Task.Run(async () =>
+                        {
+                            while (true)
+                            {
+                                try
+                                {
+                                    await Task.Delay(TimeSpan.FromMilliseconds(500));
+                                    
+                                    var peersToAdd = realNetwork.ConnectedPeers.ToArray();
+                                    foreach (var peerEntry in peersToAdd)
+                                    {
+                                        var peerId = peerEntry.Key;
+                                        var peerInfo = peerStore.GetPeerInfo(peerId);
+                                        
+                                        if (peerInfo?.Addrs?.Count > 0)
+                                        {
+                                            var advertisedAddr = peerInfo.Addrs.First();
+                                            var protobufPublicKey = PeerId.ExtractPublicKey(peerId.Bytes);
+                                            
+                                            if (protobufPublicKey != null)
+                                            {
+                                                var kadPublicKey = new PublicKey(protobufPublicKey.Data.Span);
+                                                var connectedNode = TestNode.WithMultiaddress(kadPublicKey, advertisedAddr);
+                                                
+                                                kad.AddOrRefresh(connectedNode);
+                                                peerIntegrationLogger.LogInformation("✅ Added peer to routing table: {PeerId}", peerId);
+                                                
+                                                realNetwork.ConnectedPeers.TryRemove(peerId, out _);
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    peerIntegrationLogger.LogWarning(ex, "⚠️ Peer integration error");
+                                }
+                            }
+                        });
+                    }
+                }
 
                 Console.WriteLine("Kademlia demo starting...");
                 Console.WriteLine($"Current node ID: {config.CurrentNodeId.Id}");
@@ -417,11 +521,17 @@ namespace KadDhtDemo
                 }
 
                 Console.WriteLine("\n8. Testing manual node management...");
-                var newNode = useRealNetwork 
-                    ? TestNode.WithNetworkAddress(RandomPublicKey(), "127.0.0.1", null)
-                    : TestNode.ForSimulation(RandomPublicKey());
-                kad.AddOrRefresh(newNode);
-                Console.WriteLine($"Manually added node: {newNode.Id}");
+                if (!useRealNetwork)
+                {
+                    // Only add fake test nodes in simulation mode, not in real network mode
+                    var newNode = TestNode.ForSimulation(RandomPublicKey());
+                    kad.AddOrRefresh(newNode);
+                    Console.WriteLine($"Manually added node: {newNode.Id}");
+                }
+                else
+                {
+                    Console.WriteLine("Skipped - real network mode relies on peer discovery");
+                }
 
                 Console.WriteLine($"\n9. Final routing table size: {routingTable.Size}");
                 routingTable.LogDebugInfo();
@@ -671,15 +781,41 @@ namespace KadDhtDemo
                 }
 
                 var peerId = network.LocalNode.Id.ToPeerId().ToString();
-                store[key] = (value, DateTime.UtcNow, peerId);
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✅ Stored: '{key}' = '{value}'");
-                Console.WriteLine($"   Stored by: {peerId}");
-                Console.WriteLine($"   Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-                Console.ResetColor();
+                // Use distributed DHT if available
+                if (network.DhtClient != null)
+                {
+                    try
+                    {
+                        Console.WriteLine("\n🌐 Storing value in distributed DHT...");
+                        var peerCount = await network.DhtClient.PutValueAsync(key, value, token);
+                        
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"✅ Stored: '{key}' = '{value}'");
+                        Console.WriteLine($"   Stored by: {peerId}");
+                        Console.WriteLine($"   Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                        Console.WriteLine($"   📊 Replicated to {peerCount} peer(s) (including local)");
+                        Console.ResetColor();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"❌ Failed to store in DHT: {ex.Message}");
+                        Console.ResetColor();
+                    }
+                }
+                else
+                {
+                    // Fallback to local storage only
+                    store[key] = (value, DateTime.UtcNow, peerId);
 
-                Console.WriteLine("   (Local storage only - DHT propagation to be implemented)");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✅ Stored: '{key}' = '{value}'");
+                    Console.WriteLine($"   Stored by: {peerId}");
+                    Console.WriteLine($"   Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                    Console.ResetColor();
+                    Console.WriteLine("   (Local storage only - DHT not available)");
+                }
             }
 
             private static async Task RetrieveDhtValue(
@@ -695,21 +831,55 @@ namespace KadDhtDemo
                     return;
                 }
 
-                if (store.TryGetValue(key, out var data))
+                // Try distributed DHT lookup if available
+                if (network.DhtClient != null)
                 {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"✅ Found: '{key}' = '{data.value}'");
-                    Console.WriteLine($"   Stored by: {data.storedBy}");
-                    Console.WriteLine($"   Stored at: {data.stored:yyyy-MM-dd HH:mm:ss} UTC");
-                    Console.WriteLine($"   Age: {(DateTime.UtcNow - data.stored).TotalSeconds:F1} seconds");
-                    Console.ResetColor();
+                    try
+                    {
+                        Console.WriteLine("\n🌐 Looking up key in distributed DHT...");
+                        var (found, value) = await network.DhtClient.GetValueAsync(key, token);
+                        
+                        if (found && value != null)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine($"✅ Found: '{key}' = '{value}'");
+                            Console.WriteLine($"   📍 Retrieved from distributed DHT");
+                            Console.ResetColor();
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"⚠️  Key '{key}' not found in DHT");
+                            Console.WriteLine($"   Searched local store and {network.ConnectedPeers.Count} connected peer(s)");
+                            Console.ResetColor();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"❌ Failed to retrieve from DHT: {ex.Message}");
+                        Console.ResetColor();
+                    }
                 }
                 else
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"⚠️  Key '{key}' not found in local store");
-                    Console.WriteLine("   (Network-wide DHT lookup to be implemented)");
-                    Console.ResetColor();
+                    // Fallback to local storage only
+                    if (store.TryGetValue(key, out var data))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"✅ Found: '{key}' = '{data.value}'");
+                        Console.WriteLine($"   Stored by: {data.storedBy}");
+                        Console.WriteLine($"   Stored at: {data.stored:yyyy-MM-dd HH:mm:ss} UTC");
+                        Console.WriteLine($"   Age: {(DateTime.UtcNow - data.stored).TotalSeconds:F1} seconds");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"⚠️  Key '{key}' not found in local store");
+                        Console.WriteLine("   (DHT not available)");
+                        Console.ResetColor();
+                    }
                 }
             }
 
@@ -1052,18 +1222,18 @@ namespace KadDhtDemo
                 Console.WriteLine("  dotnet run                    # Safe simulation demo");
                 Console.WriteLine("  dotnet run -- --network       # Real peer connections with default bootstrap nodes");
                 Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap  # Network mode without remote bootstrap");
-                Console.WriteLine("  dotnet run -- --network --listen /ip4/0.0.0.0/tcp/4001");
+                Console.WriteLine("  dotnet run -- --network --listen /ip4/127.0.0.1/tcp/4001");
                 Console.WriteLine("  dotnet run -- --network --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/12D3Koo...");
                 Console.WriteLine();
                 Console.WriteLine("Local Multi-Node Testing:");
                 Console.WriteLine("  # Terminal 1 (Listener):");
-                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40001");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/127.0.0.1/tcp/40001");
                 Console.WriteLine();
                 Console.WriteLine("  # Terminal 2 (Dialer 1):");
-                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40002 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/127.0.0.1/tcp/40002 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
                 Console.WriteLine();
                 Console.WriteLine("  # Terminal 3 (Dialer 2):");
-                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/0.0.0.0/tcp/40003 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
+                Console.WriteLine("  dotnet run -- --network --no-remote-bootstrap --listen /ip4/127.0.0.1/tcp/40003 --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
                 Console.WriteLine();
                 Console.WriteLine("Note: Network mode automatically uses 18 production libp2p bootstrap nodes");
                 Console.WriteLine("      unless --no-remote-bootstrap is specified. Use this flag for local testing.");
@@ -1081,23 +1251,29 @@ namespace KadDhtDemo
                     logger.LogInformation("🌐 Setting up real libp2p transport...");
                     
                     // Set up libp2p services with KadDht
-                    var services = new ServiceCollection()
-                        .AddKadDht(options =>
-                        {
-                            options.Mode = KadDhtMode.Server;
-                            options.KSize = 16;
-                            options.Alpha = 3;
-                            options.OperationTimeout = TimeSpan.FromSeconds(10);
-                        })
-                        .AddLibp2p(builder => builder
-                            .WithKadDht()
-                        )
-                        .AddLogging(builder => builder
-                            .SetMinimumLevel(LogLevel.Information)
-                            .AddConsole())
-                        .BuildServiceProvider();
-
-                    var peerFactory = services.GetRequiredService<IPeerFactory>();
+                    var services = new ServiceCollection();
+                    
+                    // Add logging first (Debug level to see protocol handler execution)
+                    services.AddLogging(builder => builder
+                        .SetMinimumLevel(LogLevel.Debug)
+                        .AddConsole());
+                    
+                    // Add KadDht services FIRST (storage, shared state, message sender)
+                    services.AddKadDht(options =>
+                    {
+                        options.Mode = KadDhtMode.Server;
+                        options.KSize = 16;
+                        options.Alpha = 3;
+                        options.OperationTimeout = TimeSpan.FromSeconds(10);
+                    });
+                    
+                    // Add libp2p services and configure DHT protocol handlers
+                    services.AddLibp2p(builder => builder
+                        .WithKadDht() // Register protocol handlers
+                    );
+                    
+                    var serviceProvider = services.BuildServiceProvider();
+                    var peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
                     var localIdentity = new Identity();
                     var localPeer = peerFactory.Create(localIdentity);
                     var kadPublicKey = new PublicKey(localIdentity.PublicKey.Data.Span);
@@ -1124,11 +1300,26 @@ namespace KadDhtDemo
                         : TestNode.ForSimulation(kadPublicKey);
 
                     // Note: OnConnected fires when a peer connects to us
-                    // Peers will be added to routing table when they send DHT messages
+                    // We'll add them to routing table after they complete Identify protocol
+                    var connectedPeersForRouting = new System.Collections.Concurrent.ConcurrentDictionary<PeerId, Multiaddress>();
+                    
                     localPeer.OnConnected += session =>
                     {
-                        var remotePeerId = session.RemoteAddress.GetPeerId();
-                        logger.LogInformation("🔗 Real peer connected: {PeerId} from {RemoteAddress}", remotePeerId, session.RemoteAddress);
+                        var remotePeerId = session.RemoteAddress?.GetPeerId();
+                        
+                        if (remotePeerId != null)
+                        {
+                            logger.LogInformation("🔗 Real peer connected: {PeerId}", remotePeerId);
+                            
+                            // Note: Don't use session.RemoteAddress here - it has ephemeral ports for incoming connections
+                            // Instead, mark peer as connected and let the background task query PeerStore after Identify completes
+                            connectedPeersForRouting[remotePeerId] = session.RemoteAddress!;
+                        }
+                        else
+                        {
+                            logger.LogWarning("⚠️ Peer connected but PeerId is null: {RemoteAddress}", session.RemoteAddress);
+                        }
+                        
                         return Task.CompletedTask;
                     };
 
@@ -1136,7 +1327,14 @@ namespace KadDhtDemo
                     
                     var adaptedSender = new RealLibp2pMessageSenderAdapter(realLibp2pSender, loggerFactory);
                     
-                    return new RealNetworkSetup(adaptedSender, localNode, announcedAddresses);
+                    var peerStore = serviceProvider.GetRequiredService<PeerStore>();
+                    var sharedDhtState = serviceProvider.GetRequiredService<SharedDhtState>();
+                    
+                    // Create DhtClient for distributed storage
+                    var dhtClient = new DhtClient(sharedDhtState, realLibp2pSender, loggerFactory);
+                    Console.WriteLine("✅ DhtClient initialized for distributed storage");
+                    
+                    return new RealNetworkSetup(adaptedSender, localNode, announcedAddresses, connectedPeersForRouting, peerStore, localPeer, dhtClient, sharedDhtState);
                 }
                 catch (Exception ex)
                 {
@@ -1146,7 +1344,10 @@ namespace KadDhtDemo
                     return new RealNetworkSetup(
                         new NetworkSimulationTransport(loggerFactory),
                         TestNode.ForSimulation(RandomPublicKey()),
-                        Array.Empty<Multiaddress>());
+                        Array.Empty<Multiaddress>(),
+                        new System.Collections.Concurrent.ConcurrentDictionary<PeerId, Multiaddress>(),
+                        null,
+                        null);
                 }
             }
 

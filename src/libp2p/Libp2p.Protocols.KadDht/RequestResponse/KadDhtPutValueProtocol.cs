@@ -20,7 +20,8 @@ public class KadDhtPutValueProtocol : RequestResponseProtocol<PutValueRequest, P
 
     private static async Task<PutValueResponse> HandlePutValueRequest(PutValueRequest request, ISessionContext context)
     {
-
+        // Note: The actual storage logic is handled by the registered handler in ServiceCollectionExtensions
+        // This is just the protocol wrapper
         return new PutValueResponse
         {
             Success = true,

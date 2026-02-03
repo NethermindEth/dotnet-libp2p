@@ -118,6 +118,16 @@ public class Channel : IChannel
                     return ReadResult.Empty;
                 }
 
+                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
+                // WriteAsync returns early for zero-length writes without signaling _canRead
+                // Only apply this optimization for WaitAll mode (exact length reads)
+                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
+                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+                {
+                    _readLock.Release();
+                    return ReadResult.Ok(default);
+                }
+
                 await _canRead.WaitAsync(token);
 
                 if (_eow)
