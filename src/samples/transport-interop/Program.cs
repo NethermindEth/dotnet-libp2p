@@ -20,10 +20,10 @@ try
     {
         throw new Exception("TRANSPORT environment variable is required");
     }
-    
+
     // For QUIC, muxer and security are built-in and not required
     bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport";
-    
+
     string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
     if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
     {
@@ -36,7 +36,7 @@ try
     }
 
     bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("IS_DIALER")!);
-     if (string.IsNullOrEmpty(isDialer.ToString()))
+    if (string.IsNullOrEmpty(isDialer.ToString()))
     {
         throw new Exception("IS_DIALER environment variable is required");
     }
@@ -46,12 +46,12 @@ try
 
     int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("TEST_TIMEOUT_SECS") ?? "180");
 
-    string testKey= Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
-     if (string.IsNullOrEmpty(testKey))
+    string testKey = Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
+    if (string.IsNullOrEmpty(testKey))
     {
         throw new Exception("TEST_KEY environment variable is required");
     }
-    string redisKey = $"{testKey}_listener_multiaddr";    
+    string redisKey = $"{testKey}_listener_multiaddr";
 
     TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();

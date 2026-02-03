@@ -8,7 +8,8 @@ public static class VarInt
 {
     //(ulong)((uint) number) casts number to uint first then ulong because apparently I had to
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Encode(int number, Span<byte> buf, ref int offset) => Encode((ulong)((uint)number), buf, ref offset);
+    public static void Encode(int number, Span<byte> buf, ref int offset) =>
+        Encode((ulong)((uint)number), buf, ref offset);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Encode(ulong number, Span<byte> buf, ref int offset)
@@ -34,7 +35,8 @@ public static class VarInt
 
     //(ulong)((uint) number) casts number to uint first then ulong because apparently I had to
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int GetSizeInBytes(int number) => GetSizeInBytes((ulong)((uint)number));
+    public static int GetSizeInBytes(int number) =>
+        GetSizeInBytes((ulong)((uint)number));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int GetSizeInBytes(ulong number)
@@ -111,3 +113,4 @@ public static class VarInt
         throw new FormatException("Invalid 7-bit encoding");
     }
 }
+
