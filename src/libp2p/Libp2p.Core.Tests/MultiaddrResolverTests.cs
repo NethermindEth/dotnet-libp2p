@@ -17,11 +17,11 @@ public class MultiaddrResolverTests
         // Arrange: mock DNS TXT records for _dnsaddr.bootstrap.libp2p.io
         var dns = NSubstitute.Substitute.For<IDnsLookup>();
         string dnsName = "_dnsaddr.bootstrap.libp2p.io";
-        var txts = new[] {
+        var txtRecords = new[] {
             "dnsaddr=/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
             "dnsaddr=/ip4/1.2.3.4/tcp/4001/p2p/QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51"
         };
-        dns.QueryTxtAsync(dnsName).Returns(Task.FromResult((IEnumerable<string>)txts));
+        dns.QueryTxtAsync(dnsName).Returns(Task.FromResult((IEnumerable<string>)txtRecords));
 
         var resolver = new MultiaddrResolver(dns);
 
