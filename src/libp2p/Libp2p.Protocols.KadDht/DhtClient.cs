@@ -44,7 +44,7 @@ public sealed class DhtClient
 
         var keyBytes = System.Text.Encoding.UTF8.GetBytes(key);
         var valueBytes = System.Text.Encoding.UTF8.GetBytes(value);
-        
+
         // Calculate key hash for finding closest peers
         var keyHash = SHA256.HashData(keyBytes);
         var targetKey = new PublicKey(keyHash);
@@ -54,7 +54,7 @@ public sealed class DhtClient
         // Store locally first
         var publisherBytes = _sharedState.LocalPeerKey?.Bytes.ToArray();
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        
+
         _sharedState.ValueStore.Put(keyBytes, valueBytes, null, timestamp, publisherBytes);
         _logger.LogDebug("PUT: Stored value locally");
 
@@ -75,15 +75,15 @@ public sealed class DhtClient
             try
             {
                 var success = await _messageSender.PutValue(
-                    peer, 
-                    keyBytes, 
-                    valueBytes, 
-                    signature: null, 
-                    timestamp: timestamp, 
-                    publisher: publisherBytes, 
+                    peer,
+                    keyBytes,
+                    valueBytes,
+                    signature: null,
+                    timestamp: timestamp,
+                    publisher: publisherBytes,
                     token: token
                 );
-                
+
                 if (success)
                 {
                     _logger.LogDebug("PUT: Successfully replicated to peer {PeerId}", peer.PeerId);
@@ -105,7 +105,7 @@ public sealed class DhtClient
         var results = await Task.WhenAll(storeTasks);
         var successCount = results.Sum() + 1; // +1 for local storage
 
-        _logger.LogInformation("PUT: Stored value on {Success}/{Total} peers (including local)", 
+        _logger.LogInformation("PUT: Stored value on {Success}/{Total} peers (including local)",
             successCount, closestPeers.Length + 1);
 
         return successCount;
@@ -156,16 +156,16 @@ public sealed class DhtClient
                 if (result.found && result.value != null)
                 {
                     _logger.LogInformation("GET: Found value on peer {PeerId}", peer.PeerId);
-                    
+
                     // Store locally for caching
                     _sharedState.ValueStore.Put(
-                        keyBytes, 
-                        result.value, 
-                        result.signature, 
-                        result.timestamp, 
+                        keyBytes,
+                        result.value,
+                        result.signature,
+                        result.timestamp,
                         result.publisher
                     );
-                    
+
                     return (true, System.Text.Encoding.UTF8.GetString(result.value));
                 }
                 return (false, (string?)null);
@@ -178,7 +178,7 @@ public sealed class DhtClient
         });
 
         var results = await Task.WhenAll(queryTasks);
-        
+
         // Return the first found value
         var foundResult = results.FirstOrDefault(r => r.Item1);
         if (foundResult.Item1)

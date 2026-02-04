@@ -48,7 +48,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             peerInfo.SupportedProtocols = identify.Protocols.ToArray();
             peerInfo.SignedPeerRecord = identify.SignedPeerRecord;
             peerInfo.Seq = seq;
-            
+
             // Extract and store peer's advertised addresses from signed peer record
             if (identify.SignedPeerRecord is not null)
             {

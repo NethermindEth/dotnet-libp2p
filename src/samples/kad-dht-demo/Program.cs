@@ -33,7 +33,7 @@ namespace KadDhtDemo
                 Type = Nethermind.Libp2p.Core.Dto.KeyType.Ed25519,
                 Data = Google.Protobuf.ByteString.CopyFrom(publicKey.Bytes)
             };
-            
+
             return new PeerId(libp2pPublicKey);
         }
 
@@ -65,22 +65,22 @@ namespace KadDhtDemo
 
         public PublicKey CreateRandomKeyAtDistance(ValueHash256 nodePrefix, int depth)
         {
-            
+
             byte[] keyBytes = new byte[32];
             Random.Shared.NextBytes(keyBytes);
-            
+
             byte[] prefixBytes = nodePrefix.Bytes.ToArray();
-            
+
             int bytesToCopy = Math.Min(depth / 8, Math.Min(keyBytes.Length, prefixBytes.Length));
             Array.Copy(prefixBytes, keyBytes, bytesToCopy);
-            
+
             int remainingBits = depth % 8;
             if (remainingBits > 0 && bytesToCopy < keyBytes.Length && bytesToCopy < prefixBytes.Length)
             {
                 byte mask = (byte)(0xFF << (8 - remainingBits));
                 keyBytes[bytesToCopy] = (byte)((keyBytes[bytesToCopy] & ~mask) | (prefixBytes[bytesToCopy] & mask));
             }
-            
+
             return new PublicKey(keyBytes);
         }
     }
@@ -104,7 +104,7 @@ namespace KadDhtDemo
                 bool useRealNetwork = args.Contains("--network") || args.Contains("-n");
                 bool showHelp = args.Contains("--help") || args.Contains("-h");
                 bool noRemoteBootstrap = args.Contains("--no-remote-bootstrap") || args.Contains("--local-only");
-                
+
                 var defaultBootstrapAddresses = new List<string>
                 {
                     // DNS-based addresses
@@ -118,27 +118,27 @@ namespace KadDhtDemo
                     "/ip4/145.40.118.135/udp/4001/quic-v1/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     "/ip6/2604:1380:40e1:9c00::1/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
                     "/ip6/2604:1380:40e1:9c00::1/udp/4001/quic-v1/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-                    
+
                     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
                     "/ip4/139.178.91.71/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
                     "/ip4/139.178.91.71/udp/4001/quic-v1/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
                     "/ip6/2604:1380:45e3:6e00::1/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
                     "/ip6/2604:1380:45e3:6e00::1/udp/4001/quic-v1/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-                    
+
                     "/ip4/147.75.87.27/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
                     "/ip4/147.75.87.27/udp/4001/quic-v1/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
                     "/ip6/2604:1380:4602:5c00::3/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
                     "/ip6/2604:1380:4602:5c00::3/udp/4001/quic-v1/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-                    
+
                     "/ip4/139.178.65.157/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
                     "/ip4/139.178.65.157/udp/4001/quic-v1/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
                     "/ip6/2604:1380:45d2:8100::1/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
                     "/ip6/2604:1380:45d2:8100::1/udp/4001/quic-v1/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa"
                 };
-                
+
                 var bootstrapAddresses = new List<string>();
                 var listenAddressOverrides = new List<string>();
-                
+
                 // Parse custom bootstrap addresses from command line
                 for (int i = 0; i < args.Length; i++)
                 {
@@ -153,7 +153,7 @@ namespace KadDhtDemo
                         i++;
                     }
                 }
-                
+
                 // Use default bootstrap nodes if none specified and in network mode (unless explicitly disabled)
                 if (bootstrapAddresses.Count == 0 && useRealNetwork && !noRemoteBootstrap)
                 {
@@ -164,7 +164,7 @@ namespace KadDhtDemo
                 {
                     Console.WriteLine("Remote bootstrap disabled. Starting in local-only mode.");
                 }
-                
+
                 if (showHelp)
                 {
                     ShowUsage();
@@ -205,10 +205,10 @@ namespace KadDhtDemo
                 });
 
                 IKeyOperator<PublicKey, ValueHash256, TestNode> keyOperator = new TestNodeKeyOperator();
-                
+
                 Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<PublicKey, TestNode> transport;
                 RealNetworkSetup? realNetwork = null;
-                
+
                 if (useRealNetwork)
                 {
                     Console.WriteLine("🌐 Real libp2p network mode activated!");
@@ -238,7 +238,7 @@ namespace KadDhtDemo
                 }
 
                 var bootstrapNodes = new List<TestNode>();
-                
+
                 if (bootstrapAddresses.Count > 0 && useRealNetwork)
                 {
                     foreach (var addr in bootstrapAddresses)
@@ -246,38 +246,38 @@ namespace KadDhtDemo
                         try
                         {
                             var multiaddr = Multiaddress.Decode(addr);
-                            
+
                             // Extract IP address (support both IPv4 and IPv6)
                             var ip4Component = multiaddr.Protocols.FirstOrDefault(p => p.Name == "ip4");
                             var ip6Component = multiaddr.Protocols.FirstOrDefault(p => p.Name == "ip6");
                             var tcpComponent = multiaddr.Protocols.FirstOrDefault(p => p.Name == "tcp");
                             var p2pComponent = multiaddr.Protocols.FirstOrDefault(p => p.Name == "p2p");
-                            
+
                             // Skip QUIC addresses for now, focus on TCP
                             if (multiaddr.Protocols.Any(p => p.Name.Contains("quic")))
                             {
                                 Console.WriteLine($"Skipping QUIC bootstrap address: {addr} (TCP only for now)");
                                 continue;
                             }
-                            
+
                             var ipComponent = ip4Component ?? ip6Component;
                             if (ipComponent != null && tcpComponent != null && p2pComponent != null)
                             {
                                 var ipAddress = ipComponent.Value.ToString()!;
                                 var port = int.Parse(tcpComponent.Value.ToString()!);
-                                
+
                                 var peerId = multiaddr.GetPeerId();
                                 if (peerId == null)
                                 {
                                     Console.WriteLine($"Warning: Failed to extract PeerId from {addr}");
                                     continue;
                                 }
-                                
+
                                 var publicKey = peerId.ToKademliaKey();
-                                
+
                                 var bootstrapNode = TestNode.WithMultiaddress(publicKey, multiaddr);
                                 bootstrapNodes.Add(bootstrapNode);
-                                
+
                                 var ipType = ip4Component != null ? "IPv4" : "IPv6";
                                 Console.WriteLine($"Added {ipType} TCP bootstrap peer: {peerId} at {ipAddress}:{port}");
                             }
@@ -293,9 +293,9 @@ namespace KadDhtDemo
                             Console.ResetColor();
                         }
                     }
-                    
+
                     Console.WriteLine($"Successfully configured {bootstrapNodes.Count} TCP bootstrap peers");
-                    
+
                     if (bootstrapNodes.Count == 0 && args.Any(a => a.StartsWith("--bootstrap")))
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
@@ -305,7 +305,7 @@ namespace KadDhtDemo
                         Console.ResetColor();
                     }
                 }
-                
+
                 // In simulation mode, create default bootstrap nodes if none provided
                 if (bootstrapNodes.Count == 0 && !useRealNetwork)
                 {
@@ -319,7 +319,7 @@ namespace KadDhtDemo
 
                 KademliaConfig<TestNode> config = new()
                 {
-                    CurrentNodeId = useRealNetwork 
+                    CurrentNodeId = useRealNetwork
                         ? realNetwork!.LocalNode
                         : TestNode.ForSimulation(RandomPublicKey()),
                     KSize = 16,
@@ -343,7 +343,7 @@ namespace KadDhtDemo
                 {
                     Console.WriteLine($"Node added to routing table: {node.Id}");
                 };
-                
+
                 // Create routing table adapter for SharedDhtState (converts TestNode to DhtNode)
                 IRoutingTable<ValueHash256, DhtNode> dhtRoutingTable = new RoutingTableAdapter<ValueHash256, TestNode, DhtNode>(
                     routingTable,
@@ -353,31 +353,31 @@ namespace KadDhtDemo
                         PublicKey = testNode.Id,
                         Multiaddrs = testNode.Multiaddress != null ? new[] { testNode.Multiaddress.ToString() } : Array.Empty<string>()
                     });
-                
+
                 // If real network mode, update SharedDhtState with routing table
                 if (useRealNetwork && realNetwork != null && realNetwork.LocalPeer != null)
                 {
                     // Get the SharedDhtState from DI (same instance protocol handlers use)
                     var existingSharedDhtState = realNetwork.SharedDhtState;
-                    
+
                     if (existingSharedDhtState != null)
                     {
                         // Update the routing table reference (protocol handlers will now use it)
                         existingSharedDhtState.SetRoutingTable(dhtRoutingTable);
                         existingSharedDhtState.LocalPeerKey = config.CurrentNodeId.Id;
                         existingSharedDhtState.KValue = config.KSize;
-                        
+
                         // Recreate DhtClient with SAME SharedDhtState (ensures storage unity)
                         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
                         var newLibP2pSender = new LibP2pKademliaMessageSender<PublicKey, DhtNode>(realNetwork.LocalPeer, loggerFactory);
                         var newDhtClient = new DhtClient(existingSharedDhtState, newLibP2pSender, loggerFactory);
-                        
+
                         // Update realNetwork record with new DhtClient (keeps SAME SharedDhtState)
-                        realNetwork = realNetwork with 
-                        { 
+                        realNetwork = realNetwork with
+                        {
                             DhtClient = newDhtClient
                         };
-                        
+
                         Console.WriteLine($"✅ SharedDhtState updated with routing table ({routingTable.Size} peers) for production scalability");
                     }
                     else
@@ -385,13 +385,13 @@ namespace KadDhtDemo
                         Console.WriteLine("⚠️ SharedDhtState not available from DI - routing table not updated");
                     }
                 }
-                
+
                 // In real network mode, integrate connected peers into routing table
                 if (useRealNetwork && realNetwork != null)
                 {
                     var peerIntegrationLogger = logManager.CreateLogger("PeerIntegration");
                     var peerStore = realNetwork.PeerStore;
-                    
+
                     if (peerStore == null)
                     {
                         peerIntegrationLogger.LogWarning("⚠️ PeerStore not available, peer integration disabled");
@@ -400,7 +400,7 @@ namespace KadDhtDemo
                     {
                         // Optimized peer integration: Fast poll (500ms) for new connections
                         peerIntegrationLogger.LogInformation("🔄 Setting up peer integration (500ms poll interval)...");
-                        
+
                         _ = Task.Run(async () =>
                         {
                             while (true)
@@ -408,26 +408,26 @@ namespace KadDhtDemo
                                 try
                                 {
                                     await Task.Delay(TimeSpan.FromMilliseconds(500));
-                                    
+
                                     var peersToAdd = realNetwork.ConnectedPeers.ToArray();
                                     foreach (var peerEntry in peersToAdd)
                                     {
                                         var peerId = peerEntry.Key;
                                         var peerInfo = peerStore.GetPeerInfo(peerId);
-                                        
+
                                         if (peerInfo?.Addrs?.Count > 0)
                                         {
                                             var advertisedAddr = peerInfo.Addrs.First();
                                             var protobufPublicKey = PeerId.ExtractPublicKey(peerId.Bytes);
-                                            
+
                                             if (protobufPublicKey != null)
                                             {
                                                 var kadPublicKey = new PublicKey(protobufPublicKey.Data.Span);
                                                 var connectedNode = TestNode.WithMultiaddress(kadPublicKey, advertisedAddr);
-                                                
+
                                                 kad.AddOrRefresh(connectedNode);
                                                 peerIntegrationLogger.LogInformation("✅ Added peer to routing table: {PeerId}", peerId);
-                                                
+
                                                 realNetwork.ConnectedPeers.TryRemove(peerId, out _);
                                             }
                                         }
@@ -598,19 +598,19 @@ namespace KadDhtDemo
                 CancellationToken token)
             {
                 var localValueStore = new ConcurrentDictionary<string, (string value, DateTime stored, string storedBy)>();
-                
+
                 var peerId = network.LocalNode.Id.ToPeerId().ToString();
                 var shortId = peerId[..12];
-                var portNumber = network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40001") == true ? "Node1" 
+                var portNumber = network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40001") == true ? "Node1"
                     : network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40002") == true ? "Node2"
                     : network.AdvertisedAddresses.FirstOrDefault()?.ToString()?.Contains(":40003") == true ? "Node3"
                     : "NodeX";
-                
+
                 localValueStore[$"node-id-{portNumber}"] = (peerId, DateTime.UtcNow, peerId);
                 localValueStore[$"greeting-{portNumber}"] = ($"Hello from {portNumber} ({shortId})", DateTime.UtcNow, peerId);
                 localValueStore[$"message-{portNumber}"] = ($"This is a test message from {portNumber}", DateTime.UtcNow, peerId);
                 localValueStore[$"data-{portNumber}"] = ($"Sample data stored by {portNumber} at {DateTime.UtcNow:HH:mm:ss}", DateTime.UtcNow, peerId);
-                
+
                 Console.WriteLine($"\n💾 Auto-populated {localValueStore.Count} sample values for testing:");
                 foreach (var kvp in localValueStore)
                 {
@@ -713,7 +713,7 @@ namespace KadDhtDemo
                 Console.WriteLine("\n📊 ROUTING TABLE STATUS");
                 Console.WriteLine("─────────────────────────────────────────");
                 Console.WriteLine($"Total peers in routing table: {routingTable.Size}");
-                
+
                 routingTable.LogDebugInfo();
 
                 // Show distance distribution
@@ -789,7 +789,7 @@ namespace KadDhtDemo
                     {
                         Console.WriteLine("\n🌐 Storing value in distributed DHT...");
                         var peerCount = await network.DhtClient.PutValueAsync(key, value, token);
-                        
+
                         Console.ForegroundColor = ConsoleColor.Green;
                         Console.WriteLine($"✅ Stored: '{key}' = '{value}'");
                         Console.WriteLine($"   Stored by: {peerId}");
@@ -838,7 +838,7 @@ namespace KadDhtDemo
                     {
                         Console.WriteLine("\n🌐 Looking up key in distributed DHT...");
                         var (found, value) = await network.DhtClient.GetValueAsync(key, token);
-                        
+
                         if (found && value != null)
                         {
                             Console.ForegroundColor = ConsoleColor.Green;
@@ -906,7 +906,7 @@ namespace KadDhtDemo
                 try
                 {
                     var closestPeers = await kad.LookupNodesClosest(targetKey, token);
-                    
+
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"✅ Found {closestPeers.Length} closest peer(s):");
                     Console.ResetColor();
@@ -938,7 +938,7 @@ namespace KadDhtDemo
             {
                 Console.WriteLine("\n📊 DHT STATISTICS");
                 Console.WriteLine("═══════════════════════════════════════════════════════════");
-                
+
                 Console.WriteLine($"\n🆔 Local Node:");
                 Console.WriteLine($"   Peer ID: {network.LocalNode.Id.ToPeerId()}");
                 Console.WriteLine($"   Listen Addresses: {network.AdvertisedAddresses.Count}");
@@ -949,10 +949,10 @@ namespace KadDhtDemo
 
                 Console.WriteLine($"\n📋 Routing Table:");
                 Console.WriteLine($"   Total peers: {routingTable.Size}");
-                
+
                 var bucketCount = routingTable.IterateBuckets().Count();
                 Console.WriteLine($"   Buckets: {bucketCount}");
-                
+
                 var allNodes = kad.IterateNodes().ToList();
                 if (allNodes.Any())
                 {
@@ -1030,7 +1030,7 @@ namespace KadDhtDemo
                 Console.WriteLine($"\n3️⃣  Lookup test (random target)...");
                 var randomTarget = RandomPublicKey();
                 Console.WriteLine($"   Target: {randomTarget.ToPeerId()}");
-                
+
                 try
                 {
                     var closestPeers = await kad.LookupNodesClosest(randomTarget, token);
@@ -1045,7 +1045,7 @@ namespace KadDhtDemo
                 Console.WriteLine($"   Total peers: {routingTable.Size}");
                 var bucketCount = routingTable.IterateBuckets().Count();
                 Console.WriteLine($"   Buckets: {bucketCount}");
-                
+
                 var distances = new Dictionary<int, int>();
                 for (int d = 1; d <= 10; d++)
                 {
@@ -1065,7 +1065,7 @@ namespace KadDhtDemo
                 Console.WriteLine($"✅ Peers in routing table: {routingTable.Size}");
                 Console.WriteLine($"✅ Distance buckets populated: {distances.Count}");
                 Console.WriteLine("═══════════════════════════════════════════════════════════");
-                
+
                 Console.WriteLine("\n💡 MULTI-NODE TEST INSTRUCTIONS:");
                 Console.WriteLine("─────────────────────────────────────────────────────────────");
                 Console.WriteLine("To test data sharing between nodes:");
@@ -1084,8 +1084,8 @@ namespace KadDhtDemo
             {
                 Console.WriteLine($"\n🔍 QUICK RETRIEVE TEST: Trying to get data from {targetNode}");
                 Console.WriteLine("═══════════════════════════════════════════════════════════");
-                
-                var keysToTry = new[] 
+
+                var keysToTry = new[]
                 {
                     $"node-id-{targetNode}",
                     $"greeting-{targetNode}",
@@ -1119,7 +1119,7 @@ namespace KadDhtDemo
 
                 Console.WriteLine("\n═══════════════════════════════════════════════════════════");
                 Console.WriteLine($"📊 Results: {foundCount} found, {notFoundCount} not found");
-                
+
                 if (notFoundCount == keysToTry.Length)
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -1137,7 +1137,7 @@ namespace KadDhtDemo
                     Console.WriteLine($"   DHT data sharing is working!");
                     Console.ResetColor();
                 }
-                
+
                 Console.WriteLine("═══════════════════════════════════════════════════════════");
             }
 
@@ -1245,19 +1245,19 @@ namespace KadDhtDemo
                 List<string>? listenAddressOverrides = null)
             {
                 var logger = loggerFactory.CreateLogger("RealNetworkTransport");
-                
+
                 try
                 {
                     logger.LogInformation("🌐 Setting up real libp2p transport...");
-                    
+
                     // Set up libp2p services with KadDht
                     var services = new ServiceCollection();
-                    
+
                     // Add logging first (Debug level to see protocol handler execution)
                     services.AddLogging(builder => builder
                         .SetMinimumLevel(LogLevel.Debug)
                         .AddConsole());
-                    
+
                     // Add KadDht services FIRST (storage, shared state, message sender)
                     services.AddKadDht(options =>
                     {
@@ -1266,12 +1266,12 @@ namespace KadDhtDemo
                         options.Alpha = 3;
                         options.OperationTimeout = TimeSpan.FromSeconds(10);
                     });
-                    
+
                     // Add libp2p services and configure DHT protocol handlers
                     services.AddLibp2p(builder => builder
                         .WithKadDht() // Register protocol handlers
                     );
-                    
+
                     var serviceProvider = services.BuildServiceProvider();
                     var peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
                     var localIdentity = new Identity();
@@ -1302,15 +1302,15 @@ namespace KadDhtDemo
                     // Note: OnConnected fires when a peer connects to us
                     // We'll add them to routing table after they complete Identify protocol
                     var connectedPeersForRouting = new System.Collections.Concurrent.ConcurrentDictionary<PeerId, Multiaddress>();
-                    
+
                     localPeer.OnConnected += session =>
                     {
                         var remotePeerId = session.RemoteAddress?.GetPeerId();
-                        
+
                         if (remotePeerId != null)
                         {
                             logger.LogInformation("🔗 Real peer connected: {PeerId}", remotePeerId);
-                            
+
                             // Note: Don't use session.RemoteAddress here - it has ephemeral ports for incoming connections
                             // Instead, mark peer as connected and let the background task query PeerStore after Identify completes
                             connectedPeersForRouting[remotePeerId] = session.RemoteAddress!;
@@ -1319,28 +1319,28 @@ namespace KadDhtDemo
                         {
                             logger.LogWarning("⚠️ Peer connected but PeerId is null: {RemoteAddress}", session.RemoteAddress);
                         }
-                        
+
                         return Task.CompletedTask;
                     };
 
                     var realLibp2pSender = new LibP2pKademliaMessageSender<PublicKey, DhtNode>(localPeer, loggerFactory);
-                    
+
                     var adaptedSender = new RealLibp2pMessageSenderAdapter(realLibp2pSender, loggerFactory);
-                    
+
                     var peerStore = serviceProvider.GetRequiredService<PeerStore>();
                     var sharedDhtState = serviceProvider.GetRequiredService<SharedDhtState>();
-                    
+
                     // Create DhtClient for distributed storage
                     var dhtClient = new DhtClient(sharedDhtState, realLibp2pSender, loggerFactory);
                     Console.WriteLine("✅ DhtClient initialized for distributed storage");
-                    
+
                     return new RealNetworkSetup(adaptedSender, localNode, announcedAddresses, connectedPeersForRouting, peerStore, localPeer, dhtClient, sharedDhtState);
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "❌ Failed to initialize real libp2p transport: {Error}", ex.Message);
                     logger.LogWarning("Falling back to enhanced network simulation");
-                    
+
                     return new RealNetworkSetup(
                         new NetworkSimulationTransport(loggerFactory),
                         TestNode.ForSimulation(RandomPublicKey()),
@@ -1474,11 +1474,11 @@ namespace KadDhtDemo
             private readonly ILogger<RealLibp2pMessageSenderAdapter> _logger;
 
             public RealLibp2pMessageSenderAdapter(
-                LibP2pKademliaMessageSender<PublicKey, DhtNode> realSender, 
+                LibP2pKademliaMessageSender<PublicKey, DhtNode> realSender,
                 ILoggerFactory? loggerFactory = null)
             {
                 _realSender = realSender ?? throw new ArgumentNullException(nameof(realSender));
-                _logger = loggerFactory?.CreateLogger<RealLibp2pMessageSenderAdapter>() 
+                _logger = loggerFactory?.CreateLogger<RealLibp2pMessageSenderAdapter>()
                          ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RealLibp2pMessageSenderAdapter>.Instance;
 
                 _logger.LogInformation("Real libp2p message sender adapter initialized");
@@ -1492,13 +1492,13 @@ namespace KadDhtDemo
                 try
                 {
                     _logger.LogDebug("🌐 Real libp2p Ping to {Receiver}", receiver.Id);
-                    
+
                     // Convert TestNode to DhtNode
                     var dhtNode = ConvertTestNodeToDhtNode(receiver);
-                    
+
                     // Use libp2p networking
                     await _realSender.Ping(dhtNode, token);
-                    
+
                     _logger.LogTrace("✅ Real libp2p Ping to {Receiver} completed", receiver.Id);
                 }
                 catch (Exception ex)
@@ -1516,16 +1516,16 @@ namespace KadDhtDemo
                 try
                 {
                     _logger.LogDebug("🌐 Real libp2p FindNeighbours from {Receiver} for target {Target}", receiver.Id, target);
-                    
+
                     // Convert TestNode to DhtNode
                     var dhtNode = ConvertTestNodeToDhtNode(receiver);
-                    
+
                     // Use libp2p networking
                     var realNeighbours = await _realSender.FindNeighbours(dhtNode, target, token);
-                    
+
                     // Convert back to TestNode array
                     var testNodes = realNeighbours.Select(ConvertDhtNodeToTestNode).ToArray();
-                    
+
                     _logger.LogDebug("✅ Real libp2p FindNeighbours returned {Count} neighbours", testNodes.Length);
                     return testNodes;
                 }
@@ -1543,12 +1543,12 @@ namespace KadDhtDemo
             {
                 // Create PeerId from the TestNode's PublicKey
                 var peerId = testNode.Id.ToPeerId();
-                
+
                 // Use the TestNode's actual multiaddress if available, otherwise create a placeholder
-                var multiaddrs = testNode.Multiaddress != null 
+                var multiaddrs = testNode.Multiaddress != null
                     ? new[] { testNode.Multiaddress.ToString() }
                     : Array.Empty<string>();
-                
+
                 return new DhtNode
                 {
                     PeerId = peerId,
@@ -1674,7 +1674,7 @@ namespace KadDhtDemo
             {
                 var recentNodes = _lastSeen.Where(kvp => DateTime.UtcNow - kvp.Value < TimeSpan.FromMinutes(5)).Count();
                 var totalConnections = _connectionAttempts.Values.Sum();
-                _log.LogInformation("Network simulation stats: {RecentNodes} nodes contacted recently, {TotalConnections} total connection attempts", 
+                _log.LogInformation("Network simulation stats: {RecentNodes} nodes contacted recently, {TotalConnections} total connection attempts",
                     recentNodes, totalConnections);
             }
         }
@@ -1701,7 +1701,7 @@ namespace KadDhtDemo
                 try
                 {
                     _log.LogDebug("Attempting FindNeighbours to {Receiver} for target {Target}", receiver.Id, target.ToPeerId());
-                    
+
                     // Track connection attempts
                     _connectionAttempts.AddOrUpdate(receiver, 1, (key, value) => value + 1);
 
@@ -1715,14 +1715,14 @@ namespace KadDhtDemo
 
                     _lastSeen[receiver] = DateTime.UtcNow;
 
-                    
+
                     // To do: Implement real FindNeighbours via the session
                     await Task.Delay(Random.Shared.Next(50, 200), token);
 
                     // Return small number of nodes (realistic for sparse DHT)
                     int count = Random.Shared.Next(1, 4);
                     var nodes = new TestNode[count];
-                    
+
                     for (int i = 0; i < count; i++)
                     {
                         // To do: Implement real FindNeighbours via the session
@@ -1744,7 +1744,7 @@ namespace KadDhtDemo
                 try
                 {
                     _log.LogDebug("Attempting Ping to {Receiver}", receiver.Id);
-                    
+
                     _connectionAttempts.AddOrUpdate(receiver, 1, (key, value) => value + 1);
 
                     // Try to establish connection to the receiver
@@ -1774,7 +1774,7 @@ namespace KadDhtDemo
                 try
                 {
                     _log.LogDebug("Attempting to connect to {Receiver}", receiver.Id);
-                    
+
                     if (receiver.Multiaddress == null)
                     {
                         _log.LogWarning("No multiaddress available for {Receiver}", receiver.Id);
@@ -1782,7 +1782,7 @@ namespace KadDhtDemo
                     }
 
                     var session = await _localPeer.DialAsync(receiver.Multiaddress, token);
-                    
+
                     _log.LogDebug("Successfully connected to {Receiver}", receiver.Id);
                     return session;
                 }
@@ -1797,10 +1797,10 @@ namespace KadDhtDemo
             {
                 var recentNodes = _lastSeen.Where(kvp => DateTime.UtcNow - kvp.Value < TimeSpan.FromMinutes(5)).Count();
                 var totalConnections = _connectionAttempts.Values.Sum();
-                
-                _log.LogInformation("LibP2P transport stats: {RecentNodes} recent contacts, {TotalConnections} connection attempts", 
+
+                _log.LogInformation("LibP2P transport stats: {RecentNodes} recent contacts, {TotalConnections} connection attempts",
                     recentNodes, totalConnections);
-                    
+
                 _log.LogInformation("Local peer listening on {AddressCount} addresses", _localPeer.ListenAddresses.Count());
                 foreach (var addr in _localPeer.ListenAddresses.Take(3)) // Show first 3 addresses
                 {

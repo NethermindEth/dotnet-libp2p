@@ -36,7 +36,7 @@ public sealed class DhtValueStore
     {
         _logger = loggerFactory?.CreateLogger<DhtValueStore>() ?? NullLogger<DhtValueStore>.Instance;
         _defaultTtl = defaultTtl ?? TimeSpan.FromHours(24);
-        
+
         // Run cleanup every 5 minutes
         _cleanupTimer = new System.Threading.Timer(CleanupExpiredValues, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }

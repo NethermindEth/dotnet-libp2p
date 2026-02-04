@@ -50,7 +50,7 @@ public class PeerStore
         {
             PeerInfo? newOne = null;
             PeerInfo peerInfo = _store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
-            
+
             // If peer already existed, update its addresses
             if (peerInfo != newOne)
             {
@@ -59,11 +59,11 @@ public class PeerStore
                 {
                     return;
                 }
-                
+
                 // Update addresses for existing peer
                 peerInfo.Addrs = [.. addrs];
             }
-            
+
             onNewPeer?.Invoke(addrs);
         }
     }

@@ -78,11 +78,11 @@ public static class ServiceCollectionExtensions
             try
             {
                 var publicKey = new PublicKey(remotePeerId.Bytes);
-                
+
                 // Get advertised addresses from PeerStore (populated by Identify protocol)
                 var peerInfo = peerStore.GetPeerInfo(remotePeerId);
                 var multiaddrs = peerInfo?.Addrs?.Select(a => a.ToString()).ToArray() ?? Array.Empty<string>();
-                
+
                 // Fallback to connection address if no advertised addresses available yet
                 if (multiaddrs.Length == 0)
                 {
@@ -93,7 +93,7 @@ public static class ServiceCollectionExtensions
                 {
                     logger?.LogInformation("{Protocol}: Using advertised addresses for {PeerId}: {Addrs}", protocolName, remotePeerId, string.Join(", ", multiaddrs));
                 }
-                
+
                 var dhtNode = new DhtNode
                 {
                     PeerId = remotePeerId,
@@ -130,7 +130,7 @@ public static class ServiceCollectionExtensions
                 {
                     var targetBytes = request.Target.Value.ToByteArray();
                     var targetKey = new PublicKey(targetBytes);
-                    
+
                     // Fetch more peers than needed to account for filtering
                     var nearestPeers = sharedState.GetKNearestPeers(targetKey, k: 20);
 
@@ -156,7 +156,7 @@ public static class ServiceCollectionExtensions
                         }
                         response.Neighbours.Add(node);
                     }
-                    logger?.LogInformation("FIND_NODE: Returning {Count} neighbors (filtered from {Total} candidates, excluding requester)", 
+                    logger?.LogInformation("FIND_NODE: Returning {Count} neighbors (filtered from {Total} candidates, excluding requester)",
                         response.Neighbours.Count, nearestPeers.Count());
                 }
                 return Task.FromResult(response);
@@ -171,7 +171,7 @@ public static class ServiceCollectionExtensions
                 AddRequestingPeer(context, "PUT_VALUE");
 
                 var response = new PutValueResponse { Success = false, Error = "No value provided" };
-                
+
                 if (sharedState != null && request.Key != null && request.Value != null)
                 {
                     try
@@ -184,13 +184,13 @@ public static class ServiceCollectionExtensions
                             publisher: request.Publisher?.ToByteArray()
                         );
 
-                        response = new PutValueResponse 
-                        { 
-                            Success = success, 
-                            Error = success ? "" : "Value not stored (older timestamp)" 
+                        response = new PutValueResponse
+                        {
+                            Success = success,
+                            Error = success ? "" : "Value not stored (older timestamp)"
                         };
 
-                        logger?.LogInformation("PUT_VALUE: Stored value with success={Success} from {PeerId}", 
+                        logger?.LogInformation("PUT_VALUE: Stored value with success={Success} from {PeerId}",
                             success, remotePeer);
                     }
                     catch (Exception ex)
@@ -224,12 +224,12 @@ public static class ServiceCollectionExtensions
                             {
                                 Found = true,
                                 Value = Google.Protobuf.ByteString.CopyFrom(dhtValue.Value),
-                                Signature = dhtValue.Signature != null 
-                                    ? Google.Protobuf.ByteString.CopyFrom(dhtValue.Signature) 
+                                Signature = dhtValue.Signature != null
+                                    ? Google.Protobuf.ByteString.CopyFrom(dhtValue.Signature)
                                     : Google.Protobuf.ByteString.Empty,
                                 Timestamp = dhtValue.Timestamp,
-                                Publisher = dhtValue.Publisher != null 
-                                    ? Google.Protobuf.ByteString.CopyFrom(dhtValue.Publisher) 
+                                Publisher = dhtValue.Publisher != null
+                                    ? Google.Protobuf.ByteString.CopyFrom(dhtValue.Publisher)
                                     : Google.Protobuf.ByteString.Empty
                             };
 

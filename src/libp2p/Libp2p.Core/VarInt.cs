@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 namespace Nethermind.Libp2p.Core;
+
 using System.Runtime.CompilerServices;
 public static class VarInt
 {
     //(ulong)((uint) number) casts number to uint first then ulong because apparently I had to
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Encode(int number, Span<byte> buf, ref int offset) => Encode((ulong)((uint) number), buf, ref offset);
-    
+    public static void Encode(int number, Span<byte> buf, ref int offset) => Encode((ulong)((uint)number), buf, ref offset);
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Encode(ulong number, Span<byte> buf, ref int offset)
     {
@@ -33,7 +34,7 @@ public static class VarInt
 
     //(ulong)((uint) number) casts number to uint first then ulong because apparently I had to
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int GetSizeInBytes(int number) => GetSizeInBytes((ulong)((uint) number));
+    public static int GetSizeInBytes(int number) => GetSizeInBytes((ulong)((uint)number));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int GetSizeInBytes(ulong number)
@@ -59,7 +60,7 @@ public static class VarInt
             byte @byte = source[offset + bytesRead++];
             // Use the AND operator (& 0x7F) to get the 7 bits of data
             // Use the OR operator (|=) to add them to the result
-            result |= ((ulong) (@byte & 0x7F)) << shift;
+            result |= ((ulong)(@byte & 0x7F)) << shift;
 
             // Check the 8th bit: If it is 0, return the result
             if ((@byte & 0x80) == 0)
