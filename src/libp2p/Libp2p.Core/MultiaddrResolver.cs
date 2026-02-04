@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Net;
 using DnsClient;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
@@ -30,7 +31,7 @@ public class MultiaddrResolver
         {
             async IAsyncEnumerable<string> GetRecords(string dnsAddr)
             {
-                var records = await _dns.QueryTxtAsync(dnsAddr);
+                IEnumerable<string> records = await _dns.QueryTxtAsync(dnsAddr);
                 foreach (string text in records)
                 {
                     const string prefix = "dnsaddr=";
@@ -60,9 +61,9 @@ public class MultiaddrResolver
             if (addr.Has<DNS6>() || addr.Has<DNS>())
             {
                 resolved = true;
-                var addrs = await _dns.QueryAaaaAsync(addr.Get<DNS6>()?.ToString() ?? addr.Get<DNS>().ToString());
+                IEnumerable<IPAddress> addrs = await _dns.QueryAaaaAsync(addr.Get<DNS6>()?.ToString() ?? addr.Get<DNS>().ToString());
 
-                foreach (var record in addrs)
+                foreach (IPAddress record in addrs)
                 {
                     if (addr.Has<DNS6>())
                     {
@@ -77,9 +78,9 @@ public class MultiaddrResolver
             if (addr.Has<DNS4>() || addr.Has<DNS>())
             {
                 resolved = true;
-                var addrs4 = await _dns.QueryAAsync(addr.Get<DNS4>()?.ToString() ?? addr.Get<DNS>().ToString());
+                IEnumerable<IPAddress> addrs4 = await _dns.QueryAAsync(addr.Get<DNS4>()?.ToString() ?? addr.Get<DNS>().ToString());
 
-                foreach (var record in addrs4)
+                foreach (IPAddress record in addrs4)
                 {
                     if (addr.Has<DNS4>())
                     {

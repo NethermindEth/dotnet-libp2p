@@ -46,12 +46,11 @@
       },
       "NRedisStack": {
         "type": "Direct",
-        "requested": "[0.13.1, )",
-        "resolved": "0.13.1",
-        "contentHash": "GOce1yaBVVTF+DXjJhuCyg7r9HZGB690jPjGHHfTO/pEYHn0VSPRWBJVdrXOkim+ImsaFwB7InuBgud+1h/BeQ==",
+        "requested": "[1.1.1, )",
+        "resolved": "1.1.1",
+        "contentHash": "h/bwL3IVPnp9yx37sZpreJRL32fLdpmIAIpwucheqPtR6i4mrcPV/t4rqQiKbSm2K+lEBabZ6NDu7adbql+aLw==",
         "dependencies": {
-          "NetTopologySuite": "2.5.0",
-          "StackExchange.Redis": "2.8.16"
+          "StackExchange.Redis": "2.9.17"
         }
       },
       "BinaryEncoding": {
@@ -239,11 +238,6 @@
           "Microsoft.NETCore.Platforms": "1.1.0"
         }
       },
-      "NetTopologySuite": {
-        "type": "Transitive",
-        "resolved": "2.5.0",
-        "contentHash": "5/+2O2ADomEdUn09mlSigACdqvAf0m/pVPGtIPEPQWnyrVykYY0NlfXLIdkMgi41kvH9kNrPqYaFBTZtHYH7Xw=="
-      },
       "Noise.NET": {
         "type": "Transitive",
         "resolved": "1.0.0",
@@ -265,10 +259,10 @@
       },
       "StackExchange.Redis": {
         "type": "Transitive",
-        "resolved": "2.8.16",
-        "contentHash": "WaoulkOqOC9jHepca3JZKFTqndCWab5uYS7qCzmiQDlrTkFaDN7eLSlEfHycBxipRnQY9ppZM7QSsWAwUEGblw==",
+        "resolved": "2.9.17",
+        "contentHash": "Enpv0bfMP6SRownWx1CmaHantT9626Z6QSdHOidKlm0zLrBaPe7ueQf5phJH6Zkf3lDe5rr6JvXAgEP1ogijug==",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "6.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
           "Pipelines.Sockets.Unofficial": "2.2.8"
         }
       },
