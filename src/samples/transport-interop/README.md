@@ -34,6 +34,9 @@ dotnet build
 
 # run the sample
 dotnet run
+
+# build from repo root
+docker build -f src/samples/transport-interop/Dockerfile -t transport-interop:latest src/samples/transport-interop
 ```
 
 Project reference example (these are the paths we use in the repo):
