@@ -7,11 +7,11 @@ using System.Threading.Tasks;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Network;
-using Libp2p.Protocols.KadDht.RequestResponse;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using NSubstitute;
 using NUnit.Framework;
@@ -47,7 +47,6 @@ public class LibP2pKademliaMessageSenderTests
     [Test]
     public void Constructor_WithNullLocalPeer_ThrowsArgumentNullException()
     {
-        // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
             new LibP2pKademliaMessageSender<PublicKey, DhtNode>(null!, _loggerFactory));
     }
@@ -55,7 +54,6 @@ public class LibP2pKademliaMessageSenderTests
     [Test]
     public void Constructor_WithNullLoggerFactory_DoesNotThrow()
     {
-        // Act & Assert
         Assert.DoesNotThrow(() =>
             new LibP2pKademliaMessageSender<PublicKey, DhtNode>(_mockLocalPeer, null));
     }
@@ -66,9 +64,9 @@ public class LibP2pKademliaMessageSenderTests
         // Arrange
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var mockSession = Substitute.For<ISession>();
-        mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()));
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()));
 
         var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
@@ -79,8 +77,8 @@ public class LibP2pKademliaMessageSenderTests
 
         // Assert
         await _mockLocalPeer.Received(1).DialAsync(multiaddr, Arg.Any<CancellationToken>());
-        await mockSession.Received(1).DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>());
+        await mockSession.Received(1).DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Is<Message>(m => m.Type == Message.Types.MessageType.Ping), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -119,15 +117,13 @@ public class LibP2pKademliaMessageSenderTests
         var targetKey = new PublicKey(new byte[32]);
 
         var mockSession = Substitute.For<ISession>();
-        var expectedResponse = new FindNeighboursResponse();
-        expectedResponse.Neighbours.Add(new Nethermind.Libp2P.Protocols.KadDht.Dto.Node
-        {
-            PublicKey = Google.Protobuf.ByteString.CopyFrom(new byte[32])
-        });
 
-        mockSession.DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(
-            Arg.Any<FindNeighboursRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(expectedResponse));
+        var neighbourNode = CreateDhtNode("12D3KooWNeighbour", "/ip4/192.168.1.1/tcp/4001");
+        var response = MessageHelper.CreateFindNodeResponse(new[] { neighbourNode });
+
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(response));
 
         var multiaddr = Multiaddress.Decode(receiverNode.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
@@ -137,14 +133,14 @@ public class LibP2pKademliaMessageSenderTests
         var result = await _messageSender.FindNeighbours(receiverNode, targetKey, CancellationToken.None);
 
         // Assert
-        await mockSession.Received(1).DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(
-            Arg.Any<FindNeighboursRequest>(), Arg.Any<CancellationToken>());
+        await mockSession.Received(1).DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Is<Message>(m => m.Type == Message.Types.MessageType.FindNode), Arg.Any<CancellationToken>());
         Assert.That(result, Is.Not.Null);
         Assert.That(result.Length, Is.GreaterThanOrEqualTo(0));
     }
 
     [Test]
-    public async Task FindNeighbours_WithFailedSession_ReturnsEmpty()
+    public void FindNeighbours_WithFailedSession_ThrowsInvalidOperationException()
     {
         // Arrange
         var receiverNode = CreateDhtNode("12D3KooWReceiver", "/ip4/127.0.0.1/tcp/4001");
@@ -154,15 +150,13 @@ public class LibP2pKademliaMessageSenderTests
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ISession>(new Exception("Connection failed")));
 
-        // Act
-        var result = await _messageSender.FindNeighbours(receiverNode, targetKey, CancellationToken.None);
-
-        // Assert
-        Assert.That(result, Is.Empty, "Should return empty array on connection failure");
+        // Act & Assert
+        Assert.That(async () => await _messageSender.FindNeighbours(receiverNode, targetKey, CancellationToken.None),
+            Throws.TypeOf<InvalidOperationException>());
     }
 
     [Test]
-    public async Task FindNeighbours_WithCancellationToken_RespectsCancellation()
+    public void FindNeighbours_WithCancellationToken_RespectsCancellation()
     {
         // Arrange
         var receiverNode = CreateDhtNode("12D3KooWReceiver", "/ip4/127.0.0.1/tcp/4001");
@@ -170,15 +164,13 @@ public class LibP2pKademliaMessageSenderTests
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        // Act
-        var result = await _messageSender.FindNeighbours(receiverNode, targetKey, cts.Token);
-
-        // Assert - Should return empty when cancelled
-        Assert.That(result, Is.Empty);
+        // Act & Assert
+        Assert.That(async () => await _messageSender.FindNeighbours(receiverNode, targetKey, cts.Token),
+            Throws.TypeOf<TaskCanceledException>());
     }
 
     [Test]
-    public async Task FindNeighbours_SendsCorrectRequest()
+    public async Task FindNeighbours_SendsCorrectMessageType()
     {
         // Arrange
         var receiverNode = CreateDhtNode("12D3KooWReceiver", "/ip4/127.0.0.1/tcp/4001");
@@ -187,12 +179,12 @@ public class LibP2pKademliaMessageSenderTests
         var targetKey = new PublicKey(targetKeyBytes);
 
         var mockSession = Substitute.For<ISession>();
-        FindNeighboursRequest? capturedRequest = null;
+        Message? capturedRequest = null;
 
-        mockSession.DialAsync<KadDhtFindNeighboursProtocol, FindNeighboursRequest, FindNeighboursResponse>(
-            Arg.Do<FindNeighboursRequest>(req => capturedRequest = req),
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Do<Message>(msg => capturedRequest = msg),
             Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new FindNeighboursResponse()));
+            .Returns(Task.FromResult(MessageHelper.CreateFindNodeResponse(Array.Empty<DhtNode>())));
 
         var multiaddr = Multiaddress.Decode(receiverNode.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
@@ -203,8 +195,8 @@ public class LibP2pKademliaMessageSenderTests
 
         // Assert
         Assert.That(capturedRequest, Is.Not.Null, "Request should be sent");
-        Assert.That(capturedRequest!.Target, Is.Not.Null, "Target should be set");
-        Assert.That(capturedRequest.Target.Value, Is.Not.Null, "Target value should be set");
+        Assert.That(capturedRequest!.Type, Is.EqualTo(Message.Types.MessageType.FindNode), "Should send FIND_NODE message");
+        Assert.That(capturedRequest.Key.IsEmpty, Is.False, "Key should be set");
     }
 
     [Test]
@@ -213,9 +205,9 @@ public class LibP2pKademliaMessageSenderTests
         // Arrange
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var mockSession = Substitute.For<ISession>();
-        mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()));
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()));
 
         var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
@@ -236,12 +228,12 @@ public class LibP2pKademliaMessageSenderTests
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var mockSession = Substitute.For<ISession>();
 
-        // First call succeeds
-        mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()),
-                     Task.FromException<PingResponse>(new Exception("Protocol failed")),
-                     Task.FromResult(new PingResponse()));
+        // First call succeeds, second fails, third succeeds
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()),
+                     Task.FromException<Message>(new Exception("Protocol failed")),
+                     Task.FromResult(MessageHelper.CreatePingResponse()));
 
         var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
@@ -270,12 +262,12 @@ public class LibP2pKademliaMessageSenderTests
         var mockSession1 = Substitute.For<ISession>();
         var mockSession2 = Substitute.For<ISession>();
 
-        mockSession1.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()));
-        mockSession2.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()));
+        mockSession1.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()));
+        mockSession2.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()));
 
         _mockLocalPeer.DialAsync(Multiaddress.Decode(node1.Multiaddrs[0]), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(mockSession1));
@@ -301,9 +293,9 @@ public class LibP2pKademliaMessageSenderTests
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var mockSession = Substitute.For<ISession>();
 
-        mockSession.DialAsync<KadDhtPingProtocol, PingRequest, PingResponse>(
-            Arg.Any<PingRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PingResponse()));
+        mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()));
 
         _mockLocalPeer.DialAsync(Multiaddress.Decode(node.Multiaddrs[0]), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(mockSession));
@@ -318,17 +310,15 @@ public class LibP2pKademliaMessageSenderTests
     }
 
     [Test]
-    public async Task FindNeighbours_WithNoMultiaddress_ReturnsEmpty()
+    public void FindNeighbours_WithNoMultiaddress_ThrowsInvalidOperationException()
     {
         // Arrange
-        var node = CreateDhtNode("12D3KooWTest1"); // No multiaddress
+        var node = CreateDhtNode("12D3KooWTest1");
         var targetKey = new PublicKey(new byte[32]);
 
-        // Act
-        var result = await _messageSender.FindNeighbours(node, targetKey, CancellationToken.None);
-
-        // Assert
-        Assert.That(result, Is.Empty, "Should return empty when node has no multiaddress");
+        // Act & Assert
+        Assert.That(async () => await _messageSender.FindNeighbours(node, targetKey, CancellationToken.None),
+            Throws.TypeOf<InvalidOperationException>());
     }
 
     [Test]
@@ -341,7 +331,7 @@ public class LibP2pKademliaMessageSenderTests
         {
             PublicKey = publicKey,
             PeerId = peerId,
-            Multiaddrs = new[] { "invalid-multiaddress" } // Invalid format
+            Multiaddrs = new[] { "invalid-multiaddress" }
         };
 
         // Act & Assert

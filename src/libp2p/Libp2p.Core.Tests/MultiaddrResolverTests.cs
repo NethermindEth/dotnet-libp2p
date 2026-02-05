@@ -1,32 +1,40 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Collections.Generic;
+using System.Linq;
+using NSubstitute;
+using NUnit.Framework;
 using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
 public class MultiaddrResolverTests
 {
-    [Explicit("DNS may change")]
     [Test]
-    public async Task Test()
+    public async Task Test_Resolve_Dnsaddr_UsesInjectedResolver()
     {
-        Multiaddress[] addrs = [
-            "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-            "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-            "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-            "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-            "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-            ];
+        // Arrange: mock DNS TXT records for _dnsaddr.bootstrap.libp2p.io
+        var dns = NSubstitute.Substitute.For<IDnsLookup>();
+        string dnsName = "_dnsaddr.bootstrap.libp2p.io";
+        var txtRecords = new[] {
+            "dnsaddr=/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+            "dnsaddr=/ip4/1.2.3.4/tcp/4001/p2p/QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51"
+        };
+        dns.QueryTxtAsync(dnsName).Returns(Task.FromResult((IEnumerable<string>)txtRecords));
 
-        foreach (Multiaddress addr in addrs)
+        var resolver = new MultiaddrResolver(dns);
+
+        // Act
+        var results = new List<Multiaddress>();
+        Multiaddress input = "/dnsaddr/bootstrap.libp2p.io/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ";
+        await foreach (var item in resolver.Resolve(input))
         {
-            await foreach (var item in new MultiaddrResolver().Resolve(addr))
-            {
-                TestContext.Out.WriteLine(item);
-            }
+            results.Add(item);
         }
 
-        Assert.Pass();
+        // Assert: expect to get the first address (matching the p2p filter)
+        Assert.That(results.Count, Is.GreaterThan(0));
+        Assert.That(results[0].ToString(), Is.EqualTo("/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"));
     }
 }

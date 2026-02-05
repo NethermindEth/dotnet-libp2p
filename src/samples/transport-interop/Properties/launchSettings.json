@@ -3,21 +3,27 @@
     "TransportInterop - Client": {
       "commandName": "Project",
       "environmentVariables": {
-        "is_dialer": "true",
-        "transport": "tcp",
-        "muxer": "yamux",
-        "security": "noise",
-        "redis_addr": "127.0.0.1:6379"
+        "IS_DIALER": "true",
+        "TRANSPORT": "tcp",
+        "MUXER": "yamux",
+        "SECURE_CHANNEL": "noise",
+        "REDIS_ADDR": "127.0.0.1:6379",
+        "TEST_KEY": "test-transport",
+        "LISTENER_IP": "127.0.0.1",
+        "TEST_TIMEOUT_SECS": "180"
       }
     },
     "TransportInterop - Server": {
       "commandName": "Project",
       "environmentVariables": {
-        "is_dialer": "false",
-        "transport": "tcp",
-        "muxer": "yamux",
-        "security": "noise",
-        "redis_addr": "127.0.0.1:6379"
+        "IS_DIALER": "false",
+        "TRANSPORT": "tcp",
+        "MUXER": "yamux",
+        "SECURE_CHANNEL": "noise",
+        "REDIS_ADDR": "127.0.0.1:6379",
+        "TEST_KEY": "test-transport",
+        "LISTENER_IP": "0.0.0.0",
+        "TEST_TIMEOUT_SECS": "180"
       }
     }
   }

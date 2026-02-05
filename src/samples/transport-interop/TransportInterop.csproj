@@ -2,20 +2,23 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>transport_interop</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <RestoreLockedMode>true</RestoreLockedMode>
   </PropertyGroup>
 
+  <!-- Always-needed packages -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageReference Include="NRedisStack" Version="1.1.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
 
+
+  <ItemGroup >
     <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
 using System.Collections.Concurrent;
+using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Integration;
-using Libp2p.Protocols.KadDht.RequestResponse;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nethermind.Libp2p.Core;
@@ -467,27 +467,20 @@ public class KadDhtProtocol : ISessionProtocol
     #region Network Operations
 
     /// <summary>
-    /// Send PutValue request to a remote node.
+    /// Send PutValue request to a remote node using spec-compliant Message envelope.
     /// </summary>
     private async Task PutValueToNodeAsync(DhtNode node, byte[] key, StoredValue value, CancellationToken cancellationToken)
     {
         try
         {
-            // Connect to the remote node
             var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
 
-            // Create PutValue request
-            var request = new PutValueRequest
-            {
-                Key = Google.Protobuf.ByteString.CopyFrom(key),
-                Value = Google.Protobuf.ByteString.CopyFrom(value.Value ?? Array.Empty<byte>()),
-                Timestamp = value.Timestamp,
-                Publisher = Google.Protobuf.ByteString.CopyFrom(value.Publisher?.Bytes?.ToArray() ?? Array.Empty<byte>()),
-                Signature = Google.Protobuf.ByteString.Empty // TODO: Implement proper signing
-            };
+            var request = MessageHelper.CreatePutValueRequest(
+                key,
+                value.Value ?? Array.Empty<byte>(),
+                DateTimeOffset.FromUnixTimeSeconds(value.Timestamp).ToString("o"));
 
-            // Send the request using the registered protocol
-            var response = await session.DialAsync<KadDhtPutValueProtocol, PutValueRequest, PutValueResponse>(
+            await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
                 request, cancellationToken);
 
             _logger?.LogTrace("Successfully sent PutValue to node {NodeId}", node.PeerId);
@@ -500,29 +493,23 @@ public class KadDhtProtocol : ISessionProtocol
     }
 
     /// <summary>
-    /// Get value from a remote node.
+    /// Get value from a remote node using spec-compliant Message envelope.
     /// </summary>
     private async Task<byte[]?> GetValueFromNodeAsync(DhtNode node, byte[] key, CancellationToken cancellationToken)
     {
         try
         {
-            // Connect to the remote node
             var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
 
-            // Create GetValue request
-            var request = new GetValueRequest
-            {
-                Key = Google.Protobuf.ByteString.CopyFrom(key)
-            };
+            var request = MessageHelper.CreateGetValueRequest(key);
 
-            // Send the request using the registered protocol
-            var response = await session.DialAsync<KadDhtGetValueProtocol, GetValueRequest, GetValueResponse>(
+            var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
                 request, cancellationToken);
 
-            if (response.Found && response.Value != null)
+            if (response.Record != null && response.Record.Value != null && !response.Record.Value.IsEmpty)
             {
                 _logger?.LogTrace("Successfully retrieved value from node {NodeId}", node.PeerId);
-                return response.Value.ToByteArray();
+                return response.Record.Value.ToByteArray();
             }
 
             return null;

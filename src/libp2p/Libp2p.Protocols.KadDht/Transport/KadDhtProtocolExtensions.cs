@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
+using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
-using Nethermind.Libp2p.Core;
-using Nethermind.Libp2P.Protocols.KadDht.Dto;
-using Nethermind.Libp2p.Protocols;
 using Microsoft.Extensions.Logging;
-using Google.Protobuf; // for ByteString
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -17,6 +17,9 @@ public static class KadDhtProtocolExtensions
 {
     public const string DefaultBaseId = "/ipfs/kad/1.0.0";
 
+    /// <summary>
+    /// Registers the unified /ipfs/kad/1.0.0 protocol handler with Message-based request/response.
+    /// </summary>
     public static IPeerFactoryBuilder AddKadDhtProtocols(
         this IPeerFactoryBuilder builder,
         Func<PublicKey, IEnumerable<TestNode>> findNearest,
@@ -34,168 +37,158 @@ public static class KadDhtProtocolExtensions
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, loggerFactory);
 
-        string pingId = baseId + "/ping";
-        string findId = baseId + "/findneighbours";
-        string putValueId = baseId + "/putvalue";
-        string getValueId = baseId + "/getvalue";
-        string addProviderId = baseId + "/addprovider";
-        string getProvidersId = baseId + "/getproviders";
-
-        // Ping protocol
-        builder = builder.AddRequestResponseProtocol<PingRequest, PingResponse>(
-            pingId,
-            async (req, ctx) => await Task.FromResult(new PingResponse()),
-            isExposed: isExposed);
-
-        // FindNeighbours protocol
-        builder = builder.AddRequestResponseProtocol<FindNeighboursRequest, FindNeighboursResponse>(
-            findId,
-            async (req, ctx) =>
+        builder = builder.AddRequestResponseProtocol<Message, Message>(
+            baseId,
+            async (request, ctx) =>
             {
-                PublicKey target = new(req.Target.Value.ToByteArray());
-                TestNode[] neighbours = [.. findNearest(target)];
-                var resp = new FindNeighboursResponse();
-                foreach (TestNode n in neighbours)
+                return request.Type switch
                 {
-                    resp.Neighbours.Add(new Node
-                    {
-                        PublicKey = ByteString.CopyFrom(n.Id.Bytes.ToArray()),
-                    });
-                }
-                return await Task.FromResult(resp);
-            },
-            isExposed: isExposed);
+                    Message.Types.MessageType.Ping => MessageHelper.CreatePingResponse(),
 
-        // PutValue protocol (only active in server mode)
-        if (dhtOptions.Mode == KadDhtMode.Server)
-        {
-            builder = builder.AddRequestResponseProtocol<PutValueRequest, PutValueResponse>(
-                putValueId,
-                async (req, ctx) =>
-                {
-                    try
-                    {
-                        if (req.Value.Length > dhtOptions.MaxValueSize)
-                        {
-                            return new PutValueResponse { Success = false, Error = "Value too large" };
-                        }
+                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest),
 
-                        var storedValue = new StoredValue
-                        {
-                            Value = req.Value.ToByteArray(),
-                            Signature = req.Signature.ToByteArray(),
-                            Timestamp = req.Timestamp,
-                            Publisher = req.Publisher.IsEmpty ? null : new PeerId(req.Publisher.ToByteArray()),
-                            Ttl = dhtOptions.RecordTtl
-                        };
+                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, loggerFactory),
 
-                        bool stored = await dhtValueStore.PutValueAsync(req.Key.ToByteArray(), storedValue);
-                        return new PutValueResponse { Success = stored };
-                    }
-                    catch (Exception ex)
-                    {
-                        loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
-                            ?.LogError(ex, "Error handling PutValue request: {ErrorMessage}", ex.Message);
-                        return new PutValueResponse { Success = false, Error = ex.Message };
-                    }
-                },
-                isExposed: isExposed);
-        }
+                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtValueStore, loggerFactory),
 
-        // GetValue protocol
-        builder = builder.AddRequestResponseProtocol<GetValueRequest, GetValueResponse>(
-            getValueId,
-            async (req, ctx) =>
-            {
-                try
-                {
-                    var storedValue = await dhtValueStore.GetValueAsync(req.Key.ToByteArray());
-                    if (storedValue != null)
-                    {
-                        return new GetValueResponse
-                        {
-                            Found = true,
-                            Value = Google.Protobuf.ByteString.CopyFrom(storedValue.Value),
-                            Signature = storedValue.Signature != null ? Google.Protobuf.ByteString.CopyFrom(storedValue.Signature) : Google.Protobuf.ByteString.Empty,
-                            Timestamp = storedValue.Timestamp,
-                            Publisher = storedValue.Publisher != null ? Google.Protobuf.ByteString.CopyFrom(storedValue.Publisher.Bytes.ToArray()) : Google.Protobuf.ByteString.Empty
-                        };
-                    }
-                    else
-                    {
-                        return new GetValueResponse { Found = false };
-                    }
-                }
-                catch (Exception ex)
-                {
-                    loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
-                        ?.LogError(ex, "Error handling GetValue request: {ErrorMessage}", ex.Message);
-                    return new GetValueResponse { Found = false };
-                }
-            },
-            isExposed: isExposed);
+                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, dhtOptions, dhtProviderStore, loggerFactory),
 
-        // AddProvider protocol (only active in server mode)
-        if (dhtOptions.Mode == KadDhtMode.Server)
-        {
-            builder = builder.AddRequestResponseProtocol<AddProviderRequest, AddProviderResponse>(
-                addProviderId,
-                async (req, ctx) =>
-                {
-                    try
-                    {
-                        var providerRecord = new ProviderRecord
-                        {
-                            PeerId = new PeerId(req.ProviderId.ToByteArray()),
-                            Multiaddrs = req.Multiaddrs.ToArray(),
-                            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                            Ttl = dhtOptions.RecordTtl
-                        };
+                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtProviderStore, loggerFactory),
 
-                        bool added = await dhtProviderStore.AddProviderAsync(req.Key.ToByteArray(), providerRecord);
-                        return new AddProviderResponse { Success = added };
-                    }
-                    catch (Exception ex)
-                    {
-                        loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
-                            ?.LogError(ex, "Error handling AddProvider request: {ErrorMessage}", ex.Message);
-                        return new AddProviderResponse { Success = false, Error = ex.Message };
-                    }
-                },
-                isExposed: isExposed);
-        }
-
-        // GetProviders protocol
-        builder = builder.AddRequestResponseProtocol<GetProvidersRequest, GetProvidersResponse>(
-            getProvidersId,
-            async (req, ctx) =>
-            {
-                try
-                {
-                    var providers = await dhtProviderStore.GetProvidersAsync(req.Key.ToByteArray(), req.Count);
-                    var response = new GetProvidersResponse();
-
-                    foreach (var provider in providers)
-                    {
-                        response.Providers.Add(new Provider
-                        {
-                            PeerId = Google.Protobuf.ByteString.CopyFrom(provider.PeerId.Bytes.ToArray()),
-                            Multiaddrs = { provider.Multiaddrs },
-                            Timestamp = provider.Timestamp
-                        });
-                    }
-
-                    return response;
-                }
-                catch (Exception ex)
-                {
-                    loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
-                        ?.LogError(ex, "Error handling GetProviders request: {ErrorMessage}", ex.Message);
-                    return new GetProvidersResponse();
-                }
+                    _ => new Message()
+                };
             },
             isExposed: isExposed);
 
         return builder;
+    }
+
+    private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<TestNode>> findNearest)
+    {
+        var target = new PublicKey(request.Key.ToByteArray());
+        var neighbours = findNearest(target).ToArray();
+        var response = new Message { Type = Message.Types.MessageType.FindNode };
+        foreach (var n in neighbours)
+        {
+            response.CloserPeers.Add(new Message.Types.Peer
+            {
+                Id = ByteString.CopyFrom(n.Id.Bytes.ToArray())
+            });
+        }
+        return response;
+    }
+
+    private static async Task<Message> HandlePutValue(Message request, KadDhtOptions options,
+        IValueStore valueStore, ILoggerFactory? loggerFactory)
+    {
+        try
+        {
+            if (options.Mode != KadDhtMode.Server)
+                return MessageHelper.CreatePutValueResponse();
+
+            if (request.Record == null || request.Record.Value.Length > options.MaxValueSize)
+                return MessageHelper.CreatePutValueResponse();
+
+            var storedValue = new StoredValue
+            {
+                Value = request.Record.Value.ToByteArray(),
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Ttl = options.RecordTtl
+            };
+
+            await valueStore.PutValueAsync(request.Key.ToByteArray(), storedValue);
+            return MessageHelper.CreatePutValueResponse(request.Record);
+        }
+        catch (Exception ex)
+        {
+            loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
+                ?.LogError(ex, "Error handling PutValue: {Error}", ex.Message);
+            return MessageHelper.CreatePutValueResponse();
+        }
+    }
+
+    private static async Task<Message> HandleGetValue(Message request, IValueStore valueStore, ILoggerFactory? loggerFactory)
+    {
+        try
+        {
+            var storedValue = await valueStore.GetValueAsync(request.Key.ToByteArray());
+            if (storedValue != null)
+            {
+                var record = new Record
+                {
+                    Key = request.Key,
+                    Value = ByteString.CopyFrom(storedValue.Value),
+                    TimeReceived = DateTimeOffset.FromUnixTimeSeconds(storedValue.Timestamp).ToString("o")
+                };
+                return MessageHelper.CreateGetValueResponse(record);
+            }
+            return MessageHelper.CreateGetValueResponse();
+        }
+        catch (Exception ex)
+        {
+            loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
+                ?.LogError(ex, "Error handling GetValue: {Error}", ex.Message);
+            return MessageHelper.CreateGetValueResponse();
+        }
+    }
+
+    private static async Task<Message> HandleAddProvider(Message request, KadDhtOptions options,
+        IProviderStore providerStore, ILoggerFactory? loggerFactory)
+    {
+        try
+        {
+            if (options.Mode != KadDhtMode.Server)
+                return new Message { Type = Message.Types.MessageType.AddProvider };
+
+            foreach (var wirePeer in request.ProviderPeers)
+            {
+                var providerRecord = new ProviderRecord
+                {
+                    PeerId = new PeerId(wirePeer.Id.ToByteArray()),
+                    Multiaddrs = wirePeer.Addrs.Select(a =>
+                    {
+                        try { return Multiformats.Address.Multiaddress.Decode(a.ToByteArray()).ToString(); }
+                        catch { return ""; }
+                    }).Where(s => !string.IsNullOrEmpty(s)).ToArray(),
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    Ttl = options.RecordTtl
+                };
+
+                await providerStore.AddProviderAsync(request.Key.ToByteArray(), providerRecord);
+            }
+
+            return new Message { Type = Message.Types.MessageType.AddProvider };
+        }
+        catch (Exception ex)
+        {
+            loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
+                ?.LogError(ex, "Error handling AddProvider: {Error}", ex.Message);
+            return new Message { Type = Message.Types.MessageType.AddProvider };
+        }
+    }
+
+    private static async Task<Message> HandleGetProviders(Message request, IProviderStore providerStore, ILoggerFactory? loggerFactory)
+    {
+        try
+        {
+            var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), 20);
+            var response = MessageHelper.CreateGetProvidersResponse(
+                providerPeers: providers.Select(p =>
+                {
+                    return new Integration.DhtNode
+                    {
+                        PeerId = p.PeerId,
+                        PublicKey = new PublicKey(p.PeerId.Bytes),
+                        Multiaddrs = p.Multiaddrs
+                    };
+                }));
+            return response;
+        }
+        catch (Exception ex)
+        {
+            loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
+                ?.LogError(ex, "Error handling GetProviders: {Error}", ex.Message);
+            return MessageHelper.CreateGetProvidersResponse();
+        }
     }
 }

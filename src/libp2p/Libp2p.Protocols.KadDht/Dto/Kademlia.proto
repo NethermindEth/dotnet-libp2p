@@ -1,79 +1,75 @@
-syntax = "proto3";
+syntax = "proto2";
 
 package Nethermind.Libp2p.Protocols.KadDht.Dto;
 
-// Basic connectivity messages
-message PingRequest {}
-message PingResponse {}
+// Record represents a dht record that contains a value for a key value pair
+message Record {
+  // The key that references this record
+  optional bytes key = 1;
 
-// Helper messages
-message PublicKeyBytes {
-  bytes value = 1;
+  // The actual value this record is storing
+  optional bytes value = 2;
+
+  // Time the record was received, set by receiver
+  // Formatted according to https://datatracker.ietf.org/doc/html/rfc3339
+  optional string timeReceived = 5;
 }
 
-message Node {
-  bytes publicKey = 1; // raw public key bytes
-  repeated string multiaddrs = 2; // optional, for future use
-}
+message Message {
+  enum MessageType {
+    PUT_VALUE = 0;
+    GET_VALUE = 1;
+    ADD_PROVIDER = 2;
+    GET_PROVIDERS = 3;
+    FIND_NODE = 4;
+    PING = 5;
+  }
 
-// Node discovery messages
-message FindNeighboursRequest {
-  PublicKeyBytes target = 1;
-}
+  enum ConnectionType {
+    // sender does not have a connection to peer, and no extra information (default)
+    NOT_CONNECTED = 0;
 
-message FindNeighboursResponse {
-  repeated Node neighbours = 1;
-}
+    // sender has a live connection to peer
+    CONNECTED = 1;
 
-// Value storage messages
-message PutValueRequest {
-  bytes key = 1;
-  bytes value = 2;
-  bytes signature = 3; // For value validation
-  int64 timestamp = 4; // Unix timestamp for freshness
-  bytes publisher = 5; // PeerId of the publisher
-}
+    // sender recently connected to peer
+    CAN_CONNECT = 2;
 
-message PutValueResponse {
-  bool success = 1;
-  string error = 2; // Error message if success is false
-}
+    // sender recently tried to connect to peer repeatedly but failed to connect
+    CANNOT_CONNECT = 3;
+  }
 
-message GetValueRequest {
-  bytes key = 1;
-}
+  message Peer {
+    // ID of a given peer.
+    optional bytes id = 1;
 
-message GetValueResponse {
-  bytes value = 1;
-  bool found = 2;
-  bytes signature = 3; // Signature for validation
-  int64 timestamp = 4; // Unix timestamp
-  bytes publisher = 5; // PeerId of the original publisher
-}
+    // multiaddrs for a given peer
+    repeated bytes addrs = 2;
 
-// Provider record messages  
-message Provider {
-  bytes peer_id = 1; // PeerId bytes
-  repeated string multiaddrs = 2; // How to connect to this provider
-  int64 timestamp = 3; // When this provider record was created
-}
+    // used to signal the sender's connection capabilities to the peer
+    optional ConnectionType connection = 3;
+  }
 
-message AddProviderRequest {
-  bytes key = 1; // Key being provided
-  bytes provider_id = 2; // PeerId of the provider
-  repeated string multiaddrs = 3; // Provider's addresses
-}
+  // defines what type of message it is.
+  optional MessageType type = 1;
 
-message AddProviderResponse {
-  bool success = 1;
-  string error = 2;
-}
+  // defines what coral cluster level this query/response belongs to.
+  // NOT USED
+  optional int32 clusterLevelRaw = 10;
 
-message GetProvidersRequest {
-  bytes key = 1;
-  int32 count = 2; // Maximum number of providers to return
-}
+  // Used to specify the key associated with this message.
+  // PUT_VALUE, GET_VALUE, ADD_PROVIDER, GET_PROVIDERS
+  optional bytes key = 2;
 
-message GetProvidersResponse {
-  repeated Provider providers = 1;
+  // Used to return a value
+  // PUT_VALUE, GET_VALUE
+  optional Record record = 3;
+
+  // Used to return peers closer to a key in a query
+  // GET_VALUE, GET_PROVIDERS, FIND_NODE
+  repeated Peer closerPeers = 8;
+
+  // Used to return Providers
+  // GET_VALUE, ADD_PROVIDER, GET_PROVIDERS
+  repeated Peer providerPeers = 9;
 }

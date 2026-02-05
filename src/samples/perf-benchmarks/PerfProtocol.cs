@@ -169,23 +169,23 @@ public class PerfProtocol : ISessionProtocol
         await SendBytesAsync(channel, bytesToSend);
 
         // Drain their response - we know exactly how many bytes to expect
-        var recvd = await DrainStreamAsync(channel, bytesToRecv);
+        var receivedBytes = await DrainStreamAsync(channel, bytesToRecv);
 
-        if (recvd != bytesToRecv)
+        if (receivedBytes != bytesToRecv)
         {
-            throw new InvalidOperationException($"Expected to receive {bytesToRecv} bytes, got {recvd}");
+            throw new InvalidOperationException($"Expected to receive {bytesToRecv} bytes, got {receivedBytes}");
         }
 
         // Send acknowledgment of received bytes
         var ackBuf = new byte[8];
         if (BitConverter.IsLittleEndian)
         {
-            var bytes = BitConverter.GetBytes(recvd).Reverse().ToArray();
+            var bytes = BitConverter.GetBytes(receivedBytes).Reverse().ToArray();
             bytes.CopyTo(ackBuf, 0);
         }
         else
         {
-            BitConverter.TryWriteBytes(ackBuf, recvd);
+            BitConverter.TryWriteBytes(ackBuf, receivedBytes);
         }
         await channel.WriteAsync(new ReadOnlySequence<byte>(ackBuf));
     }

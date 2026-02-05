@@ -146,17 +146,10 @@ public class ServiceCollectionExtensionsTests
         Assert.That(result, Is.SameAs(builder), "Should return the builder instance");
 
         var registeredProtocolIds = builder.Protocols.Select(p => p.Id).ToArray();
-        var expectedProtocolIds = new[]
-        {
-            "/ipfs/kad/1.0.0/ping",
-            "/ipfs/kad/1.0.0/find_node",
-            "/ipfs/kad/1.0.0/put_value",
-            "/ipfs/kad/1.0.0/get_value",
-            "/ipfs/kad/1.0.0/add_provider",
-            "/ipfs/kad/1.0.0/get_providers"
-        };
 
-        Assert.That(registeredProtocolIds, Is.EqualTo(expectedProtocolIds));
+        // Single unified protocol per spec — all message types dispatched via Message.Type
+        Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
+        Assert.That(registeredProtocolIds[0], Is.EqualTo("/ipfs/kad/1.0.0"));
     }
 
     [Test]
