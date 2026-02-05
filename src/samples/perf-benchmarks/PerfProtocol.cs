@@ -21,10 +21,10 @@ public class PerfProtocol : ISessionProtocol
     private const int BlockSize = 64 * 1024; // 64KB, matching Go's blockSize
     private readonly ILogger? _logger;
     public string Id => "/perf/1.0.0";
-    
+
     // Add explicit protocol setup
     public bool IsInitiator { get; set; }
-    
+
     // Static variables to track actual bytes transferred 
     public static ulong ActualBytesSent { get; set; } = 0;
     public static ulong ActualBytesReceived { get; set; } = 0;
@@ -59,9 +59,9 @@ public class PerfProtocol : ISessionProtocol
                     DownloadBytes = 0
                 };
 
-                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions 
-                { 
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
+                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 });
                 // Removed logging to keep output clean
 
@@ -72,7 +72,7 @@ public class PerfProtocol : ISessionProtocol
             var toSend = (int)Math.Min(bytesToSend, (ulong)BlockSize);
             rand.NextBytes(buffer.AsSpan(0, toSend));
             await channel.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(0, toSend)));
-            
+
             bytesToSend -= (ulong)toSend;
             lastReportWrite += (ulong)toSend;
             ActualBytesSent += (ulong)toSend; // Track actual bytes sent
@@ -91,12 +91,12 @@ public class PerfProtocol : ISessionProtocol
         while (expectedBytes == 0 || total < expectedBytes)
         {
             readAttempts++;
-            
+
             try
             {
                 // Use WaitAny to avoid hanging on small transfers
                 var read = await channel.ReadAsync(BlockSize, ReadBlockingMode.WaitAny).OrThrow();
-                
+
                 if (read.Length == 0)
                 {
                     break;
@@ -119,15 +119,15 @@ public class PerfProtocol : ISessionProtocol
                     // Report progress as intermediary result
                     var result = new Result
                     {
-                        Type = "intermediary", 
+                        Type = "intermediary",
                         TimeSeconds = (now - lastReportTime).TotalSeconds,
                         UploadBytes = 0,
                         DownloadBytes = lastReportRead
                     };
 
-                    var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions 
-                    { 
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
+                    var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                     });
                     // Removed logging to keep output clean
 
@@ -162,15 +162,15 @@ public class PerfProtocol : ISessionProtocol
         {
             BitConverter.TryWriteBytes(sizeBuf, bytesToRecv);
         }
-        
+
         await channel.WriteAsync(new ReadOnlySequence<byte>(sizeBuf));
 
         // Send our bytes
         await SendBytesAsync(channel, bytesToSend);
-        
+
         // Drain their response - we know exactly how many bytes to expect
         var receivedBytes = await DrainStreamAsync(channel, bytesToRecv);
-        
+
         if (receivedBytes != bytesToRecv)
         {
             throw new InvalidOperationException($"Expected to receive {bytesToRecv} bytes, got {receivedBytes}");
@@ -209,7 +209,7 @@ public class PerfProtocol : ISessionProtocol
 
         // Send our bytes  
         await SendBytesAsync(channel, bytesToSend);
-        
+
         // Read acknowledgment from client
         var ackBuf = new byte[8];
         var ackReadResult = await channel.ReadAsync(8, ReadBlockingMode.WaitAll).OrThrow();
@@ -223,7 +223,7 @@ public class PerfProtocol : ISessionProtocol
         {
             throw new InvalidOperationException($"Client acknowledged {ack} bytes, expected {bytesToSend}");
         }
-        
+
         // Connection will close naturally when protocol completes
     }
 }

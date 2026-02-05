@@ -12,7 +12,7 @@ class Program
     static async Task Main(string[] args)
     {
         var services = new ServiceCollection()
-            .AddLibp2p(builder => 
+            .AddLibp2p(builder =>
             {
                 // Enable both TCP and QUIC transports
                 return builder
@@ -21,7 +21,7 @@ class Program
             })
             .AddLogging(builder => builder
                 .SetMinimumLevel(LogLevel.Information) // Show information and above
-                .AddConsole(options => 
+                .AddConsole(options =>
                 {
                     options.LogToStandardErrorThreshold = LogLevel.Warning; // Only warnings/errors to stderr
                 }))
@@ -88,7 +88,7 @@ class Program
             {
                 if (runServer)
                 {
-                    multiaddr = transport == "quic" 
+                    multiaddr = transport == "quic"
                         ? $"/ip4/{parts[0]}/udp/{port}/quic-v1"
                         : $"/ip4/{parts[0]}/tcp/{port}";
                 }
@@ -108,7 +108,7 @@ class Program
                 Environment.Exit(1);
             }
         }
-        
+
         if (runServer)
         {
             // Server mode
@@ -117,11 +117,11 @@ class Program
                 logger.LogError("Server address must be specified with --server-address");
                 Environment.Exit(1);
             }
-            
+
             //var identity = new Identity(Enumerable.Repeat((byte)42, 32).ToArray());
             var identity = GenerateDeterministicIdentity(1);
             var localPeer = peerFactory.Create(identity);
-            
+
             // Convert server address to multiaddr for listening
             var parts = serverAddress.Split(':');
             if (parts.Length == 2 && int.TryParse(parts[1], out int port))
@@ -129,7 +129,7 @@ class Program
                 // Listen on the requested transport primarily (for debugging QUIC)
                 var tcpAddr = Multiaddress.Decode($"/ip4/{parts[0]}/tcp/{port}");
                 var quicAddr = Multiaddress.Decode($"/ip4/{parts[0]}/udp/{port}/quic-v1");
-                
+
                 // Always try to start with both TCP and QUIC transports when QUIC is enabled
                 try
                 {
@@ -157,7 +157,7 @@ class Program
             {
                 logger.LogCritical("{Address}", addr);
             }
-            
+
             // If no addresses, there might be an issue with QUIC binding
             if (localPeer.ListenAddresses.Count == 0)
             {
@@ -188,15 +188,15 @@ class Program
             logger.LogInformation("Creating client identity");
             // var identity = new Identity(Enumerable.Repeat((byte)43, 32).ToArray()); // Different identity
             // var localPeer = peerFactory.Create(identity);
-            
+
             // // Start client - listen on both transports
             // await localPeer.StartListenAsync(new[] { 
             //     Multiaddress.Decode("/ip4/127.0.0.1/tcp/0"),
             //     Multiaddress.Decode("/ip4/127.0.0.1/udp/0/quic-v1")
             // });
 
-             var localPeer = peerFactory.Create();
-             logger.LogInformation("Client peer created");
+            var localPeer = peerFactory.Create();
+            logger.LogInformation("Client peer created");
 
             try
             {
@@ -204,7 +204,7 @@ class Program
                 PerfProtocol.BytesToSend = uploadBytes;
                 PerfProtocol.BytesToReceive = downloadBytes;
                 logger.LogInformation("Set protocol parameters: upload={Upload}, download={Download}", uploadBytes, downloadBytes);
-                
+
                 // Reset counters for actual measurement
                 PerfProtocol.ActualBytesSent = 0;
                 PerfProtocol.ActualBytesReceived = 0;
@@ -220,16 +220,16 @@ class Program
                     Environment.Exit(1);
                 }
                 logger.LogInformation("Target multiaddr: {Multiaddr}", multiaddr);
-                
+
                 var targetAddr = Multiaddress.Decode(multiaddr);
                 logger.LogInformation("Dialing server at: {TargetAddr}", targetAddr);
                 var remotePeer = await localPeer.DialAsync(targetAddr);
                 logger.LogInformation("Successfully connected to server");
-                
+
                 // Run benchmark
                 ulong actualUploadBytes = 0;
                 ulong actualDownloadBytes = 0;
-                
+
                 try
                 {
                     logger.LogInformation("Starting protocol dial for PerfProtocol");
@@ -239,7 +239,7 @@ class Program
                     // Await protocol task directly — allow long-running benchmarks
                     await protocolTask; // Get any exceptions
                     logger.LogInformation("Protocol execution completed successfully");
-                    
+
                     // Get actual transfer amounts from the protocol instance
                     // Since the protocol execution may have partially succeeded
                     actualUploadBytes = PerfProtocol.ActualBytesSent;
@@ -277,20 +277,20 @@ class Program
                     DownloadBytes = actualDownloadBytes
                 };
 
-                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions 
-                { 
+                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions
+                {
                     WriteIndented = false,
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 });
-                
+
                 logger.LogCritical("{JsonOutput}", jsonOutput);
             }
             catch (Exception ex)
             {
                 logger.LogError("Error: {Message}", ex.Message);
                 logger.LogError("Stack trace: {StackTrace}", ex.StackTrace);
-                
-                
+
+
                 var result = new Result
                 {
                     Type = "final",
@@ -299,27 +299,27 @@ class Program
                     DownloadBytes = 0UL
                 };
 
-                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions 
-                { 
+                var jsonOutput = JsonSerializer.Serialize(result, new JsonSerializerOptions
+                {
                     WriteIndented = false,
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 });
                 logger.LogInformation("{JsonOutput}", jsonOutput);
-                
+
                 Environment.Exit(1);
             }
         }
     }
-   // private static string GenerateDeterministicPeerId()
+    // private static string GenerateDeterministicPeerId()
     private static Identity GenerateDeterministicIdentity(byte seed)
     {
         var fixedSeed = new byte[32];
         Array.Fill(fixedSeed, (byte)seed);//0);
-        
+
         var identity = new Identity(fixedSeed);
-       
+
         //return identity.PeerId.ToString();
-         return new Identity(fixedSeed);
+        return new Identity(fixedSeed);
 
     }
 }
