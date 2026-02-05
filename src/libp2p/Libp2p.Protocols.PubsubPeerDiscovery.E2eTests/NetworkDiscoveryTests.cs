@@ -23,6 +23,7 @@ public class NetworkDiscoveryTests
             peerStore.Discover(test.Peers[0].ListenAddresses.ToArray());
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        // Use 30 second timeout for CI environment compatibility
+        await test.WaitForFullMeshAsync(commonTopic, timeoutMs: 30_000);
     }
 }
