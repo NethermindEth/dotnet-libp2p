@@ -1,10 +1,13 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build-env
 WORKDIR /app
 
-COPY . ./
-RUN ls && cd ./src/samples/transport-interop && dotnet publish -c Release -o /out
+COPY *.csproj ./
+RUN dotnet restore
 
-FROM mcr.microsoft.com/dotnet/runtime:9.0-noble
+COPY . ./
+RUN dotnet publish -c Release -o /out
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
 WORKDIR /app
 
 RUN apt update -y && \
@@ -17,5 +20,3 @@ RUN apt update -y && \
 
 COPY --from=build-env /out .
 ENTRYPOINT ["dotnet", "TransportInterop.dll"]
-
-
