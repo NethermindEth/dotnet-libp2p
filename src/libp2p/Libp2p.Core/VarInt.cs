@@ -67,7 +67,7 @@ public static class VarInt
             // Check the 8th bit: If it is 0, return the result
             if ((@byte & 0x80) == 0)
             {
-                offset = offset + (shift / 7);
+                offset = offset + bytesRead;
                 return result;
             }
             shift += 7;

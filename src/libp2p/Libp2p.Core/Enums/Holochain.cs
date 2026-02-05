@@ -1,5 +1,4 @@
 namespace Nethermind.Libp2p.Core.Enums;
-
 public enum Holochain
 {
     // Holochain v0 address    + 8 R-S (63 x Base-32)

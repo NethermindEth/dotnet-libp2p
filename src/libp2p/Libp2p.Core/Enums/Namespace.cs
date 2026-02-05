@@ -1,5 +1,4 @@
 namespace Nethermind.Libp2p.Core.Enums;
-
 public enum Namespace
 {
     // Namespace for string paths. Corresponds to `/` in ASCII.

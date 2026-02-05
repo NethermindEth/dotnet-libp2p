@@ -1,5 +1,4 @@
 namespace Nethermind.Libp2p.Core.Enums;
-
 public enum Encryption
 {
     // AES Galois/Counter Mode with 256-bit key and 12-byte IV
