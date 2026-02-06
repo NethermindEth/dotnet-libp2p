@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -34,7 +34,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     class PubsubPeer
     {
-        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger)
+        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings)
         {
             PeerId = peerId;
             _logger = logger;
@@ -48,6 +48,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             TokenSource = new CancellationTokenSource();
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
+            Score = new PeerScore(settings);
         }
 
         public enum PubsubProtocol
@@ -104,6 +105,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         public ConnectionInitiation InitiatedBy { get; internal set; }
         public Multiaddress Address { get; internal set; }
+
+        // Peer scoring (Gossipsub v1.1)
+        public PeerScore Score { get; internal set; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -285,39 +289,106 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     public Task Heartbeat()
     {
+        // Apply score decay
+        DecayScores();
+
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
         lock (this)
         {
-            foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
+            // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
-                if (mesh.Value.Count < _settings.LowestDegree)
+                string topic = meshEntry.Key;
+                var negativePeers = meshEntry.Value.Where(p => GetPeerScore(p) < 0).ToList();
+                foreach (var peerId in negativePeers)
                 {
-                    PeerId[] peersToGraft = gPeers[mesh.Key]
-                        .Where(p => !mesh.Value.Contains(p) && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(mesh.Key, out DateTime backoff) != true || backoff < DateTime.Now))
-                        .Take(_settings.Degree - mesh.Value.Count).ToArray();
+                    logger?.LogDebug("Pruning peer {peerId} from mesh for topic {topic} due to negative score", peerId, topic);
+                    meshEntry.Value.Remove(peerId);
+                    RecordPeerLeaveMesh(peerId, topic);
+
+                    ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                         .Ensure(r => r.Control.Prune)
+                         .Add(prune);
+                }
+            }
+
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
+            {
+                string topic = meshEntry.Key;
+                HashSet<PeerId> meshPeers = meshEntry.Value;
+
+                if (meshPeers.Count < _settings.LowestDegree)
+                {
+                    // Need to graft more peers - exclude peers with negative scores
+                    PeerId[] peersToGraft = gPeers[topic]
+                        .Where(p => !meshPeers.Contains(p)
+                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
+                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff < DateTime.Now))
+                        .Take(_settings.Degree - meshPeers.Count).ToArray();
+
                     foreach (PeerId peerId in peersToGraft)
                     {
-                        mesh.Value.Add(peerId);
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                             .Ensure(r => r.Control.Graft)
-                            .Add(new ControlGraft { TopicID = mesh.Key });
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
-                else if (mesh.Value.Count > _settings.HighestDegree)
+                else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    PeerId[] peersToPrune = mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree).ToArray();
-                    foreach (PeerId? peerId in peersToPrune)
+                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
+                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
+
+                    // Get D_score best peers
+                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
+
+                    // Ensure we have D_out outbound connections
+                    var outboundPeers = meshPeers
+                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
+                        .Take(_settings.DOut)
+                        .ToHashSet();
+
+                    // Peers to keep: best scores + outbound quota + random
+                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
+
+                    // Fill remaining spots randomly
+                    int remaining = _settings.HighestDegree - peersToKeep.Count;
+                    if (remaining > 0)
                     {
-                        mesh.Value.Remove(peerId);
-                        ControlPrune prune = new() { TopicID = mesh.Key, Backoff = 60 };
-                        prune.Peers.AddRange(mesh.Value.ToArray()
-                            .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
-                            .Where(pid => pid.Record is not null)
-                            .Select(pid => new PeerInfo
-                            {
-                                PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
-                                SignedPeerRecord = pid.Record,
-                            }));
+                        var candidates = meshPeers.Except(peersToKeep).ToList();
+                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
+                        {
+                            peersToKeep.Add(peer);
+                        }
+                    }
+
+                    // Prune the rest
+                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
+
+                    foreach (PeerId peerId in peersToPrune)
+                    {
+                        meshPeers.Remove(peerId);
+                        RecordPeerLeaveMesh(peerId, topic);
+
+                        ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+
+                        // Only include PX if peer has non-negative score
+                        if (GetPeerScore(peerId) >= 0)
+                        {
+                            prune.Peers.AddRange(meshPeers
+                                .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
+                                .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
+                                .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                                .Where(pid => pid.Record is not null)
+                                .Select(pid => new PeerInfo
+                                {
+                                    PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                                    SignedPeerRecord = pid.Record,
+                                }));
+                        }
+
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
                              .Add(prune);
@@ -355,7 +426,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     ControlIHave ihave = new() { TopicID = topic };
                     ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
 
-                    foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(_settings.LazyDegree))
+                    // Only send gossip to peers above gossip threshold
+                    var eligiblePeers = gPeers[topic]
+                        .Where(p => !mesh[topic].Contains(p)
+                            && !fanout[topic].Contains(p)
+                            && GetPeerScore(p) >= _settings.GossipThreshold);
+
+                    // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy)
+                    int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Count() * _settings.GossipFactor));
+
+                    foreach (PeerId? peer in eligiblePeers.Take(gossipCount))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc())
                             .Ensure(r => r.Control.Ihave).Add(ihave);
@@ -381,7 +461,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return Canceled;
         }
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
 
         lock (peer)
         {
@@ -449,7 +529,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
         lock (existingPeer)
         {
 

@@ -69,6 +69,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
+        // Check if peer is graylisted (Gossipsub v1.1)
+        if (ShouldGraylistPeer(peerId))
+        {
+            logger?.LogDebug("Ignoring messages from graylisted peer {peerId}", peerId);
+            return;
+        }
+
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {
             int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId));
@@ -88,9 +95,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            switch (VerifyMessage?.Invoke(message))
+            MessageValidity validity = VerifyMessage?.Invoke(message) ?? MessageValidity.Accepted;
+
+            switch (validity)
             {
                 case MessageValidity.Rejected:
+                    _limboMessageCache.Add(messageId, new(messageId, message));
+                    RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
+                    continue;
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId, new(messageId, message));
                     continue;
@@ -101,10 +113,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
                 _limboMessageCache!.Add(messageId, new(messageId, message));
+                RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                 continue;
             }
 
             _messageCache.Add(messageId, new(messageId, message));
+
+            // Record valid message delivery for scoring
+            RecordMessageDelivery(peerId, message, message.Topic, true);
 
             PeerId author = new(message.From.ToArray());
             OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
@@ -128,7 +144,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         continue;
                     }
-                    peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+
+                    // Only forward to peers above publish threshold (Gossipsub v1.1)
+                    if (GetPeerScore(peer) >= _settings.PublishThreshold)
+                    {
+                        peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    }
                 }
             }
         }
@@ -161,7 +182,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     gPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);
                     if (mesh.ContainsKey(sub.Topicid))
                     {
-                        mesh[sub.Topicid].Remove(peerId);
+                        if (mesh[sub.Topicid].Remove(peerId))
+                        {
+                            RecordPeerLeaveMesh(peerId, sub.Topicid);  // Track for scoring
+                        }
                     }
                     if (fanout.ContainsKey(sub.Topicid))
                     {
@@ -182,42 +206,63 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             if (!topicState.ContainsKey(graft.TopicID))
             {
-                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                    .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = graft.TopicID });
+                // Ignore GRAFT for unknown topics (spam protection)
+                logger?.LogDebug("Ignoring GRAFT from {peerId} for unknown topic {topic}", peerId, graft.TopicID);
+                continue;
             }
-            else
+
+            // Check if peer is in backoff period
+            if (peerState.TryGetValue(peerId, out PubsubPeer? state))
             {
-                HashSet<PeerId> topicMesh = mesh[graft.TopicID];
-
-                if (topicMesh.Count >= _settings.HighestDegree)
+                if (state.Backoff.TryGetValue(graft.TopicID, out DateTime backoffUntil) && backoffUntil > DateTime.Now)
                 {
-                    ControlPrune prune = new() { TopicID = graft.TopicID };
-
-                    if (peerState.TryGetValue(peerId, out PubsubPeer? state) && state.IsGossipSub && state.Protocol >= PubsubPeer.PubsubProtocol.GossipsubV11)
-                    {
-                        state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(prune.Backoff == 0 ? 60 : prune.Backoff);
-                        prune.Peers.AddRange(topicMesh.ToArray().Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord)).Where(pid => pid.Record is not null).Select(pid => new PeerInfo
-                        {
-                            PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
-                            SignedPeerRecord = pid.Record,
-                        }));
-                    }
+                    // Peer grafting during backoff - apply behavioral penalty and auto-prune
+                    logger?.LogDebug("Peer {peerId} attempted GRAFT during backoff for topic {topic}", peerId, graft.TopicID);
+                    ApplyBehaviorPenalty(peerId, 1.0);
 
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
                         .Ensure(r => r.Control.Prune)
-                        .Add(prune);
+                        .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) });
+                    continue;
                 }
-                else
+            }
+
+            HashSet<PeerId> topicMesh = mesh[graft.TopicID];
+
+            if (topicMesh.Count >= _settings.HighestDegree)
+            {
+                ControlPrune prune = new() { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+
+                if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.IsGossipSub && peerData.Protocol >= PubsubPeer.PubsubProtocol.GossipsubV11)
                 {
-                    if (!topicMesh.Contains(peerId))
+                    peerData.Backoff[prune.TopicID] = DateTime.Now.AddMilliseconds(_settings.PruneBackoff);
+
+                    // Only provide PX if peer score is above threshold
+                    if (GetPeerScore(peerId) >= _settings.AcceptPXThreshold)
                     {
-                        topicMesh.Add(peerId);
-                        gPeers[graft.TopicID].Add(peerId);
-                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                            .Ensure(r => r.Control.Graft)
-                            .Add(new ControlGraft { TopicID = graft.TopicID });
+                        prune.Peers.AddRange(topicMesh.ToArray()
+                            .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange non-negative scoring peers
+                            .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                            .Where(pid => pid.Record is not null)
+                            .Select(pid => new PeerInfo
+                            {
+                                PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                                SignedPeerRecord = pid.Record,
+                            }));
                     }
+                }
+
+                peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                    .Ensure(r => r.Control.Prune)
+                    .Add(prune);
+            }
+            else
+            {
+                if (!topicMesh.Contains(peerId))
+                {
+                    topicMesh.Add(peerId);
+                    gPeers[graft.TopicID].Add(peerId);
+                    RecordPeerJoinMesh(peerId, graft.TopicID);  // Track for scoring
                 }
             }
         }
@@ -231,16 +276,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 if (peerState.TryGetValue(peerId, out PubsubPeer? state))
                 {
-                    state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(prune.Backoff == 0 ? 60 : prune.Backoff);
+                    ulong backoffSeconds = prune.Backoff == 0 ? (ulong)(_settings.PruneBackoff / 1000) : prune.Backoff;
+                    state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(backoffSeconds);
                 }
                 mesh[prune.TopicID].Remove(peerId);
-                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                    .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = prune.TopicID });
+                RecordPeerLeaveMesh(peerId, prune.TopicID);  // Track for scoring (P1 and P3b)
 
-                foreach (PeerInfo? peer in prune.Peers)
+                // Handle PX (Peer Exchange) only if peer score is above threshold
+                if (prune.Peers.Count > 0 && GetPeerScore(peerId) >= _settings.AcceptPXThreshold)
                 {
-                    _peerStore.Discover(peer.SignedPeerRecord);
+                    logger?.LogDebug("Received {count} peer(s) via PX from {peerId} for topic {topic}", prune.Peers.Count, peerId, prune.TopicID);
+
+                    foreach (PeerInfo? peer in prune.Peers)
+                    {
+                        _peerStore.Discover(peer.SignedPeerRecord);
+                    }
                 }
             }
         }
