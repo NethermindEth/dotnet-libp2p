@@ -130,38 +130,63 @@ public partial class PubsubRouter
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Identity.PeerId.Bytes, message, localPeer.Identity);
 
+        // Floodsub peers always get the message
         foreach (PeerId peerId in fPeers[topicId])
         {
             peerState.GetValueOrDefault(peerId)?.Send(rpc);
         }
 
-        if (mesh.ContainsKey(topicId))
+        // Gossipsub v1.1: Flood publishing
+        if (_settings.FloodPublish && gPeers.TryGetValue(topicId, out HashSet<PeerId>? allGossipsubPeers))
         {
-            foreach (PeerId peerId in mesh[topicId].ToList())
+            // Send to all gossipsub peers above publish threshold
+            foreach (PeerId peerId in allGossipsubPeers)
             {
-                peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                if (GetPeerScore(peerId) >= _settings.PublishThreshold)
+                {
+                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                }
             }
         }
         else
         {
-            fanoutLastPublished[topicId] = DateTime.Now;
-            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
-
-            if (topicFanout.Count == 0)
+            // Standard gossipsub v1.0 behavior: send to mesh or fanout
+            if (mesh.ContainsKey(topicId))
             {
-                HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
-                if (topicPeers is { Count: > 0 })
+                foreach (PeerId peerId in mesh[topicId].ToList())
                 {
-                    foreach (PeerId peer in topicPeers.Take(_settings.Degree))
+                    if (GetPeerScore(peerId) >= _settings.PublishThreshold)
                     {
-                        topicFanout.Add(peer);
+                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
                 }
             }
-
-            foreach (PeerId peerId in topicFanout)
+            else
             {
-                peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                fanoutLastPublished[topicId] = DateTime.Now;
+                HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
+
+                if (topicFanout.Count == 0)
+                {
+                    HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
+                    if (topicPeers is { Count: > 0 })
+                    {
+                        // Select peers with non-negative scores
+                        var eligiblePeers = topicPeers.Where(p => GetPeerScore(p) >= 0).ToList();
+                        foreach (PeerId peer in eligiblePeers.Take(_settings.Degree))
+                        {
+                            topicFanout.Add(peer);
+                        }
+                    }
+                }
+
+                foreach (PeerId peerId in topicFanout)
+                {
+                    if (GetPeerScore(peerId) >= _settings.PublishThreshold)
+                    {
+                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    }
+                }
             }
         }
     }
