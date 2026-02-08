@@ -171,8 +171,8 @@ public class PeerScoringTests
     {
         var settings = new PubsubSettings
         {
-            BehaviourPenaltyWeight = -1.0,
-            BehaviourPenaltyDecay = 0.9
+            BehaviorPenaltyWeight = -1.0,
+            BehaviorPenaltyDecay = 0.9
         };
         var peerScore = new PeerScore(settings);
 
@@ -226,8 +226,8 @@ public class PeerScoringTests
     {
         var settings = new PubsubSettings
         {
-            BehaviourPenaltyWeight = -1.0,
-            BehaviourPenaltyDecay = 0.5
+            BehaviorPenaltyWeight = -1.0,
+            BehaviorPenaltyDecay = 0.5
         };
         settings.TopicScoreParams[TestTopic] = CreateDefaultTopicParams();
 

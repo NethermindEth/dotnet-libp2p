@@ -62,8 +62,8 @@ public class PubsubSettings
     public double AppSpecificWeight { get; set; } = 10;
     public double IPColocationFactorWeight { get; set; } = -35;
     public double IPColocationFactorThreshold { get; set; } = 10;
-    public double BehaviourPenaltyWeight { get; set; } = -15;
-    public double BehaviourPenaltyDecay { get; set; } = 0.99;
+    public double BehaviorPenaltyWeight { get; set; } = -15;
+    public double BehaviorPenaltyDecay { get; set; } = 0.99;
 
     // Topic Scoring Parameters (P1, P2, P3, P3b, P4)
     // These can be configured per-topic using the TopicScoreParams class

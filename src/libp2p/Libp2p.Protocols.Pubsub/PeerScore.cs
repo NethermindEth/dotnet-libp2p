@@ -16,7 +16,7 @@ public class PeerScore
 
     // Global parameters
     public double AppSpecificScore { get; set; } = 0;
-    public double BehaviourPenalty { get; set; } = 0;
+    public double BehaviorPenalty { get; set; } = 0;
 
     // IP colocation tracking (managed at router level)
     public string? IPAddress { get; set; }
@@ -82,8 +82,8 @@ public class PeerScore
             }
         }
 
-        // P7: Behaviour penalty
-        score += _settings.BehaviourPenaltyWeight * BehaviourPenalty * BehaviourPenalty;
+        // P7: Behavior penalty
+        score += _settings.BehaviorPenaltyWeight * BehaviorPenalty * BehaviorPenalty;
 
         return score;
     }
@@ -102,20 +102,20 @@ public class PeerScore
             ts.Decay(_settings.DecayToZero);
         }
 
-        // Decay behaviour penalty
-        BehaviourPenalty *= _settings.BehaviourPenaltyDecay;
-        if (BehaviourPenalty < _settings.DecayToZero)
+        // Decay behavior penalty
+        BehaviorPenalty *= _settings.BehaviorPenaltyDecay;
+        if (BehaviorPenalty < _settings.DecayToZero)
         {
-            BehaviourPenalty = 0;
+            BehaviorPenalty = 0;
         }
     }
 
     /// <summary>
-    /// Adds a behaviour penalty
+    /// Adds a behavior penalty
     /// </summary>
     public void AddPenalty(double penalty)
     {
-        BehaviourPenalty += penalty;
+        BehaviorPenalty += penalty;
     }
 
     /// <summary>
