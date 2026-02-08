@@ -286,7 +286,7 @@ public class PeerScoringTests
     }
 
     [Test]
-    public async Task Test_PubsubRouter_GraylsitsPeerWithLowScore()
+    public async Task Test_PubsubRouter_GraylistsPeerWithLowScore()
     {
         var settings = new PubsubSettings
         {
