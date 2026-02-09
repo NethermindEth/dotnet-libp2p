@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
 using Google.Protobuf;
+using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
@@ -22,7 +23,8 @@ public static class KadDhtProtocolExtensions
     /// </summary>
     public static IPeerFactoryBuilder AddKadDhtProtocols(
         this IPeerFactoryBuilder builder,
-        Func<PublicKey, IEnumerable<TestNode>> findNearest,
+        Func<PublicKey, IEnumerable<DhtNode>> findNearest,
+        Action<DhtNode>? onPeerSeen = null,
         string baseId = DefaultBaseId,
         ILoggerFactory? loggerFactory = null,
         bool isExposed = true,
@@ -41,15 +43,17 @@ public static class KadDhtProtocolExtensions
             baseId,
             async (request, ctx) =>
             {
+                TryTrackPeer(ctx, onPeerSeen);
+
                 return request.Type switch
                 {
                     Message.Types.MessageType.Ping => MessageHelper.CreatePingResponse(),
 
-                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest),
+                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest, ctx),
 
                     Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, loggerFactory),
 
-                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtValueStore, loggerFactory),
+                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtValueStore, findNearest, loggerFactory),
 
                     Message.Types.MessageType.AddProvider => await HandleAddProvider(request, dhtOptions, dhtProviderStore, loggerFactory),
 
@@ -63,19 +67,14 @@ public static class KadDhtProtocolExtensions
         return builder;
     }
 
-    private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<TestNode>> findNearest)
+    private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<DhtNode>> findNearest, ISessionContext ctx)
     {
+        if (!request.HasKey) return MessageHelper.CreateFindNodeResponse(Enumerable.Empty<DhtNode>());
         var target = new PublicKey(request.Key.ToByteArray());
-        var neighbours = findNearest(target).ToArray();
-        var response = new Message { Type = Message.Types.MessageType.FindNode };
-        foreach (var n in neighbours)
-        {
-            response.CloserPeers.Add(new Message.Types.Peer
-            {
-                Id = ByteString.CopyFrom(n.Id.Bytes.ToArray())
-            });
-        }
-        return response;
+        var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
+        var neighbours = findNearest(target)
+            .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
+        return MessageHelper.CreateFindNodeResponse(neighbours);
     }
 
     private static async Task<Message> HandlePutValue(Message request, KadDhtOptions options,
@@ -107,7 +106,8 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleGetValue(Message request, IValueStore valueStore, ILoggerFactory? loggerFactory)
+    private static async Task<Message> HandleGetValue(Message request, IValueStore valueStore,
+        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory)
     {
         try
         {
@@ -122,7 +122,8 @@ public static class KadDhtProtocolExtensions
                 };
                 return MessageHelper.CreateGetValueResponse(record);
             }
-            return MessageHelper.CreateGetValueResponse();
+            var target = new PublicKey(request.Key.ToByteArray());
+            return MessageHelper.CreateGetValueResponse(closerPeers: findNearest(target));
         }
         catch (Exception ex)
         {
@@ -190,5 +191,22 @@ public static class KadDhtProtocolExtensions
                 ?.LogError(ex, "Error handling GetProviders: {Error}", ex.Message);
             return MessageHelper.CreateGetProvidersResponse();
         }
+    }
+
+    private static void TryTrackPeer(ISessionContext ctx, Action<DhtNode>? onPeerSeen)
+    {
+        if (onPeerSeen == null) return;
+        var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
+        if (remotePeerId == null) return;
+        try
+        {
+            onPeerSeen(new DhtNode
+            {
+                PeerId = remotePeerId,
+                PublicKey = new PublicKey(remotePeerId.Bytes),
+                Multiaddrs = new[] { ctx.State.RemoteAddress?.ToString() ?? "" }
+            });
+        }
+        catch { }
     }
 }

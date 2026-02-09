@@ -48,7 +48,13 @@ public static class ServiceCollectionExtensions
             var providerStore = sp.GetRequiredService<IProviderStore>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
 
-            return new KadDhtProtocol(localPeer, messageSender, kadDhtOptions, valueStore, providerStore, loggerFactory);
+            var protocol = new KadDhtProtocol(localPeer, messageSender, kadDhtOptions, valueStore, providerStore, loggerFactory);
+
+            var sharedState = sp.GetService<SharedDhtState>();
+            if (protocol.RoutingTable != null && sharedState != null)
+                sharedState.SetRoutingTable(protocol.RoutingTable);
+
+            return protocol;
         });
 
         return services;
@@ -56,19 +62,54 @@ public static class ServiceCollectionExtensions
 
     public static ILibp2pPeerFactoryBuilder WithKadDht(this ILibp2pPeerFactoryBuilder builder)
     {
-        var loggerFactory = builder.ServiceProvider.GetService<ILoggerFactory>();
+        var serviceProvider = builder.ServiceProvider;
+        var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
         var logger = loggerFactory?.CreateLogger("KadDht.Handler");
-        var sharedState = builder.ServiceProvider.GetService<SharedDhtState>();
-        var peerStore = builder.ServiceProvider.GetService<PeerStore>();
-        var localPeer = builder.ServiceProvider.GetService<ILocalPeer>();
+        var sharedState = serviceProvider.GetService<SharedDhtState>();
+        var peerStore = serviceProvider.GetService<PeerStore>();
 
-        if (sharedState != null && localPeer != null)
+        bool initialized = false;
+        KadDhtProtocol? kadDhtProtocol = null;
+
+        void EnsureInitialized()
         {
-            sharedState.LocalPeerKey = new PublicKey(localPeer.Identity.PeerId.Bytes.ToArray());
+            if (initialized) return;
+            initialized = true;
+
+            try
+            {
+                kadDhtProtocol = serviceProvider.GetService<KadDhtProtocol>();
+            }
+            catch (InvalidOperationException)
+            {
+                // KadDhtProtocol may not be resolvable if ILocalPeer is not registered in DI
+                // (e.g., when the peer is created manually via IPeerFactory.Create)
+            }
+
+            if (sharedState != null)
+            {
+                if (sharedState.LocalPeerKey == null)
+                {
+                    try
+                    {
+                        var localPeer = serviceProvider.GetService<ILocalPeer>();
+                        if (localPeer != null)
+                            sharedState.LocalPeerKey = new PublicKey(localPeer.Identity.PeerId.Bytes.ToArray());
+                    }
+                    catch (InvalidOperationException) { }
+                }
+
+                if (kadDhtProtocol?.RoutingTable != null)
+                    sharedState.SetRoutingTable(kadDhtProtocol.RoutingTable);
+            }
         }
 
         builder.AddRequestResponseProtocol<Message, Message>(ProtocolId,
-            (request, context) => HandleMessage(request, context, sharedState, peerStore, localPeer, logger),
+            (request, context) =>
+            {
+                EnsureInitialized();
+                return HandleMessage(request, context, sharedState, peerStore, kadDhtProtocol, logger);
+            },
             isExposed: true);
 
         return builder;
@@ -79,12 +120,12 @@ public static class ServiceCollectionExtensions
         ISessionContext context,
         SharedDhtState? sharedState,
         PeerStore? peerStore,
-        ILocalPeer? localPeer,
+        KadDhtProtocol? kadDhtProtocol,
         ILogger? logger)
     {
         var remotePeerId = context.State.RemoteAddress?.GetPeerId();
 
-        TryAddRequestingPeer(context, sharedState, peerStore, logger);
+        TryAddRequestingPeer(context, peerStore, kadDhtProtocol, logger);
 
         return request.Type switch
         {
@@ -201,9 +242,9 @@ public static class ServiceCollectionExtensions
         return Task.FromResult(MessageHelper.CreateGetProvidersResponse());
     }
 
-    private static void TryAddRequestingPeer(ISessionContext context, SharedDhtState? sharedState, PeerStore? peerStore, ILogger? logger)
+    private static void TryAddRequestingPeer(ISessionContext context, PeerStore? peerStore, KadDhtProtocol? kadDhtProtocol, ILogger? logger)
     {
-        if (sharedState == null) return;
+        if (kadDhtProtocol == null) return;
         var remotePeerId = context.State.RemoteAddress?.GetPeerId();
         if (remotePeerId == null) return;
 
@@ -218,12 +259,12 @@ public static class ServiceCollectionExtensions
                 multiaddrs = new[] { context.State.RemoteAddress?.ToString() ?? "" };
             }
 
-            _ = new DhtNode
+            kadDhtProtocol.AddNode(new DhtNode
             {
                 PeerId = remotePeerId,
                 PublicKey = publicKey,
                 Multiaddrs = multiaddrs
-            };
+            });
         }
         catch (Exception ex)
         {

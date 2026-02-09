@@ -44,7 +44,7 @@ public static class Hash256XorUtils
 
     public static ValueHash256 GetRandomHashAtDistance(ValueHash256 currentHash, int distance, Random random)
     {
-        if (distance == MaxDistance) return currentHash;
+        if (distance == 0) return currentHash;
         ValueHash256 randomized = new();
         random.NextBytes(randomized.BytesAsSpan);
         return CopyForRandom(currentHash, randomized, MaxDistance - distance);

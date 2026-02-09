@@ -120,8 +120,10 @@ public class Kademlia<TPublicKey, THash, TNode> : IKademlia<TPublicKey, TNode>
                 {
                     _logger.LogInformation($"📡 Pinging boot node: {node}");
                 }
-                // Should be added on Pong.
+                // Ping the boot node first to verify it's online.
                 await _kademliaMessageSender.Ping(node, token);
+                // Add to routing table BEFORE lookups so they have seed nodes.
+                AddOrRefresh(node);
                 Interlocked.Increment(ref onlineBootNodes);
                 if (_logger.IsEnabled(LogLevel.Information))
                 {

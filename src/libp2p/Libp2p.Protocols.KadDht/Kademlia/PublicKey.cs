@@ -17,32 +17,25 @@ public class PublicKey
     public ReadOnlySpan<byte> Bytes => _bytes;
 
     /// <summary>
-    /// Deterministic 32-byte SHA-256 hash of the raw public key bytes (cached after first computation).
+    /// Deterministic 32-byte SHA-256 hash of the public key bytes (cached after first computation).
+    /// Per the libp2p Kademlia spec the DHT key is always SHA-256(PeerId bytes).
     /// </summary>
     public ValueHash256 Hash
     {
         get
         {
             if (_hashComputed) return _hash;
-            if (_bytes.Length == 32)
+            Span<byte> buf = stackalloc byte[32];
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            if (!sha.TryComputeHash(_bytes, buf, out _))
             {
-                // When raw public key bytes already match Kademlia key size, reuse directly for deterministic distance.
-                _hash = ValueHash256.FromBytes(_bytes.ToArray());
+                // Fallback (should never happen for SHA256)
+                var tmp = sha.ComputeHash(_bytes);
+                _hash = ValueHash256.FromBytes(tmp);
             }
             else
             {
-                Span<byte> buf = stackalloc byte[32];
-                using var sha = System.Security.Cryptography.SHA256.Create();
-                if (!sha.TryComputeHash(_bytes, buf, out _))
-                {
-                    // Fallback (should never happen for SHA256)
-                    var tmp = sha.ComputeHash(_bytes);
-                    _hash = ValueHash256.FromBytes(tmp);
-                }
-                else
-                {
-                    _hash = ValueHash256.FromBytes(buf.ToArray());
-                }
+                _hash = ValueHash256.FromBytes(buf.ToArray());
             }
             _hashComputed = true;
             return _hash;
@@ -58,6 +51,8 @@ public class PublicKey
         Span<byte> raw = stackalloc byte[64];
         Random.Shared.NextBytes(raw);
         var pk = new PublicKey(raw);
+        pk._hash = hash;
+        pk._hashComputed = true;
         return pk;
     }
 }

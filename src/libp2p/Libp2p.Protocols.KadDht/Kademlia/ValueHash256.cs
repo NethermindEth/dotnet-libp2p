@@ -5,7 +5,7 @@ using System;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
-public struct ValueHash256 : IComparable<ValueHash256>, IKademiliaHash<ValueHash256>
+public struct ValueHash256 : IComparable<ValueHash256>, IEquatable<ValueHash256>, IKademiliaHash<ValueHash256>
 {
     private byte[] _bytes;
 
@@ -54,6 +54,28 @@ public struct ValueHash256 : IComparable<ValueHash256>, IKademiliaHash<ValueHash
         }
         return 0;
     }
+
+    public bool Equals(ValueHash256 other)
+    {
+        return Bytes.AsSpan().SequenceEqual(other.Bytes.AsSpan());
+    }
+
+    public override bool Equals(object? obj)
+    {
+        return obj is ValueHash256 other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        var b = Bytes;
+        // Use first 8 bytes for a fast hash (sufficient for 32-byte keys)
+        HashCode hc = new();
+        hc.AddBytes(b.AsSpan(0, Math.Min(8, b.Length)));
+        return hc.ToHashCode();
+    }
+
+    public static bool operator ==(ValueHash256 left, ValueHash256 right) => left.Equals(right);
+    public static bool operator !=(ValueHash256 left, ValueHash256 right) => !left.Equals(right);
 
     public override string ToString()
     {

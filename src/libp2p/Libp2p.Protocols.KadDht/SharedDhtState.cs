@@ -58,6 +58,8 @@ public class SharedDhtState
 
     /// <summary>
     /// Get the K nearest peers to a target key using XOR distance.
+    /// Deduplicates by PeerId so multiple routing table entries for the same
+    /// physical peer (e.g. different multiaddresses) don't produce duplicate RPCs.
     /// </summary>
     public DhtNode[] GetKNearestPeers(PublicKey targetKey, int k = 0)
     {
@@ -69,14 +71,28 @@ public class SharedDhtState
             return Array.Empty<DhtNode>();
         }
 
-        // O(log n) lookup using k-buckets
-        var closestPeers = _routingTable
-            .GetKNearestNeighbour(targetKey.Hash)
-            .Take(k)
-            .ToArray();
+        // O(log n) lookup using k-buckets, then deduplicate by PeerId.
+        // The routing table may contain multiple entries that map to the same
+        // physical peer (same PeerId but different Kademlia hashes or addresses).
+        var seen = new HashSet<string>();
+        var closestPeers = new List<DhtNode>(k);
 
-        _logger.LogDebug("Found {Count} nearest peers to target using routing table", closestPeers.Length);
-        return closestPeers;
+        foreach (var peer in _routingTable.GetKNearestNeighbour(targetKey.Hash))
+        {
+            var peerIdStr = peer.PeerId?.ToString();
+            if (peerIdStr != null && !seen.Add(peerIdStr))
+            {
+                _logger.LogDebug("Skipping duplicate peer {PeerId} in nearest-peer results", peerIdStr);
+                continue;
+            }
+
+            closestPeers.Add(peer);
+            if (closestPeers.Count >= k)
+                break;
+        }
+
+        _logger.LogDebug("Found {Count} nearest unique peers to target using routing table", closestPeers.Count);
+        return closestPeers.ToArray();
     }
 
     /// <summary>

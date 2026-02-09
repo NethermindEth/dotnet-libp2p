@@ -34,13 +34,9 @@ dotnet build
 
 # run the sample
 dotnet run
-```
 
-Project reference example (these are the paths we use in the repo):
+# build from repo root
+docker build -f src/samples/transport-interop/Dockerfile -t transport-interop:latest .
+# run from repository root
 
-```xml
-<ProjectReference Include="..\\..\\libp2p\\Libp2p.Core\\Libp2p.Core.csproj" />
-<ProjectReference Include="..\\..\\libp2p\\Libp2p.Protocols.Quic\\Libp2p.Protocols.Quic.csproj" />
-<ProjectReference Include="..\\..\\libp2p\\Libp2p.Protocols.IpTcp\\Libp2p.Protocols.IpTcp.csproj" />
-```
 

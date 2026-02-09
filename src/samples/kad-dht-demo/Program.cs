@@ -418,18 +418,13 @@ namespace KadDhtDemo
                                         if (peerInfo?.Addrs?.Count > 0)
                                         {
                                             var advertisedAddr = peerInfo.Addrs.First();
-                                            var protobufPublicKey = PeerId.ExtractPublicKey(peerId.Bytes);
+                                            var kadPublicKey = new PublicKey(peerId.Bytes);
+                                            var connectedNode = TestNode.WithMultiaddress(kadPublicKey, advertisedAddr);
 
-                                            if (protobufPublicKey != null)
-                                            {
-                                                var kadPublicKey = new PublicKey(protobufPublicKey.Data.Span);
-                                                var connectedNode = TestNode.WithMultiaddress(kadPublicKey, advertisedAddr);
+                                            kad.AddOrRefresh(connectedNode);
+                                            peerIntegrationLogger.LogInformation("✅ Added peer to routing table: {PeerId}", peerId);
 
-                                                kad.AddOrRefresh(connectedNode);
-                                                peerIntegrationLogger.LogInformation("✅ Added peer to routing table: {PeerId}", peerId);
-
-                                                realNetwork.ConnectedPeers.TryRemove(peerId, out _);
-                                            }
+                                            realNetwork.ConnectedPeers.TryRemove(peerId, out _);
                                         }
                                     }
                                 }
@@ -476,10 +471,13 @@ namespace KadDhtDemo
                 Console.WriteLine("\n4. Testing distance-based queries...");
                 try
                 {
-                    for (int distance = 1; distance <= 5; distance++)
+                    for (int distance = 1; distance <= 256; distance++)
                     {
                         var nodesAtDistance = kad.GetAllAtDistance(distance);
-                        Console.WriteLine($"Nodes at distance {distance}: {nodesAtDistance.Length}");
+                        if (nodesAtDistance.Length > 0)
+                        {
+                            Console.WriteLine($"Nodes at distance {distance,3}: {nodesAtDistance.Length}");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -716,15 +714,21 @@ namespace KadDhtDemo
 
                 routingTable.LogDebugInfo();
 
-                // Show distance distribution
+                // Show distance distribution (scan full 256-bit range for real network mode)
                 Console.WriteLine("\n📐 Peer distribution by distance:");
-                for (int distance = 1; distance <= 10; distance++)
+                bool anyDistanceFound = false;
+                for (int distance = 1; distance <= 256; distance++)
                 {
                     var nodesAtDistance = kad.GetAllAtDistance(distance);
                     if (nodesAtDistance.Length > 0)
                     {
-                        Console.WriteLine($"  Distance {distance,2}: {nodesAtDistance.Length} peer(s)");
+                        Console.WriteLine($"  Distance {distance,3}: {nodesAtDistance.Length} peer(s)");
+                        anyDistanceFound = true;
                     }
+                }
+                if (!anyDistanceFound)
+                {
+                    Console.WriteLine("  (no peers found at any distance)");
                 }
             }
 
@@ -1047,14 +1051,18 @@ namespace KadDhtDemo
                 Console.WriteLine($"   Buckets: {bucketCount}");
 
                 var distances = new Dictionary<int, int>();
-                for (int d = 1; d <= 10; d++)
+                for (int d = 1; d <= 256; d++)
                 {
                     var count = kad.GetAllAtDistance(d).Length;
                     if (count > 0)
                     {
                         distances[d] = count;
-                        Console.WriteLine($"   Distance {d}: {count} peer(s)");
+                        Console.WriteLine($"   Distance {d,3}: {count} peer(s)");
                     }
+                }
+                if (distances.Count == 0)
+                {
+                    Console.WriteLine("   (no peers found at any distance)");
                 }
 
                 Console.WriteLine("\n═══════════════════════════════════════════════════════════");
@@ -1276,7 +1284,7 @@ namespace KadDhtDemo
                     var peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
                     var localIdentity = new Identity();
                     var localPeer = peerFactory.Create(localIdentity);
-                    var kadPublicKey = new PublicKey(localIdentity.PublicKey.Data.Span);
+                    var kadPublicKey = new PublicKey(localPeer.Identity.PeerId.Bytes);
 
                     logger.LogInformation("🆔 Local peer created with ID: {PeerId}", localPeer.Identity.PeerId);
 
@@ -1311,8 +1319,7 @@ namespace KadDhtDemo
                         {
                             logger.LogInformation("🔗 Real peer connected: {PeerId}", remotePeerId);
 
-                            // Note: Don't use session.RemoteAddress here - it has ephemeral ports for incoming connections
-                            // Instead, mark peer as connected and let the background task query PeerStore after Identify completes
+                            // Mark peer as connected and let the background task query PeerStore after Identify completes
                             connectedPeersForRouting[remotePeerId] = session.RemoteAddress!;
                         }
                         else

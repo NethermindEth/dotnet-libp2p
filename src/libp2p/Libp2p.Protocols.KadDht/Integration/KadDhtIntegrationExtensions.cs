@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht;
-using System.Reflection;
 
 namespace Libp2p.Protocols.KadDht.Integration;
 
@@ -49,8 +48,17 @@ public static class KadDhtIntegrationExtensions
         // Access the service collection directly (no reflection needed!)
         var services = libp2pBuilder.Services;
 
+        var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
+        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey);
+
         // Register the LibP2P Kademlia message sender
         services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>, LibP2pKademliaMessageSender>();
+
+        // Shared state for routing table access from incoming request handlers
+        var sharedState = new SharedDhtState();
+        services.AddSingleton(sharedState);
+
+        KadDhtProtocol? resolvedProtocol = null;
 
         services.AddSingleton<KadDhtProtocol>(serviceProvider =>
             {
@@ -58,28 +66,29 @@ public static class KadDhtIntegrationExtensions
                 var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
                 var messageSender = serviceProvider.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
 
-                // valueStore and providerStore are captured from outer scope and guaranteed non-null by AddKadDht
-                return new KadDhtProtocol(
+                var protocol = new KadDhtProtocol(
                     localPeer,
                     messageSender,
                     options,
-                    valueStore!,
-                    providerStore!,
+                    dhtValueStore,
+                    dhtProviderStore,
                     loggerFactory);
+
+                if (protocol.RoutingTable != null)
+                    sharedState.SetRoutingTable(protocol.RoutingTable);
+
+                resolvedProtocol = protocol;
+                return protocol;
             });
+
         // Register the high level session protocol once
         builder = builder.AddProtocol<KadDhtProtocol>();
 
-        // Register the protocol extensions for network handlers
-        var dhtOptions = options;
-        var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues);
-        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey);
-
         // Add the request-response protocol handlers
         return builder.AddKadDhtProtocols(
-            // Temporary mapping to TestNode for legacy request/response layer (returns empty set for now)
-            publicKey => Array.Empty<TestNode>(),
-            options: dhtOptions,
+            findNearest: publicKey => sharedState.GetKNearestPeers(publicKey),
+            onPeerSeen: node => resolvedProtocol?.AddNode(node),
+            options: options,
             valueStore: dhtValueStore,
             providerStore: dhtProviderStore);
     }

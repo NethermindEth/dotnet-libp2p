@@ -30,10 +30,13 @@ public class KadDhtProtocol : ISessionProtocol
 
     // Kademlia algorithm components
     private readonly IKademlia<PublicKey, DhtNode>? _kademlia;
+    private readonly IRoutingTable<ValueHash256, DhtNode>? _routingTable;
     private readonly DhtNode _localDhtNode;
     private readonly DhtKeyOperator _keyOperator;
 
     public string Id => "/ipfs/kad/1.0.0";
+
+    public IRoutingTable<ValueHash256, DhtNode>? RoutingTable => _routingTable;
 
     public KadDhtProtocol(
         ILocalPeer localPeer,
@@ -77,17 +80,17 @@ public class KadDhtProtocol : ISessionProtocol
 
             // Use NullLoggerFactory if loggerFactory is null
             var effectiveLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-            var routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, effectiveLoggerFactory);
+            _routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, effectiveLoggerFactory);
 
             // Create additional Kademlia dependencies
-            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, routingTable, nodeHashProvider, messageSender, effectiveLoggerFactory);
-            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
+            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, _routingTable, nodeHashProvider, messageSender, effectiveLoggerFactory);
+            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
 
             // Initialize Kademlia algorithm with network message sender
             _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
                 _keyOperator,
                 messageSender,
-                routingTable,
+                _routingTable,
                 lookupAlgo,
                 loggerFactory ?? NullLoggerFactory.Instance,
                 nodeHealthTracker,
