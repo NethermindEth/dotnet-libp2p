@@ -51,9 +51,7 @@ public class PeerScore
             string topic = kvp.Key;
             TopicScore ts = kvp.Value;
 
-            var topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic);
-            if (topicParams == null)
-                continue;
+            var topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic) ?? new TopicScoreParams();
 
             double topicContribution =
                 topicParams.TopicWeight * ts.CalculateScore(topicParams);
