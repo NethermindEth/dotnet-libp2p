@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 
@@ -13,6 +14,12 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
+
+    /// <summary>
+    /// Exposes the service collection for protocol integration.
+    /// Protocols can register their services here before the peer is built.
+    /// </summary>
+    public IServiceCollection Services => InternalServices;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
