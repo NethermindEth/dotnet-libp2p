@@ -12,8 +12,9 @@ public class KademliaConfig<TNode>
 
     /// <summary>
     /// K, as in the size of the kbucket.
+    /// Default: 20 per libp2p Kademlia DHT spec.
     /// </summary>
-    public int KSize { get; set; } = 16;
+    public int KSize { get; set; } = 20;
 
     /// <summary>
     /// Alpha, as in the parallelism of the lookup algorithm.

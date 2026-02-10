@@ -51,16 +51,22 @@ public static class KadDhtIntegrationExtensions
         var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey);
 
-        services.AddSingleton<LibP2pKademliaMessageSender>();
+        services.AddSingleton<LibP2pKademliaMessageSender>(sp =>
+        {
+            var localPeer = sp.GetRequiredService<ILocalPeer>();
+            var loggerFactory = sp.GetService<ILoggerFactory>();
+            var peerStore = sp.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>();
+            return new LibP2pKademliaMessageSender(localPeer, loggerFactory,
+                onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null);
+        });
         services.AddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<LibP2pKademliaMessageSender>());
         services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
             sp.GetRequiredService<LibP2pKademliaMessageSender>());
 
         // Shared state for routing table access from incoming request handlers
         var sharedState = new SharedDhtState();
+        sharedState.KValue = options.KSize;
         services.AddSingleton(sharedState);
-
-        KadDhtProtocol? resolvedProtocol = null;
 
         services.AddSingleton<KadDhtProtocol>(serviceProvider =>
             {
@@ -81,7 +87,11 @@ public static class KadDhtIntegrationExtensions
                 if (protocol.RoutingTable != null)
                     sharedState.SetRoutingTable(protocol.RoutingTable);
 
-                resolvedProtocol = protocol;
+                // Wire the AddNode callback now that the protocol is fully initialized.
+                // Incoming connections that arrived before this point will have been
+                // buffered in SharedDhtState; from now on they go straight to AddNode.
+                sharedState.AddNodeCallback = protocol.AddNode;
+
                 return protocol;
             });
 
@@ -91,7 +101,14 @@ public static class KadDhtIntegrationExtensions
         // Add the request-response protocol handlers
         return builder.AddKadDhtProtocols(
             findNearest: publicKey => sharedState.GetKNearestPeers(publicKey),
-            onPeerSeen: node => resolvedProtocol?.AddNode(node),
+            onPeerSeen: node =>
+            {
+                // Delegate to SharedDhtState.AddNodeCallback which is set once
+                // KadDhtProtocol is resolved from DI. Before that, AddNodeCallback
+                // is null and the peer is safely skipped (it will be re-discovered
+                // during bootstrap or future lookups).
+                sharedState.AddNodeCallback?.Invoke(node);
+            },
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: dhtValueStore,

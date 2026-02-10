@@ -38,27 +38,31 @@ public sealed class DhtKeyOperator : IKeyOperator<PublicKey, ValueHash256, DhtNo
 
     public PublicKey CreateRandomKeyAtDistance(ValueHash256 nodePrefix, int depth)
     {
-        // Create a random key that has the specified prefix at the given depth
-        // This is used for bucket refresh operations
+        // Bucket refresh: generate a key whose *hash* falls within the target bucket's range.
+        // The routing table operates on SHA-256 hashes, so we must set the prefix bits
+        // directly on the hash and use PublicKey.FromHash to bypass SHA-256 re-hashing.
+        // Setting prefix on raw key bytes and then calling new PublicKey(raw) would go
+        // through SHA-256 again, destroying the prefix entirely.
 
-        byte[] keyBytes = new byte[32]; // 256 bits
-        _rng.GetBytes(keyBytes);
+        byte[] hashBytes = new byte[32]; // 256-bit hash
+        _rng.GetBytes(hashBytes);
 
         // Set the prefix bits to match nodePrefix for the specified depth
         byte[] prefixBytes = nodePrefix.Bytes.ToArray();
 
-        // Copy prefix bits up to the specified depth
-        int bytesToCopy = Math.Min(depth / 8, Math.Min(keyBytes.Length, prefixBytes.Length));
-        Array.Copy(prefixBytes, keyBytes, bytesToCopy);
+        int bytesToCopy = Math.Min(depth / 8, Math.Min(hashBytes.Length, prefixBytes.Length));
+        Array.Copy(prefixBytes, hashBytes, bytesToCopy);
 
         // Handle partial byte if depth is not a multiple of 8
         int remainingBits = depth % 8;
-        if (remainingBits > 0 && bytesToCopy < keyBytes.Length && bytesToCopy < prefixBytes.Length)
+        if (remainingBits > 0 && bytesToCopy < hashBytes.Length && bytesToCopy < prefixBytes.Length)
         {
             byte mask = (byte)(0xFF << (8 - remainingBits));
-            keyBytes[bytesToCopy] = (byte)((keyBytes[bytesToCopy] & ~mask) | (prefixBytes[bytesToCopy] & mask));
+            hashBytes[bytesToCopy] = (byte)((hashBytes[bytesToCopy] & ~mask) | (prefixBytes[bytesToCopy] & mask));
         }
 
-        return new PublicKey(keyBytes);
+        // Create a PublicKey whose .Hash property returns the crafted hash directly,
+        // so routing table lookups target the correct bucket.
+        return PublicKey.FromHash(ValueHash256.FromBytes(hashBytes));
     }
 }

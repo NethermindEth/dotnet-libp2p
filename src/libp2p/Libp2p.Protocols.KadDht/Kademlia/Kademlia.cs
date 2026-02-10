@@ -154,10 +154,12 @@ public class Kademlia<TPublicKey, THash, TNode> : IKademlia<TPublicKey, TNode>
 
         token.ThrowIfCancellationRequested();
 
-        // Refreshes all bucket. one by one. That is not empty.
-        // A refresh means to do a k-nearest node lookup for a random hash for that particular bucket.
+        // Per spec: refresh only non-empty buckets by looking up a random key at that bucket's distance.
         foreach ((THash Prefix, int Distance, KBucket<THash, TNode> Bucket) in _routingTable.IterateBuckets())
         {
+            if (Bucket.Count == 0)
+                continue;
+
             var keyToLookup = _keyOperator.CreateRandomKeyAtDistance(Prefix, Distance);
             await LookupNodesClosest(keyToLookup, token);
         }

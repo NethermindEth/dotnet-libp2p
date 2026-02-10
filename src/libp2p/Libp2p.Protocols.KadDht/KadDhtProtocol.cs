@@ -319,21 +319,34 @@ public class KadDhtProtocol : ISessionProtocol
 
         var targetHash = _keyOperator.GetKeyHash(new PublicKey(key));
 
-        await _lookupAlgo.Lookup(
-            targetHash,
-            _options.KSize,
-            async (node, token) =>
-            {
-                if (node.Equals(_localDhtNode))
-                    return _routingTable!.GetKNearestNeighbour(targetHash);
+        // Early-terminate the lookup once we have enough providers (per spec)
+        using var earlyCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-                var result = await _dhtMessageSender.GetProvidersAsync(node, key, token);
-                foreach (var provider in result.Providers)
-                    providers.TryAdd(provider.PeerId, 0);
+        try
+        {
+            await _lookupAlgo.Lookup(
+                targetHash,
+                _options.KSize,
+                async (node, token) =>
+                {
+                    if (node.Equals(_localDhtNode))
+                        return _routingTable!.GetKNearestNeighbour(targetHash);
 
-                return result.CloserPeers;
-            },
-            cancellationToken);
+                    var result = await _dhtMessageSender.GetProvidersAsync(node, key, token);
+                    foreach (var provider in result.Providers)
+                        providers.TryAdd(provider.PeerId, 0);
+
+                    if (providers.Count >= count)
+                        await earlyCts.CancelAsync();
+
+                    return result.CloserPeers;
+                },
+                earlyCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Early termination — enough providers found
+        }
 
         _logger?.LogInformation("FindProviders found {Count} providers for key {KeyHash}", providers.Count, KeyHashHex(key));
         return providers.Keys.Take(count);

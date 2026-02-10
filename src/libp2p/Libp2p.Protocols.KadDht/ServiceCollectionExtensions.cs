@@ -28,13 +28,20 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IProviderStore>(sp =>
             new InMemoryProviderStore(options.MaxProvidersPerKey, sp.GetService<ILoggerFactory>()));
 
-        services.AddSingleton<SharedDhtState>(sp => new SharedDhtState(null, sp.GetService<ILoggerFactory>()));
+        services.AddSingleton<SharedDhtState>(sp =>
+        {
+            var state = new SharedDhtState(null, sp.GetService<ILoggerFactory>());
+            state.KValue = options.KSize;
+            return state;
+        });
 
         services.AddSingleton<Integration.LibP2pKademliaMessageSender>(sp =>
         {
             var localPeer = sp.GetRequiredService<ILocalPeer>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
-            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory);
+            var peerStore = sp.GetService<PeerStore>();
+            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
+                onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null);
         });
         services.AddSingleton<Integration.IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
         services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
@@ -55,6 +62,8 @@ public static class ServiceCollectionExtensions
             var sharedState = sp.GetService<SharedDhtState>();
             if (protocol.RoutingTable != null && sharedState != null)
                 sharedState.SetRoutingTable(protocol.RoutingTable);
+            if (sharedState != null)
+                sharedState.AddNodeCallback = protocol.AddNode;
 
             return protocol;
         });
@@ -68,6 +77,8 @@ public static class ServiceCollectionExtensions
         var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
         var options = serviceProvider.GetService<KadDhtOptions>() ?? new KadDhtOptions();
         var sharedState = serviceProvider.GetService<SharedDhtState>();
+        if (sharedState != null)
+            sharedState.KValue = options.KSize;
         var valueStore = serviceProvider.GetService<IValueStore>()
             ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = serviceProvider.GetService<IProviderStore>()
@@ -103,6 +114,9 @@ public static class ServiceCollectionExtensions
 
                 if (kadDhtProtocol?.RoutingTable != null)
                     sharedState.SetRoutingTable(kadDhtProtocol.RoutingTable);
+
+                if (kadDhtProtocol != null)
+                    sharedState.AddNodeCallback = kadDhtProtocol.AddNode;
             }
         }
 
@@ -116,8 +130,8 @@ public static class ServiceCollectionExtensions
             onPeerSeen: node =>
             {
                 EnsureInitialized();
-                kadDhtProtocol?.AddNode(node);
-                TryAddToPeerStore(node, peerStore);
+                sharedState?.AddNodeCallback?.Invoke(node);
+                StorePeerAddresses(node, peerStore);
             },
             loggerFactory: loggerFactory,
             isExposed: options.Mode == KadDhtMode.Server,
@@ -128,7 +142,7 @@ public static class ServiceCollectionExtensions
         return builder;
     }
 
-    private static void TryAddToPeerStore(DhtNode node, PeerStore? peerStore)
+    internal static void StorePeerAddresses(DhtNode node, PeerStore? peerStore)
     {
         if (peerStore == null) return;
         try

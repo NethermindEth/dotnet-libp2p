@@ -25,8 +25,16 @@ public class SharedDhtState
 
     /// <summary>
     /// Gets the maximum number of nearest neighbors to return in FindNeighbours responses.
+    /// Must match KademliaConfig.KSize (default 20 per libp2p spec).
     /// </summary>
-    public int KValue { get; set; } = 16;
+    public int KValue { get; set; } = 20;
+
+    /// <summary>
+    /// Optional callback to add a newly-seen peer to the routing table.
+    /// Set once the KadDhtProtocol is fully initialized so that early incoming
+    /// connections can still register peers (avoids the null-closure bug).
+    /// </summary>
+    public Action<DhtNode>? AddNodeCallback { get; set; }
 
     /// <summary>
     /// Gets the distributed value store for the DHT.

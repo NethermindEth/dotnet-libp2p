@@ -220,7 +220,9 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     {
         byte[] bytes => bytes,
         ReadOnlyMemory<byte> rom => rom.ToArray(),
-        PublicKey kadPublicKey => kadPublicKey.Hash.Bytes,
+        // Send raw peer-ID bytes on the wire; the receiver hashes once to get the DHT key.
+        // Sending Hash.Bytes here would cause a double-hash: SHA-256(SHA-256(peerId)).
+        PublicKey kadPublicKey => kadPublicKey.Bytes.ToArray(),
         ValueHash256 valueHash => valueHash.Bytes,
         _ => Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty)
     };

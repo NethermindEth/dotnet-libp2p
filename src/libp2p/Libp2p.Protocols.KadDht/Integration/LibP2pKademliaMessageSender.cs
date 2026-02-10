@@ -16,15 +16,18 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     private readonly ILocalPeer _localPeer;
     private readonly ILogger<LibP2pKademliaMessageSender>? _logger;
     private readonly TimeSpan _operationTimeout;
+    private readonly Action<DhtNode>? _onPeerDiscovered;
 
     public LibP2pKademliaMessageSender(
         ILocalPeer localPeer,
         ILoggerFactory? loggerFactory = null,
-        TimeSpan? operationTimeout = null)
+        TimeSpan? operationTimeout = null,
+        Action<DhtNode>? onPeerDiscovered = null)
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender>();
         _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(10);
+        _onPeerDiscovered = onPeerDiscovered;
     }
 
     public async Task Ping(DhtNode receiver, CancellationToken token = default)
@@ -92,7 +95,23 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             var request = MessageHelper.CreatePutValueRequest(key, value);
             var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
 
-            return response.Record != null;
+            // Per spec: verify the echoed record matches what was sent
+            if (response.Record is null)
+                return false;
+
+            if (!response.Record.Key.Span.SequenceEqual(key))
+            {
+                _logger?.LogWarning("PutValue to {NodeId}: echoed key mismatch", receiver.PeerId);
+                return false;
+            }
+
+            if (!response.Record.Value.Span.SequenceEqual(value))
+            {
+                _logger?.LogWarning("PutValue to {NodeId}: echoed value mismatch", receiver.PeerId);
+                return false;
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
@@ -165,7 +184,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
             return new GetProvidersResult
             {
-                Providers = ParsePeers(response.ProviderPeers),
+                Providers = ParsePeersAndStore(response.ProviderPeers),
                 CloserPeers = ParseCloserPeers(response)
             };
         }
@@ -176,12 +195,12 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         }
     }
 
-    private static DhtNode[] ParseCloserPeers(Message response)
+    private DhtNode[] ParseCloserPeers(Message response)
     {
-        return ParsePeers(response.CloserPeers);
+        return ParsePeersAndStore(response.CloserPeers);
     }
 
-    private static DhtNode[] ParsePeers(IReadOnlyList<Message.Types.Peer> wirePeers)
+    private DhtNode[] ParsePeersAndStore(IReadOnlyList<Message.Types.Peer> wirePeers)
     {
         if (wirePeers.Count == 0) return Array.Empty<DhtNode>();
 
@@ -189,7 +208,12 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         foreach (var wp in wirePeers)
         {
             if (MessageHelper.FromWirePeer(wp) is { } node)
+            {
                 nodes.Add(node);
+                // Per spec: persist discovered peer addresses to peerbook
+                if (_onPeerDiscovered is not null && node.Multiaddrs.Count > 0)
+                    _onPeerDiscovered(node);
+            }
         }
         return nodes.ToArray();
     }
