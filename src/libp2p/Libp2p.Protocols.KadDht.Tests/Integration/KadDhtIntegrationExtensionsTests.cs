@@ -83,7 +83,8 @@ public class KadDhtIntegrationExtensionsTests
         var valueStore = new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
         var messageSender = Substitute.For<global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, DhtNode>>();
-        var dhtProtocol = new KadDhtProtocol(_localPeer, messageSender, options, valueStore, providerStore, loggerFactory);
+        var dhtMessageSender = Substitute.For<IDhtMessageSender>();
+        var dhtProtocol = new KadDhtProtocol(_localPeer, messageSender, dhtMessageSender, options, valueStore, providerStore, loggerFactory);
         _localPeer.GetProtocol<KadDhtProtocol>().Returns(dhtProtocol);
 
         // Act

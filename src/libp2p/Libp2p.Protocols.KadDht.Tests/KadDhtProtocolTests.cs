@@ -30,6 +30,7 @@ public class KadDhtProtocolTests
     private IValueStore _valueStore;
     private IProviderStore _providerStore;
     private KademliaMessageSender _messageSender;
+    private IDhtMessageSender _dhtMessageSender;
 
     [SetUp]
     public void Setup()
@@ -43,7 +44,7 @@ public class KadDhtProtocolTests
         _options = new KadDhtOptions
         {
             KSize = 20,
-            Alpha = 3,
+            Alpha = 10,
             Mode = KadDhtMode.Server,
             MaxStoredValues = 100,
             MaxProvidersPerKey = 20
@@ -52,8 +53,9 @@ public class KadDhtProtocolTests
         _valueStore = new InMemoryValueStore(_options.MaxStoredValues, _loggerFactory);
         _providerStore = new InMemoryProviderStore(_options.MaxProvidersPerKey, _loggerFactory);
         _messageSender = Substitute.For<KademliaMessageSender>();
+        _dhtMessageSender = Substitute.For<IDhtMessageSender>();
 
-        _protocol = new KadDhtProtocol(_localPeer, _messageSender, _options, _valueStore, _providerStore, _loggerFactory);
+        _protocol = new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
     }
 
     [TearDown]
@@ -67,28 +69,28 @@ public class KadDhtProtocolTests
     public void Constructor_WithNullLocalPeer_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new KadDhtProtocol(null!, _messageSender, _options, _valueStore, _providerStore, _loggerFactory));
+            new KadDhtProtocol(null!, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory));
     }
 
     [Test]
     public void Constructor_WithNullOptions_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new KadDhtProtocol(_localPeer, _messageSender, null!, _valueStore, _providerStore, _loggerFactory));
+            new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender, null!, _valueStore, _providerStore, _loggerFactory));
     }
 
     [Test]
     public void Constructor_WithNullValueStore_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new KadDhtProtocol(_localPeer, _messageSender, _options, null!, _providerStore, _loggerFactory));
+            new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender, _options, null!, _providerStore, _loggerFactory));
     }
 
     [Test]
     public void Constructor_WithNullProviderStore_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new KadDhtProtocol(_localPeer, _messageSender, _options, _valueStore, null!, _loggerFactory));
+            new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, null!, _loggerFactory));
     }
 
     [Test]
@@ -262,7 +264,7 @@ public class KadDhtProtocolTests
     {
         // Arrange
         _options.Mode = KadDhtMode.Client;
-        var clientProtocol = new KadDhtProtocol(_localPeer, _messageSender, _options, _valueStore, _providerStore, _loggerFactory);
+        var clientProtocol = new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
         byte[] key = Encoding.UTF8.GetBytes("test-key");
 
         // Act

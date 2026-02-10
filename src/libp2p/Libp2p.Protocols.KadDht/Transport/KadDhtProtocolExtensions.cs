@@ -30,7 +30,8 @@ public static class KadDhtProtocolExtensions
         bool isExposed = true,
         KadDhtOptions? options = null,
         IValueStore? valueStore = null,
-        IProviderStore? providerStore = null)
+        IProviderStore? providerStore = null,
+        IRecordValidator? validator = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(findNearest);
@@ -38,6 +39,7 @@ public static class KadDhtProtocolExtensions
         var dhtOptions = options ?? new KadDhtOptions();
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, loggerFactory);
+        var dhtValidator = validator ?? DefaultRecordValidator.Instance;
 
         builder = builder.AddRequestResponseProtocol<Message, Message>(
             baseId,
@@ -51,13 +53,13 @@ public static class KadDhtProtocolExtensions
 
                     Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest, ctx),
 
-                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, loggerFactory),
+                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, dhtValidator, loggerFactory),
 
                     Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtValueStore, findNearest, loggerFactory),
 
-                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, dhtOptions, dhtProviderStore, loggerFactory),
+                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory),
 
-                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtProviderStore, loggerFactory),
+                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtProviderStore, findNearest, loggerFactory),
 
                     _ => new Message()
                 };
@@ -78,7 +80,7 @@ public static class KadDhtProtocolExtensions
     }
 
     private static async Task<Message> HandlePutValue(Message request, KadDhtOptions options,
-        IValueStore valueStore, ILoggerFactory? loggerFactory)
+        IValueStore valueStore, IRecordValidator validator, ILoggerFactory? loggerFactory)
     {
         try
         {
@@ -88,14 +90,20 @@ public static class KadDhtProtocolExtensions
             if (request.Record == null || request.Record.Value.Length > options.MaxValueSize)
                 return MessageHelper.CreatePutValueResponse();
 
+            byte[] key = request.Key.ToByteArray();
+            byte[] value = request.Record.Value.ToByteArray();
+
+            if (!validator.Validate(key, value))
+                return MessageHelper.CreatePutValueResponse();
+
             var storedValue = new StoredValue
             {
-                Value = request.Record.Value.ToByteArray(),
+                Value = value,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 Ttl = options.RecordTtl
             };
 
-            await valueStore.PutValueAsync(request.Key.ToByteArray(), storedValue);
+            await valueStore.PutValueAsync(key, storedValue);
             return MessageHelper.CreatePutValueResponse(request.Record);
         }
         catch (Exception ex)
@@ -111,6 +119,9 @@ public static class KadDhtProtocolExtensions
     {
         try
         {
+            var target = new PublicKey(request.Key.ToByteArray());
+            var closerPeers = findNearest(target);
+
             var storedValue = await valueStore.GetValueAsync(request.Key.ToByteArray());
             if (storedValue != null)
             {
@@ -120,10 +131,9 @@ public static class KadDhtProtocolExtensions
                     Value = ByteString.CopyFrom(storedValue.Value),
                     TimeReceived = DateTimeOffset.FromUnixTimeSeconds(storedValue.Timestamp).ToString("o")
                 };
-                return MessageHelper.CreateGetValueResponse(record);
+                return MessageHelper.CreateGetValueResponse(record, closerPeers);
             }
-            var target = new PublicKey(request.Key.ToByteArray());
-            return MessageHelper.CreateGetValueResponse(closerPeers: findNearest(target));
+            return MessageHelper.CreateGetValueResponse(closerPeers: closerPeers);
         }
         catch (Exception ex)
         {
@@ -133,7 +143,7 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleAddProvider(Message request, KadDhtOptions options,
+    private static async Task<Message> HandleAddProvider(Message request, ISessionContext ctx, KadDhtOptions options,
         IProviderStore providerStore, ILoggerFactory? loggerFactory)
     {
         try
@@ -141,18 +151,30 @@ public static class KadDhtProtocolExtensions
             if (options.Mode != KadDhtMode.Server)
                 return new Message { Type = Message.Types.MessageType.AddProvider };
 
+            var senderPeerId = ctx.State.RemoteAddress?.GetPeerId();
+
             foreach (var wirePeer in request.ProviderPeers)
             {
+                var providerPeerId = new PeerId(wirePeer.Id.ToByteArray());
+
+                if (senderPeerId != null && !providerPeerId.Equals(senderPeerId))
+                {
+                    loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
+                        ?.LogWarning("ADD_PROVIDER rejected: provider PeerId {ProviderId} does not match sender {SenderId}",
+                            providerPeerId, senderPeerId);
+                    continue;
+                }
+
                 var providerRecord = new ProviderRecord
                 {
-                    PeerId = new PeerId(wirePeer.Id.ToByteArray()),
+                    PeerId = providerPeerId,
                     Multiaddrs = wirePeer.Addrs.Select(a =>
                     {
                         try { return Multiformats.Address.Multiaddress.Decode(a.ToByteArray()).ToString(); }
                         catch { return ""; }
                     }).Where(s => !string.IsNullOrEmpty(s)).ToArray(),
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                    Ttl = options.RecordTtl
+                    Ttl = options.ProviderRecordTtl
                 };
 
                 await providerStore.AddProviderAsync(request.Key.ToByteArray(), providerRecord);
@@ -168,21 +190,21 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleGetProviders(Message request, IProviderStore providerStore, ILoggerFactory? loggerFactory)
+    private static async Task<Message> HandleGetProviders(Message request, IProviderStore providerStore,
+        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory)
     {
         try
         {
             var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), 20);
+            var target = new PublicKey(request.Key.ToByteArray());
             var response = MessageHelper.CreateGetProvidersResponse(
-                providerPeers: providers.Select(p =>
+                providerPeers: providers.Select(p => new Integration.DhtNode
                 {
-                    return new Integration.DhtNode
-                    {
-                        PeerId = p.PeerId,
-                        PublicKey = new PublicKey(p.PeerId.Bytes),
-                        Multiaddrs = p.Multiaddrs
-                    };
-                }));
+                    PeerId = p.PeerId,
+                    PublicKey = new PublicKey(p.PeerId.Bytes),
+                    Multiaddrs = p.Multiaddrs
+                }),
+                closerPeers: findNearest(target));
             return response;
         }
         catch (Exception ex)

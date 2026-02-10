@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
+using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
@@ -10,11 +11,7 @@ using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht.Integration;
 
-/// <summary>
-/// Libp2p Kademlia message sender using the spec-compliant unified Message envelope.
-/// Uses the single /ipfs/kad/1.0.0 protocol for all DHT operations.
-/// </summary>
-public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<PublicKey, DhtNode>
+public class LibP2pKademliaMessageSender : IDhtMessageSender
 {
     private readonly ILocalPeer _localPeer;
     private readonly ILogger<LibP2pKademliaMessageSender>? _logger;
@@ -68,12 +65,7 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
             var request = MessageHelper.CreateFindNodeRequest(target.Bytes.ToArray());
             var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
 
-            var nodes = response.CloserPeers
-                .Select(MessageHelper.FromWirePeer)
-                .Where(n => n != null)
-                .Cast<DhtNode>()
-                .ToArray();
-
+            var nodes = ParseCloserPeers(response);
             _logger?.LogDebug("Received {Count} neighbours from {NodeId}", nodes.Length, receiver.PeerId);
             return nodes;
         }
@@ -89,9 +81,121 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
         }
     }
 
+    public async Task<bool> PutValueAsync(DhtNode receiver, byte[] key, byte[] value, CancellationToken token = default)
+    {
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(_operationTimeout);
+
+            var session = await DialNodeAsync(receiver, timeoutCts.Token);
+            var request = MessageHelper.CreatePutValueRequest(key, value);
+            var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
+
+            return response.Record != null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "PutValue to {NodeId} failed", receiver.PeerId);
+            return false;
+        }
+    }
+
+    public async Task<GetValueResult> GetValueAsync(DhtNode receiver, byte[] key, CancellationToken token = default)
+    {
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(_operationTimeout);
+
+            var session = await DialNodeAsync(receiver, timeoutCts.Token);
+            var request = MessageHelper.CreateGetValueRequest(key);
+            var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
+
+            byte[]? value = null;
+            long timestamp = 0;
+            if (response.Record is { Value.IsEmpty: false })
+            {
+                value = response.Record.Value.ToByteArray();
+                if (response.Record.HasTimeReceived && DateTimeOffset.TryParse(response.Record.TimeReceived, out var dto))
+                    timestamp = dto.ToUnixTimeSeconds();
+            }
+
+            return new GetValueResult
+            {
+                Value = value,
+                Timestamp = timestamp,
+                CloserPeers = ParseCloserPeers(response)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "GetValue from {NodeId} failed", receiver.PeerId);
+            return new GetValueResult();
+        }
+    }
+
+    public async Task AddProviderAsync(DhtNode receiver, byte[] key, DhtNode provider, CancellationToken token = default)
+    {
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(_operationTimeout);
+
+            var session = await DialNodeAsync(receiver, timeoutCts.Token);
+            var request = MessageHelper.CreateAddProviderRequest(key, new[] { provider });
+            await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "AddProvider to {NodeId} failed", receiver.PeerId);
+        }
+    }
+
+    public async Task<GetProvidersResult> GetProvidersAsync(DhtNode receiver, byte[] key, CancellationToken token = default)
+    {
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(_operationTimeout);
+
+            var session = await DialNodeAsync(receiver, timeoutCts.Token);
+            var request = MessageHelper.CreateGetProvidersRequest(key);
+            var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
+
+            return new GetProvidersResult
+            {
+                Providers = ParsePeers(response.ProviderPeers),
+                CloserPeers = ParseCloserPeers(response)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "GetProviders from {NodeId} failed", receiver.PeerId);
+            return new GetProvidersResult();
+        }
+    }
+
+    private static DhtNode[] ParseCloserPeers(Message response)
+    {
+        return ParsePeers(response.CloserPeers);
+    }
+
+    private static DhtNode[] ParsePeers(IReadOnlyList<Message.Types.Peer> wirePeers)
+    {
+        if (wirePeers.Count == 0) return Array.Empty<DhtNode>();
+
+        var nodes = new List<DhtNode>(wirePeers.Count);
+        foreach (var wp in wirePeers)
+        {
+            if (MessageHelper.FromWirePeer(wp) is { } node)
+                nodes.Add(node);
+        }
+        return nodes.ToArray();
+    }
+
     private async Task<ISession> DialNodeAsync(DhtNode targetNode, CancellationToken cancellationToken)
     {
-        // Try known multiaddresses from the node
         foreach (var addrStr in targetNode.Multiaddrs)
         {
             if (string.IsNullOrWhiteSpace(addrStr)) continue;
@@ -106,7 +210,6 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
             }
         }
 
-        // Fallback to peer ID only (for mDNS-discovered peers)
         try
         {
             var basicAddress = Multiaddress.Decode($"/p2p/{targetNode.PeerId}");
@@ -116,10 +219,5 @@ public class LibP2pKademliaMessageSender : Kademlia.IKademliaMessageSender<Publi
         {
             throw new InvalidOperationException($"Unable to connect to node {targetNode.PeerId}", ex);
         }
-    }
-
-    public void Dispose()
-    {
-        _logger?.LogDebug("LibP2p Kademlia message sender disposed");
     }
 }

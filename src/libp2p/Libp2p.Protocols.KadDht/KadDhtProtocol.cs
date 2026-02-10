@@ -14,11 +14,6 @@ using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
-/// <summary>
-/// Main Kad-DHT protocol implementation that provides the public API for DHT operations.
-/// This class implements ISessionProtocol but primarily serves as a coordinator for
-/// various DHT operations using the underlying Kademlia algorithm and storage systems.
-/// </summary>
 public class KadDhtProtocol : ISessionProtocol
 {
     private readonly ILocalPeer _localPeer;
@@ -26,13 +21,18 @@ public class KadDhtProtocol : ISessionProtocol
     private readonly KadDhtOptions _options;
     private readonly IValueStore _valueStore;
     private readonly IProviderStore _providerStore;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _operationLocks;
+    private readonly IDhtMessageSender _dhtMessageSender;
+    private readonly IRecordValidator _validator;
 
-    // Kademlia algorithm components
     private readonly IKademlia<PublicKey, DhtNode>? _kademlia;
     private readonly IRoutingTable<ValueHash256, DhtNode>? _routingTable;
+    private readonly ILookupAlgo<ValueHash256, DhtNode>? _lookupAlgo;
     private readonly DhtNode _localDhtNode;
     private readonly DhtKeyOperator _keyOperator;
+    private readonly DhtNodeHashProvider _nodeHashProvider;
+
+    private readonly ConcurrentDictionary<string, byte[]> _locallyPublishedValues = new();
+    private readonly ConcurrentDictionary<string, byte[]> _locallyProvidedKeys = new();
 
     public string Id => "/ipfs/kad/1.0.0";
 
@@ -41,22 +41,24 @@ public class KadDhtProtocol : ISessionProtocol
     public KadDhtProtocol(
         ILocalPeer localPeer,
         Kademlia.IKademliaMessageSender<PublicKey, DhtNode> messageSender,
+        IDhtMessageSender dhtMessageSender,
         KadDhtOptions options,
         IValueStore valueStore,
         IProviderStore providerStore,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        IRecordValidator? validator = null)
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<KadDhtProtocol>();
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _valueStore = valueStore ?? throw new ArgumentNullException(nameof(valueStore));
         _providerStore = providerStore ?? throw new ArgumentNullException(nameof(providerStore));
-        _operationLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+        _dhtMessageSender = dhtMessageSender ?? throw new ArgumentNullException(nameof(dhtMessageSender));
+        _validator = validator ?? DefaultRecordValidator.Instance;
 
-        // Initialize Kademlia algorithm components
         _keyOperator = new DhtKeyOperator();
+        _nodeHashProvider = new DhtNodeHashProvider();
 
-        // Create local DHT node representation
         var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
         _localDhtNode = new DhtNode
         {
@@ -65,38 +67,33 @@ public class KadDhtProtocol : ISessionProtocol
             Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
         };
 
-        // Initialize Kademlia algorithm with proper network message sender
         try
         {
-            var nodeHashProvider = new DhtNodeHashProvider();
             var kademliaConfig = new KademliaConfig<DhtNode>
             {
                 CurrentNodeId = _localDhtNode,
                 KSize = _options.KSize,
                 Alpha = _options.Alpha,
                 RefreshInterval = _options.RefreshInterval,
-                BootNodes = Array.Empty<DhtNode>() // Bootstrap nodes will be added via AddNode method
+                BootNodes = Array.Empty<DhtNode>()
             };
 
-            // Use NullLoggerFactory if loggerFactory is null
             var effectiveLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-            _routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, nodeHashProvider, effectiveLoggerFactory);
+            _routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, _nodeHashProvider, effectiveLoggerFactory);
 
-            // Create additional Kademlia dependencies
-            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, _routingTable, nodeHashProvider, messageSender, effectiveLoggerFactory);
-            var lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
+            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, _routingTable, _nodeHashProvider, messageSender, effectiveLoggerFactory);
+            _lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, _nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
 
-            // Initialize Kademlia algorithm with network message sender
             _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
                 _keyOperator,
                 messageSender,
                 _routingTable,
-                lookupAlgo,
-                loggerFactory ?? NullLoggerFactory.Instance,
+                _lookupAlgo,
+                effectiveLoggerFactory,
                 nodeHealthTracker,
                 kademliaConfig);
 
-            _logger?.LogInformation("Kad-DHT protocol initialized with full Kademlia algorithm in {Mode} mode with K={KSize}, Alpha={Alpha}",
+            _logger?.LogInformation("Kad-DHT initialized in {Mode} mode, K={KSize}, Alpha={Alpha}",
                 _options.Mode, _options.KSize, _options.Alpha);
         }
         catch (Exception ex)
@@ -109,544 +106,383 @@ public class KadDhtProtocol : ISessionProtocol
 
     #region Public DHT API
 
-    /// <summary>
-    /// Store a value in the DHT.
-    /// </summary>
-    /// <param name="key">The key to store the value under.</param>
-    /// <param name="value">The value to store.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True if the value was stored successfully.</returns>
     public async Task<bool> PutValueAsync(byte[] key, byte[] value, CancellationToken cancellationToken = default)
     {
-        if (key == null) throw new ArgumentNullException(nameof(key));
-        if (value == null) throw new ArgumentNullException(nameof(value));
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(value);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
         if (value.Length == 0) throw new ArgumentException("Value cannot be empty", nameof(value));
         if (value.Length > _options.MaxValueSize)
-        {
             throw new ArgumentException($"Value size {value.Length} exceeds maximum {_options.MaxValueSize}", nameof(value));
+
+        if (!_validator.Validate(key, value))
+        {
+            _logger?.LogWarning("PutValue rejected by validator for key {KeyHash}", KeyHashHex(key));
+            return false;
         }
 
-        _logger?.LogDebug("PutValue requested for key of length {KeyLength}, value of length {ValueLength}",
-            key.Length, value.Length);
-
-        try
+        if (_kademlia is null)
         {
-            var storedValue = new StoredValue
-            {
-                Value = value,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Publisher = _localPeer.Identity.PeerId,
-                Ttl = _options.RecordTtl
-            };
+            _logger?.LogWarning("PutValue unavailable — Kademlia not initialized");
+            return false;
+        }
 
-            bool localStoreSuccess = false;
+        var storedValue = new StoredValue
+        {
+            Value = value,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            Publisher = _localPeer.Identity.PeerId,
+            Ttl = _options.RecordTtl
+        };
 
-            // For server mode, store the value locally
-            if (_options.Mode == KadDhtMode.Server)
-            {
-                localStoreSuccess = await _valueStore.PutValueAsync(key, storedValue, cancellationToken);
+        int successCount = 0;
 
-                if (localStoreSuccess)
-                {
-                    _logger?.LogInformation("Successfully stored value locally for key hash {KeyHash}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                }
-                else
-                {
-                    _logger?.LogWarning("Failed to store value locally for key hash {KeyHash}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                }
-            }
+        if (_options.Mode == KadDhtMode.Server)
+        {
+            if (await _valueStore.PutValueAsync(key, storedValue, cancellationToken))
+                successCount++;
+        }
 
-            // Use Kademlia algorithm to find the closest nodes and replicate the value
-            if (_kademlia != null)
+        var targetKey = new PublicKey(key);
+        var closestNodes = await _kademlia.LookupNodesClosest(targetKey, cancellationToken);
+
+        var tasks = closestNodes
+            .Where(n => !n.Equals(_localDhtNode))
+            .Take(_options.KSize)
+            .Select(async node =>
             {
                 try
                 {
-                    var targetKey = new PublicKey(key);
-                    var closestNodes = await _kademlia.LookupNodesClosest(targetKey, cancellationToken);
-
-                    _logger?.LogTrace("Found {NodeCount} closest nodes for value replication", closestNodes.Length);
-
-                    // Store the value on the K closest nodes (including ourselves if we're in server mode)
-                    int successfulStores = localStoreSuccess ? 1 : 0;
-                    var storeTasks = new List<Task<bool>>();
-
-                    foreach (var node in closestNodes.Take(_options.KSize))
-                    {
-                        // Skip our own node since we already stored locally
-                        if (node.Equals(_localDhtNode))
-                            continue;
-
-                        storeTasks.Add(Task.Run(async () =>
-                        {
-                            try
-                            {
-                                _logger?.LogTrace("Replicating value to node {NodeId}", node.PeerId);
-
-                                // Send PutValue request to the node using network protocols
-                                await PutValueToNodeAsync(node, key, storedValue, cancellationToken);
-                                return true;
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger?.LogTrace("Failed to replicate value to node {NodeId}: {Error}", node.PeerId, ex.Message);
-                                return false;
-                            }
-                        }, cancellationToken));
-                    }
-
-                    // Wait for all replication attempts
-                    var results = await Task.WhenAll(storeTasks);
-                    successfulStores += results.Count(r => r);
-
-                    _logger?.LogInformation("Successfully replicated value to {SuccessfulStores} nodes for key hash {KeyHash}",
-                        successfulStores, Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-
-                    // Consider success if we stored locally or replicated to at least one node
-                    return successfulStores > 0;
+                    if (await _dhtMessageSender.PutValueAsync(node, key, value, cancellationToken))
+                        Interlocked.Increment(ref successCount);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning(ex, "Value replication failed for key hash {KeyHash}: {ErrorMessage}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
+                    _logger?.LogTrace("PutValue to {NodeId} failed: {Error}", node.PeerId, ex.Message);
                 }
-            }
+            });
 
-            // If we don't have Kademlia or replication failed, return local store result
-            // For client mode without Kademlia, this will be false
-            if (_options.Mode == KadDhtMode.Client && _kademlia == null)
-            {
-                _logger?.LogWarning("PutValue operation not supported in client mode without network capability");
-                return false;
-            }
+        await Task.WhenAll(tasks);
 
-            return localStoreSuccess;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Error storing value for key hash {KeyHash}: {ErrorMessage}",
-                Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
-            return false;
-        }
+        _logger?.LogInformation("PutValue replicated to {Count} nodes for key {KeyHash}", successCount, KeyHashHex(key));
+
+        if (successCount > 0)
+            _locallyPublishedValues[Convert.ToBase64String(key)] = key;
+
+        return successCount > 0;
     }
 
-    /// <summary>
-    /// Retrieve a value from the DHT.
-    /// </summary>
-    /// <param name="key">The key to look up.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The value if found, null otherwise.</returns>
     public async Task<byte[]?> GetValueAsync(byte[] key, CancellationToken cancellationToken = default)
     {
-        if (key == null) throw new ArgumentNullException(nameof(key));
+        ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
 
-        _logger?.LogDebug("GetValue requested for key of length {KeyLength}", key.Length);
-
-        try
+        var localValue = await _valueStore.GetValueAsync(key, cancellationToken);
+        if (localValue is { Value.Length: > 0 })
         {
-            // First, check local storage
-            var storedValue = await _valueStore.GetValueAsync(key, cancellationToken);
-            if (storedValue != null)
-            {
-                _logger?.LogInformation("Found value locally for key hash {KeyHash}",
-                    Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                return storedValue.Value;
-            }
+            _logger?.LogDebug("GetValue found locally for key {KeyHash}", KeyHashHex(key));
+            return localValue.Value;
+        }
 
-            // Use Kademlia algorithm for network lookup if available
-            if (_kademlia != null)
-            {
-                _logger?.LogDebug("Performing network lookup for key hash {KeyHash}",
-                    Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
+        if (_kademlia is null || _lookupAlgo is null)
+            return null;
 
+        var collectedValues = new ConcurrentBag<byte[]>();
+        var nodesWithStaleValue = new ConcurrentBag<DhtNode>();
+
+        var targetHash = _keyOperator.GetKeyHash(new PublicKey(key));
+
+        await _lookupAlgo.Lookup(
+            targetHash,
+            _options.KSize,
+            async (node, token) =>
+            {
+                if (node.Equals(_localDhtNode))
+                    return _routingTable!.GetKNearestNeighbour(targetHash);
+
+                var result = await _dhtMessageSender.GetValueAsync(node, key, token);
+                if (result.HasValue)
+                {
+                    if (_validator.Validate(key, result.Value))
+                        collectedValues.Add(result.Value!);
+                    else
+                        nodesWithStaleValue.Add(node);
+                }
+
+                return result.CloserPeers;
+            },
+            cancellationToken);
+
+        if (collectedValues.IsEmpty)
+        {
+            _logger?.LogDebug("GetValue: no value found on network for key {KeyHash}", KeyHashHex(key));
+            return null;
+        }
+
+        var valuesList = collectedValues.ToList();
+        int bestIndex = _validator.Select(key, valuesList);
+        if (bestIndex < 0)
+            return null;
+
+        var bestValue = valuesList[bestIndex];
+
+        // Entry correction: PUT_VALUE back to nodes that had stale/missing values
+        if (nodesWithStaleValue.Count > 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                foreach (var staleNode in nodesWithStaleValue)
+                {
+                    try { await _dhtMessageSender.PutValueAsync(staleNode, key, bestValue, CancellationToken.None); }
+                    catch { /* best-effort correction */ }
+                }
+            }, CancellationToken.None);
+        }
+
+        _logger?.LogInformation("GetValue found {Count} records for key {KeyHash}, selected best", valuesList.Count, KeyHashHex(key));
+        return bestValue;
+    }
+
+    public async Task<bool> ProvideAsync(byte[] key, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
+
+        if (_kademlia is null)
+        {
+            _logger?.LogWarning("Provide unavailable — Kademlia not initialized");
+            return false;
+        }
+
+        int successCount = 0;
+
+        if (_options.Mode == KadDhtMode.Server)
+        {
+            var record = new ProviderRecord
+            {
+                PeerId = _localPeer.Identity.PeerId,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Ttl = _options.RecordTtl,
+                Multiaddrs = _localPeer.ListenAddresses.Select(a => a.ToString()).ToArray()
+            };
+            if (await _providerStore.AddProviderAsync(key, record, cancellationToken))
+                successCount++;
+        }
+
+        var targetKey = new PublicKey(key);
+        var closestNodes = await _kademlia.LookupNodesClosest(targetKey, cancellationToken);
+
+        var tasks = closestNodes
+            .Where(n => !n.Equals(_localDhtNode))
+            .Take(_options.KSize)
+            .Select(async node =>
+            {
                 try
                 {
-                    var targetKey = new PublicKey(key);
-                    var closestNodes = await _kademlia.LookupNodesClosest(targetKey, cancellationToken);
-
-                    _logger?.LogTrace("Found {NodeCount} closest nodes for lookup", closestNodes.Length);
-
-                    // Query the closest nodes for the value
-                    foreach (var node in closestNodes.Take(_options.Alpha))
-                    {
-                        try
-                        {
-                            // Query this node for the value using the GetValue protocol
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            _logger?.LogTrace("Querying node {NodeId} for value", node.PeerId);
-
-                            // Get value from remote node using network protocols
-                            var remoteValue = await GetValueFromNodeAsync(node, key, cancellationToken);
-                            if (remoteValue != null)
-                            {
-                                _logger?.LogInformation("Found value on remote node {NodeId} for key hash {KeyHash}",
-                                    node.PeerId, Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                                return remoteValue;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogTrace("Failed to query node {NodeId}: {Error}", node.PeerId, ex.Message);
-                            continue;
-                        }
-                    }
+                    await _dhtMessageSender.AddProviderAsync(node, key, _localDhtNode, cancellationToken);
+                    Interlocked.Increment(ref successCount);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning(ex, "Network lookup failed for key hash {KeyHash}: {ErrorMessage}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
+                    _logger?.LogTrace("AddProvider to {NodeId} failed: {Error}", node.PeerId, ex.Message);
                 }
-            }
+            });
 
-            _logger?.LogDebug("Value not found for key hash {KeyHash}",
-                Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Error retrieving value for key hash {KeyHash}: {ErrorMessage}",
-                Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
-            return null;
-        }
+        await Task.WhenAll(tasks);
+
+        _logger?.LogInformation("Provide announced to {Count} nodes for key {KeyHash}", successCount, KeyHashHex(key));
+
+        if (successCount > 0)
+            _locallyProvidedKeys[Convert.ToBase64String(key)] = key;
+
+        return successCount > 0;
     }
 
-    /// <summary>
-    /// Announce that this node can provide content for a given key.
-    /// </summary>
-    /// <param name="key">The key being provided.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True if the announcement was successful.</returns>
-    public async Task<bool> ProvideAsync(byte[] key, CancellationToken cancellationToken = default)
-    {
-        if (key == null) throw new ArgumentNullException(nameof(key));
-        if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
-
-        _logger?.LogDebug("Provide requested for key of length {KeyLength}", key.Length);
-
-        try
-        {
-            // For server mode, store the provider record locally
-            if (_options.Mode == KadDhtMode.Server)
-            {
-                var providerRecord = new ProviderRecord
-                {
-                    PeerId = _localPeer.Identity.PeerId,
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                    Ttl = _options.RecordTtl,
-                    // TODO: Get actual multiaddresses from the local peer
-                    Multiaddrs = Array.Empty<string>()
-                };
-
-                bool added = await _providerStore.AddProviderAsync(key, providerRecord, cancellationToken);
-
-                if (added)
-                {
-                    _logger?.LogInformation("Successfully announced as provider for key hash {KeyHash}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                    return true;
-                }
-                else
-                {
-                    _logger?.LogWarning("Failed to announce as provider for key hash {KeyHash}",
-                        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-                    return false;
-                }
-            }
-
-            // For client mode, we would need to send the provider record to appropriate nodes
-            _logger?.LogWarning("Provide operation rejected in client mode");
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Error announcing provider for key hash {KeyHash}: {ErrorMessage}",
-                Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Find providers for a given key.
-    /// </summary>
-    /// <param name="key">The key to find providers for.</param>
-    /// <param name="count">Maximum number of providers to return.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Collection of provider PeerIds.</returns>
     public async Task<IEnumerable<PeerId>> FindProvidersAsync(byte[] key, int count, CancellationToken cancellationToken = default)
     {
-        if (key == null) throw new ArgumentNullException(nameof(key));
+        ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
         if (count <= 0) throw new ArgumentException("Count must be positive", nameof(count));
 
-        _logger?.LogDebug("FindProviders requested for key of length {KeyLength}, count {Count}", key.Length, count);
+        var providers = new ConcurrentDictionary<PeerId, byte>();
 
-        try
-        {
-            // First, check local provider records
-            var providers = await _providerStore.GetProvidersAsync(key, count, cancellationToken);
-            var providerPeerIds = providers.Select(p => p.PeerId).ToList();
+        // Check local store first
+        var localProviders = await _providerStore.GetProvidersAsync(key, count, cancellationToken);
+        foreach (var p in localProviders)
+            providers.TryAdd(p.PeerId, 0);
 
-            if (providerPeerIds.Count > 0)
+        if (providers.Count >= count)
+            return providers.Keys.Take(count);
+
+        if (_lookupAlgo is null)
+            return providers.Keys;
+
+        var targetHash = _keyOperator.GetKeyHash(new PublicKey(key));
+
+        await _lookupAlgo.Lookup(
+            targetHash,
+            _options.KSize,
+            async (node, token) =>
             {
-                _logger?.LogInformation("Found {ProviderCount} providers locally for key hash {KeyHash}",
-                    providerPeerIds.Count, Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-            }
-            else
-            {
-                _logger?.LogDebug("No providers found locally for key hash {KeyHash}",
-                    Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)));
-            }
+                if (node.Equals(_localDhtNode))
+                    return _routingTable!.GetKNearestNeighbour(targetHash);
 
-            // TODO: Implement network lookup using the Kademlia algorithm if we need more providers
+                var result = await _dhtMessageSender.GetProvidersAsync(node, key, token);
+                foreach (var provider in result.Providers)
+                    providers.TryAdd(provider.PeerId, 0);
 
-            return providerPeerIds;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Error finding providers for key hash {KeyHash}: {ErrorMessage}",
-                Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2)), ex.Message);
-            return Enumerable.Empty<PeerId>();
-        }
+                return result.CloserPeers;
+            },
+            cancellationToken);
+
+        _logger?.LogInformation("FindProviders found {Count} providers for key {KeyHash}", providers.Count, KeyHashHex(key));
+        return providers.Keys.Take(count);
     }
 
     #endregion
 
     #region ISessionProtocol Implementation
 
-    /// <summary>
-    /// Handle outgoing DHT protocol connections.
-    /// This method is called when we initiate a connection to a remote peer.
-    /// </summary>
-    public async Task DialAsync(IChannel channel, ISessionContext context)
-    {
-        _logger?.LogDebug("Kad-DHT DialAsync started with peer {RemotePeerId}", context.State.RemotePeerId);
+    public Task DialAsync(IChannel channel, ISessionContext context) => Task.CompletedTask;
 
-        // For now, this is a placeholder implementation
-        // In a full implementation, this would handle outgoing requests like:
-        // - FindNode queries
-        // - GetValue requests  
-        // - PutValue operations
-        // - GetProviders queries
-        // - AddProvider announcements
-
-        // The actual protocol interactions would be implemented using sub-protocols
-        // registered in the KadDhtProtocolExtensions
-
-        await Task.CompletedTask;
-
-        _logger?.LogDebug("Kad-DHT DialAsync completed with peer {RemotePeerId}", context.State.RemotePeerId);
-    }
-
-    /// <summary>
-    /// Handle incoming DHT protocol connections.
-    /// This method is called when a remote peer connects to us.
-    /// </summary>
-    public async Task ListenAsync(IChannel channel, ISessionContext context)
-    {
-        _logger?.LogDebug("Kad-DHT ListenAsync started with peer {RemotePeerId}", context.State.RemotePeerId);
-
-        // For now, this is a placeholder implementation
-        // In a full implementation, this would handle incoming requests like:
-        // - Responding to FindNode queries
-        // - Serving GetValue requests
-        // - Accepting PutValue operations (if in server mode)
-        // - Responding to GetProviders queries
-        // - Processing AddProvider announcements
-
-        // The actual protocol interactions would be implemented using sub-protocols
-        // registered in the KadDhtProtocolExtensions
-
-        await Task.CompletedTask;
-
-        _logger?.LogDebug("Kad-DHT ListenAsync completed with peer {RemotePeerId}", context.State.RemotePeerId);
-    }
-
-    #endregion
-
-    #region Network Operations
-
-    /// <summary>
-    /// Send PutValue request to a remote node using spec-compliant Message envelope.
-    /// </summary>
-    private async Task PutValueToNodeAsync(DhtNode node, byte[] key, StoredValue value, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
-
-            var request = MessageHelper.CreatePutValueRequest(
-                key,
-                value.Value ?? Array.Empty<byte>(),
-                DateTimeOffset.FromUnixTimeSeconds(value.Timestamp).ToString("o"));
-
-            await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
-                request, cancellationToken);
-
-            _logger?.LogTrace("Successfully sent PutValue to node {NodeId}", node.PeerId);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogWarning(ex, "Failed to send PutValue to node {NodeId}: {Error}", node.PeerId, ex.Message);
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Get value from a remote node using spec-compliant Message envelope.
-    /// </summary>
-    private async Task<byte[]?> GetValueFromNodeAsync(DhtNode node, byte[] key, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var session = await _localPeer.DialAsync(node.PeerId, cancellationToken);
-
-            var request = MessageHelper.CreateGetValueRequest(key);
-
-            var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
-                request, cancellationToken);
-
-            if (response.Record != null && response.Record.Value != null && !response.Record.Value.IsEmpty)
-            {
-                _logger?.LogTrace("Successfully retrieved value from node {NodeId}", node.PeerId);
-                return response.Record.Value.ToByteArray();
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogWarning(ex, "Failed to get value from node {NodeId}: {Error}", node.PeerId, ex.Message);
-            throw;
-        }
-    }
+    public Task ListenAsync(IChannel channel, ISessionContext context) => Task.CompletedTask;
 
     #endregion
 
     #region Maintenance Operations
 
-    /// <summary>
-    /// Start the Kademlia algorithm background processes (routing table maintenance, bootstrap, etc.).
-    /// This should be called once after initialization to start the DHT network participation.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token to stop the background processes.</param>
-    /// <returns>Task that completes when the background processes are stopped.</returns>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        if (_kademlia != null)
-        {
-            _logger?.LogInformation("Starting Kademlia algorithm background processes");
+        if (_kademlia is null) return;
 
-            try
-            {
-                await _kademlia.Run(cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                _logger?.LogInformation("Kademlia algorithm background processes stopped");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error in Kademlia background processes: {ErrorMessage}", ex.Message);
-                throw;
-            }
-        }
-        else
-        {
-            _logger?.LogWarning("Cannot start Kademlia processes - algorithm not initialized");
-        }
-    }
-
-    /// <summary>
-    /// Bootstrap the DHT by connecting to known nodes and populating the routing table.
-    /// This should be called once after initialization to join the DHT network.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task BootstrapAsync(CancellationToken cancellationToken = default)
-    {
-        if (_kademlia != null)
-        {
-            _logger?.LogInformation("Starting DHT bootstrap process");
-
-            try
-            {
-                await _kademlia.Bootstrap(cancellationToken);
-                _logger?.LogInformation("DHT bootstrap completed successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "DHT bootstrap failed: {ErrorMessage}", ex.Message);
-                throw;
-            }
-        }
-        else
-        {
-            _logger?.LogWarning("Cannot bootstrap - Kademlia algorithm not initialized");
-        }
-    }
-
-    /// <summary>
-    /// Add a node to the routing table.
-    /// </summary>
-    /// <param name="node">The node to add.</param>
-    public void AddNode(DhtNode node)
-    {
-        if (node == null) throw new ArgumentNullException(nameof(node));
-
-        _kademlia?.AddOrRefresh(node);
-        _logger?.LogTrace("Added node {NodeId} to routing table", node.PeerId);
-    }
-
-    /// <summary>
-    /// Perform periodic maintenance tasks like cleaning up expired records.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task PerformMaintenanceAsync(CancellationToken cancellationToken = default)
-    {
         try
         {
-            _logger?.LogDebug("Starting DHT maintenance operations");
+            await Task.WhenAll(
+                _kademlia.Run(cancellationToken),
+                RunRepublishLoopAsync(cancellationToken),
+                RunMaintenanceLoopAsync(cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger?.LogInformation("Kademlia background processes stopped");
+        }
+    }
 
-            // Clean up expired values
-            int expiredValues = await _valueStore.CleanupExpiredValuesAsync(cancellationToken);
+    private async Task RunRepublishLoopAsync(CancellationToken cancellationToken)
+    {
+        var valueInterval = _options.ValueRepublishInterval;
+        var providerInterval = _options.ProviderRepublishInterval;
+        var minInterval = valueInterval < providerInterval ? valueInterval : providerInterval;
 
-            // Clean up expired providers
-            int expiredProviders = await _providerStore.CleanupExpiredProvidersAsync(cancellationToken);
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(minInterval, cancellationToken);
 
-            if (expiredValues > 0 || expiredProviders > 0)
+            try
             {
-                _logger?.LogInformation("Maintenance completed: removed {ExpiredValues} values, {ExpiredProviders} providers",
-                    expiredValues, expiredProviders);
+                await RepublishValuesAsync(cancellationToken);
+                await RepublishProvidersAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Republish cycle failed: {Error}", ex.Message);
             }
         }
-        catch (Exception ex)
+    }
+
+    private async Task RepublishValuesAsync(CancellationToken cancellationToken)
+    {
+        foreach (var kvp in _locallyPublishedValues)
         {
-            _logger?.LogError(ex, "Error during DHT maintenance: {ErrorMessage}", ex.Message);
+            var key = kvp.Value;
+            var stored = await _valueStore.GetValueAsync(key, cancellationToken);
+            if (stored is not { Value.Length: > 0 })
+            {
+                _locallyPublishedValues.TryRemove(kvp.Key, out _);
+                continue;
+            }
+
+            try
+            {
+                await PutValueAsync(key, stored.Value, cancellationToken);
+                _logger?.LogDebug("Republished value for key {KeyHash}", KeyHashHex(key));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogTrace("Failed to republish value for key {KeyHash}: {Error}", KeyHashHex(key), ex.Message);
+            }
         }
     }
 
-    /// <summary>
-    /// Get current statistics about the DHT state.
-    /// </summary>
-    /// <returns>Dictionary containing various statistics.</returns>
-    public Dictionary<string, object> GetStatistics()
+    private async Task RepublishProvidersAsync(CancellationToken cancellationToken)
     {
-        return new Dictionary<string, object>
+        foreach (var kvp in _locallyProvidedKeys)
         {
-            ["Mode"] = _options.Mode.ToString(),
-            ["StoredValues"] = _valueStore.Count,
-            ["ProviderKeys"] = _providerStore.KeyCount,
-            ["TotalProviders"] = _providerStore.TotalProviderCount,
-            ["MaxValueSize"] = _options.MaxValueSize,
-            ["MaxStoredValues"] = _options.MaxStoredValues,
-            ["MaxProvidersPerKey"] = _options.MaxProvidersPerKey,
-            ["RecordTtl"] = _options.RecordTtl.ToString(),
-            ["LocalPeerId"] = _localPeer.Identity.PeerId.ToString()
-        };
+            try
+            {
+                await ProvideAsync(kvp.Value, cancellationToken);
+                _logger?.LogDebug("Republished provider for key {KeyHash}", KeyHashHex(kvp.Value));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogTrace("Failed to republish provider for key {KeyHash}: {Error}", KeyHashHex(kvp.Value), ex.Message);
+            }
+        }
     }
 
+    private async Task RunMaintenanceLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(_options.MaintenanceInterval, cancellationToken);
+
+            try
+            {
+                await PerformMaintenanceAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Maintenance cycle failed: {Error}", ex.Message);
+            }
+        }
+    }
+
+    public async Task BootstrapAsync(CancellationToken cancellationToken = default)
+    {
+        if (_kademlia is null) return;
+
+        await _kademlia.Bootstrap(cancellationToken);
+        _logger?.LogInformation("DHT bootstrap completed");
+    }
+
+    public void AddNode(DhtNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        _kademlia?.AddOrRefresh(node);
+    }
+
+    public async Task PerformMaintenanceAsync(CancellationToken cancellationToken = default)
+    {
+        int expiredValues = await _valueStore.CleanupExpiredValuesAsync(cancellationToken);
+        int expiredProviders = await _providerStore.CleanupExpiredProvidersAsync(cancellationToken);
+
+        if (expiredValues > 0 || expiredProviders > 0)
+            _logger?.LogInformation("Maintenance: removed {Values} values, {Providers} providers", expiredValues, expiredProviders);
+    }
+
+    public Dictionary<string, object> GetStatistics() => new()
+    {
+        ["Mode"] = _options.Mode.ToString(),
+        ["StoredValues"] = _valueStore.Count,
+        ["ProviderKeys"] = _providerStore.KeyCount,
+        ["TotalProviders"] = _providerStore.TotalProviderCount,
+        ["LocalPeerId"] = _localPeer.Identity.PeerId.ToString()
+    };
+
     #endregion
+
+    private static string KeyHashHex(byte[] key) =>
+        Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2));
 }

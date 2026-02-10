@@ -14,10 +14,10 @@ public class KadDhtOptions
     public int KSize { get; set; } = 20;
 
     /// <summary>
-    /// Number of concurrent queries to run
-    /// Default: 3
+    /// Number of concurrent queries to run (α concurrency parameter)
+    /// Default: 10 per libp2p Kademlia DHT spec
     /// </summary>
-    public int Alpha { get; set; } = 3;
+    public int Alpha { get; set; } = 10;
 
     /// <summary>
     /// Operating mode for the DHT
@@ -63,9 +63,27 @@ public class KadDhtOptions
 
     /// <summary>
     /// TTL for provider records
-    /// Default: 24 hours
+    /// Default: 48 hours per libp2p spec (Provider Record Expiration)
     /// </summary>
-    public TimeSpan ProviderRecordTtl { get; set; } = TimeSpan.FromHours(24);
+    public TimeSpan ProviderRecordTtl { get; set; } = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// Interval at which locally-originated provider records are republished to the network.
+    /// Default: 22 hours per libp2p spec (IPFS default)
+    /// </summary>
+    public TimeSpan ProviderRepublishInterval { get; set; } = TimeSpan.FromHours(22);
+
+    /// <summary>
+    /// Interval at which locally-originated values are republished to the network.
+    /// Default: 22 hours (matches provider republish interval)
+    /// </summary>
+    public TimeSpan ValueRepublishInterval { get; set; } = TimeSpan.FromHours(22);
+
+    /// <summary>
+    /// Interval for running maintenance tasks (cleanup of expired records).
+    /// Default: 1 hour
+    /// </summary>
+    public TimeSpan MaintenanceInterval { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
     /// Timeout for DHT operations

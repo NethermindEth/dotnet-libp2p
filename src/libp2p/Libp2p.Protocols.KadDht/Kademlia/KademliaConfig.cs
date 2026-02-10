@@ -16,9 +16,10 @@ public class KademliaConfig<TNode>
     public int KSize { get; set; } = 16;
 
     /// <summary>
-    /// Alpha, as in the parallelism of the lookup algorith.
+    /// Alpha, as in the parallelism of the lookup algorithm.
+    /// Default: 10 per libp2p Kademlia DHT spec.
     /// </summary>
-    public int Alpha { get; set; } = 3;
+    public int Alpha { get; set; } = 10;
 
     /// <summary>
     /// Beta, as in B in kademlia the kademlia paper, 4.2 Accelerated Lookups

@@ -51,8 +51,10 @@ public static class KadDhtIntegrationExtensions
         var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey);
 
-        // Register the LibP2P Kademlia message sender
-        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>, LibP2pKademliaMessageSender>();
+        services.AddSingleton<LibP2pKademliaMessageSender>();
+        services.AddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<LibP2pKademliaMessageSender>());
+        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
+            sp.GetRequiredService<LibP2pKademliaMessageSender>());
 
         // Shared state for routing table access from incoming request handlers
         var sharedState = new SharedDhtState();
@@ -65,10 +67,12 @@ public static class KadDhtIntegrationExtensions
                 var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
                 var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
                 var messageSender = serviceProvider.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
+                var dhtMessageSender = serviceProvider.GetRequiredService<IDhtMessageSender>();
 
                 var protocol = new KadDhtProtocol(
                     localPeer,
                     messageSender,
+                    dhtMessageSender,
                     options,
                     dhtValueStore,
                     dhtProviderStore,
@@ -88,6 +92,7 @@ public static class KadDhtIntegrationExtensions
         return builder.AddKadDhtProtocols(
             findNearest: publicKey => sharedState.GetKNearestPeers(publicKey),
             onPeerSeen: node => resolvedProtocol?.AddNode(node),
+            isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: dhtValueStore,
             providerStore: dhtProviderStore);

@@ -94,7 +94,7 @@ public class ServiceCollectionExtensionsTests
 
         // Assert
         Assert.That(options.KSize, Is.EqualTo(20), "Default KSize should be 20");
-        Assert.That(options.Alpha, Is.EqualTo(3), "Default Alpha should be 3");
+        Assert.That(options.Alpha, Is.EqualTo(10), "Default Alpha should be 10");
         Assert.That(options.Mode, Is.EqualTo(KadDhtMode.Server), "Default Mode should be Server");
         Assert.That(options.RecordTtl, Is.EqualTo(TimeSpan.FromHours(24)), "Default RecordTtl should be 24 hours");
     }
