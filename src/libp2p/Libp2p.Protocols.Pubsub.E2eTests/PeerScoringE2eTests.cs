@@ -34,7 +34,7 @@ public class PeerScoringE2eTests
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
-        
+
         foreach (var (routerId, router) in test.Routers)
         {
             router.OnMessage += (topic, data) =>
@@ -49,14 +49,14 @@ public class PeerScoringE2eTests
         Random random = new();
         byte[] testMessage = new byte[32];
         random.NextBytes(testMessage);
-        
+
         test.Routers[0].Publish(commonTopic, testMessage);
-        
+
         // Wait for message propagation
         await Task.Delay(500);
 
         // Verify that messages propagated to other peers (scoring doesn't block message delivery by default)
-        Assert.That(receivedMessages.Count, Is.GreaterThan(0), 
+        Assert.That(receivedMessages.Count, Is.GreaterThan(0),
             "Messages should propagate even without explicit topic score params");
 
         test.PrintState();
@@ -69,7 +69,7 @@ public class PeerScoringE2eTests
 
         int totalCount = 3;
         await using PubsubE2eTestSetup test = new();
-        
+
         // Configure explicit topic parameters with positive weights
         test.DefaultSettings.TopicScoreParams[commonTopic] = new TopicScoreParams
         {
@@ -99,7 +99,7 @@ public class PeerScoringE2eTests
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
-        
+
         foreach (var (routerId, router) in test.Routers)
         {
             router.OnMessage += (topic, data) =>
@@ -124,7 +124,7 @@ public class PeerScoringE2eTests
         await Task.Delay(500);
 
         // Verify that messages propagated to peers with configured scoring
-        Assert.That(receivedMessages.Count, Is.GreaterThan(0), 
+        Assert.That(receivedMessages.Count, Is.GreaterThan(0),
             "Messages should propagate with configured topic score params");
 
         test.PrintState();
@@ -137,7 +137,7 @@ public class PeerScoringE2eTests
 
         int totalCount = 2;
         await using PubsubE2eTestSetup test = new();
-        
+
         // Configure topic parameters with time-in-mesh weight
         test.DefaultSettings.TopicScoreParams[commonTopic] = new TopicScoreParams
         {
@@ -165,7 +165,7 @@ public class PeerScoringE2eTests
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
-        
+
         foreach (var (routerId, router) in test.Routers)
         {
             router.OnMessage += (topic, data) =>
@@ -180,14 +180,14 @@ public class PeerScoringE2eTests
         Random random = new();
         byte[] testMessage = new byte[32];
         random.NextBytes(testMessage);
-        
+
         test.Routers[0].Publish(commonTopic, testMessage);
-        
+
         // Wait for message propagation
         await Task.Delay(500);
 
         // Verify messages still propagate
-        Assert.That(receivedMessages.Count, Is.GreaterThan(0), 
+        Assert.That(receivedMessages.Count, Is.GreaterThan(0),
             "Messages should propagate with time-in-mesh scoring");
 
         test.PrintState();
@@ -201,7 +201,7 @@ public class PeerScoringE2eTests
 
         int totalCount = 3;
         await using PubsubE2eTestSetup test = new();
-        
+
         // Configure different parameters for different topics
         test.DefaultSettings.TopicScoreParams[topic1] = new TopicScoreParams
         {
@@ -209,7 +209,7 @@ public class PeerScoringE2eTests
             FirstMessageDeliveriesWeight = 1.0,
             FirstMessageDeliveriesDecay = 0.99,
         };
-        
+
         test.DefaultSettings.TopicScoreParams[topic2] = new TopicScoreParams
         {
             TopicWeight = 0.5,
@@ -235,7 +235,7 @@ public class PeerScoringE2eTests
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
         var receivedTopic2 = new System.Collections.Concurrent.ConcurrentBag<int>();
-        
+
         foreach (var (routerId, router) in test.Routers)
         {
             router.OnMessage += (topic, data) =>
@@ -246,17 +246,17 @@ public class PeerScoringE2eTests
         }
 
         Random random = new();
-        
+
         // Publish to topic1
         byte[] message1 = new byte[32];
         random.NextBytes(message1);
         test.Routers[0].Publish(topic1, message1);
-        
+
         // Publish to topic2
         byte[] message2 = new byte[32];
         random.NextBytes(message2);
         test.Routers[1].Publish(topic2, message2);
-        
+
         // Wait for message propagation
         await Task.Delay(500);
 
