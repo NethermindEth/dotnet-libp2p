@@ -21,7 +21,12 @@ public partial class LocalPeer
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
-
+        /// <summary>
+        /// Initiate session communication for symmetric protocol without needing a request object, for asymmetric protocol use DialAsync&lt;ISessionProtocol&lt;'req, 'res&gt;, 'req, 'res&gt;('req request) instead
+        /// </summary>
+        /// <typeparam name="TProtocol"></typeparam>
+        /// <param name="token"></param>
+        /// <returns></returns>
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
             TaskCompletionSource<object?> tcs = new();
@@ -29,7 +34,12 @@ public partial class LocalPeer
             await tcs.Task;
             MarkAsConnected();
         }
-
+        /// <summary>
+        /// Initiate session communication
+        /// </summary>
+        /// <param name="protocol"></param>
+        /// <param name="token"></param>
+        /// <returns></returns>
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
             TaskCompletionSource<object?> tcs = new();
@@ -37,7 +47,15 @@ public partial class LocalPeer
             await tcs.Task;
             MarkAsConnected();
         }
-
+        /// <summary>
+        /// Initiate session communication
+        /// </summary>
+        /// <typeparam name="TProtocol"></typeparam>
+        /// <typeparam name="TRequest"></typeparam>
+        /// <typeparam name="TResponse"></typeparam>
+        /// <param name="request"></param>
+        /// <param name="token"></param>
+        /// <returns></returns>
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
             TaskCompletionSource<object?> tcs = new();
