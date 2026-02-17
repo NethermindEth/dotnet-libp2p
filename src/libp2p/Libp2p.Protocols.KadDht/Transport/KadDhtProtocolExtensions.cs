@@ -59,7 +59,7 @@ public static class KadDhtProtocolExtensions
 
                     Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory),
 
-                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtProviderStore, findNearest, loggerFactory),
+                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, findNearest, loggerFactory),
 
                     _ => new Message()
                 };
@@ -190,12 +190,12 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleGetProviders(Message request, IProviderStore providerStore,
+    private static async Task<Message> HandleGetProviders(Message request, KadDhtOptions options, IProviderStore providerStore,
         Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory)
     {
         try
         {
-            var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), 20);
+            var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), options.MaxProvidersPerKey);
             var target = new PublicKey(request.Key.ToByteArray());
             var response = MessageHelper.CreateGetProvidersResponse(
                 providerPeers: providers.Select(p => new Integration.DhtNode

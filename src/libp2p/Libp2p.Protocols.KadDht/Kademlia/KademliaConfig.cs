@@ -29,8 +29,9 @@ public class KademliaConfig<TNode>
 
     /// <summary>
     /// The interval on which a table refresh is initiated.
+    /// Default: 1 hour per libp2p Kademlia DHT spec.
     /// </summary>
-    public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
     /// The timeout for each find neighbour call lookup

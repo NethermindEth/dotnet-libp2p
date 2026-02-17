@@ -12,8 +12,10 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
 
     public SimpleFileLoggerProvider(string path)
     {
-        _path = path;
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        _path = Path.GetFullPath(path);
+        var dir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
         _writer = new StreamWriter(new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
     }
 

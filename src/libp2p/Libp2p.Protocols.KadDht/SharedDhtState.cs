@@ -46,11 +46,12 @@ public class SharedDhtState
     /// </summary>
     /// <param name="routingTable">Optional routing table for efficient peer lookups. If null, GetKNearestPeers returns empty array.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
-    public SharedDhtState(IRoutingTable<ValueHash256, DhtNode>? routingTable = null, ILoggerFactory? loggerFactory = null)
+    /// <param name="maintenanceInterval">Optional cleanup interval for value store. Defaults to 1 hour.</param>
+    public SharedDhtState(IRoutingTable<ValueHash256, DhtNode>? routingTable = null, ILoggerFactory? loggerFactory = null, TimeSpan? maintenanceInterval = null)
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
         _routingTable = routingTable;
-        ValueStore = new DhtValueStore(loggerFactory);
+        ValueStore = new DhtValueStore(loggerFactory, cleanupInterval: maintenanceInterval);
     }
 
     /// <summary>

@@ -32,13 +32,13 @@ public sealed class DhtValueStore
     private readonly TimeSpan _defaultTtl;
     private readonly System.Threading.Timer _cleanupTimer;
 
-    public DhtValueStore(ILoggerFactory? loggerFactory = null, TimeSpan? defaultTtl = null)
+    public DhtValueStore(ILoggerFactory? loggerFactory = null, TimeSpan? defaultTtl = null, TimeSpan? cleanupInterval = null)
     {
         _logger = loggerFactory?.CreateLogger<DhtValueStore>() ?? NullLogger<DhtValueStore>.Instance;
         _defaultTtl = defaultTtl ?? TimeSpan.FromHours(24);
 
-        // Run cleanup every 5 minutes
-        _cleanupTimer = new System.Threading.Timer(CleanupExpiredValues, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        var interval = cleanupInterval ?? TimeSpan.FromHours(1);
+        _cleanupTimer = new System.Threading.Timer(CleanupExpiredValues, null, interval, interval);
     }
 
     /// <summary>

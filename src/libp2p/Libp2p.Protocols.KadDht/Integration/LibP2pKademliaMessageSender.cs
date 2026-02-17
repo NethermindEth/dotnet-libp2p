@@ -26,7 +26,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender>();
-        _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(10);
+        _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(30);
         _onPeerDiscovered = onPeerDiscovered;
     }
 

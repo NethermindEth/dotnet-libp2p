@@ -19,18 +19,15 @@ public sealed class DhtClient
     private readonly SharedDhtState _sharedState;
     private readonly LibP2pKademliaMessageSender<PublicKey, DhtNode> _messageSender;
     private readonly ILogger<DhtClient> _logger;
-    private readonly int _replicationFactor;
 
     public DhtClient(
         SharedDhtState sharedState,
         LibP2pKademliaMessageSender<PublicKey, DhtNode> messageSender,
-        ILoggerFactory? loggerFactory = null,
-        int replicationFactor = 3)
+        ILoggerFactory? loggerFactory = null)
     {
         _sharedState = sharedState ?? throw new ArgumentNullException(nameof(sharedState));
         _messageSender = messageSender ?? throw new ArgumentNullException(nameof(messageSender));
         _logger = loggerFactory?.CreateLogger<DhtClient>() ?? NullLogger<DhtClient>.Instance;
-        _replicationFactor = replicationFactor;
     }
 
     /// <summary>
@@ -58,8 +55,8 @@ public sealed class DhtClient
         _sharedState.ValueStore.Put(keyBytes, valueBytes, null, timestamp, publisherBytes);
         _logger.LogDebug("PUT: Stored value locally");
 
-        // Find k closest peers to the key from SharedDhtState
-        var closestPeers = _sharedState.GetKNearestPeers(targetKey, k: _replicationFactor);
+        // Find k closest peers to the key from SharedDhtState (uses KValue from config)
+        var closestPeers = _sharedState.GetKNearestPeers(targetKey);
 
         if (closestPeers.Length == 0)
         {
@@ -136,8 +133,8 @@ public sealed class DhtClient
         var keyHash = SHA256.HashData(keyBytes);
         var targetKey = new PublicKey(keyHash);
 
-        // Get closest peers from SharedDhtState
-        var closestPeers = _sharedState.GetKNearestPeers(targetKey, k: 16);
+        // Get closest peers from SharedDhtState (uses KValue from config)
+        var closestPeers = _sharedState.GetKNearestPeers(targetKey);
 
         if (closestPeers.Length == 0)
         {
