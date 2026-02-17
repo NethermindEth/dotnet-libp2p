@@ -123,13 +123,13 @@ public partial class PubsubRouter
 
     public void Publish(string topicId, byte[] message)
     {
+        ArgumentNullException.ThrowIfNull(topicId);
+        ArgumentNullException.ThrowIfNull(message);
+
         if (localPeer is null)
         {
             throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
         }
-
-        ArgumentNullException.ThrowIfNull(topicId);
-        ArgumentNullException.ThrowIfNull(message);
 
         topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
