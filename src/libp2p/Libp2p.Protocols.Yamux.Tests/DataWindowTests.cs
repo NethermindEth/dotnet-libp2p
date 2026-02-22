@@ -46,6 +46,20 @@ public class DataWindowTests
     }
 
     [Test]
+    public void Test_LocalWindow_Throws_WhenInitialWindowSizeInvalid()
+    {
+        var settings = new YamuxWindowSettings { InitialWindowSize = 0 };
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LocalDataWindow(settings));
+    }
+
+    [Test]
+    public void Test_LocalWindow_Throws_WhenMaxWindowSizeLessThanInitial()
+    {
+        var settings = new YamuxWindowSettings { InitialWindowSize = 1000, MaxWindowSize = 500 };
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LocalDataWindow(settings));
+    }
+
+    [Test]
     public void Test_LocalWindow_NoExtension_WhenAboveHalf()
     {
         const int initial = 1000;

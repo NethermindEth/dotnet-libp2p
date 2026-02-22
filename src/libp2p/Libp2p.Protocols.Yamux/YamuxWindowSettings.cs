@@ -13,11 +13,13 @@ public class YamuxWindowSettings
 {
     /// <summary>
     /// Initial receive window size per stream (bytes). Default 256 KB per libp2p yamux spec.
+    /// Must be positive; validation occurs when the protocol uses these settings.
     /// </summary>
     public int InitialWindowSize { get; set; } = YamuxProtocol.ProtocolInitialWindowSize;
 
     /// <summary>
     /// Maximum receive window size per stream when using dynamic window. Ignored if <see cref="UseDynamicWindow"/> is false.
+    /// Must be at least <see cref="InitialWindowSize"/>; validation occurs when the protocol uses these settings.
     /// </summary>
     public int MaxWindowSize { get; set; } = 16 * 1024 * 1024;
 

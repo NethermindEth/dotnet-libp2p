@@ -24,6 +24,16 @@ internal class LocalDataWindow
     public LocalDataWindow(YamuxWindowSettings? settings = null)
     {
         settings ??= new YamuxWindowSettings();
+        if (settings.InitialWindowSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.InitialWindowSize, "InitialWindowSize must be positive.");
+        }
+
+        if (settings.MaxWindowSize < settings.InitialWindowSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.MaxWindowSize, "MaxWindowSize must be at least InitialWindowSize.");
+        }
+
         _initialWindowSize = settings.InitialWindowSize;
         _maxWindowSize = settings.MaxWindowSize;
         _useDynamicWindow = settings.UseDynamicWindow;
@@ -44,7 +54,11 @@ internal class LocalDataWindow
     /// </summary>
     public void RecordConsumed(int bytes)
     {
-        if (bytes <= 0) return;
+        if (bytes <= 0)
+        {
+            return;
+        }
+
         Interlocked.Add(ref _consumedSinceLastExtend, bytes);
     }
 
@@ -57,13 +71,17 @@ internal class LocalDataWindow
     {
         int available = Volatile.Read(ref _available);
         if (available >= _initialWindowSize / 2)
+        {
             return 0;
+        }
 
         lock (_extendLock)
         {
             available = Volatile.Read(ref _available);
             if (available >= _initialWindowSize / 2)
+            {
                 return 0;
+            }
 
             int extension;
             if (_useDynamicWindow)
@@ -87,7 +105,9 @@ internal class LocalDataWindow
             int headroom = _maxWindowSize - available;
             extension = Math.Max(0, Math.Min(extension, headroom));
             if (extension == 0)
+            {
                 return 0;
+            }
 
             Interlocked.Add(ref _available, extension);
             return extension;
