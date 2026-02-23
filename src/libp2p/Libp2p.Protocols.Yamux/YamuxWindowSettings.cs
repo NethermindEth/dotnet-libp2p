@@ -4,9 +4,9 @@
 namespace Nethermind.Libp2p.Protocols.Yamux;
 
 /// <summary>
-/// Settings for Yamux flow-control window behaviour.
+/// Settings for Yamux flow-control window behavior.
 /// When <see cref="UseDynamicWindow"/> is true, the receive window is extended based on
-/// observed incoming data consumption (throughput) to better utilise high-bandwidth or
+/// observed incoming data consumption (throughput) to better utilize high-bandwidth or
 /// high-latency links.
 /// </summary>
 public class YamuxWindowSettings
@@ -25,7 +25,7 @@ public class YamuxWindowSettings
 
     /// <summary>
     /// When true, window extension amount is adjusted from observed consumption rate (throughput)
-    /// so that large data exchanges can utilise the link better. When false, window is extended
+    /// so that large data exchanges can utilize the link better. When false, window is extended
     /// by a fixed amount each time it drops below half of <see cref="InitialWindowSize"/>.
     /// </summary>
     public bool UseDynamicWindow { get; set; } = true;
