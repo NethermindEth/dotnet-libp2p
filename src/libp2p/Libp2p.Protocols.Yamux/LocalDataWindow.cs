@@ -18,12 +18,12 @@ internal class LocalDataWindow
 #pragma warning restore CS9124
 
     private long _consumedSinceLastExtend;
-    private long _lastExtendTicks;
+    private long _lastExtendMs;
     private readonly object _extendLock = new();
 
-    public LocalDataWindow(YamuxWindowSettings? settings = null)
+    public LocalDataWindow(YamuxWindowSettings settings)
     {
-        settings ??= new YamuxWindowSettings();
+        ArgumentNullException.ThrowIfNull(settings);
         if (settings.InitialWindowSize <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(settings), settings.InitialWindowSize, "InitialWindowSize must be positive.");
@@ -38,12 +38,7 @@ internal class LocalDataWindow
         _maxWindowSize = settings.MaxWindowSize;
         _useDynamicWindow = settings.UseDynamicWindow;
         _available = _initialWindowSize;
-        _lastExtendTicks = Environment.TickCount64;
-    }
-
-    public LocalDataWindow(int initialWindowSize = YamuxProtocol.ProtocolInitialWindowSize)
-        : this(new YamuxWindowSettings { InitialWindowSize = initialWindowSize, UseDynamicWindow = false })
-    {
+        _lastExtendMs = Environment.TickCount64;
     }
 
     public int Available => Volatile.Read(ref _available);
@@ -88,8 +83,8 @@ internal class LocalDataWindow
             {
                 long consumed = Interlocked.Exchange(ref _consumedSinceLastExtend, 0);
                 long now = Environment.TickCount64;
-                long elapsedMs = Math.Max(1, now - _lastExtendTicks);
-                _lastExtendTicks = now;
+                long elapsedMs = Math.Max(1, now - _lastExtendMs);
+                _lastExtendMs = now;
 
                 double throughputBytesPerSec = consumed * 1000.0 / elapsedMs;
                 // Aim to extend by ~0.5s worth of data at current rate, so the sender can stay busy.

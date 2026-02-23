@@ -26,11 +26,11 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     {
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
-        _windowSettings = windowSettings;
+        _windowSettings = windowSettings ?? new YamuxWindowSettings();
     }
 
     private readonly ILogger? _logger;
-    private readonly YamuxWindowSettings? _windowSettings;
+    private readonly YamuxWindowSettings _windowSettings;
 
     public string Id => "/yamux/1.0.0";
 
