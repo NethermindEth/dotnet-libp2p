@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using Nethermind.Libp2p.Protocols.Relay;
 
 namespace Nethermind.Libp2p;
 
@@ -21,6 +22,7 @@ public static class ServiceProviderExtensions
         where TPeerFactoryBuilder : IPeerFactoryBuilder
     {
         return services
+            .AddSingleton<IRelayReservationStore, RelayReservationStore>()
             .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
             .AddSingleton(sp => factorySetup is null ? ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp) : factorySetup(ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp)))
             .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
