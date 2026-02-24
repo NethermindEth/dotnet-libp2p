@@ -262,7 +262,7 @@ internal static class Program
         var routingTable = kadProtocol.RoutingTable;
         if (routingTable is null)
         {
-            Console.WriteLine("  (routing table not initialised)");
+            Console.WriteLine("  (routing table not initialized)");
             return;
         }
 

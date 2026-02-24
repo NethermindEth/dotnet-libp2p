@@ -19,9 +19,9 @@ public class LookupKNearestNeighbour<THash, TNode>(
     INodeHashProvider<THash, TNode> nodeHashProvider,
     INodeHealthTracker<TNode> nodeHealthTracker,
     KademliaConfig<TNode> config,
-    ILoggerFactory logManager) : ILookupAlgo<THash, TNode> where TNode : notnull where THash : struct, IKademiliaHash<THash>
+    ILoggerFactory logManager) : ILookupAlgo<THash, TNode> where TNode : notnull where THash : struct, IKademliaHash<THash>
 {
-    private readonly TimeSpan _findNeighbourHardTimeout = config.LookupFindNeighbourHardTimout;
+    private readonly TimeSpan _findNeighbourHardTimeout = config.LookupFindNeighbourHardTimeout;
     private readonly ILogger _logger = logManager.CreateLogger<LookupKNearestNeighbour<THash, TNode>>();
 
     public async Task<TNode[]> Lookup(

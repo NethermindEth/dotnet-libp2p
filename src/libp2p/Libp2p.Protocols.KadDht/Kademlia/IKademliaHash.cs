@@ -3,7 +3,7 @@
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
-public interface IKademiliaHash<THash>
+public interface IKademliaHash<THash>
 {
     static abstract THash Zero { get; }
 

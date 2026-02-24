@@ -52,7 +52,7 @@ public class Kademlia<TPublicKey, THash, TNode> : IKademlia<TPublicKey, TNode>
 
     public void AddOrRefresh(TNode node)
     {
-        // It add to routing table and does the whole refresh logid.
+        // It add to routing table and does the whole refresh logic.
         _nodeHealthTracker.OnIncomingMessageFrom(node);
     }
 

@@ -19,14 +19,14 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
     IRoutingTable<THash, TNode> routingTable,
     KademliaConfig<TNode> kademliaConfig,
     IKademliaMessageSender<TPublicKey, TNode> msgSender,
-    IKeyOperator<TPublicKey, THash, TNode> keyOperator) : IIteratorNodeLookup<TPublicKey, TNode> where TNode : notnull where THash : struct, IKademiliaHash<THash>
+    IKeyOperator<TPublicKey, THash, TNode> keyOperator) : IIteratorNodeLookup<TPublicKey, TNode> where TNode : notnull where THash : struct, IKademliaHash<THash>
 {
     // logging removed for net8 minimal build path
     private static class _logger { public static bool IsEnabled(object _) => false; public static void LogDebug(string s) { } public static void LogTrace(string s) { } }
     private readonly THash _currentNodeIdAsHash = keyOperator.GetNodeHash(kademliaConfig.CurrentNodeId);
 
     // Small lru of unreachable nodes, prevent retrying. Pretty effective, although does not improve discovery overall.
-    private readonly LruCache<THash, DateTimeOffset> _unreacheableNodes = new(256, "");
+    private readonly LruCache<THash, DateTimeOffset> _unreachableNodes = new(256, "");
 
     // The maximum round per lookup. Higher means that it will 'see' deeper into the network, but come at a latency
     // cost of trying many node for increasingly lower new node.
@@ -177,7 +177,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
     {
         try
         {
-            if (_unreacheableNodes.TryGet(keyOperator.GetNodeHash(node), out var lastAttempt) &&
+            if (_unreachableNodes.TryGet(keyOperator.GetNodeHash(node), out var lastAttempt) &&
                 lastAttempt + TimeSpan.FromMinutes(5) > DateTimeOffset.Now)
             {
                 return [];
@@ -187,7 +187,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
         }
         catch (OperationCanceledException)
         {
-            _unreacheableNodes.Set(keyOperator.GetNodeHash(node), DateTimeOffset.Now);
+            _unreachableNodes.Set(keyOperator.GetNodeHash(node), DateTimeOffset.Now);
             return null;
         }
         catch (Exception)

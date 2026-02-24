@@ -5,7 +5,7 @@ using System;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
-public struct ValueHash256 : IComparable<ValueHash256>, IEquatable<ValueHash256>, IKademiliaHash<ValueHash256>
+public struct ValueHash256 : IComparable<ValueHash256>, IEquatable<ValueHash256>, IKademliaHash<ValueHash256>
 {
     private byte[] _bytes;
 

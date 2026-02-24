@@ -13,7 +13,7 @@ public class NodeHealthTracker<TPublicKey, THash, TNode>(
     INodeHashProvider<THash, TNode> nodeHashProvider,
     IKademliaMessageSender<TPublicKey, TNode> kademliaMessageSender,
     ILoggerFactory logManager
-) : INodeHealthTracker<TNode> where TNode : notnull where THash : struct, IKademiliaHash<THash>
+) : INodeHealthTracker<TNode> where TNode : notnull where THash : struct, IKademliaHash<THash>
 {
     private readonly ILogger _logger = logManager.CreateLogger<NodeHealthTracker<TPublicKey, THash, TNode>>();
 
@@ -92,7 +92,7 @@ public class NodeHealthTracker<TPublicKey, THash, TNode>(
     }
 
     /// <summary>
-    /// Call when a requset to a node failed. This is used by other algorithm for health checks.
+    /// Call when a request to a node failed. This is used by other algorithm for health checks.
     /// </summary>
     /// <param name="node"></param>
     public void OnRequestFailed(TNode node)

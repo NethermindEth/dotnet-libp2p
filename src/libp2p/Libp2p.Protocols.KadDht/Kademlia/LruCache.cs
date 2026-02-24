@@ -6,7 +6,7 @@ using Libp2p.Protocols.KadDht.Kademlia;
 
 namespace Nethermind.Network.Discovery.Discv4;
 
-internal sealed class LruCache<THash, T> where THash : struct, IKademiliaHash<THash>
+internal sealed class LruCache<THash, T> where THash : struct, IKademliaHash<THash>
 {
     private readonly int _capacity;
     private readonly Dictionary<THash, LinkedListNode<(THash Key, T Value)>> _map = new();

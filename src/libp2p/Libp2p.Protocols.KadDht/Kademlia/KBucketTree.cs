@@ -6,7 +6,7 @@ using System.Text;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
-public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode : notnull where THash : struct, IKademiliaHash<THash>
+public class KBucketTree<THash, TNode> : IRoutingTable<THash, TNode> where TNode : notnull where THash : struct, IKademliaHash<THash>
 {
     private class TreeNode
     {
