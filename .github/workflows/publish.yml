@@ -49,11 +49,11 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet test --project Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
-          #dotnet test --project Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
+          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.PACK_OPTS }}
 
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
