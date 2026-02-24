@@ -22,13 +22,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     private const int PingDelay = 30_000;
 
     private const string NoSession = "pending";
-    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null, YamuxWindowSettings? windowSettings = null)
     {
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
+        _windowSettings = windowSettings ?? new YamuxWindowSettings();
     }
 
     private readonly ILogger? _logger;
+    private readonly YamuxWindowSettings _windowSettings;
 
     public string Id => "/yamux/1.0.0";
 
@@ -182,6 +184,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
                                header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
 
+                    int dataLength = (int)data.Length;
                     _ = channels[header.StreamID].Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
                         if (!t.IsCompletedSuccessfully)
@@ -189,7 +192,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
                         }
 
-                        ExtendWindow(channel, session.Id, header.StreamID, t.Result);
+                        ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
                     });
                 }
 
@@ -236,7 +239,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                 }
 
-                ChannelState state = new(upChannel);
+                ChannelState state = new(upChannel, _windowSettings);
 
                 upChannel.GetAwaiter().OnCompleted(() =>
                 {
@@ -343,12 +346,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             _ = channel.CloseAsync();
         }
 
-        void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result)
+        void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result, int consumedBytes)
         {
             if (result == IOResult.Ok)
             {
                 if (channels.TryGetValue(streamId, out ChannelState? channelState))
                 {
+                    channelState.LocalWindow.RecordConsumed(consumedBytes);
                     int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
                     if (extendedBy is not 0)
                     {

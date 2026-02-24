@@ -123,12 +123,20 @@ public partial class PubsubRouter
 
     public void Publish(string topicId, byte[] message)
     {
+        ArgumentNullException.ThrowIfNull(topicId);
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (localPeer is null)
+        {
+            throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
+        }
+
         topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
         ulong seqNo = this.seqNo++;
         Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer!.Identity.PeerId.Bytes, message, localPeer.Identity);
+        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
 
         // Floodsub peers always get the message
         foreach (PeerId peerId in fPeers[topicId])
