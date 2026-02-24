@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -17,42 +18,57 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
 
     public async Task DialAsync(IChannel channel, IConnectionContext context)
     {
-        _logger?.LogTrace($"Hello started");
+        _logger?.LogTrace("Hello started");
 
         if (!await SendHello(channel))
         {
             await channel.CloseAsync();
-            _logger?.LogTrace($"Hello failed");
+            _logger?.LogTrace("Hello failed");
             return;
         }
-        _logger?.LogTrace($"Hello passed");
+        _logger?.LogTrace("Hello passed");
 
         async Task<bool?> DialProtocol(IProtocol selector)
         {
-            await channel.WriteLineAsync(selector.Id);
-            string selectorLine = await channel.ReadLineAsync();
-            _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
-            if (selectorLine == selector.Id)
+            try
             {
-                return true;
-            }
+                _logger?.LogTrace("DialProtocol: proposing {Id}", selector.Id);
+                await channel.WriteLineAsync(selector.Id);
+                string selectorLine = await channel.ReadLineAsync();
+                _logger?.LogTrace("Proposed {Id}, answer: {Answer}", selector.Id, selectorLine ?? "(null)");
+                if (selectorLine == selector.Id)
+                {
+                    return true;
+                }
 
-            if (selectorLine != ProtocolNotSupported)
+                if (selectorLine != ProtocolNotSupported)
+                {
+                    return false;
+                }
+
+                return null;
+            }
+            catch (ChannelClosedException)
             {
+                _logger?.LogWarning("Channel closed during protocol negotiation (dial, selector {Id}).", selector.Id);
                 return false;
             }
-
-            return null;
+            catch (OperationCanceledException)
+            {
+                _logger?.LogDebug("Protocol negotiation canceled (dial, selector {Id}).", selector.Id);
+                return false;
+            }
         }
 
         IProtocol? selected = null;
 
-        if (context.UpgradeOptions?.SelectedProtocol is not null)
+        IProtocol? selectedProtocol = context.UpgradeOptions?.SelectedProtocol;
+        if (selectedProtocol is not null)
         {
-            _logger?.LogDebug($"Proposing just {context.UpgradeOptions.SelectedProtocol}");
-            if (await DialProtocol(context.UpgradeOptions.SelectedProtocol) == true)
+            _logger?.LogDebug("Proposing just {Protocol}", selectedProtocol.Id);
+            if (await DialProtocol(selectedProtocol) == true)
             {
-                selected = context.UpgradeOptions.SelectedProtocol;
+                selected = selectedProtocol;
             }
         }
         else
@@ -74,10 +90,10 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
 
         if (selected is null)
         {
-            _logger?.LogDebug($"Negotiation failed");
+            _logger?.LogDebug("Negotiation failed");
             return;
         }
-        _logger?.LogDebug($"Protocol selected during dialing: {selected.Id}");
+        _logger?.LogDebug("Protocol selected during dialing: {Id}", selected.Id);
         await context.Upgrade(channel, selected);
     }
 
@@ -90,35 +106,65 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
         }
 
         IProtocol? selected = null;
-        for (; ; )
+        try
         {
-            string proto = await channel.ReadLineAsync();
-            selected = context.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
-            if (selected is not null)
+            for (; ; )
             {
-                await channel.WriteLineAsync(selected.Id);
-                _logger?.LogTrace($"Proposed by remote {proto}, answer: {selected?.Id}");
-                break;
-            }
+                _logger?.LogTrace("Listen: waiting for remote protocol proposal");
+                string proto = await channel.ReadLineAsync();
+                _logger?.LogTrace("Listen: proposed by remote {Proto}", proto ?? "(null)");
+                selected = context.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
+                if (selected is not null)
+                {
+                    await channel.WriteLineAsync(selected.Id);
+                    _logger?.LogTrace("Proposed by remote {Proto}, answer: {Selected}", proto, selected.Id);
+                    break;
+                }
 
-            _logger?.LogTrace($"Proposed by remote {proto}, answer: {ProtocolNotSupported}");
-            await channel.WriteLineAsync(ProtocolNotSupported);
+                _logger?.LogTrace("Proposed by remote {Proto}, answer: {Na}", proto, ProtocolNotSupported);
+                await channel.WriteLineAsync(ProtocolNotSupported);
+            }
+        }
+        catch (ChannelClosedException)
+        {
+            _logger?.LogWarning("Channel closed during multistream protocol negotiation (listen).");
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogDebug("Multistream protocol negotiation canceled (listen).");
+            return;
         }
 
         if (selected is null)
         {
-            _logger?.LogDebug($"Negotiation failed");
+            _logger?.LogDebug("Negotiation failed");
             return;
         }
 
-        _logger?.LogDebug($"Protocol selected during listening: {selected}");
+        _logger?.LogDebug("Protocol selected during listening: {Selected}", selected.Id);
         await context.Upgrade(channel, selected);
     }
 
     private async Task<bool> SendHello(IChannel channel)
     {
-        await channel.WriteLineAsync(Id);
-        string line = await channel.ReadLineAsync();
-        return line == Id;
+        try
+        {
+            _logger?.LogTrace("SendHello: sending multistream id");
+            await channel.WriteLineAsync(Id);
+            string line = await channel.ReadLineAsync();
+            _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
+            return line == Id;
+        }
+        catch (ChannelClosedException)
+        {
+            _logger?.LogWarning("Channel closed during multistream hello.");
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogDebug("Multistream hello canceled.");
+            return false;
+        }
     }
 }
