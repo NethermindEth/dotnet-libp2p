@@ -51,8 +51,28 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFact
 
     public IServiceProvider ServiceProvider { protected set; get; }
 
+    /// <summary>
+    /// Internal service collection used for protocol registration.
+    /// Exposed via ILibp2pPeerFactoryBuilder for advanced protocol integration.
+    /// </summary>
+    protected internal IServiceCollection InternalServices { get; private set; }
+
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
-        => ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
+    {
+        // If no service provider given, create one from a new collection
+        if (serviceProvider is null)
+        {
+            InternalServices = new ServiceCollection();
+            ServiceProvider = InternalServices.BuildServiceProvider();
+        }
+        else
+        {
+            // Extract service collection from provider if possible, otherwise create new one
+            // This maintains backwards compatibility while allowing access to the collection
+            InternalServices = new ServiceCollection();
+            ServiceProvider = serviceProvider;
+        }
+    }
 
     public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {

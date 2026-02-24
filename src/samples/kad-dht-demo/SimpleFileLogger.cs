@@ -1,0 +1,83 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+
+namespace KadDhtDemo;
+
+internal sealed class SimpleFileLoggerProvider : ILoggerProvider
+{
+    private readonly string _path;
+    private readonly ConcurrentDictionary<string, SimpleFileLogger> _loggers = new();
+    private readonly StreamWriter _writer;
+    private readonly object _writerLock = new();
+    private bool _disposed;
+
+    public SimpleFileLoggerProvider(string path)
+    {
+        _path = Path.GetFullPath(path);
+        var dir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        _writer = new StreamWriter(new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+    }
+
+    public ILogger CreateLogger(string categoryName) => _loggers.GetOrAdd(categoryName, static (c, state) => new SimpleFileLogger(c, state.writer, state.writerLock), (writer: _writer, writerLock: _writerLock));
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _writer.Dispose();
+    }
+
+    private sealed class SimpleFileLogger : ILogger
+    {
+        private readonly string _category;
+        private readonly StreamWriter _writer;
+        private readonly object _lock;
+
+        public SimpleFileLogger(string category, StreamWriter writer, object writerLock)
+        {
+            _category = category;
+            _writer = writer;
+            _lock = writerLock;
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            try
+            {
+                var message = formatter(state, exception);
+                var timestamp = DateTime.UtcNow.ToString("HH:mm:ss.fff");
+                var line = $"{timestamp} {logLevel,-5} {_category} {message}";
+
+                // Truncate very long lines to prevent overflow
+                if (line.Length > 2000)
+                {
+                    line = line.Substring(0, 1997) + "...";
+                }
+
+                if (exception != null)
+                {
+                    var exceptionStr = exception.ToString();
+                    if (exceptionStr.Length > 500)
+                    {
+                        exceptionStr = exceptionStr.Substring(0, 497) + "...";
+                    }
+                    line += " | " + exceptionStr;
+                }
+
+                lock (_lock)
+                {
+                    _writer.WriteLine(line);
+                }
+            }
+            catch (Exception logEx)
+            {
+                // Fail silently to prevent logging exceptions from crashing the app
+                Console.WriteLine($"Logging error: {logEx}");
+            }
+        }
+    }
+}

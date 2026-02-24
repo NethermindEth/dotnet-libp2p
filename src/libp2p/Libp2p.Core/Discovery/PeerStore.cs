@@ -50,10 +50,20 @@ public class PeerStore
         {
             PeerInfo? newOne = null;
             PeerInfo peerInfo = _store.GetOrAdd(peerId, (id) => newOne = new PeerInfo { Addrs = [.. addrs] });
-            if (peerInfo != newOne && peerInfo.Addrs is not null && addrs.UnorderedSequenceEqual(peerInfo.Addrs))
+
+            // If peer already existed, update its addresses
+            if (peerInfo != newOne)
             {
-                return;
+                // Only skip if addresses are identical
+                if (peerInfo.Addrs is not null && addrs.UnorderedSequenceEqual(peerInfo.Addrs))
+                {
+                    return;
+                }
+
+                // Update addresses for existing peer
+                peerInfo.Addrs = [.. addrs];
             }
+
             onNewPeer?.Invoke(addrs);
         }
     }

@@ -43,7 +43,8 @@ public class Channel : IChannel
     public IWriter Writer { get => _writer; }
 
 
-    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+    public ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)
     {
         return Reader.ReadAsync(length, blockingMode, token);
@@ -98,7 +99,8 @@ public class Channel : IChannel
         internal bool _eow = false;
 
         public async ValueTask<ReadResult> ReadAsync(int length,
-            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default)
         {
             try
             {
@@ -114,6 +116,16 @@ public class Channel : IChannel
                 {
                     _readLock.Release();
                     return ReadResult.Empty;
+                }
+
+                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
+                // WriteAsync returns early for zero-length writes without signaling _canRead
+                // Only apply this optimization for WaitAll mode (exact length reads)
+                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
+                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+                {
+                    _readLock.Release();
+                    return ReadResult.Ok(default);
                 }
 
                 await _canRead.WaitAsync(token);

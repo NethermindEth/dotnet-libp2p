@@ -16,7 +16,7 @@ public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, P
 
     public CancellationToken Token => session.ConnectionToken;
 
-    public Activity? Activity { get; } = activitySource?.CreateActivity("New session", ActivityKind.Internal, parentActivity?.Context ?? default);
+    public new Activity? Activity { get; } = activitySource?.CreateActivity("New session", ActivityKind.Internal, parentActivity?.Context ?? default);
 
     public void Dispose()
     {
