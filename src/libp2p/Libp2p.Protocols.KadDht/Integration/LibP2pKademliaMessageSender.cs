@@ -236,8 +236,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
         try
         {
-            var basicAddress = Multiaddress.Decode($"/p2p/{targetNode.PeerId}");
-            return await _localPeer.DialAsync(basicAddress, cancellationToken);
+            return await _localPeer.DialAsync(targetNode.PeerId, cancellationToken);
         }
         catch (Exception ex)
         {

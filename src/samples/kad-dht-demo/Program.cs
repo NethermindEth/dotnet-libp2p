@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using Libp2p.Protocols.KadDht;
 using Libp2p.Protocols.KadDht.Integration;
@@ -64,27 +67,13 @@ internal static class Program
 
         var serviceProvider = services.BuildServiceProvider();
 
-        // Create and start local peer
+        // Create local peer and resolve KadDHT services
         var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
-        var listenAddrs = BuildListenAddresses(config.ListenAddresses).ToArray();
-        await localPeer.StartListenAsync(listenAddrs, CancellationToken.None);
-
-        // Resolve after listening so KadDhtProtocol sees populated ListenAddresses
         var kadProtocol = serviceProvider.GetRequiredService<KadDhtProtocol>();
         var sharedState = serviceProvider.GetRequiredService<SharedDhtState>();
 
-        // ── Startup banner ───────────────────────────────────────────────
-        Console.WriteLine("╔══════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║              Kademlia DHT Demo — libp2p                 ║");
-        Console.WriteLine("╚══════════════════════════════════════════════════════════╝");
-        Console.WriteLine($"\nPeer ID: {localPeer.Identity.PeerId}");
-        Console.WriteLine("\nListening on:");
-        foreach (var addr in localPeer.ListenAddresses)
-        {
-            Console.WriteLine($"  {AppendPeerId(addr, localPeer.Identity.PeerId)}");
-        }
-
         //  Auto-add inbound peers to the routing table
+        //  MUST be registered BEFORE StartListenAsync to avoid missing early connections.
         localPeer.OnConnected += session =>
         {
             var remotePeerId = session.RemoteAddress?.GetPeerId();
@@ -104,6 +93,58 @@ internal static class Program
             }
             return Task.CompletedTask;
         };
+
+        // Start listening — KadDhtProtocol will pick up ListenAddresses once they're populated
+        var listenAddrs = BuildListenAddresses(config.ListenAddresses).ToArray();
+        await localPeer.StartListenAsync(listenAddrs, CancellationToken.None);
+
+        // ── Startup banner ───────────────────────────────────────────────
+        Console.WriteLine("╔══════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║              Kademlia DHT Demo — libp2p                 ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════════════╝");
+        Console.WriteLine($"\nPeer ID: {localPeer.Identity.PeerId}");
+        Console.WriteLine("\nListening on:");
+        foreach (var addr in localPeer.ListenAddresses)
+        {
+            Console.WriteLine($"  {AppendPeerId(addr, localPeer.Identity.PeerId)}");
+        }
+
+        // Show reachable LAN addresses for cross-machine connectivity
+        var lanAddresses = GetAdvertisedAddresses(localPeer);
+        if (lanAddresses.Count > 0)
+        {
+            Console.WriteLine("\nReachable from other machines:");
+            foreach (var addr in lanAddresses)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"  {addr}");
+                Console.ResetColor();
+            }
+        }
+
+        // Always show LAN IPs so users know what to dial from another PC
+        var lanIps = GetLanIPv4Addresses();
+        if (lanIps.Count > 0)
+        {
+            var port = GetListenPort(localPeer);
+            var boundToAll = lanAddresses.Count > 0;
+            Console.WriteLine($"\nLAN addresses (IPv4):");
+            foreach (var ip in lanIps)
+            {
+                var fullAddr = $"/ip4/{ip}/tcp/{port}/p2p/{localPeer.Identity.PeerId}";
+                if (boundToAll)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"  ✓ {fullAddr}");
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"  ✗ {fullAddr}  (use --listen /ip4/0.0.0.0/tcp/{port} to enable)");
+                }
+                Console.ResetColor();
+            }
+        }
 
         // Connect to bootstrap peers 
         using var cts = new CancellationTokenSource();
@@ -473,6 +514,92 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Discovers LAN/WAN addresses the node is reachable at.
+    /// Expands 0.0.0.0 listen addresses into concrete interface IPs.
+    /// </summary>
+    private static List<string> GetAdvertisedAddresses(ILocalPeer localPeer)
+    {
+        var result = new List<string>();
+        var peerId = localPeer.Identity.PeerId;
+
+        foreach (var listenAddr in localPeer.ListenAddresses)
+        {
+            var addrStr = listenAddr.ToString();
+
+            if (!addrStr.Contains("/ip4/0.0.0.0/") && !addrStr.Contains("/ip6/::/"))
+            {
+                if (!addrStr.Contains("/ip4/127.") && !addrStr.Contains("/ip6/::1/"))
+                    result.Add($"{addrStr}/p2p/{peerId}");
+                continue;
+            }
+
+            var parts = addrStr.Split('/');
+            var tcpIdx = Array.IndexOf(parts, "tcp");
+            if (tcpIdx < 0 || tcpIdx + 1 >= parts.Length) continue;
+            var port = parts[tcpIdx + 1];
+
+            var isIPv4 = addrStr.Contains("/ip4/");
+
+            // Enumerate network interfaces
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback) continue;
+
+                foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (isIPv4 && ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        result.Add($"/ip4/{ua.Address}/tcp/{port}/p2p/{peerId}");
+                    }
+                    else if (!isIPv4 && ua.Address.AddressFamily == AddressFamily.InterNetworkV6
+                             && !ua.Address.IsIPv6LinkLocal)
+                    {
+                        result.Add($"/ip6/{ua.Address}/tcp/{port}/p2p/{peerId}");
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns all non-loopback IPv4 addresses on the machine.
+    /// </summary>
+    private static List<IPAddress> GetLanIPv4Addresses()
+    {
+        var result = new List<IPAddress>();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback) continue;
+
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                    result.Add(ua.Address);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts the TCP port from the first listen address.
+    /// </summary>
+    private static string GetListenPort(ILocalPeer localPeer)
+    {
+        foreach (var addr in localPeer.ListenAddresses)
+        {
+            var parts = addr.ToString().Split('/');
+            var tcpIdx = Array.IndexOf(parts, "tcp");
+            if (tcpIdx >= 0 && tcpIdx + 1 < parts.Length)
+                return parts[tcpIdx + 1];
+        }
+        return "0";
+    }
+
     private static string StripPeerIdComponent(string multiaddr)
     {
         var idx = multiaddr.IndexOf("/p2p/", StringComparison.OrdinalIgnoreCase);
@@ -499,10 +626,11 @@ internal static class Program
         Console.WriteLine("KadDHT Demo -- Kademlia Distributed Hash Table over libp2p");
         Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  dotnet run                                        # Listen on random port");
-        Console.WriteLine("  dotnet run -- --listen /ip4/127.0.0.1/tcp/40001   # Fixed port");
-        Console.WriteLine("  dotnet run -- --bootstrap <multiaddr>             # Connect to peer");
-        Console.WriteLine("  dotnet run -- --help                              # This help");
+        Console.WriteLine("  dotnet run                                          # All interfaces, random port");
+        Console.WriteLine("  dotnet run -- --listen /ip4/0.0.0.0/tcp/40001       # All interfaces, fixed port");
+        Console.WriteLine("  dotnet run -- --listen /ip4/127.0.0.1/tcp/40001     # Localhost only");
+        Console.WriteLine("  dotnet run -- --bootstrap <multiaddr>               # Connect to peer");
+        Console.WriteLine("  dotnet run -- --help                                # This help");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --listen, -l <addr>     Bind to a specific listen address");
@@ -510,7 +638,7 @@ internal static class Program
         Console.WriteLine("  --no-remote-bootstrap   Do not use default bootstrap nodes");
         Console.WriteLine("  --local-only            Alias for --no-remote-bootstrap");
         Console.WriteLine();
-        Console.WriteLine("Local multi-node testing:");
+        Console.WriteLine("Same-machine testing (localhost only):");
         Console.WriteLine();
         Console.WriteLine("  # Terminal 1 -- listener:");
         Console.WriteLine("  dotnet run -- --listen /ip4/127.0.0.1/tcp/40001");
@@ -519,8 +647,13 @@ internal static class Program
         Console.WriteLine("  dotnet run -- --listen /ip4/127.0.0.1/tcp/40002 \\");
         Console.WriteLine("    --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
         Console.WriteLine();
-        Console.WriteLine("  # Terminal 3 -- third node:");
-        Console.WriteLine("  dotnet run -- --listen /ip4/127.0.0.1/tcp/40003 \\");
-        Console.WriteLine("    --bootstrap /ip4/127.0.0.1/tcp/40001/p2p/<PeerID>");
+        Console.WriteLine("Cross-machine testing (LAN):");
+        Console.WriteLine();
+        Console.WriteLine("  # PC-A -- listener (bind all interfaces):");
+        Console.WriteLine("  dotnet run -- --listen /ip4/0.0.0.0/tcp/40001");
+        Console.WriteLine();
+        Console.WriteLine("  # PC-B -- dialer (use PC-A's LAN IP from 'Reachable from' output):");
+        Console.WriteLine("  dotnet run -- --listen /ip4/0.0.0.0/tcp/40001 \\");
+        Console.WriteLine("    --bootstrap /ip4/192.168.x.x/tcp/40001/p2p/<PeerID>");
     }
 }

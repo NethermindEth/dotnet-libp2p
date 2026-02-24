@@ -3,9 +3,13 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Multiformats.Address.Net;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Identify;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
@@ -90,6 +94,9 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         Libp2pSetupException.ThrowIfNull(_protocolStackSettings.Protocols);
 
+        // Allow remote peers receive routable addresses in both the signed peer record
+        Multiaddress[] advertisedAddresses = ExpandWildcardAddresses(context.Peer.ListenAddresses).ToArray();
+
         Identify.Dto.Identify identify = new()
         {
             ProtocolVersion = _settings.ProtocolVersion,
@@ -98,11 +105,20 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             ListenAddrs = { },
             ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress.GetEndpointPart().ToBytes()),
             Protocols = { _protocolStackSettings.Protocols.Select(r => r.Key.Protocol).OfType<ISessionListenerProtocol>().Select(p => p.Id) },
-            SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, [.. context.Peer.ListenAddresses], idVersion),
+            SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, advertisedAddresses, idVersion),
         };
 
-        ByteString[] endpoints = context.Peer.ListenAddresses
-            .Where(a => !a.ToEndPoint().Address.IsPrivate())
+        // Include all routable addresses in ListenAddrs — only exclude loopback
+        // and unspecified (0.0.0.0/::). Private/LAN addresses (192.168.x.x, 10.x.x.x, etc.)
+        // are kept because they are routable within the local network.
+        ByteString[] endpoints = advertisedAddresses
+            .Where(a =>
+            {
+                IPAddress ip = a.ToEndPoint().Address;
+                return !IPAddress.IsLoopback(ip)
+                    && !ip.Equals(IPAddress.Any)
+                    && !ip.Equals(IPAddress.IPv6Any);
+            })
             .Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto))
             .Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
 
@@ -110,5 +126,68 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         await channel.WriteSizeAndProtobufAsync(identify);
         _logger?.LogDebug("Sent peer info {identify}", identify);
+    }
+
+    /// <summary>
+    /// Expands wildcard listen addresses (0.0.0.0, ::) to concrete network interface IPs.
+    /// Non-wildcard addresses are passed through unchanged.
+    /// </summary>
+    internal static IEnumerable<Multiaddress> ExpandWildcardAddresses(IEnumerable<Multiaddress> addresses)
+    {
+        foreach (Multiaddress addr in addresses)
+        {
+            IPEndPoint? endpoint = null;
+            ProtocolType proto = default;
+            try
+            {
+                endpoint = addr.ToEndPoint(out proto);
+            }
+            catch
+            {
+                // Can't parse endpoint
+            }
+
+            if (endpoint is null)
+            {
+                yield return addr;
+                continue;
+            }
+
+            if (!endpoint.Address.Equals(IPAddress.Any) && !endpoint.Address.Equals(IPAddress.IPv6Any))
+            {
+                yield return addr;
+                continue;
+            }
+
+            bool expanded = false;
+            PeerId? peerId = addr.GetPeerId();
+            AddressFamily targetFamily = endpoint.AddressFamily;
+
+            foreach (NetworkInterface iface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (iface.OperationalStatus != OperationalStatus.Up) continue;
+                if (iface.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+                foreach (UnicastIPAddressInformation unicast in iface.GetIPProperties().UnicastAddresses)
+                {
+                    if (unicast.Address.AddressFamily != targetFamily) continue;
+                    if (IPAddress.IsLoopback(unicast.Address)) continue;
+
+                    Multiaddress newAddr = new IPEndPoint(unicast.Address, endpoint.Port).ToMultiaddress(proto);
+                    if (peerId is not null)
+                    {
+                        newAddr = newAddr.Add<P2P>(peerId.ToString());
+                    }
+
+                    yield return newAddr;
+                    expanded = true;
+                }
+            }
+
+            if (!expanded)
+            {
+                yield return addr;
+            }
+        }
     }
 }

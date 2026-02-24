@@ -8,6 +8,7 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
     private readonly string _path;
     private readonly ConcurrentDictionary<string, SimpleFileLogger> _loggers = new();
     private readonly StreamWriter _writer;
+    private readonly object _writerLock = new();
     private bool _disposed;
 
     public SimpleFileLoggerProvider(string path)
@@ -19,7 +20,7 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
         _writer = new StreamWriter(new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
     }
 
-    public ILogger CreateLogger(string categoryName) => _loggers.GetOrAdd(categoryName, static (c, state) => new SimpleFileLogger(c, state), _writer);
+    public ILogger CreateLogger(string categoryName) => _loggers.GetOrAdd(categoryName, static (c, state) => new SimpleFileLogger(c, state.writer, state.writerLock), (writer: _writer, writerLock: _writerLock));
 
     public void Dispose()
     {
@@ -32,11 +33,13 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
     {
         private readonly string _category;
         private readonly StreamWriter _writer;
+        private readonly object _lock;
 
-        public SimpleFileLogger(string category, StreamWriter writer)
+        public SimpleFileLogger(string category, StreamWriter writer, object writerLock)
         {
             _category = category;
             _writer = writer;
+            _lock = writerLock;
         }
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -65,12 +68,15 @@ internal sealed class SimpleFileLoggerProvider : ILoggerProvider
                     line += " | " + exceptionStr;
                 }
 
-                _writer.WriteLine(line);
+                lock (_lock)
+                {
+                    _writer.WriteLine(line);
+                }
             }
             catch (Exception logEx)
             {
                 // Fail silently to prevent logging exceptions from crashing the app
-                Console.WriteLine($"Logging error: {logEx.Message}");
+                Console.WriteLine($"Logging error: {logEx}");
             }
         }
     }

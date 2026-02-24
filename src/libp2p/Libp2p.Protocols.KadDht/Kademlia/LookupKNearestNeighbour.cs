@@ -221,6 +221,15 @@ public class LookupKNearestNeighbour<THash, TNode>(
                 return true;
             }
 
+            // Small-network termination: when we have fewer than k results and haven't
+            // found any new closer nodes for alpha*3 rounds, the network is likely exhausted.
+            // Use a higher threshold (alpha*3) to give more time for stragglers.
+            if (finalResult.Count > 0 && finalResult.Count < k && round - closestNodeRound >= (config.Alpha * 3))
+            {
+                if (_logger.IsEnabled(LogLevel.Trace)) _logger.LogTrace($"Small network exhausted. Round: {round}, closestNodeRound {closestNodeRound}, results {finalResult.Count}/{k}");
+                return true;
+            }
+
             return false;
         }
     }

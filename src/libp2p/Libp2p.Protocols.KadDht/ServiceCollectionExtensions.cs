@@ -125,12 +125,18 @@ public static class ServiceCollectionExtensions
             findNearest: publicKey =>
             {
                 EnsureInitialized();
-                return sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
+                var peers = sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
+                // Enrich addresses from PeerStore (which has correct listen addresses from Identify exchange)
+                // before sending in FindNode responses
+                return EnrichPeerAddresses(peers, peerStore);
             },
             onPeerSeen: node =>
             {
                 EnsureInitialized();
-                sharedState?.AddNodeCallback?.Invoke(node);
+                // Enrich with addresses from PeerStore (populated by Identify's signed peer record)
+                // to avoid storing ephemeral source-port addresses in the routing table
+                var enrichedNode = EnrichNodeFromPeerStore(node, peerStore);
+                sharedState?.AddNodeCallback?.Invoke(enrichedNode);
                 StorePeerAddresses(node, peerStore);
             },
             loggerFactory: loggerFactory,
@@ -142,11 +148,57 @@ public static class ServiceCollectionExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Enriches a single DhtNode's addresses from PeerStore if available.
+    /// PeerStore addresses come from Identify's cryptographically signed peer record
+    /// and contain the peer's actual listen addresses (not ephemeral connection ports).
+    /// </summary>
+    internal static DhtNode EnrichNodeFromPeerStore(DhtNode node, PeerStore? peerStore)
+    {
+        if (peerStore == null) return node;
+
+        try
+        {
+            var peerInfo = peerStore.GetPeerInfo(node.PeerId);
+            if (peerInfo.Addrs is { Count: > 0 })
+            {
+                return new DhtNode
+                {
+                    PeerId = node.PeerId,
+                    PublicKey = node.PublicKey,
+                    Multiaddrs = peerInfo.Addrs.Select(a => a.ToString()).ToArray()
+                };
+            }
+        }
+        catch { }
+
+        return node;
+    }
+
+    /// <summary>
+    /// Enriches an array of DhtNodes with addresses from PeerStore.
+    /// </summary>
+    internal static DhtNode[] EnrichPeerAddresses(DhtNode[] peers, PeerStore? peerStore)
+    {
+        if (peerStore == null || peers.Length == 0) return peers;
+
+        var result = new DhtNode[peers.Length];
+        for (int i = 0; i < peers.Length; i++)
+        {
+            result[i] = EnrichNodeFromPeerStore(peers[i], peerStore);
+        }
+        return result;
+    }
+
     internal static void StorePeerAddresses(DhtNode node, PeerStore? peerStore)
     {
         if (peerStore == null) return;
         try
         {
+            var existingInfo = peerStore.GetPeerInfo(node.PeerId);
+            if (existingInfo.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
+                return;
+
             peerStore.Discover(node.Multiaddrs
                 .Where(a => !string.IsNullOrWhiteSpace(a))
                 .Select(a => Multiformats.Address.Multiaddress.Decode(a))
