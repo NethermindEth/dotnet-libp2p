@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using StackExchange.Redis;
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -94,23 +95,43 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            List<NetworkInterface> interfaces = NetworkInterface.GetAllNetworkInterfaces()!
-                 .Where(i => i.Name == "eth0" ||
-                    (i.OperationalStatus == OperationalStatus.Up &&
-                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
-
-            IEnumerable<UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
-                 .Where(i => i.Name == "eth0" ||
-                    (i.OperationalStatus == OperationalStatus.Up &&
-                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
-                     i.GetIPProperties().GatewayAddresses.Any())
-                 ).First()
-                 .GetIPProperties()
-                 .UnicastAddresses
-                 .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
-
-            Log("Available addresses detected, picking the first: " + string.Join(",", addresses.Select(a => a.Address)));
-            ip = addresses.First().Address.ToString()!;
+            Log("Auto-detecting network interface...");
+            
+            // Get all active network interfaces with IPv4 addresses
+            var candidates = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(i => i.OperationalStatus == OperationalStatus.Up)
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .Select(i => new { 
+                    Interface = i, 
+                    Addresses = i.GetIPProperties().UnicastAddresses
+                        .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+                        .Where(a => !IPAddress.IsLoopback(a.Address))
+                        .ToList()
+                })
+                .Where(x => x.Addresses.Any())
+                .ToList();
+            
+            Log($"Found {candidates.Count} candidate interfaces: {string.Join(", ", candidates.Select(c => $"{c.Interface.Name}({c.Interface.NetworkInterfaceType})"))}");
+            
+            // Priority order: Physical Ethernet > Wi-Fi > Virtual Ethernet > Others
+            var selectedInterface = candidates
+                .OrderBy(c => GetInterfacePriority(c.Interface))
+                .ThenByDescending(c => c.Interface.Speed) // Prefer faster interfaces
+                .FirstOrDefault();
+            
+            if (selectedInterface == null)
+            {
+                Log("No suitable network interface found. Available interfaces:");
+                foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    Log($"  {ni.Name}: {ni.NetworkInterfaceType}, {ni.OperationalStatus}");
+                }
+                throw new Exception("No active network interface with IPv4 address found. Set LISTENER_IP environment variable to specify an IP address.");
+            }
+            
+            var selectedAddress = selectedInterface.Addresses.First();
+            ip = selectedAddress.Address.ToString();
+            Log($"Selected interface: {selectedInterface.Interface.Name} ({selectedInterface.Interface.NetworkInterfaceType}) -> {ip}");
         }
         Log("Starting to listen...");
         ILocalPeer localPeer = peerFactory.Create();
@@ -133,6 +154,27 @@ catch (Exception ex)
 
 static void Log(string info) => Console.Error.WriteLine(info);
 static void PrintResult(string info) => Console.WriteLine(info);
+
+static int GetInterfacePriority(NetworkInterface networkInterface)
+{
+    // Lower number = higher priority
+    return networkInterface.NetworkInterfaceType switch
+    {
+        NetworkInterfaceType.Ethernet => 1,           // Physical Ethernet (best)
+        NetworkInterfaceType.Wireless80211 => 2,      // Wi-Fi (good)
+        NetworkInterfaceType.GigabitEthernet => 1,     // Gigabit Ethernet (best)
+        NetworkInterfaceType.FastEthernetT => 1,       // Fast Ethernet (best)
+        NetworkInterfaceType.Ethernet3Megabit => 1,    // Legacy Ethernet (best)
+        NetworkInterfaceType.GenericModem => 5,        // Modem (low priority)
+        NetworkInterfaceType.Ppp => 5,                 // PPP connection (low priority)
+        NetworkInterfaceType.Tunnel => 4,              // Tunnel interface (medium-low)
+        _ when networkInterface.Name.Contains("vEthernet") => 3, // Hyper-V virtual (medium)
+        _ when networkInterface.Name.Contains("VirtualBox") => 3, // VirtualBox (medium) 
+        _ when networkInterface.Name.Contains("VMware") => 3,     // VMware (medium)
+        _ when networkInterface.Description.Contains("Virtual") => 3, // Other virtual (medium)
+        _ => 6  // Unknown/other (lowest priority)
+    };
+}
 
 class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryBuilder, PeerFactory>
 {
