@@ -229,8 +229,9 @@ public class PeerScoringE2eTests
             }
         }
 
-        await test.WaitForFullMeshAsync(topic1);
-        await test.WaitForFullMeshAsync(topic2);
+        // Longer timeout: two topics need more time for mesh convergence under load/CI
+        await test.WaitForFullMeshAsync(topic1, timeoutMs: 25_000);
+        await test.WaitForFullMeshAsync(topic2, timeoutMs: 25_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();

@@ -65,6 +65,7 @@
         "mplex",
         "msquic",
         "multiaddr",
+        "multiaddrs",
         "multiaddress",
         "multibase",
         "multicodec",
