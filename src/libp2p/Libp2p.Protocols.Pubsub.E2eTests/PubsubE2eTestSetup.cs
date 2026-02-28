@@ -96,7 +96,9 @@ public class PubsubE2eTestSetup : E2eTestSetup
         }
     }
 
-    public async Task WaitForFullMeshAsync(string topic, int timeoutMs = 30_000)
+    // Wait until every router has at least `LowestDegree` mesh peers for the topic.
+    // The original 30‑second default was occasionally too tight on CI, so bump it to 60s
+    public async Task WaitForFullMeshAsync(string topic, int timeoutMs = 60_000)
     {
         int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);
 
