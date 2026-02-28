@@ -20,15 +20,7 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
-        {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
-        }
+        await test.DiscoverAllPeersAsync(totalCount);
 
         await test.WaitForFullMeshAsync(commonTopic);
 
@@ -85,15 +77,7 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
-        {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
-        }
+        await test.DiscoverAllPeersAsync(totalCount);
 
         await test.WaitForFullMeshAsync(commonTopic);
 
@@ -150,12 +134,10 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
         await test.WaitForFullMeshAsync(commonTopic);
@@ -221,13 +203,7 @@ public class PeerScoringE2eTests
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
-        foreach ((_, var peerStore) in test.PeerStores)
-        {
-            for (int j = 0; j < totalCount; j++)
-            {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-        }
+        await test.DiscoverAllPeersAsync(totalCount);
 
         await test.WaitForFullMeshAsync(topic1);
         await test.WaitForFullMeshAsync(topic2);

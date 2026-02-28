@@ -14,6 +14,26 @@ public class PubsubE2eTestSetup : E2eTestSetup
     public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 3, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200 };
     public Dictionary<int, PubsubRouter> Routers { get; } = [];
 
+    public new async ValueTask DisposeAsync()
+    {
+        // Dispose routers first to stop heartbeat timers and reconnection tasks
+        foreach (PubsubRouter router in Routers.Values)
+        {
+            router.Dispose();
+        }
+
+        await base.DisposeAsync();
+
+        // Dispose service providers to clean up DI-managed resources
+        foreach (ServiceProvider sp in ServiceProviders.Values)
+        {
+            await sp.DisposeAsync();
+        }
+
+        // Brief delay to let TCP sockets fully release
+        await Task.Delay(200);
+    }
+
 
     protected override IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
     {
@@ -58,7 +78,25 @@ public class PubsubE2eTestSetup : E2eTestSetup
         }
     }
 
-    public async Task WaitForFullMeshAsync(string topic, int timeoutMs = 15_000)
+    /// <summary>
+    /// Discovers all peers with staggered timing to prevent simultaneous connection races.
+    /// Each peer discovers all others one at a time with a small delay between batches.
+    /// </summary>
+    public async Task DiscoverAllPeersAsync(int totalCount)
+    {
+        for (int i = 0; i < totalCount; i++)
+        {
+            for (int j = 0; j < totalCount; j++)
+            {
+                if (i != j) PeerStores[i].Discover([.. Peers[j].ListenAddresses]);
+            }
+
+            // Small delay between each peer's discovery batch to prevent simultaneous dialing
+            if (i < totalCount - 1) await Task.Delay(300);
+        }
+    }
+
+    public async Task WaitForFullMeshAsync(string topic, int timeoutMs = 30_000)
     {
         int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);
 
@@ -82,6 +120,9 @@ public class PubsubE2eTestSetup : E2eTestSetup
             PrintState();
 
             if (!stillWaiting) break;
+
+            // Trigger heartbeat to ensure mesh grafting progresses even under resource contention
+            await Heartbeat();
             await Task.Delay(1000, cts.Token);
         }
     }

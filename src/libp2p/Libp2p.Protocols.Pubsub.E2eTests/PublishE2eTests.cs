@@ -20,15 +20,7 @@ public class PublishE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(topic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
-        {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
-        }
+        await test.DiscoverAllPeersAsync(totalCount);
 
         await test.WaitForFullMeshAsync(topic);
 
