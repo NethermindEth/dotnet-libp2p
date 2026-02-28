@@ -28,16 +28,10 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithRelay()
     {
-<<<<<<< HEAD
-        ProtocolStack tcpEncryptionStack = enforcePlaintext ?
-            Over<PlainTextProtocol>() :
-            Over<TlsProtocol>();
-=======
         throw new NotImplementedException("Relay protocol is not yet implemented");
         addRelay = true;
         return this;
     }
->>>>>>> upstream/main
 
     public ILibp2pPeerFactoryBuilder WithQuic()
     {

@@ -26,14 +26,10 @@
     <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Relay\Libp2p.Protocols.Relay.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
-<<<<<<< HEAD
-     <ProjectReference Include="..\Libp2p.Protocols.TLS\Libp2p.Protocols.TLS.csproj" />
-=======
     <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
 
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.RequestResponse\Libp2p.Protocols.RequestResponse.csproj" />
->>>>>>> upstream/main
   </ItemGroup>
 
   <ItemGroup>

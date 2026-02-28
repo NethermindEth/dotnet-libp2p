@@ -17,19 +17,6 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
 
     public async Task DialAsync(IChannel channel, IConnectionContext context)
     {
-<<<<<<< HEAD
-        try
-        {
-            _logger?.LogTrace($"MS Dials");
-
-            if (!await SendHello(channel))
-            {
-                await channel.CloseAsync();
-                return;
-            }
-
-            async Task<bool?> DialProtocol(IProtocol selector)
-=======
         _logger?.LogTrace($"Hello started");
 
         if (!await SendHello(channel))
@@ -71,78 +58,27 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
         else
         {
             foreach (IProtocol selector in context!.SubProtocols)
->>>>>>> upstream/main
             {
-                _logger?.LogTrace($"Trying 1");
-
-                await channel.WriteLineAsync(selector.Id);
-                _logger?.LogTrace($"Trying 2");
-                string selectorLine = await channel.ReadLineAsync();
-                _logger?.LogTrace($"Trying 3 {selectorLine}");
-                _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
-                if (selectorLine == selector.Id)
+                bool? dialResult = await DialProtocol(selector);
+                if (dialResult == true)
                 {
-                    return true;
+                    selected = selector;
+                    break;
                 }
-
-                if (selectorLine != ProtocolNotSupported)
+                else if (dialResult == false)
                 {
-                    return false;
-                }
-
-                return null;
-            }
-
-            IProtocol? selected = null;
-
-            if (context.SpecificProtocolRequest?.SubProtocol is not null)
-            {
-                selected = context.SpecificProtocolRequest.SubProtocol;
-
-                context.SpecificProtocolRequest = null;
-                if (await DialProtocol(selected) != true)
-                {
-                    return;
+                    break;
                 }
             }
-            else
-            {
-                _logger?.LogTrace($"Selecting proto");
-
-                foreach (IProtocol selector in channelFactory!.SubProtocols)
-                {
-                    _logger?.LogTrace($"Trying  {selector}");
-
-                    bool? dialResult = await DialProtocol(selector);
-                    if (dialResult == true)
-                    {
-                        selected = selector;
-                        break;
-                    }
-                    else if (dialResult == false)
-                    {
-                        break;
-                    }
-                }
-            }
-
-            if (selected is null)
-            {
-                _logger?.LogDebug($"Negotiation failed");
-                return;
-            }
-            _logger?.LogDebug($"Protocol selected during dialing: {selected}");
-            await channelFactory.SubDialAndBind(channel, context, selected);
         }
-        catch
+
+        if (selected is null)
         {
-            _logger?.LogError($"Negotiation failed");
+            _logger?.LogDebug($"Negotiation failed");
+            return;
         }
-<<<<<<< HEAD
-=======
         _logger?.LogDebug($"Protocol selected during dialing: {selected.Id}");
         await context.Upgrade(channel, selected);
->>>>>>> upstream/main
     }
 
     public async Task ListenAsync(IChannel channel, IConnectionContext context)
