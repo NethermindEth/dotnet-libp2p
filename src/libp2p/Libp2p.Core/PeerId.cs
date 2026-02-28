@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Dto;
@@ -11,7 +11,7 @@ using Multihash = Multiformats.Hash.Multihash;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerId
+public class PeerId : IComparable<PeerId>, IComparable
 {
     public readonly byte[] Bytes;
     int? hashCode = null;
@@ -80,10 +80,16 @@ public class PeerId
 
     public string ToCidString()
     {
-        byte[] encodedPeerIdBytes = new byte[Bytes.Length + 2];
-        encodedPeerIdBytes[0] = (byte)Cid.Cidv1;
-        encodedPeerIdBytes[1] = (byte)Ipld.Libp2pKey;
-        Array.Copy(Bytes, 0, encodedPeerIdBytes, 2, Bytes.Length);
+        // CID format: <multibase><cid-version><multicodec><multihash>
+        // Calculate required buffer size
+        int codecSize = VarInt.GetSizeInBytes((int)Ipld.Libp2pKey);
+        byte[] encodedPeerIdBytes = new byte[1 + codecSize + Bytes.Length];
+
+        int offset = 0;
+        encodedPeerIdBytes[offset++] = (byte)Cid.Cidv1;
+        VarInt.Encode((int)Ipld.Libp2pKey, encodedPeerIdBytes, ref offset);
+        Array.Copy(Bytes, 0, encodedPeerIdBytes, offset, Bytes.Length);
+
         return Multibase.Encode(MultibaseEncoding.Base32Lower, encodedPeerIdBytes);
     }
 
@@ -127,7 +133,11 @@ public class PeerId
         return hashCode ??= ComputeHash(Bytes);
     }
 
-    public static bool operator ==(PeerId left, PeerId right)
+    public int CompareTo(PeerId? other) => other is null ? 1 : Bytes.AsSpan().SequenceCompareTo(other.Bytes.AsSpan());
+
+    public int CompareTo(object? obj) => obj is not PeerId other ? 1 : CompareTo(other);
+
+    public static bool operator ==(PeerId? left, PeerId? right)
     {
         if (left is null)
         {
@@ -141,69 +151,6 @@ public class PeerId
         return left.Equals(right);
     }
 
-    public static bool operator !=(PeerId left, PeerId right) => !(left == right);
+    public static bool operator !=(PeerId? left, PeerId? right) => !(left == right);
     #endregion
-}
-
-public class MessageId : IComparable<MessageId>
-{
-    public readonly byte[] Bytes;
-    int? hashCode = null;
-
-    public MessageId(byte[] bytes)
-    {
-        Bytes = bytes;
-    }
-
-    public int CompareTo(MessageId? other) => Equals(other) ? 0 : (other is not null ? GetHashCode().CompareTo(other.GetHashCode()) : 1);
-
-    public override bool Equals(object? obj)
-    {
-        if (ReferenceEquals(this, obj))
-        {
-            return true;
-        }
-
-        if (obj is not MessageId peerId)
-        {
-            return false;
-        }
-
-        return Bytes.SequenceEqual(peerId.Bytes);
-    }
-
-    public override int GetHashCode()
-    {
-        static int ComputeHash(params byte[] data)
-        {
-            unchecked
-            {
-                const int p = 16777619;
-                int hash = (int)2166136261;
-
-                for (int i = 0; i < data.Length; i++)
-                    hash = (hash ^ data[i]) * p;
-
-                return hash;
-            }
-        }
-
-        return hashCode ??= ComputeHash(Bytes);
-    }
-
-    public static bool operator ==(MessageId left, MessageId right)
-    {
-        if (left is null)
-        {
-            if (right is null)
-            {
-                return true;
-            }
-
-            return false;
-        }
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(MessageId left, MessageId right) => !(left == right);
 }

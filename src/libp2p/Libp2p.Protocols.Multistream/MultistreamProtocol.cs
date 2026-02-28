@@ -9,19 +9,15 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/multiformats/multistream-select
 /// </summary>
-public class MultistreamProtocol : IProtocol
+public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnectionProtocol
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     private const string ProtocolNotSupported = "na";
     public string Id => "/multistream/1.0.0";
 
-    public MultistreamProtocol(ILoggerFactory? loggerFactory = null)
+    public async Task DialAsync(IChannel channel, IConnectionContext context)
     {
-        _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
-    }
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
-    {
+<<<<<<< HEAD
         try
         {
             _logger?.LogTrace($"MS Dials");
@@ -33,6 +29,49 @@ public class MultistreamProtocol : IProtocol
             }
 
             async Task<bool?> DialProtocol(IProtocol selector)
+=======
+        _logger?.LogTrace($"Hello started");
+
+        if (!await SendHello(channel))
+        {
+            await channel.CloseAsync();
+            _logger?.LogTrace($"Hello failed");
+            return;
+        }
+        _logger?.LogTrace($"Hello passed");
+
+        async Task<bool?> DialProtocol(IProtocol selector)
+        {
+            await channel.WriteLineAsync(selector.Id);
+            string selectorLine = await channel.ReadLineAsync();
+            _logger?.LogTrace($"Proposed {selector.Id}, answer: {selectorLine}");
+            if (selectorLine == selector.Id)
+            {
+                return true;
+            }
+
+            if (selectorLine != ProtocolNotSupported)
+            {
+                return false;
+            }
+
+            return null;
+        }
+
+        IProtocol? selected = null;
+
+        if (context.UpgradeOptions?.SelectedProtocol is not null)
+        {
+            _logger?.LogDebug($"Proposing just {context.UpgradeOptions.SelectedProtocol}");
+            if (await DialProtocol(context.UpgradeOptions.SelectedProtocol) == true)
+            {
+                selected = context.UpgradeOptions.SelectedProtocol;
+            }
+        }
+        else
+        {
+            foreach (IProtocol selector in context!.SubProtocols)
+>>>>>>> upstream/main
             {
                 _logger?.LogTrace($"Trying 1");
 
@@ -99,10 +138,14 @@ public class MultistreamProtocol : IProtocol
         {
             _logger?.LogError($"Negotiation failed");
         }
+<<<<<<< HEAD
+=======
+        _logger?.LogDebug($"Protocol selected during dialing: {selected.Id}");
+        await context.Upgrade(channel, selected);
+>>>>>>> upstream/main
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, IConnectionContext context)
     {
         if (!await SendHello(channel))
         {
@@ -114,7 +157,7 @@ public class MultistreamProtocol : IProtocol
         for (; ; )
         {
             string proto = await channel.ReadLineAsync();
-            selected = channelFactory!.SubProtocols.FirstOrDefault(x => x.Id == proto);
+            selected = context.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
             if (selected is not null)
             {
                 await channel.WriteLineAsync(selected.Id);
@@ -133,7 +176,7 @@ public class MultistreamProtocol : IProtocol
         }
 
         _logger?.LogDebug($"Protocol selected during listening: {selected}");
-        await channelFactory.SubListenAndBind(channel, context, selected);
+        await context.Upgrade(channel, selected);
     }
 
     private async Task<bool> SendHello(IChannel channel)

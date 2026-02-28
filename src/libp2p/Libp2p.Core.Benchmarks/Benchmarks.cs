@@ -2,10 +2,8 @@ using System;
 using System.Buffers;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Nethermind.Libp2p.Core;
-using Channel = Nethermind.Libp2p.Core.Channel;
 
-namespace Libp2p.Core.Benchmarks;
+namespace Nethermind.Libp2p.Core.Benchmarks;
 
 [MemoryDiagnoser]
 public class ChannelsBenchmark

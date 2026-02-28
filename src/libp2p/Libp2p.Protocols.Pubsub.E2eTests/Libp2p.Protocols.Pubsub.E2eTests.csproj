@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <EnableNUnitRunner>true</EnableNUnitRunner>
+    <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="NLog.Extensions.Logging" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="NSubstitute.Analyzers.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
+    <ProjectReference Include="..\Libp2p.E2eTests\Libp2p.E2eTests.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
+    <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
+  </ItemGroup>
+
+</Project>

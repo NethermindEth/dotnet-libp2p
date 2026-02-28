@@ -5,177 +5,98 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Nethermind.Libp2p.Core;
 
-public static class PeerFactoryBuilderBase
+public class ProtocolRef(IProtocol protocol, bool isExposed = true)
 {
-    private static HashSet<IProtocol> protocols = new();
+    static int RefIdCounter = 0;
 
-    internal static IProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+    public string RefId { get; } = Interlocked.Increment(ref RefIdCounter).ToString();
+    public IProtocol Protocol => protocol;
+    public bool IsExposed => isExposed;
+
+    public string Id => Protocol.Id;
+
+    public override string ToString()
     {
-        if (instance is not null)
-        {
-            protocols.Add(instance);
-        }
-
-        IProtocol? existing = instance ?? protocols.OfType<TProtocol>().FirstOrDefault();
-        if (existing is null)
-        {
-            existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
-            protocols.Add(existing);
-        }
-        return existing;
+        return $"ref#{RefId}({Protocol.Id})";
     }
+
+    public static implicit operator ProtocolRef[](ProtocolRef pr) => [pr];
 }
+
 
 public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
-    where TPeerFactory : PeerFactory
+    where TPeerFactory : IPeerFactory
 {
-    private readonly List<IProtocol> _appLayerProtocols = new();
-    public IEnumerable<IProtocol> AppLayerProtocols { get => _appLayerProtocols; }
+    private readonly HashSet<IProtocol> protocolInstances = [];
 
-    internal readonly IServiceProvider ServiceProvider;
+    private TProtocol CreateProtocolInstance<TProtocol>(IServiceProvider serviceProvider, TProtocol? instance = default) where TProtocol : IProtocol
+    {
+        if (instance is not null)
+        {
+            protocolInstances.Add(instance);
+        }
 
-    protected readonly ProtocolStack? _stack;
+        IProtocol? existing = instance ?? protocolInstances.OfType<TProtocol>().FirstOrDefault();
+        if (existing is null)
+        {
+            existing = ActivatorUtilities.GetServiceOrCreateInstance<TProtocol>(serviceProvider);
+            protocolInstances.Add(existing);
+        }
+        return (TProtocol)existing;
+    }
+
+
+    private readonly List<ProtocolRef> _appLayerProtocols = [];
+
+    public IServiceProvider ServiceProvider { protected set; get; }
 
     protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
-    {
-        ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
-    }
+        => ServiceProvider = serviceProvider ?? new ServiceCollection().BuildServiceProvider();
 
-    protected ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
-        return new ProtocolStack(this, ServiceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider, instance));
-    }
-
-    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
-    {
-        _appLayerProtocols.Add(PeerFactoryBuilderBase.CreateProtocolInstance(ServiceProvider!, instance));
+        _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
     }
 
-    protected class ProtocolStack
+    protected abstract ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols);
+
+    private readonly Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
+
+    protected ProtocolRef[] Connect(ProtocolRef[] protocols, params ProtocolRef[][] upgradeToStacks)
     {
-        private readonly IPeerFactoryBuilder builder;
-        private readonly IServiceProvider serviceProvider;
-
-        public ProtocolStack? Root { get; private set; }
-        public ProtocolStack? Parent { get; private set; }
-        public ProtocolStack? PrevSwitch { get; private set; }
-        public IProtocol Protocol { get; }
-        public HashSet<ProtocolStack> TopProtocols { get; } = new();
-        public ChannelFactory UpChannelsFactory { get; }
-
-        public ProtocolStack(IPeerFactoryBuilder builder, IServiceProvider serviceProvider, IProtocol protocol)
+        ProtocolRef[] previous = protocols;
+        foreach (ProtocolRef[] upgradeTo in upgradeToStacks)
         {
-            this.builder = builder;
-            this.serviceProvider = serviceProvider;
-            Protocol = protocol;
-            UpChannelsFactory = ActivatorUtilities.GetServiceOrCreateInstance<ChannelFactory>(serviceProvider);
-        }
-
-        public ProtocolStack AddAppLayerProtocol<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
-        {
-            builder.AddAppLayerProtocol(instance);
-            return this;
-        }
-
-        public ProtocolStack Over<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
-        {
-            ProtocolStack nextNode = new(builder, serviceProvider, PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance));
-            return Over(nextNode);
-        }
-
-        public ProtocolStack Or<TProtocol>(TProtocol? instance = default) where TProtocol : IProtocol
-        {
-            if (Parent is null)
+            foreach (ProtocolRef protocolRef in previous)
             {
-                throw new NotImplementedException();
+                this.protocols[protocolRef] = upgradeTo;
+
+                foreach (ProtocolRef upgradeToRef in upgradeTo)
+                {
+                    this.protocols.TryAdd(upgradeToRef, []);
+                }
             }
-            IProtocol protocol = PeerFactoryBuilderBase.CreateProtocolInstance(serviceProvider!, instance);
-            ProtocolStack stack = new(builder, serviceProvider, protocol);
-            return Or(stack);
+            previous = upgradeTo;
         }
 
-        public ProtocolStack Over(ProtocolStack stack)
-        {
-            PeerFactoryBuilderBase<TBuilder, TPeerFactory>.ProtocolStack rootProto = stack.Root ?? stack;
-            TopProtocols.Add(rootProto);
-
-            if (PrevSwitch != null)
-            {
-                PrevSwitch.Over(stack);
-            }
-
-            rootProto.Root = stack.Root = Root ?? this;
-            rootProto.Parent = this;
-
-            return stack;
-        }
-
-        public ProtocolStack Or(ProtocolStack stack)
-        {
-            if (Parent is null)
-            {
-                throw new NotImplementedException();
-            }
-            stack.PrevSwitch = this;
-            return Parent.Over(stack);
-        }
-
-        public override string ToString()
-        {
-            return $"{Protocol.Id}({TopProtocols.Count}): {string.Join(" or ", TopProtocols.Select(p => p.Protocol.Id))}";
-        }
+        return previous;
     }
 
-    protected abstract ProtocolStack BuildStack();
+    protected ProtocolRef Get<TProtocol>() where TProtocol : IProtocol
+    {
+        return new ProtocolRef(CreateProtocolInstance<TProtocol>(ServiceProvider));
+    }
 
     public IPeerFactory Build()
     {
-        ProtocolStack transportLayer = BuildStack();
-        ProtocolStack? appLayer = default;
-
-        foreach (IProtocol appLayerProtocol in _appLayerProtocols)
-        {
-            appLayer = appLayer is null ? transportLayer.Over(appLayerProtocol) : appLayer.Or(appLayerProtocol);
-        }
-
-        ProtocolStack? root = transportLayer.Root;
-
-        if (root?.Protocol is null || root.UpChannelsFactory is null)
-        {
-            throw new ApplicationException("Root protocol is not properly defined");
-        }
-
-        static void SetupChannelFactories(ProtocolStack root)
-        {
-            root.UpChannelsFactory.Setup(new Dictionary<IProtocol, IChannelFactory>(root.TopProtocols
-                     .Select(p => new KeyValuePair<IProtocol, IChannelFactory>(p.Protocol, p.UpChannelsFactory))));
-            foreach (ProtocolStack topProto in root.TopProtocols)
-            {
-                if (!root.TopProtocols.Any())
-                {
-                    return;
-                }
-                SetupChannelFactories(topProto);
-            }
-        }
-
-        SetupChannelFactories(root);
+        IProtocolStackSettings protocolStackSettings = ActivatorUtilities.GetServiceOrCreateInstance<IProtocolStackSettings>(ServiceProvider);
+        protocolStackSettings.TopProtocols = BuildStack(_appLayerProtocols.ToArray());
+        protocolStackSettings.Protocols = protocols;
 
         TPeerFactory result = ActivatorUtilities.GetServiceOrCreateInstance<TPeerFactory>(ServiceProvider);
-        result.Setup(root?.Protocol!, root!.UpChannelsFactory);
+
         return result;
-    }
-
-    private class Layer
-    {
-        public List<IProtocol> Protocols { get; } = new();
-        public bool IsSelector { get; set; }
-
-        public override string ToString()
-        {
-            return (IsSelector ? "(selector)" : "") + string.Join(",", Protocols.Select(p => p.Id));
-        }
     }
 }

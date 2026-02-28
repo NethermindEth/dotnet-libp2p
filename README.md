@@ -11,20 +11,25 @@
 [![Test](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml/badge.svg)](https://github.com/nethermindeth/dotnet-libp2p/actions/workflows/test.yml)
 [![Nethermind.Libp2p](https://img.shields.io/nuget/v/Nethermind.Libp2p)](https://www.nuget.org/packages/Nethermind.Libp2p)
 [![.NET libp2p](https://img.shields.io/badge/telegram-.NET%20libp2p-blue?logo=telegram)](https://t.me/dotnet_libp2p)
+[![Discord](https://img.shields.io/discord/1204447718093750272?style=flat&logo=discord")](https://discord.com/channels/1204447718093750272/1341468555568353330)
 
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
-As an application developer, you may consider reading [quick start](./docs/README.md).
-As a stack implementer, you may be interested in [more advanced tutorials](./docs/development/README.md).
+The docs from the application developer perspective: [quick start](./docs/README.md).
+As a libp2p protocol implementer, you may be interested in [more advanced tutorials](./docs/development/README.md). You can rewire and reconfigure the library in any way you want!
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+## Adding libp2p to your project
+
+```
+dotnet add package Nethermind.Libp2p --prerelease
+```
+
 ## Building the solution
 
-The solution depends on external repositories.
-
 ```sh
-git clone https://github.com/NethermindEth/dotnet-libp2p.git --recursive
+git clone https://github.com/NethermindEth/dotnet-libp2p.git
 cd ./src/libp2p/
 dotnet build
 dotnet test
@@ -40,32 +45,37 @@ The target is to provide a performant well-tested implementation of a wide range
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
 | TCP                | tcp                | ✅             |
-| QUIC               | quic-v1            | ✅             |
+| QUIC               | quic-v1            | 🚧             |
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
-| tls                | /tls/1.0.0         | ⬜ help wanted |
-| WebTransport       |                    | ⬜ help wanted |
 | yamux              | /yamux/1.0.0       | ✅             |
-| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | ⬜ help wanted |
+| tls                | /tls/1.0.0         | 🚧             |
+| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
+| WebTransport       |                    | ⬜ help wanted |
+| WebRTC             |                    | ⬜ help wanted |
 | hole punching      |                    | ⬜ help wanted |
 | **Application layer**
 | Identify           | /ipfs/id/1.0.0     | ✅             |
 | ping               | /ipfs/ping/1.0.0   | ✅             |
+| ping/push          | /ipfs/id/push/1.0.0 | ✅             |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | 🚧             |
-|                    | /meshsub/1.2.0     | ⬜             |
+|                    | /meshsub/1.2.0     | 🚧             |
+| request-response   |                    | ✅             |
+| perf               | /perf/1.0.0        | 🚧             |
 | **Discovery**
-| mDns               | basic              | ✅             |
-|                    | DNS-SD             | 🚧             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) | 5.1 | 🚧 help wanted |
+| mDns               | basic w/o DNS-SD   | ✅             |
+| pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
+| Kademlia DHT       | /*/kad/1.0.0       | 🚧             |
+| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧             |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
 ✅ - basic support implemented
 
-No plans for: mplex, quic(draft-29)
+No plans for: mplex, quic-draft-29
 
 ## License
 

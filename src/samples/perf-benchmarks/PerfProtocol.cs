@@ -2,86 +2,144 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Buffers.Binary;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 
 namespace DataTransferBenchmark;
 
-// TODO: Align with perf protocol
-public class PerfProtocol : IProtocol
+public class PerfProtocol : ISessionProtocol
 {
+    private const int BlockSize = 64 * 1024; // 64KB, matching Go's blockSize
+    private const int MaxConsecutiveFailures = 3;
+
+    private static readonly byte[] SendBuffer;
+
     private readonly ILogger? _logger;
+
     public string Id => "/perf/1.0.0";
+
+    public static ulong BytesToReceive { get; set; }
+    public static ulong BytesToSend { get; set; }
+
+    static PerfProtocol()
+    {
+        // Pre-allocate a reusable send buffer once.
+        // Fill with a non-zero pattern to avoid OS zero-page deduplication.
+        SendBuffer = new byte[BlockSize];
+        SendBuffer.AsSpan().Fill(0xAB);
+    }
 
     public PerfProtocol(ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<PerfProtocol>();
     }
 
-    public const long TotalLoad = 1024L * 1024 * 100;
-    private Random rand = new();
-
-    public async Task DialAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
+        var bytesToSend = BytesToSend;
+        var bytesToRecv = BytesToReceive;
 
-        await downChannel.WriteVarintAsync(TotalLoad);
+        // Send 16-byte header (matching Rust protocol):
+        //   [8B BE] bytesToSend — how many bytes we will upload
+        //   [8B BE] bytesToRecv — how many bytes we want the server to send back
+        Span<byte> header = stackalloc byte[16];
+        BinaryPrimitives.WriteUInt64BigEndian(header[..8], bytesToSend);
+        BinaryPrimitives.WriteUInt64BigEndian(header[8..], bytesToRecv);
+        await channel.WriteAsync(new ReadOnlySequence<byte>(header.ToArray()));
 
-        _ = Task.Run(async () =>
+        if (bytesToSend > 0)
+            await SendBytesAsync(channel, bytesToSend);
+
+        if (bytesToRecv > 0)
         {
-            byte[] bytes = new byte[1024 * 1024];
-            long bytesWritten = 0;
-
-            for (; ; )
-            {
-                int bytesToWrite = (int)Math.Min(bytes.Length, TotalLoad - bytesWritten);
-                if (bytesToWrite == 0)
-                {
-                    break;
-                }
-                rand.NextBytes(bytes.AsSpan(0, bytesToWrite));
-                ReadOnlySequence<byte> request = new(bytes, 0, bytesToWrite);
-                await downChannel.WriteAsync(request);
-                bytesWritten += bytesToWrite;
-                _logger?.LogDebug($"Sent {request.Length} more bytes");
-            }
-        });
-
-        long bytesRead = 0;
-        for (; ; )
-        {
-            ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
-            _logger?.LogDebug($"DIAL READ {read.Length}");
-            bytesRead += read.Length;
-            if (bytesRead == TotalLoad)
-            {
-                _logger?.LogInformation($"DIAL DONE");
-                return;
-            }
+            var recvd = await DrainBytesAsync(channel, bytesToRecv);
+            if (recvd != bytesToRecv)
+                throw new InvalidOperationException(
+                    $"Expected to receive {bytesToRecv} bytes, got {recvd}");
         }
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
-        ulong total = await downChannel.ReadVarintUlongAsync();
-        ulong bytesRead = 0;
-        for (; ; )
+        // Read 16-byte header (matching Rust protocol)
+        var readResult = await channel.ReadAsync(16, ReadBlockingMode.WaitAll).OrThrow();
+        if (readResult.Length != 16)
+            throw new InvalidDataException($"Header too short: {readResult.Length} bytes");
+
+        Span<byte> header = stackalloc byte[16];
+        readResult.CopyTo(header);
+
+        // First 8B: bytes client will send, Next 8B: bytes client wants back
+        var bytesToDrain = BinaryPrimitives.ReadUInt64BigEndian(header[..8]);
+        var bytesToSendBack = BinaryPrimitives.ReadUInt64BigEndian(header[8..]);
+
+        _logger?.LogInformation("Listen: drain {Drain}, send {Send}", bytesToDrain, bytesToSendBack);
+
+        if (bytesToDrain > 0)
+            await DrainBytesAsync(channel, bytesToDrain);
+
+        if (bytesToSendBack > 0)
+            await SendBytesAsync(channel, bytesToSendBack);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="totalBytes"/> of payload to the channel using a
+    /// pre-filled static buffer (no per-chunk allocation or random fill).
+    /// </summary>
+    private static async Task SendBytesAsync(IChannel channel, ulong totalBytes)
+    {
+        var remaining = totalBytes;
+        while (remaining > 0)
         {
-            ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
-            if (read.Length == 0)
+            var chunkSize = (int)Math.Min(remaining, (ulong)BlockSize);
+            await channel.WriteAsync(
+                new ReadOnlySequence<byte>(SendBuffer.AsMemory(0, chunkSize)));
+            remaining -= (ulong)chunkSize;
+        }
+        // Note: No explicit flush needed - both sides use exact byte counts
+    }
+
+    /// <summary>
+    /// Reads exactly <paramref name="expectedBytes"/> from the channel.
+    /// Uses WaitAll mode and caps read requests to the remaining byte count.
+    /// </summary>
+    private async Task<ulong> DrainBytesAsync(IChannel channel, ulong expectedBytes)
+    {
+        ulong total = 0;
+        int consecutiveErrors = 0;
+
+        while (total < expectedBytes)
+        {
+            var remaining = expectedBytes - total;
+            var requestSize = (int)Math.Min(remaining, (ulong)BlockSize);
+
+            try
             {
-                continue;
+                var chunk = await channel.ReadAsync(requestSize, ReadBlockingMode.WaitAll).OrThrow();
+
+                if (chunk.Length == 0)
+                {
+                    if (++consecutiveErrors >= MaxConsecutiveFailures) break;
+                    await Task.Delay(10);
+                    continue;
+                }
+
+                consecutiveErrors = 0;
+                total += (ulong)chunk.Length;
             }
-
-            _logger?.LogDebug($"Read {read.Length} more bytes");
-            await downChannel.WriteAsync(read).OrThrow();
-            _logger?.LogDebug($"Sent back {read.Length}");
-
-            bytesRead += (ulong)read.Length;
-            if (bytesRead == total)
+            catch (Exception ex)
             {
-                _logger?.LogInformation($"Finished");
-                return;
+                if (++consecutiveErrors >= MaxConsecutiveFailures)
+                {
+                    _logger?.LogError("Drain failed at {Total}/{Expected}: {Msg}",
+                        total, expectedBytes, ex.Message);
+                    break;
+                }
+                await Task.Delay(10);
             }
         }
+
+        return total;
     }
 }

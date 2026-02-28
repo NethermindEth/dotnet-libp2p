@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -7,9 +7,9 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Noise;
 using System.Text;
-using Org.BouncyCastle.Math.EC.Rfc8032;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IProtocol
+public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
 {
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,
@@ -26,20 +26,21 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         );
 
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
-    private readonly NoiseExtensions _extensions = new NoiseExtensions()
+    private NoiseExtensions _extensions => new()
     {
-        StreamMuxers =
-        {
-           multiplexerSettings is null ? ["na"] : !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
-        }
+        StreamMuxers = { } // TODO: return the following after go question resolution:
+        //{
+        //   multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+        //}
     };
 
     public string Id => "/noise";
+
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
-    public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
-        ArgumentNullException.ThrowIfNull(upChannelFactory);
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         KeyPair? clientStatic = KeyPair.Generate();
         using HandshakeState? handshakeState = _protocol.Create(true, s: clientStatic.PrivateKey);
@@ -59,33 +60,48 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
+
+        if (msg1Decoded is null)
+        {
+            throw new Libp2pException("Bad handshake message has been received.");
+        }
+
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
-        //var key = new byte[] { 0x1 }.Concat(clientStatic.PublicKey).ToArray();
-        List<string> responderMuxers = msg1Decoded.Extensions.StreamMuxers
+        context.State.RemotePublicKey = msg1KeyDecoded;
+        // TODO: verify signature
+
+        if (msg1KeyDecoded is null)
+        {
+            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
+        }
+
+
+        List<string> responderMuxers = msg1Decoded.Extensions?.StreamMuxers?
             .Where(m => !string.IsNullOrEmpty(m))
-            .ToList();
-        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
+            .ToList() ?? [];
+        IProtocol? commonMuxer = null;// multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
+
+        UpgradeOptions? upgradeOptions = null;
+
         if (commonMuxer is not null)
         {
-            context.SpecificProtocolRequest = new ChannelRequest
+            upgradeOptions = new UpgradeOptions
             {
-                SubProtocol = commonMuxer,
-                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+                SelectedProtocol = commonMuxer,
             };
         }
 
         PeerId remotePeerId = new(msg1KeyDecoded);
-        if (!context.RemotePeer.Address.Has<P2P>())
+        if (!context.State.RemoteAddress.Has<P2P>())
         {
-            context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
+            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
 
         byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(clientStatic.PublicKey)];
-        byte[] sig = new byte[64];
-        Ed25519.Sign([.. context.LocalPeer.Identity.PrivateKey!.Data], 0, msg, 0, msg.Length, sig, 0);
+        byte[] sig = context.Peer.Identity.Sign(msg);
         NoiseHandshakePayload payload = new()
         {
-            IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
+            IdentityKey = context.Peer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
             Extensions = _extensions
         };
@@ -104,19 +120,20 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten));
         Transport? transport = msg2.Transport;
 
-        _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
+        _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
-        IChannel upChannel = upChannelFactory.SubDial(context);
+        IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
-    public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
+    public async Task ListenAsync(IChannel downChannel, IConnectionContext context)
     {
-        ArgumentNullException.ThrowIfNull(upChannelFactory);
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         KeyPair? serverStatic = KeyPair.Generate();
         using HandshakeState? handshakeState =
@@ -132,11 +149,11 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
             .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
             .ToArray();
-        byte[] sig = new byte[64];
-        Ed25519.Sign(context.LocalPeer.Identity.PrivateKey!.Data.ToArray(), 0, msg, 0, msg.Length, sig, 0);
+        byte[] sig = context.Peer.Identity.Sign(msg);
+
         NoiseHandshakePayload payload = new()
         {
-            IdentityKey = context.LocalPeer.Identity.PublicKey.ToByteString(),
+            IdentityKey = context.Peer.Identity.PublicKey.ToByteString(),
             IdentitySig = ByteString.CopyFrom(sig),
             Extensions = _extensions
         };
@@ -154,48 +171,67 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
+
+        if (msg2Decoded is null)
+        {
+            throw new Libp2pException("Bad handshake message has not been received.");
+        }
+
         PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
+
+        if (msg2KeyDecoded is null)
+        {
+            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
+        }
+
+        context.State.RemotePublicKey = msg2KeyDecoded;
+        // TODO: verify signature
+
         Transport? transport = msg2.Transport;
 
-        PeerId remotePeerId = new(msg2KeyDecoded);
+        List<string> initiatorMuxers = msg2Decoded.Extensions?.StreamMuxers?.Where(m => !string.IsNullOrEmpty(m)).ToList() ?? [];
+        _logger?.LogTrace("Initiator muxers received are {initiatorMuxers}.", string.Join(",", initiatorMuxers));
 
-        List<string> initiatorMuxers = msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m)).ToList();
-        IProtocol? commonMuxer = multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
+        IProtocol? commonMuxer = null; // multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
+
+        UpgradeOptions? upgradeOptions = null;
 
         if (commonMuxer is not null)
         {
-            context.SpecificProtocolRequest = new ChannelRequest
+            upgradeOptions = new UpgradeOptions
             {
-                SubProtocol = commonMuxer,
-                CompletionSource = context.SpecificProtocolRequest?.CompletionSource
+                SelectedProtocol = commonMuxer,
             };
         }
 
-        if (!context.RemotePeer.Address.Has<P2P>())
+        if (!context.State.RemoteAddress.Has<P2P>())
         {
-            context.RemotePeer.Address.Add(new P2P(remotePeerId.ToString()));
+            PeerId remotePeerId = new(msg2KeyDecoded);
+            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
 
-        _logger?.LogDebug("Established connection to {peer}", context.RemotePeer.Address);
+        _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
-        IChannel upChannel = upChannelFactory.SubListen(context);
+        IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel);
+        await ExchangeData(transport, downChannel, upChannel, _logger);
 
         _ = upChannel.CloseAsync();
+        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
-    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel)
+    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)
     {
         // UP -> DOWN
-        Task t = Task.Run(async () =>
+        Task upToDown = Task.Run(async () =>
         {
             for (; ; )
             {
                 ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
                     return;
                 }
 
@@ -203,21 +239,23 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
                 int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
+                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten));
                 if (writeResult != IOResult.Ok)
                 {
+                    logger?.LogDebug("End sending, due to {}", writeResult);
                     return;
                 }
             }
         });
         // DOWN -> UP
-        Task t2 = Task.Run(async () =>
+        Task downToUp = Task.Run(async () =>
         {
             for (; ; )
             {
                 ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll);
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("Receiving packet length failed due to {}", lengthBytesReadResult.Result);
                     return;
                 }
 
@@ -226,23 +264,25 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
                 ReadResult dataReadResult = await downChannel.ReadAsync(length);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
+                    logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
                     return;
                 }
                 byte[] buffer = new byte[length - 16];
 
                 int bytesRead = transport.ReadMessage(dataReadResult.Data.ToArray(), buffer);
 
-                IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
-                if (writeResult != IOResult.Ok)
+                if (bytesRead != 0)
                 {
-                    return;
+                    IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                    if (writeResult != IOResult.Ok)
+                    {
+                        logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
+                        return;
+                    }
                 }
             }
         });
 
-        return Task.WhenAny(t, t2).ContinueWith((t) =>
-        {
-
-        });
+        return Task.WhenAny(upToDown, downToUp);
     }
 }

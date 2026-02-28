@@ -1,17 +1,18 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Diagnostics;
 
-namespace Nethermind.Libp2p.Protocols.Pubsub;
+namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
-public abstract class PubsubProtocol : IProtocol
+public abstract class PubsubProtocol : ISessionProtocol
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -25,71 +26,84 @@ public abstract class PubsubProtocol : IProtocol
         this.router = router;
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Dialed({context.Id}) {context.RemotePeer.Address}");
+        channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+        ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
+
+        PeerId? remotePeerId = context.State.RemotePeerId;
+
+        _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
 
         TaskCompletionSource dialTcs = new();
-        CancellationToken token = router.OutboundConnection(context.RemotePeer.Address, Id, dialTcs.Task, (rpc) =>
+        CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
         {
-            var t = channel.WriteSizeAndProtobufAsync(rpc);
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
-            t.AsTask().ContinueWith((t) =>
+            channel.WriteSizeAndProtobufAsync(rpc).AsTask().ContinueWith((t) =>
             {
                 if (!t.IsCompletedSuccessfully)
                 {
-                    _logger?.LogWarning($"Sending RPC failed message to {peerId}: {rpc}");
+                    context.Activity?.AddEvent(new ActivityEvent($"Sending RPC failed message to {remotePeerId}: {rpc}"));
                 }
             });
-            _logger?.LogTrace($"Sent message to {peerId}: {rpc}");
+            context.Activity?.AddEvent(new ActivityEvent($"Sent message to {remotePeerId}: {rpc}"));
         });
 
         await channel;
         dialTcs.SetResult();
-        _logger?.LogDebug($"Finished dial({context.Id}) {context.RemotePeer.Address}");
-
+        context.Activity?.AddEvent(new ActivityEvent($"Finished dial({context.Id}) {context.State.RemoteAddress}"));
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+        ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        string peerId = context.RemotePeer.Address.Get<P2P>().ToString()!;
-        _logger?.LogDebug($"Listen({context.Id}) to {context.RemotePeer.Address}");
+        PeerId? remotePeerId = context.State.RemotePeerId;
+
+        _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
 
         TaskCompletionSource listTcs = new();
         TaskCompletionSource dialTcs = new();
 
-        CancellationToken token = router.InboundConnection(context.RemotePeer.Address, Id, listTcs.Task, dialTcs.Task, () =>
+        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, dialTcs.Task, () =>
         {
-            context.SubDialRequests.Add(new ChannelRequest { SubProtocol = this });
+            _ = context.DialAsync(this);
             return dialTcs.Task;
         });
 
-        while (!token.IsCancellationRequested)
+        try
         {
-            Rpc? rpc = await channel.ReadAnyPrefixedProtobufAsync(Rpc.Parser, token);
-            if (rpc is null)
+            while (!token.IsCancellationRequested)
             {
-                _logger?.LogDebug($"Received a broken message or EOF from {peerId}");
-                break;
-            }
-            else
-            {
-                _logger?.LogTrace($"Received message from {peerId}: {rpc}");
-                _ = router.OnRpc(peerId, rpc);
+                Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
+                if (rpc is null)
+                {
+                    string logMessage = $"Received a broken message or EOF from {remotePeerId}";
+                    _logger?.LogDebug(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    break;
+                }
+                else
+                {
+                    string logMessage = $"Received message from {remotePeerId}: {rpc}";
+                    _logger?.LogTrace(logMessage);
+                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    router.OnRpc(remotePeerId, rpc);
+                }
             }
         }
+        catch (Exception e)
+        {
+            context.Activity?.AddEvent(new ActivityEvent($"Exception: {e.Message}"));
+            context.Activity?.SetStatus(ActivityStatusCode.Error);
+        }
+
         listTcs.SetResult();
-        _logger?.LogDebug($"Finished({context.Id}) list {context.RemotePeer.Address}");
+        context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
     }
 
-    public override string ToString()
-    {
-        return Id;
-    }
+    public override string ToString() => Id;
 }
 
 public class FloodsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.FloodsubProtocolVersion, router, loggerFactory);

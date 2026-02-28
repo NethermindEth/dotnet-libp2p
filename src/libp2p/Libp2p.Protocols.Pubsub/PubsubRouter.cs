@@ -7,25 +7,26 @@ using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
-using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-internal interface IRoutingStateContainer
+public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
-    ConcurrentDictionary<string, HashSet<PeerId>> FloodsubPeers { get; }
-    ConcurrentDictionary<string, HashSet<PeerId>> GossipsubPeers { get; }
-    ConcurrentDictionary<string, HashSet<PeerId>> Mesh { get; }
-    ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
-    ConcurrentDictionary<string, DateTime> FanoutLastPublished { get; }
-    ICollection<PeerId> ConnectedPeers { get; }
-    Task Heartbeat();
-}
+    static int routerCounter = 0;
+    readonly int routerId = Interlocked.Increment(ref routerCounter);
 
-public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingStateContainer
-{
+    public override string ToString()
+    {
+        //{string.Join("|", peerState.Select(x => $"{x.Key}:{x.Value.SendRpc is not null}"))}
+        return $"Router#{routerId}: {localPeer?.Identity.PeerId ?? "null"}, " +
+            $"peers: {peerState.Count(x => x.Value.SendRpc is not null)}/{peerState.Count} ({string.Join(",", peerState.Keys)}), " +
+            $"mesh: {string.Join("|", mesh.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"fanout: {string.Join("|", fanout.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"fPeers: {string.Join("|", fPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}, " +
+            $"gPeers: {string.Join("|", gPeers.Select(m => $"{m.Key}:{m.Value.Count}"))}";
+    }
+
     public const string FloodsubProtocolVersion = "/floodsub/1.0.0";
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
@@ -33,24 +34,31 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
 
     class PubsubPeer
     {
-        public PubsubPeer(PeerId peerId, string protocolId)
+        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings)
         {
             PeerId = peerId;
+            _logger = logger;
             Protocol = protocolId switch
             {
-                FloodsubProtocolVersion => PubsubProtocol.Floodsub,
-                _ => PubsubProtocol.Gossipsub,
+                GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
+                GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
+                GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+                _ => PubsubProtocol.Floodsub,
             };
             TokenSource = new CancellationTokenSource();
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
+            Score = new PeerScore(settings);
         }
 
-        private enum PubsubProtocol
+        public enum PubsubProtocol
         {
-            Unknown,
-            Floodsub,
-            Gossipsub,
+            None = 0,
+            Floodsub = 1,
+            GossipsubV10 = 2,
+            GossipsubV11 = 4,
+            GossipsubV12 = 8,
+            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
         }
 
         public void Send(Rpc rpc)
@@ -70,10 +78,13 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         public Dictionary<string, DateTime> Backoff { get; internal set; }
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
+        private readonly ILogger? _logger;
+
         public Action<Rpc>? SendRpc
         {
             get => _sendRpc; set
             {
+                _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
                 _sendRpc = value;
                 if (_sendRpc is not null)
                     lock (SendRpcQueue)
@@ -88,12 +99,15 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         public CancellationTokenSource TokenSource { get; init; }
         public PeerId PeerId { get; set; }
 
-        private PubsubProtocol Protocol { get; set; }
-        public bool IsGossipSub => Protocol == PubsubProtocol.Gossipsub;
+        public PubsubProtocol Protocol { get; set; }
+        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
 
-        public ConnectionInitiation InititatedBy { get; internal set; }
+        public ConnectionInitiation InitiatedBy { get; internal set; }
         public Multiaddress Address { get; internal set; }
+
+        // Peer scoring (Gossipsub v1.1)
+        public PeerScore Score { get; internal set; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -104,41 +118,40 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Mesh => mesh;
     ConcurrentDictionary<string, HashSet<PeerId>> IRoutingStateContainer.Fanout => fanout;
     ConcurrentDictionary<string, DateTime> IRoutingStateContainer.FanoutLastPublished => fanoutLastPublished;
+    bool IRoutingStateContainer.Started => localPeer is not null;
     ICollection<PeerId> IRoutingStateContainer.ConnectedPeers => peerState.Keys;
     Task IRoutingStateContainer.Heartbeat() => Heartbeat();
     #endregion
 
-    public PeerId? LocalPeerId { get; private set; }
-
     public event Action<string, byte[]>? OnMessage;
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
-    private Settings settings;
-    private TtlCache<MessageId, Message> messageCache;
-    private TtlCache<MessageId, Message> limboMessageCache;
-    private TtlCache<(PeerId, MessageId)> dontWantMessages;
+    private readonly PubsubSettings _settings;
+    private readonly TtlCache<MessageId, MessageWithId> _messageCache;
+    private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
+    private readonly TtlCache<(PeerId, MessageId)> _dontWantMessages;
 
     private ILocalPeer? localPeer;
-    private ManagedPeer peer;
-    private ILogger? logger = loggerFactory?.CreateLogger<PubsubRouter>();
+    private readonly ILogger? logger;
 
     // all floodsub peers in topics
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fPeers = new();
+
     // all gossipsub peers in topics
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> gPeers = new();
 
-    // gossip peers in mesh, which is subnet for message exchange 
+    // gossip peers in mesh, which is subnet for message exchange
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> mesh = new();
 
-    // gossip peers in mesh, which is subnet for message exchange for topics that we did not subscribe to
+    // gossip peers in mesh, which is subnet for message exchange for topics that we did not subscribe to, but we sent messages recently
     private readonly ConcurrentDictionary<string, HashSet<PeerId>> fanout = new();
     private readonly ConcurrentDictionary<string, DateTime> fanoutLastPublished = new();
 
-
     // all peers with their connection status
     private readonly ConcurrentDictionary<PeerId, PubsubPeer> peerState = new();
-    private readonly ConcurrentDictionary<string, Topic> topicState = new();
-    private readonly ConcurrentBag<Reconnection> reconnections = new();
+
+    private readonly ConcurrentBag<Reconnection> reconnections = [];
+    private readonly PeerStore _peerStore;
     private ulong seqNo = 1;
 
     private record Reconnection(Multiaddress[] Addresses, int Attempts);
@@ -150,224 +163,249 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         Canceled = cts.Token;
     }
 
-    public async Task RunAsync(ILocalPeer localPeer, IDiscoveryProtocol discoveryProtocol, Settings? settings = null, CancellationToken token = default)
+    public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default)
     {
+        logger = loggerFactory?.CreateLogger("pubsub-router");
+
+        _peerStore = store;
+        _settings = settings ?? PubsubSettings.Default;
+        _messageCache = new(_settings.MessageCacheTtl);
+        _limboMessageCache = new(_settings.MessageCacheTtl);
+        _dontWantMessages = new(_settings.MessageCacheTtl);
+    }
+
+    public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
+    {
+        logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
+
         if (this.localPeer is not null)
         {
             throw new InvalidOperationException("Router has been already started");
         }
+
         this.localPeer = localPeer;
-        peer = new ManagedPeer(localPeer);
-        this.settings = settings ?? Settings.Default;
-        messageCache = new(this.settings.MessageCacheTtl);
-        limboMessageCache = new(this.settings.MessageCacheTtl);
-        dontWantMessages = new(this.settings.MessageCacheTtl);
 
-        LocalPeerId = new PeerId(localPeer.Address.Get<P2P>().ToString()!);
-
-        _ = localPeer.ListenAsync(localPeer.Address, token);
-        _ = StartDiscoveryAsync(discoveryProtocol, token);
-        logger?.LogInformation("Started");
-
-        // reconnection if needed
-        _ = Task.Run(async () =>
+        _peerStore.OnNewPeer += (addrs) =>
         {
-            while (!token.IsCancellationRequested)
+            if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
             {
-                await Task.Delay(this.settings.ReconnectionPeriod);
-                await Reconnect(token);
+                return;
             }
-        }, token);
-
-        await Task.Delay(Timeout.Infinite, token);
-        messageCache.Dispose();
-        limboMessageCache.Dispose();
-    }
-
-    private async Task StartDiscoveryAsync(IDiscoveryProtocol discoveryProtocol, CancellationToken token = default)
-    {
-        ArgumentNullException.ThrowIfNull(localPeer);
-
-        ObservableCollection<Multiaddress> col = [];
-        discoveryProtocol.OnAddPeer = (addrs) =>
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    IRemotePeer remotePeer = await peer.DialAsync(addrs, token);
-
-                    if (!peerState.ContainsKey(remotePeer.Address.Get<P2P>().ToString()))
-                    {
-                        await remotePeer.DialAsync<GossipsubProtocol>(token);
-                        if (peerState.TryGetValue(remotePeer.Address.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
-                        {
-                            _ = remotePeer.DisconnectAsync();
-                        }
-                    }
-                }
-                catch
-                {
-                    reconnections.Add(new Reconnection(addrs, settings.ReconnectionAttempts));
-                }
-            });
-            return true;
+            _ = Connect(addrs, token, true);
         };
 
-        _ = Task.Run(async () =>
+        _ = Task.Run(LoopHeartbeat, token);
+        _ = Task.Run(LoopReconnect, token);
+
+        logger?.LogInformation("Started");
+        return Task.CompletedTask;
+
+
+        async Task LoopHeartbeat()
         {
             while (!token.IsCancellationRequested)
             {
-                await Task.Delay(settings.HeartbeatInterval);
+                await Task.Delay(_settings.HeartbeatInterval, token);
                 await Heartbeat();
             }
-        }, token);
+        }
 
-        await discoveryProtocol.DiscoverAsync(localPeer.Address, token);
+        async Task LoopReconnect()
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(_settings.ReconnectionPeriod, token);
+                Reconnect(token);
+            }
+        }
     }
 
-    private async Task Reconnect(CancellationToken token)
+    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
     {
-        while (reconnections.TryTake(out Reconnection? rec))
+        try
         {
-            try
+            ISession session = await localPeer.DialAsync(addrs, token);
+
+            if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
-                IRemotePeer remotePeer = await peer.DialAsync(rec.Addresses, token);
-                await remotePeer.DialAsync<GossipsubProtocol>(token);
+                string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
+                if (protocols.Contains(GossipsubProtocolVersionV12))
+                {
+                    await session.DialAsync<GossipsubProtocolV12>(token);
+                }
+                else if (protocols.Contains(GossipsubProtocolVersionV11))
+                {
+                    await session.DialAsync<GossipsubProtocolV11>(token);
+                }
+                else if (protocols.Contains(GossipsubProtocolVersionV10))
+                {
+                    await session.DialAsync<GossipsubProtocol>(token);
+                }
+                else if (protocols.Contains(FloodsubProtocolVersion))
+                {
+                    await session.DialAsync<FloodsubProtocol>(token);
+                }
+                else
+                {
+                    _ = session.DisconnectAsync();
+                    return;
+                }
+                logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
+                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InitiatedBy == ConnectionInitiation.Remote)
+                {
+                    _ = session.DisconnectAsync();
+                }
             }
-            catch
+        }
+        catch (Exception e)
+        {
+            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
+            if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
+        }
+    }
+
+    public void Dispose()
+    {
+        _messageCache.Dispose();
+        _limboMessageCache.Dispose();
+    }
+
+    private void Reconnect(CancellationToken token)
+    {
+        const int MaxParallelReconnections = 5;
+
+        for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
+        {
+            logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
+            _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
-                if (rec.Attempts != 1)
+                if (t.IsFaulted && rec.Attempts != 1)
                 {
                     reconnections.Add(rec with { Attempts = rec.Attempts - 1 });
                 }
-            }
-        }
-    }
-
-    public ITopic Subscribe(string topicId)
-    {
-        Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
-
-        if (!fPeers.TryAdd(topicId, []))
-        {
-            // Already exists
-            return topic;
-        }
-
-        gPeers.TryAdd(topicId, []);
-
-        mesh.TryAdd(topicId, []);
-
-        Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
-        foreach (var peer in peerState)
-        {
-            peer.Value.Send(topicUpdate);
-        }
-
-        return topic;
-    }
-
-    public void Unsubscribe(string topicId)
-    {
-        foreach (PeerId peerId in fPeers[topicId])
-        {
-            Rpc msg = new Rpc()
-                .WithTopics([], [topicId]);
-
-            peerState.GetValueOrDefault(peerId)?.Send(msg);
-        }
-        foreach (PeerId peerId in gPeers[topicId])
-        {
-            Rpc msg = new Rpc()
-                .WithTopics([], [topicId]);
-
-            if (mesh.TryGetValue(topicId, out HashSet<PeerId>? topicMesh) && topicMesh.Contains(peerId))
-            {
-                msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
-            }
-            peerState.GetValueOrDefault(peerId)?.Send(msg);
-        }
-    }
-
-    public void UnsubscribeAll()
-    {
-        foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
-        {
-            Rpc msg = new Rpc()
-                .WithTopics(Enumerable.Empty<string>(), topicState.Keys);
-
-            peerState.GetValueOrDefault(peerId)?.Send(msg);
-        }
-        ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
-
-        foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
-        {
-            peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                .WithTopics(Enumerable.Empty<string>(), topicState.Keys);
-        }
-
-        foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh)
-        {
-            foreach (PeerId peerId in topicMesh.Value)
-            {
-                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                    .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = topicMesh.Key });
-            }
-        }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            }, token);
         }
     }
 
     public Task Heartbeat()
     {
+        // Apply score decay
+        DecayScores();
+
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
         lock (this)
         {
-
-            foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
+            // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
-                if (mesh.Value.Count < settings.LowestDegree)
+                string topic = meshEntry.Key;
+                var negativePeers = meshEntry.Value.Where(p => GetPeerScore(p) < 0).ToList();
+                foreach (var peerId in negativePeers)
                 {
-                    PeerId[] peersToGraft = gPeers[mesh.Key]
-                        .Where(p => !mesh.Value.Contains(p)
-                        && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(mesh.Key, out DateTime backoff) != true ||
-                            backoff < DateTime.Now)).Take(settings.Degree - mesh.Value.Count).ToArray();
+                    logger?.LogDebug("Pruning peer {peerId} from mesh for topic {topic} due to negative score", peerId, topic);
+                    meshEntry.Value.Remove(peerId);
+                    RecordPeerLeaveMesh(peerId, topic);
+
+                    ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                         .Ensure(r => r.Control.Prune)
+                         .Add(prune);
+                }
+            }
+
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
+            {
+                string topic = meshEntry.Key;
+                HashSet<PeerId> meshPeers = meshEntry.Value;
+
+                if (meshPeers.Count < _settings.LowestDegree)
+                {
+                    // Need to graft more peers - exclude peers with negative scores
+                    PeerId[] peersToGraft = gPeers[topic]
+                        .Where(p => !meshPeers.Contains(p)
+                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
+                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff < DateTime.Now))
+                        .Take(_settings.Degree - meshPeers.Count).ToArray();
+
                     foreach (PeerId peerId in peersToGraft)
                     {
-                        mesh.Value.Add(peerId);
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                             .Ensure(r => r.Control.Graft)
-                            .Add(new ControlGraft { TopicID = mesh.Key });
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
-                else if (mesh.Value.Count > settings.HighestDegree)
+                else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    PeerId[] peerstoPrune = mesh.Value.Take(mesh.Value.Count - settings.HighestDegree).ToArray();
-                    foreach (PeerId? peerId in peerstoPrune)
+                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
+                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
+
+                    // Get D_score best peers
+                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
+
+                    // Ensure we have D_out outbound connections
+                    var outboundPeers = meshPeers
+                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
+                        .Take(_settings.DOut)
+                        .ToHashSet();
+
+                    // Peers to keep: best scores + outbound quota + random
+                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
+
+                    // Fill remaining spots randomly
+                    int remaining = _settings.HighestDegree - peersToKeep.Count;
+                    if (remaining > 0)
                     {
-                        mesh.Value.Remove(peerId);
+                        var candidates = meshPeers.Except(peersToKeep).ToList();
+                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
+                        {
+                            peersToKeep.Add(peer);
+                        }
+                    }
+
+                    // Prune the rest
+                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
+
+                    foreach (PeerId peerId in peersToPrune)
+                    {
+                        meshPeers.Remove(peerId);
+                        RecordPeerLeaveMesh(peerId, topic);
+
+                        ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+
+                        // Only include PX if peer has non-negative score
+                        if (GetPeerScore(peerId) >= 0)
+                        {
+                            prune.Peers.AddRange(meshPeers
+                                .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
+                                .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
+                                .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                                .Where(pid => pid.Record is not null)
+                                .Select(pid => new PeerInfo
+                                {
+                                    PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                                    SignedPeerRecord = pid.Record,
+                                }));
+                        }
+
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
-                             .Add(new ControlPrune { TopicID = mesh.Key, Peers = { }, Backoff = 60 });
+                             .Add(prune);
                     }
                 }
             }
 
             foreach (string? fanoutTopic in fanout.Keys.ToArray())
             {
-                if (fanoutLastPublished.GetOrAdd(fanoutTopic, _ => DateTime.Now).AddMilliseconds(settings.FanoutTtl) < DateTime.Now)
+                if (fanoutLastPublished.GetOrAdd(fanoutTopic, _ => DateTime.Now).AddMilliseconds(_settings.FanoutTtl) < DateTime.Now)
                 {
                     fanout.Remove(fanoutTopic, out _);
                     fanoutLastPublished.Remove(fanoutTopic, out _);
                 }
                 else
                 {
-                    int peerCountToAdd = settings.Degree - fanout[fanoutTopic].Count;
+                    int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
                         foreach (PeerId? peerId in gPeers[fanoutTopic].Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
@@ -378,17 +416,26 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
                 }
             }
 
-            IEnumerable<IGrouping<string, Message>> msgs = messageCache.ToList().GroupBy(m => m.Topic);
+            IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
 
-            foreach (string? topic in mesh.Keys.Concat(fanout.Keys).Distinct().ToArray())
+            foreach (string? topic in gPeers.Keys.Concat(fanout.Keys).Distinct().ToArray())
             {
-                IGrouping<string, Message>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
+                IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
                 if (msgsInTopic is not null)
                 {
                     ControlIHave ihave = new() { TopicID = topic };
-                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(settings.GetMessageId(m).Bytes)));
+                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
 
-                    foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(settings.LazyDegree))
+                    // Only send gossip to peers above gossip threshold
+                    var eligiblePeers = gPeers[topic]
+                        .Where(p => !mesh[topic].Contains(p)
+                            && !fanout[topic].Contains(p)
+                            && GetPeerScore(p) >= _settings.GossipThreshold);
+
+                    // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy)
+                    int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Count() * _settings.GossipFactor));
+
+                    foreach (PeerId? peer in eligiblePeers.Take(gossipCount))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc())
                             .Ensure(r => r.Control.Ihave).Add(ihave);
@@ -405,51 +452,8 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
         return Task.CompletedTask;
     }
 
-    public void Publish(string topicId, byte[] message)
-    {
-        ulong seqNo = this.seqNo++;
-        byte[] seqNoBytes = new byte[8];
-        BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
-        Rpc rpc = new Rpc().WithMessages(topicId, seqNo, LocalPeerId.Bytes, message, localPeer.Identity);
-
-        foreach (PeerId peerId in fPeers[topicId])
-        {
-            peerState.GetValueOrDefault(peerId)?.Send(rpc);
-        }
-        if (mesh.ContainsKey(topicId))
-        {
-            foreach (PeerId peerId in mesh[topicId])
-            {
-                peerState.GetValueOrDefault(peerId)?.Send(rpc);
-            }
-        }
-        else
-        {
-            fanoutLastPublished[topicId] = DateTime.Now;
-            HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => new HashSet<PeerId>());
-
-            if (topicFanout.Count == 0)
-            {
-                HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
-                if (topicPeers is { Count: > 0 })
-                {
-                    foreach (PeerId peer in topicPeers.Take(settings.Degree))
-                    {
-                        topicFanout.Add(peer);
-                    }
-                }
-            }
-
-            foreach (PeerId peerId in topicFanout)
-            {
-                peerState.GetValueOrDefault(peerId)?.Send(rpc);
-            }
-        }
-    }
-
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
     {
-        PubsubPeer peer;
         PeerId? peerId = addr.GetPeerId();
 
         if (peerId is null)
@@ -457,307 +461,111 @@ public class PubsubRouter(ILoggerFactory? loggerFactory = default) : IRoutingSta
             return Canceled;
         }
 
-        peer = new PubsubPeer(peerId, protocolId) { Address = addr, SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local };
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
 
-        if (!peerState.TryAdd(peerId, peer))
+        lock (peer)
         {
-            if (peerState[peerId].SendRpc is null)
+            if (peer.SendRpc != sendRpc)
             {
-                peer.SendRpc = sendRpc;
+                if (peer.SendRpc is null)
+                {
+                    peer.SendRpc = sendRpc;
+                }
+                else
+                {
+                    logger?.LogDebug("Outbound, rpc set for {peerId}, cancelling", peerId);
+                    return Canceled;
+                }
             }
-            else
+
+
+            logger?.LogDebug("Outbound, let's dial {peerId} via remotely initiated connection", peerId);
+
+            dialTask.ContinueWith(t =>
             {
-                return Canceled;
+                peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
+                peerState.TryRemove(peerId, out _);
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
+                {
+                    topicPeers.Value.Remove(peerId);
+                }
+                reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+            });
+
+            string[] topics = topicState.Keys.ToArray();
+
+            if (topics.Any())
+            {
+                logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
+
+                Rpc helloMessage = new Rpc().WithTopics(topics, []);
+                peer.Send(helloMessage);
             }
+
+            logger?.LogDebug("Outbound {peerId}", peerId);
+            return peer.TokenSource.Token;
         }
-
-        dialTask.ContinueWith(t =>
-        {
-            peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-            peerState.TryRemove(peerId, out _);
-            foreach (var topicPeers in fPeers)
-            {
-                topicPeers.Value.Remove(peerId);
-            }
-            foreach (var topicPeers in gPeers)
-            {
-                topicPeers.Value.Remove(peerId);
-            }
-            foreach (var topicPeers in fanout)
-            {
-                topicPeers.Value.Remove(peerId);
-            }
-            foreach (var topicPeers in mesh)
-            {
-                topicPeers.Value.Remove(peerId);
-            }
-            reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
-        });
-        Rpc helloMessage = new Rpc().WithTopics(topicState.Keys.ToList(), Enumerable.Empty<string>());
-        peer.Send(helloMessage);
-        logger?.LogDebug("Outbound {peerId}", peerId);
-        return peer.TokenSource.Token;
     }
 
     internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Task dialTask, Func<Task> subDial)
     {
-        PubsubPeer? remotePeer;
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null)
+        if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
             return Canceled;
         }
 
-        remotePeer = new PubsubPeer(peerId, protocolId) { Address = addr, InititatedBy = ConnectionInitiation.Remote };
-        logger?.LogDebug("Inbound {peerId}", peerId);
-        if (peerState.TryAdd(peerId, remotePeer))
+        PubsubPeer? newPeer = null;
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
+        lock (existingPeer)
         {
-            logger?.LogDebug("Inbound, lets dial {peerId} via remotely initiated connection", peerId);
-            listTask.ContinueWith(t =>
+
+            if (newPeer is not null)
             {
-                peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-                peerState.TryRemove(peerId, out _);
-                foreach (var topicPeers in fPeers)
+                logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+                listTask.ContinueWith(t =>
                 {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (var topicPeers in gPeers)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (var topicPeers in fanout)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (var topicPeers in mesh)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                reconnections.Add(new Reconnection([addr], settings.ReconnectionAttempts));
-            });
-
-            subDial();
-            return remotePeer.TokenSource.Token;
-        }
-        else
-        {
-            return peerState[peerId].TokenSource.Token;
-        }
-    }
-
-    internal async Task OnRpc(PeerId peerId, Rpc rpc)
-    {
-        try
-        {
-            ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
-            lock (this)
-            {
-
-                if (rpc.Subscriptions.Any())
-                {
-                    foreach (Rpc.Types.SubOpts? sub in rpc.Subscriptions)
+                    peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
+                    peerState.TryRemove(peerId, out _);
+                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
                     {
-                        var state = peerState.GetValueOrDefault(peerId);
-                        if (state is null)
-                        {
-                            return;
-                        }
-                        if (sub.Subscribe)
-                        {
-                            if (state.IsGossipSub)
-                            {
-                                gPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
-                            }
-                            else if (state.IsFloodSub)
-                            {
-                                fPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Add(peerId);
-                            }
-                        }
-                        else
-                        {
-                            if (state.IsGossipSub)
-                            {
-                                gPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Remove(peerId);
-                                if (mesh.ContainsKey(sub.Topicid))
-                                {
-                                    mesh[sub.Topicid].Remove(peerId);
-                                }
-                                if (fanout.ContainsKey(sub.Topicid))
-                                {
-                                    fanout[sub.Topicid].Remove(peerId);
-                                }
-                            }
-                            else if (state.IsFloodSub)
-                            {
-                                fPeers.GetOrAdd(sub.Topicid, _ => new HashSet<PeerId>()).Remove(peerId);
-                            }
-                        }
+                        topicPeers.Value.Remove(peerId);
                     }
-                }
-
-                if (rpc.Publish.Any())
-                {
-                    if (rpc.Publish.Any())
+                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
                     {
-                        logger?.LogDebug($"Messages received: {rpc.Publish.Select(settings.GetMessageId).Count(messageId => limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))}/{rpc.Publish.Count}: {rpc.Publish.Count}");
+                        topicPeers.Value.Remove(peerId);
                     }
-
-                    foreach (Message? message in rpc.Publish)
+                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
                     {
-                        MessageId messageId = settings.GetMessageId(message);
-
-                        if (limboMessageCache.Contains(messageId) || messageCache!.Contains(messageId))
-                        {
-                            continue;
-                        }
-
-                        switch (VerifyMessage?.Invoke(message))
-                        {
-                            case MessageValidity.Rejected:
-                            case MessageValidity.Ignored:
-                                limboMessageCache.Add(messageId, message);
-                                continue;
-                            case MessageValidity.Trottled:
-                                continue;
-                        }
-
-                        if (!message.VerifySignature(settings.DefaultSignaturePolicy))
-                        {
-                            limboMessageCache!.Add(messageId, message);
-                            continue;
-                        }
-
-                        messageCache.Add(messageId, message);
-
-                        PeerId author = new(message.From.ToArray());
-                        OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
-
-                        if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
-                        {
-                            foreach (PeerId peer in topicPeers)
-                            {
-                                if (peer == author || peer == peerId)
-                                {
-                                    continue;
-                                }
-                                peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
-                            }
-                        }
-                        if (fPeers.TryGetValue(message.Topic, out topicPeers))
-                        {
-                            foreach (PeerId peer in mesh[message.Topic])
-                            {
-                                if (peer == author || peer == peerId)
-                                {
-                                    continue;
-                                }
-                                peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
-                            }
-                        }
+                        topicPeers.Value.Remove(peerId);
                     }
-                }
-
-                if (rpc.Control is not null)
-                {
-                    if (rpc.Control.Graft.Any())
+                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
                     {
-                        foreach (ControlGraft? graft in rpc.Control.Graft)
-                        {
-                            if (!topicState.ContainsKey(graft.TopicID))
-                            {
-                                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                                    .Ensure(r => r.Control.Prune)
-                                    .Add(new ControlPrune { TopicID = graft.TopicID });
-                            }
-                            else
-                            {
-                                mesh[graft.TopicID].Add(peerId);
-                                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                                    .Ensure(r => r.Control.Graft)
-                                    .Add(new ControlGraft { TopicID = graft.TopicID });
-                            }
-                        }
+                        topicPeers.Value.Remove(peerId);
                     }
+                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                });
 
-                    if (rpc.Control.Prune.Any())
-                    {
-                        foreach (ControlPrune? prune in rpc.Control.Prune)
-                        {
-                            if (topicState.ContainsKey(prune.TopicID) && mesh[prune.TopicID].Contains(peerId))
-                            {
-                                if (peerState.TryGetValue(peerId, out PubsubPeer? state))
-                                {
-                                    state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(prune.Backoff == 0 ? 60 : prune.Backoff);
-                                }
-                                mesh[prune.TopicID].Remove(peerId);
-                                peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                                    .Ensure(r => r.Control.Prune)
-                                    .Add(new ControlPrune { TopicID = prune.TopicID });
-                            }
-                        }
-                    }
-
-                    if (rpc.Control.Ihave.Any())
-                    {
-                        List<MessageId> messageIds = new();
-
-                        foreach (ControlIHave? ihave in rpc.Control.Ihave
-                            .Where(iw => topicState.ContainsKey(iw.TopicID)))
-                        {
-                            messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
-                                .Where(mid => !messageCache.Contains(mid)));
-                        }
-
-                        if (messageIds.Any())
-                        {
-                            ControlIWant ciw = new();
-                            foreach (MessageId mId in messageIds)
-                            {
-                                ciw.MessageIDs.Add(ByteString.CopyFrom(mId.Bytes));
-                            }
-                            peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                                .Ensure(r => r.Control.Iwant)
-                                .Add(ciw);
-                        }
-                    }
-
-                    if (rpc.Control.Iwant.Any())
-                    {
-                        IEnumerable<MessageId> messageIds = rpc.Control.Iwant.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray()));
-                        List<Message> messages = new();
-                        foreach (MessageId? mId in messageIds)
-                        {
-                            Message message = messageCache.Get(mId);
-                            if (message != default)
-                            {
-                                messages.Add(message);
-                            }
-                        }
-                        if (messages.Any())
-                        {
-                            peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                               .Publish.AddRange(messages);
-                        }
-                    }
-
-                    if (rpc.Control.Idontwant.Any())
-                    {
-                        foreach (MessageId messageId in rpc.Control.Iwant.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray())).Take(settings.MaxIdontwantMessages))
-                        {
-                            dontWantMessages.Add((peerId, messageId));
-                        }
-                    }
-                }
+                subDial();
+                return newPeer.TokenSource.Token;
             }
-            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+            else
             {
-                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+                return existingPeer.TokenSource.Token;
             }
-        }
-        catch (Exception ex)
-        {
-            logger?.LogError("Exception during rpc handling: {exception}", ex);
         }
     }
 }
@@ -766,4 +574,10 @@ internal enum ConnectionInitiation
 {
     Local,
     Remote,
+}
+
+internal readonly struct MessageWithId(MessageId id, Message message)
+{
+    public MessageId Id { get; } = id;
+    public Message Message { get; } = message;
 }
