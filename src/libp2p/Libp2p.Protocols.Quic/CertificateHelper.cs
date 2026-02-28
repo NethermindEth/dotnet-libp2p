@@ -64,52 +64,80 @@ public class CertificateHelper
 
     public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId)
     {
+        // Per libp2p TLS spec: Check certificate validity dates
+        DateTime now = DateTime.UtcNow;
+        if (certificate.NotBefore > now)
+        {
+            return false; // Certificate not yet valid
+        }
+        if (certificate.NotAfter < now)
+        {
+            return false; // Certificate expired
+        }
+
+        // Per libp2p TLS spec: certificate must be self-signed (issuer == subject)
+        if (certificate.Subject != certificate.Issuer)
+        {
+            return false; // Not self-signed
+        }
+
         Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
 
         if (key is null || signature is null)
         {
-            return false;
+            return false; // Missing libp2p extension or signature
         }
+
         Identity id = new(key);
         if (peerId is not null && id.PeerId.ToString() != peerId)
         {
-            return false;
+            return false; // Peer ID mismatch
         }
 
+        // Verify the signature over the certificate's public key
         return id.VerifySignature(ContentToSignFromTlsPublicKey(certificate.PublicKey.ExportSubjectPublicKeyInfo()), signature);
     }
 
     public static Core.Dto.PublicKey? ExtractPublicKey(X509Certificate2? certificate, [NotNullWhen(true)] out byte[]? signature)
     {
+        signature = null;
+
         if (certificate is null)
         {
-            signature = null;
             return null;
         }
 
+        // Per libp2p TLS spec: Find the libp2p extension
         X509Extension[] exts = certificate.Extensions.Where(e => e.Oid?.Value == PubkeyExtensionOidString).ToArray();
 
-        if (exts.Length is 0)
+        if (exts.Length == 0)
         {
-            signature = null;
-            return null;
+            return null; // libp2p extension missing
         }
 
-        if (exts.Length is not 1)
+        if (exts.Length > 1)
         {
-            signature = null;
-            return null;
+            return null; // Multiple libp2p extensions not allowed
         }
 
         X509Extension ext = exts.First();
 
-        AsnReader a = new(ext.RawData, AsnEncodingRules.DER);
-        AsnReader signedKey = a.ReadSequence();
+        try
+        {
+            AsnReader a = new(ext.RawData, AsnEncodingRules.DER);
+            AsnReader signedKey = a.ReadSequence();
 
-        byte[] publicKey = signedKey.ReadOctetString();
-        signature = signedKey.ReadOctetString();
+            byte[] publicKey = signedKey.ReadOctetString();
+            signature = signedKey.ReadOctetString();
 
-        return Core.Dto.PublicKey.Parser.ParseFrom(publicKey);
+            return Core.Dto.PublicKey.Parser.ParseFrom(publicKey);
+        }
+        catch
+        {
+            // Invalid ASN.1 structure
+            signature = null;
+            return null;
+        }
     }
 
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();

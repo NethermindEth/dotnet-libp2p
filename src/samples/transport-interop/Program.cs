@@ -96,13 +96,14 @@ try
         if (ip == "0.0.0.0")
         {
             Log("Auto-detecting network interface...");
-            
+
             // Get all active network interfaces with IPv4 addresses
             var candidates = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(i => i.OperationalStatus == OperationalStatus.Up)
                 .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .Select(i => new { 
-                    Interface = i, 
+                .Select(i => new
+                {
+                    Interface = i,
                     Addresses = i.GetIPProperties().UnicastAddresses
                         .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
                         .Where(a => !IPAddress.IsLoopback(a.Address))
@@ -110,15 +111,15 @@ try
                 })
                 .Where(x => x.Addresses.Any())
                 .ToList();
-            
+
             Log($"Found {candidates.Count} candidate interfaces: {string.Join(", ", candidates.Select(c => $"{c.Interface.Name}({c.Interface.NetworkInterfaceType})"))}");
-            
+
             // Priority order: Physical Ethernet > Wi-Fi > Virtual Ethernet > Others
             var selectedInterface = candidates
                 .OrderBy(c => GetInterfacePriority(c.Interface))
                 .ThenByDescending(c => c.Interface.Speed) // Prefer faster interfaces
                 .FirstOrDefault();
-            
+
             if (selectedInterface == null)
             {
                 Log("No suitable network interface found. Available interfaces:");
@@ -128,7 +129,7 @@ try
                 }
                 throw new Exception("No active network interface with IPv4 address found. Set LISTENER_IP environment variable to specify an IP address.");
             }
-            
+
             var selectedAddress = selectedInterface.Addresses.First();
             ip = selectedAddress.Address.ToString();
             Log($"Selected interface: {selectedInterface.Interface.Name} ({selectedInterface.Interface.NetworkInterfaceType}) -> {ip}");
