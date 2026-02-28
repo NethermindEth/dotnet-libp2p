@@ -10,6 +10,7 @@ using Nethermind.Libp2p.Core;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Channels;
 using System.Security.Authentication;
@@ -23,11 +24,17 @@ public class TlsProtocol : IProtocol
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     private readonly List<SslApplicationProtocol> _protocols;
 
-    public TlsProtocol(ILoggerFactory? loggerFactory = null)
+    public TlsProtocol(ILoggerFactory? loggerFactory = null, List<SslApplicationProtocol>? applicationProtocols = null)
     {
         _logger = loggerFactory?.CreateLogger<TlsProtocol>();
         _logger?.LogDebug("TlsProtocol instantiated");
-        _sessionKey = ECDsa.Create(ECCurve.CreateFromValue("1.2.840.10045.3.1.7"));
+        _sessionKey = WindowsCertificateHelper.CreateWindowsCompatibleECDsa();
+        _protocols = applicationProtocols ?? new List<SslApplicationProtocol>
+        {
+            SslApplicationProtocol.Http11,
+            SslApplicationProtocol.Http2,
+            new SslApplicationProtocol("/yamux/1.0.0")
+        };
     }
 
     public string Id => "/tls/1.0.0";
@@ -62,20 +69,23 @@ public class TlsProtocol : IProtocol
 
         _logger?.LogDebug($"Successfully received data from signaling channel. Remote peer address: {remotePeerId}");
 
-        X509Certificate certificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
+        X509Certificate certificate = WindowsCertificateHelper.CreateCertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
 
         _logger?.LogDebug($"certificate: {certificate}");
 
         SslServerAuthenticationOptions serverAuthenticationOptions = new()
         {
-            ApplicationProtocols = [ new SslApplicationProtocol("/yamux/1.0.0")],
-            RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.RemotePeer.Address, certificate),
+            ApplicationProtocols = _protocols,
+            RemoteCertificateValidationCallback = (_, certificate, _, _) => WindowsCertificateHelper.ValidateCertificate(certificate as X509Certificate2, context.RemotePeer.Address.Get<P2P>()?.ToString()),
             ServerCertificate = certificate,
             ClientCertificateRequired = true,
+            EnabledSslProtocols = GetSupportedSslProtocols(),
+            AllowRenegotiation = false,
+            EncryptionPolicy = EncryptionPolicy.RequireEncryption
         };
         _logger?.LogTrace("Successfully created client authentication options.");
         // _logger?.LogDebug("Accepted new TCP client connection from {RemoteEndPoint}", tcpClient.Client.RemoteEndPoint);
-        SslStream sslStream = new(str, false, serverAuthenticationOptions.RemoteCertificateValidationCallback);
+        SslStream sslStream = new(str, false);
         _logger?.LogTrace("Sslstream initialized.");
         try
         {
@@ -121,9 +131,30 @@ public class TlsProtocol : IProtocol
 
 
     private static bool VerifyRemoteCertificate(Multiaddress remotePeerAddress, X509Certificate certificate) =>
-             CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeerAddress.Get<P2P>().ToString());
+             WindowsCertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeerAddress.Get<P2P>()?.ToString());
 
-    public class ChannelStream(IChannel chan, ILogger<TlsProtocol> logger) : Stream
+    /// <summary>
+    /// Gets supported SSL protocols with Windows compatibility
+    /// </summary>
+    private static SslProtocols GetSupportedSslProtocols()
+    {
+        // Start with TLS 1.2 for better Windows compatibility
+        var protocols = SslProtocols.Tls12;
+        
+        try
+        {
+            // Try to add TLS 1.3 if available
+            protocols |= SslProtocols.Tls13;
+        }
+        catch
+        {
+            // TLS 1.3 might not be available on older Windows versions
+        }
+        
+        return protocols;
+    }
+
+    public class ChannelStream(IChannel chan, ILogger<TlsProtocol>? logger) : Stream
     {
         private bool _disposed = false;
         private bool _canRead = true;
@@ -132,7 +163,7 @@ public class TlsProtocol : IProtocol
         public override bool CanRead => _canRead;
         public override bool CanSeek => false;
         public override bool CanWrite => _canWrite;
-        public override long Length => throw new Exception();
+        public override long Length => throw new NotSupportedException();
 
         public override long Position
         {
@@ -147,16 +178,16 @@ public class TlsProtocol : IProtocol
         }
         public override int Read(Span<byte> buffer)
         {
-            logger.LogInformation("READ 1");
+            logger?.LogInformation("READ 1");
             if (buffer is { Length: 0 } && _canRead)
             {
                 return 0;
             }
-            logger.LogInformation("READ 2");
+            logger?.LogInformation("READ 2");
 
             var result = chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
 
-            logger.LogInformation($"READ 3 {result.Result}");
+            logger?.LogInformation($"READ 3 {result.Result}");
 
             if (result.Result != IOResult.Ok)
             {
@@ -164,67 +195,68 @@ public class TlsProtocol : IProtocol
                 return 0;
             }
             result.Data.CopyTo(buffer);
-            logger.LogInformation("READ 4");
+            logger?.LogInformation("READ 4");
 
             return (int)result.Data.Length;
         }
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            logger.LogInformation("WRITE 1");
+            logger?.LogInformation("WRITE 1");
             if (chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).Result != IOResult.Ok)
             {
-                logger.LogInformation("WRITE 1.1");
+                logger?.LogInformation("WRITE 1.1");
                 _canWrite = false;
             }
-            logger.LogInformation("WRITE 2");
+            logger?.LogInformation("WRITE 2");
 
         }
 
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            logger.LogInformation("AWRITE 1");
+            logger?.LogInformation("AWRITE 1");
             if ((await chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
             {
-                logger.LogInformation("AWRITE 1.1");
+                logger?.LogInformation("AWRITE 1.1");
                 _canWrite = false;
             }
-            logger.LogInformation("AWRITE 2");
+            logger?.LogInformation("AWRITE 2");
         }
 
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            logger.LogInformation("Write async 2");
+            logger?.LogInformation("Write async 2");
             return base.WriteAsync(buffer, cancellationToken);
         }
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            logger.LogInformation("AREAD 1");
-            if (buffer is { Length: 0 } && _canRead)
+            logger?.LogInformation("AREAD 1");
+            if (count == 0 && _canRead)
             {
                 return 0;
             }
-            logger.LogInformation("AREAD 2");
+            logger?.LogInformation("AREAD 2");
 
-            var result = await chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+            var result = await chan.ReadAsync(count, ReadBlockingMode.WaitAny);
 
-            logger.LogInformation($"AREAD 3 {result.Result}");
+            logger?.LogInformation($"AREAD 3 {result.Result}");
 
             if (result.Result != IOResult.Ok)
             {
                 _canRead = false;
                 return 0;
             }
-            result.Data.CopyTo(buffer);
-            logger.LogInformation("READ 4");
+            int bytesToCopy = Math.Min(count, (int)result.Data.Length);
+            result.Data.Slice(0, bytesToCopy).CopyTo(buffer.AsSpan(offset, bytesToCopy));
+            logger?.LogInformation("READ 4");
 
-            return (int)result.Data.Length;
+            return bytesToCopy;
         }
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            logger.LogInformation("Read async 2");
+            logger?.LogInformation("Read async 2");
             return base.ReadAsync(buffer, cancellationToken);
         }
 
@@ -262,7 +294,7 @@ public class TlsProtocol : IProtocol
 
         var remotePeeraddress = context.LocalPeer.Address.Get<P2P>();
         string remotePeerId = remotePeeraddress.ToString();
-        // await downChannel.WriteLineAsync(remotePeerId);
+        await downChannel.WriteLineAsync(remotePeerId);
         var peerIdComponent = context.RemotePeer.Address.Get<P2P>();
         string peerId = peerIdComponent.ToString();
         _logger?.LogTrace("peerId: {peerId}", peerId);
@@ -271,32 +303,24 @@ public class TlsProtocol : IProtocol
         MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
         IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
 
-        var pol = new X509ChainPolicy
-        {
-            VerificationFlags = X509VerificationFlags.AllFlags,
-            TrustMode = X509ChainTrustMode.CustomRootTrust,
-        };
-        var certs = CertificateHelper.CertificateFromIdentity2(_sessionKey, context.LocalPeer.Identity);
-
-        pol.CustomTrustStore.Add(certs.Item1);
+        var certs = WindowsCertificateHelper.CreateCertificateFromIdentity(_sessionKey, context.LocalPeer.Identity);
 
         SslClientAuthenticationOptions clientAuthenticationOptions = new()
         {
             TargetHost = ipAddress.ToString(),
             ApplicationProtocols = _protocols,
-            AllowRenegotiation = true,
+            AllowRenegotiation = false,
             AllowTlsResume = true,
-            EnabledSslProtocols = SslProtocols.Tls13,
-            RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.RemotePeer.Address, certificate),
-            ClientCertificates = [certs.Item1],
-            CertificateChainPolicy = pol,
-            ClientCertificateContext = SslStreamCertificateContext.Create(certs.Item1, [])
+            EnabledSslProtocols = GetSupportedSslProtocols(),
+            RemoteCertificateValidationCallback = (_, certificate, _, _) => WindowsCertificateHelper.ValidateCertificate(certificate as X509Certificate2, context.RemotePeer.Address.Get<P2P>()?.ToString()),
+            ClientCertificates = [certs],
+            EncryptionPolicy = EncryptionPolicy.RequireEncryption
         };
         _logger?.LogTrace("Successfully created client authentication options.");
 
 
         Stream str = new ChannelStream(downChannel, _logger);
-        SslStream sslStream = new(str, false, clientAuthenticationOptions.RemoteCertificateValidationCallback);
+        SslStream sslStream = new(str, false);
         _logger?.LogTrace("Sslstream initialized.");
         try
         {
@@ -373,13 +397,13 @@ public class TlsProtocol : IProtocol
                 {
                     //    foreach (var item in data)
                     //    {
-                    logger.LogDebug($"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!");
+                    logger?.LogDebug($"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!");
 
                     await sslStream.WriteAsync(data.ToArray());
                     await sslStream.FlushAsync();
                     //    }
                     // Flush data
-                    logger.LogDebug($"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!!");
+                    logger?.LogDebug($"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}!!");
                 }
                 //    sslStream.CompleteWrites();
             }
@@ -411,7 +435,7 @@ public class TlsProtocol : IProtocol
                             logger?.LogError(ex, "Error while reading from sslStream");
                         }
                         //  await upChannel.WriteAsync(new ReadOnlySequence<byte>(data, 0, len));
-                        logger.LogDebug($"Data received from sslStream, {len}");
+                        logger?.LogDebug($"Data received from sslStream, {len}");
                     }
 
                     //  await upChannel.WriteAsync(new ReadOnlySequence<byte>(data[0..len]));

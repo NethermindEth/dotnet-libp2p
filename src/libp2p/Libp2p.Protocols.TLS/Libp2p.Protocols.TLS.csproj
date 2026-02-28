@@ -15,17 +15,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
-     <ProjectReference Include="..\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging" />
-   
-
-    <PackageReference Include="NUnit"/>  <!-- NUnit for testing framework -->
-    <PackageReference Include="NUnit3TestAdapter"/>  <!-- NUnit Test Adapter for running tests -->
-    <PackageReference Include="Microsoft.NET.Test.Sdk"/>  <!-- .NET Test SDK -->
-   <PackageReference Include="BouncyCastle.Cryptography" /> <!-- For handling X509 certificates -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
   </ItemGroup>
 
   <ItemGroup>
