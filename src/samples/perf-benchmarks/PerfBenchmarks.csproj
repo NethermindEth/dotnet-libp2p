@@ -6,7 +6,6 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
-    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>PerfBenchmarks</RootNamespace>
   </PropertyGroup>
 

@@ -62,7 +62,7 @@ public class TlsProtocolTests
         // Act
         Exception? listenException = null;
         Exception? dialException = null;
-        
+
         Task listenTask = Task.Run(async () =>
         {
             try
@@ -74,7 +74,7 @@ public class TlsProtocolTests
                 listenException = ex;
             }
         });
-        
+
         Task dialTask = Task.Run(async () =>
         {
             try
@@ -101,7 +101,7 @@ public class TlsProtocolTests
                 errorDetails += $"Dial error: {dialException.Message}\n{dialException.InnerException?.Message}\n";
             if (string.IsNullOrEmpty(errorDetails))
                 errorDetails = "No exceptions caught - handshake may be hanging.";
-            
+
             Assert.Fail($"TLS handshake did not complete. Details:\n{errorDetails}");
         }
 
@@ -130,7 +130,7 @@ public class TlsProtocolTests
         var clientCert = WindowsCertificateHelper.CreateCertificateFromIdentity(clientKey, clientIdentity);
 
         var applicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http11 };
-        
+
         Exception? serverError = null;
         Exception? clientError = null;
         SslApplicationProtocol? serverProtocol = null;

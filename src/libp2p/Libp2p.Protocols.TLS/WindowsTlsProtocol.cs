@@ -33,9 +33,9 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
         _multiplexerSettings = multiplexerSettings;
         _logger = loggerFactory?.CreateLogger<WindowsTlsProtocol>();
         _sessionKey = WindowsCertificateHelper.CreateWindowsCompatibleECDsa();
-        
-        ApplicationProtocols = new Lazy<List<SslApplicationProtocol>>(() => 
-            multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ?? 
+
+        ApplicationProtocols = new Lazy<List<SslApplicationProtocol>>(() =>
+            multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ??
             [new SslApplicationProtocol("/yamux/1.0.0")]);
     }
 
@@ -46,18 +46,18 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
             _logger?.LogDebug("TLS Listen: Starting server authentication for PeerId {LocalPeerId}.", context.LocalPeer.Identity.PeerId);
 
             X509Certificate2 certificate = WindowsCertificateHelper.CreateCertificateWithPrivateKey(_sessionKey, context.LocalPeer.Identity);
-            
+
             var serverOptions = CreateServerAuthenticationOptions(certificate, context);
-            
+
             Stream stream = new WindowsChannelStream(downChannel, _logger);
             using SslStream sslStream = new(stream, false, serverOptions.RemoteCertificateValidationCallback);
-            
+
             _logger?.LogTrace("TLS Listen: Starting server authentication.");
             await sslStream.AuthenticateAsServerAsync(serverOptions);
             _logger?.LogDebug("TLS Listen: Server authentication successful.");
 
             LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
-            _logger?.LogDebug("TLS Listen: Protocol negotiated: {Protocol}", 
+            _logger?.LogDebug("TLS Listen: Protocol negotiated: {Protocol}",
                 Encoding.UTF8.GetString(sslStream.NegotiatedApplicationProtocol.Protocol.ToArray()));
 
             IChannel upChannel = upChannelFactory?.SubListen(context)!;
@@ -78,18 +78,18 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
             _logger?.LogDebug("TLS Dial: Starting client authentication for PeerId {RemotePeerId}.", context.RemotePeer.Identity?.PeerId);
 
             X509Certificate2 certificate = WindowsCertificateHelper.CreateCertificateWithPrivateKey(_sessionKey, context.LocalPeer.Identity);
-            
+
             var clientOptions = CreateClientAuthenticationOptions(certificate, context);
-            
+
             Stream stream = new WindowsChannelStream(downChannel, _logger);
             using SslStream sslStream = new(stream, false, clientOptions.RemoteCertificateValidationCallback);
-            
+
             _logger?.LogTrace("TLS Dial: Starting client authentication.");
             await sslStream.AuthenticateAsClientAsync(clientOptions);
             _logger?.LogDebug("TLS Dial: Client authentication successful.");
 
             LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
-            _logger?.LogDebug("TLS Dial: Protocol negotiated: {Protocol}", 
+            _logger?.LogDebug("TLS Dial: Protocol negotiated: {Protocol}",
                 Encoding.UTF8.GetString(sslStream.NegotiatedApplicationProtocol.Protocol.ToArray()));
 
             IChannel upChannel = upChannelFactory?.SubDial(context)!;
@@ -108,7 +108,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
         return new SslServerAuthenticationOptions
         {
             ApplicationProtocols = ApplicationProtocols.Value,
-            RemoteCertificateValidationCallback = (_, certificate, _, _) => 
+            RemoteCertificateValidationCallback = (_, certificate, _, _) =>
                 WindowsCertificateHelper.ValidateCertificate(certificate as X509Certificate2, context.RemotePeer.Identity?.PeerId?.ToString()),
             ServerCertificate = certificate,
             ClientCertificateRequired = true,
@@ -122,12 +122,12 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
     {
         // Get target host from remote address
         string targetHost = GetTargetHostFromAddress(context.RemotePeer.Address);
-        
+
         return new SslClientAuthenticationOptions
         {
             TargetHost = targetHost,
             ApplicationProtocols = ApplicationProtocols.Value,
-            RemoteCertificateValidationCallback = (_, certificate, _, _) => 
+            RemoteCertificateValidationCallback = (_, certificate, _, _) =>
                 WindowsCertificateHelper.ValidateCertificate(certificate as X509Certificate2, context.RemotePeer.Identity?.PeerId?.ToString()),
             ClientCertificates = [certificate],
             EnabledSslProtocols = GetSupportedSslProtocols(),
@@ -163,7 +163,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
     {
         // Start with TLS 1.2 and 1.3 for better Windows compatibility
         var protocols = SslProtocols.Tls12;
-        
+
         try
         {
             // Try to add TLS 1.3 if available
@@ -173,7 +173,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
         {
             // TLS 1.3 might not be available on older Windows versions
         }
-        
+
         return protocols;
     }
 
@@ -208,7 +208,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
                     {
                         logger.LogTrace("TLS: Sending data to peer (length: {Length})", data.Length);
                     }
-                    
+
                     await sslStream.WriteAsync(data.ToArray());
                     await sslStream.FlushAsync();
                 }
@@ -225,7 +225,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
             {
                 logger?.LogDebug("TLS: Starting to read from SslStream");
                 byte[] buffer = new byte[4096];
-                
+
                 while (true)
                 {
                     int bytesRead = await sslStream.ReadAsync(buffer);
@@ -242,7 +242,7 @@ public class WindowsTlsProtocol : IProtocol, IDisposable
 
                     await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer[..bytesRead]));
                 }
-                
+
                 await upChannel.WriteEofAsync();
             }
             catch (Exception ex)

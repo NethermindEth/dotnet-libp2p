@@ -39,15 +39,15 @@ public class WindowsCertificateHelper
             // Use a deterministic subject name to avoid randomness issues
             string subjectName = $"CN=libp2p-{identity.PeerId}";
             CertificateRequest certRequest = new(subjectName, sessionKey, HashAlgorithmName.SHA256);
-            
+
             certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
-            
+
             // Create certificate without using Windows Certificate Store
             var notBefore = DateTimeOffset.UtcNow.AddMinutes(-1); // Small buffer for clock skew
             var notAfter = DateTimeOffset.UtcNow.AddYears(1); // Valid for 1 year
-            
+
             X509Certificate2 result = certRequest.CreateSelfSigned(notBefore, notAfter);
-            
+
             // On Windows, we need to ensure the certificate has a private key
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -56,7 +56,7 @@ public class WindowsCertificateHelper
                 result.Dispose();
                 result = new X509Certificate2(pfxBytes, (string?)null, X509KeyStorageFlags.Exportable);
             }
-            
+
             return result;
         }
         catch (Exception ex)
@@ -73,7 +73,7 @@ public class WindowsCertificateHelper
         try
         {
             X509Certificate2 cert = CreateCertificateFromIdentity(sessionKey, identity);
-            
+
             // Ensure the certificate has the private key properly associated
             if (!cert.HasPrivateKey && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -83,7 +83,7 @@ public class WindowsCertificateHelper
                     return cert.CopyWithPrivateKey(sessionKey);
                 }
             }
-            
+
             return cert;
         }
         catch (Exception ex)

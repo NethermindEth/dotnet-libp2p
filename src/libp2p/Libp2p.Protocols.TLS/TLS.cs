@@ -140,7 +140,7 @@ public class TlsProtocol : IProtocol
     {
         // Start with TLS 1.2 for better Windows compatibility
         var protocols = SslProtocols.Tls12;
-        
+
         try
         {
             // Try to add TLS 1.3 if available
@@ -150,7 +150,7 @@ public class TlsProtocol : IProtocol
         {
             // TLS 1.3 might not be available on older Windows versions
         }
-        
+
         return protocols;
     }
 
@@ -353,7 +353,7 @@ public class TlsProtocol : IProtocol
         LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
 
-        _logger?.LogDebug($"Subdialing with {string.Join(", ", channelFactory.SubProtocols.Select(x=>x.Id))}");
+        _logger?.LogDebug($"Subdialing with {string.Join(", ", channelFactory.SubProtocols.Select(x => x.Id))}");
 
 
         IChannel upChannel = channelFactory.SubDial(context);

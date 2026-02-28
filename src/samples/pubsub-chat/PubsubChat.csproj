@@ -5,7 +5,6 @@
       <ImplicitUsings>enable</ImplicitUsings>
       <Nullable>enable</Nullable>
       <EnablePreviewFeatures>true</EnablePreviewFeatures>
-      <TargetFramework>net8.0</TargetFramework>
       <RootNamespace>PubsubChat</RootNamespace>
     </PropertyGroup>
 

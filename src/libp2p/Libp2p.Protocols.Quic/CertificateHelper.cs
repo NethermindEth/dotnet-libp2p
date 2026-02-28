@@ -31,7 +31,7 @@ public class CertificateHelper
         asnWrtier.Encode(pubkeyExtension);
 
         CertificateRequest certRequest = new($"cn={new Random().Next()}", sessionKey, HashAlgorithmName.SHA256);
-        
+
         certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
         var result = certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
         var result0 = result;
@@ -41,7 +41,7 @@ public class CertificateHelper
         X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
         store.Open(OpenFlags.MaxAllowed);
         var d = store.Certificates.Count;
-        
+
         store.Add(result);
 
         var d2 = store.Certificates.Count;
@@ -123,7 +123,7 @@ public class CertificateHelper
                     }
                 }
             }
-            
+
             store.Close();
 
         }
@@ -133,7 +133,7 @@ public class CertificateHelper
         }
         res = result;
 
-        
+
         return (result, result0);// new X509Certificate2(result.Export(X509ContentType.Pkcs7));
     }
 
