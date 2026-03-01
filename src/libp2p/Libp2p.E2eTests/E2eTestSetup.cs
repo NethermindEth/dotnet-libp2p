@@ -4,6 +4,7 @@
 using Makaretu.Dns.Resolving;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -63,6 +64,12 @@ public class E2eTestSetup : IAsyncDisposable
     {
     }
 
+    /// <summary>
+    /// Returns the addresses the peer should listen on, or null for defaults (all interfaces).
+    /// Override in subclasses to restrict listening to specific addresses (e.g. localhost only).
+    /// </summary>
+    protected virtual Multiaddress[]? GetListenAddresses(int index) => null;
+
     protected virtual void AddAt(int index)
     {
 
@@ -94,7 +101,8 @@ public class E2eTestSetup : IAsyncDisposable
             PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
             Peers[_peerCounter] = sp.GetService<IPeerFactory>()!.Create(TestPeers.Identity(_peerCounter));
 
-            await Peers[_peerCounter].StartListenAsync(token: Token);
+            Multiaddress[]? listenAddrs = GetListenAddresses(_peerCounter);
+            await Peers[_peerCounter].StartListenAsync(listenAddrs, Token);
 
             AddAt(_peerCounter);
 

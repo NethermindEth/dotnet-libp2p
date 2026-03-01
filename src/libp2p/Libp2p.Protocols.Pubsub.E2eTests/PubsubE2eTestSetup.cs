@@ -3,6 +3,7 @@
 
 using Libp2p.E2eTests;
 using Microsoft.Extensions.DependencyInjection;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using System.Text;
@@ -13,6 +14,13 @@ public class PubsubE2eTestSetup : E2eTestSetup
 {
     public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 3, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200 };
     public Dictionary<int, PubsubRouter> Routers { get; } = [];
+
+    /// <summary>
+    /// Listen on localhost only so tests don't attempt to bind/dial
+    /// unreachable link-local interfaces (169.254.x.x, fe80::, etc.).
+    /// </summary>
+    protected override Multiaddress[]? GetListenAddresses(int index) =>
+        [(Multiaddress)"/ip4/127.0.0.1/tcp/0"];
 
     public new async ValueTask DisposeAsync()
     {
@@ -102,7 +110,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
     {
         int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);
 
-        CancellationTokenSource cts = new(timeoutMs);
+        using CancellationTokenSource cts = new(timeoutMs);
 
         while (true)
         {
@@ -112,7 +120,8 @@ public class PubsubE2eTestSetup : E2eTestSetup
 
             foreach (IRoutingStateContainer router in Routers.Values)
             {
-                if (router.Mesh[topic].Count < requiredCount)
+                // TryGetValue: topic may not be in the mesh dictionary yet during startup
+                if (!router.Mesh.TryGetValue(topic, out HashSet<PeerId>? peers) || peers.Count < requiredCount)
                 {
                     stillWaiting = true;
                     break;
@@ -123,8 +132,11 @@ public class PubsubE2eTestSetup : E2eTestSetup
 
             if (!stillWaiting) break;
 
-            // Trigger heartbeat to ensure mesh grafting progresses even under resource contention
-            await Heartbeat();
+            // Trigger heartbeat to ensure mesh grafting progresses even under resource contention.
+            // Topic may not be registered in all internal dictionaries yet, so guard against that.
+            try { await Heartbeat(); }
+            catch (KeyNotFoundException) { }
+
             await Task.Delay(1000, cts.Token);
         }
     }

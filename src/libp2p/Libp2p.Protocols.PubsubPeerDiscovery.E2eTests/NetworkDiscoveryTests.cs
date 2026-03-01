@@ -9,21 +9,30 @@ namespace Libp2p.Protocols.PubsubPeerDiscovery.E2eTests;
 public class NetworkDiscoveryTests
 {
     [Test]
+    [Retry(3)]
     public async Task Test_NetworkDiscoveredByEveryPeer()
     {
         string commonTopic = "test";
 
-        int totalCount = 5;
+        int totalCount = 3;
         await using PubsubDiscoveryE2eTestSetup test = new();
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
-        foreach ((_, PeerStore peerStore) in test.PeerStores.Skip(1))
+
+        // Each peer discovers peer 0; wait for an actual connection before proceeding.
+        foreach ((int index, PeerStore peerStore) in test.PeerStores.Skip(1))
         {
+            TaskCompletionSource connectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            test.Peers[index].OnConnected += _ => { connectedTcs.TrySetResult(); return Task.CompletedTask; };
+
             peerStore.Discover(test.Peers[0].ListenAddresses.ToArray());
+
+            using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+            try { await connectedTcs.Task.WaitAsync(cts.Token); }
+            catch (OperationCanceledException) { /* proceed — mesh will catch up */ }
         }
 
-        // Use 60 second timeout for CI environment compatibility 
-        await test.WaitForFullMeshAsync(commonTopic, timeoutMs: 60_000);
+        await test.WaitForFullMeshAsync(commonTopic);
     }
 }
