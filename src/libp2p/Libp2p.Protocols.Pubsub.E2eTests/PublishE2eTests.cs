@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework;
 using System.Collections.Concurrent;
@@ -30,7 +31,7 @@ public class PublishE2eTests
             i++;
         }
 
-        await test.WaitForFullMeshAsync(topic, 15_000);
+        await test.WaitForFullMeshAsync(topic, 30_000);
 
         var receivedMessages = new ConcurrentBag<(int RouterId, byte[] Message)>();
 

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework;
 
@@ -95,7 +96,7 @@ public class PeerScoringE2eTests
             i++;
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 15_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -229,11 +230,8 @@ public class PeerScoringE2eTests
             i++;
         }
 
-        // Wait for connections to stabilize before checking mesh formation
-        await Task.Delay(500);
-
-        await test.WaitForFullMeshAsync(topic1, 60_000);
-        await test.WaitForFullMeshAsync(topic2, 60_000);
+        await test.WaitForFullMeshAsync(topic1, 15_000);
+        await test.WaitForFullMeshAsync(topic2, 15_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
