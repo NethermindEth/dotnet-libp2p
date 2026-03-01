@@ -86,26 +86,8 @@ public class PubsubE2eTestSetup : E2eTestSetup
         }
     }
 
-    /// <summary>
-    /// Discovers all peers with staggered timing to prevent simultaneous connection races.
-    /// Each peer discovers all others one at a time with a small delay between batches.
-    /// </summary>
-    public async Task DiscoverAllPeersAsync(int totalCount)
-    {
-        for (int i = 0; i < totalCount; i++)
-        {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) PeerStores[i].Discover([.. Peers[j].ListenAddresses]);
-            }
-
-            // Small delay between each peer's discovery batch to prevent simultaneous dialing
-            if (i < totalCount - 1) await Task.Delay(300);
-        }
-    }
-
     // Wait until every router has at least `LowestDegree` mesh peers for the topic.
-    // The original 30‑second default was occasionally too tight on CI, so bump it to 60s
+    // Using 60s timeout for star topology mesh convergence (no bidirectional races).
     public async Task WaitForFullMeshAsync(string topic, int timeoutMs = 60_000)
     {
         int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);

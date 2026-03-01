@@ -20,9 +20,17 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        await test.DiscoverAllPeersAsync(totalCount);
+        int i = 0;
+        foreach ((_, var peerStore) in test.PeerStores)
+        {
+            for (int j = 0; j < totalCount; j++)
+            {
+                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+            }
+            i++;
+        }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 15_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -77,7 +85,15 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        await test.DiscoverAllPeersAsync(totalCount);
+        int i = 0;
+        foreach ((_, var peerStore) in test.PeerStores)
+        {
+            for (int j = 0; j < totalCount; j++)
+            {
+                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+            }
+            i++;
+        }
 
         await test.WaitForFullMeshAsync(commonTopic);
 
@@ -203,10 +219,21 @@ public class PeerScoringE2eTests
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
-        await test.DiscoverAllPeersAsync(totalCount);
+        int i = 0;
+        foreach ((_, var peerStore) in test.PeerStores)
+        {
+            for (int j = 0; j < totalCount; j++)
+            {
+                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+            }
+            i++;
+        }
 
-        await test.WaitForFullMeshAsync(topic1);
-        await test.WaitForFullMeshAsync(topic2);
+        // Wait for connections to stabilize before checking mesh formation
+        await Task.Delay(500);
+
+        await test.WaitForFullMeshAsync(topic1, 60_000);
+        await test.WaitForFullMeshAsync(topic2, 60_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();

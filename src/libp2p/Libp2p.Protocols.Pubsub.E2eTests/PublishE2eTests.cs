@@ -20,9 +20,17 @@ public class PublishE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(topic);
 
-        await test.DiscoverAllPeersAsync(totalCount);
+        int i = 0;
+        foreach ((_, var peerStore) in test.PeerStores)
+        {
+            for (int j = 0; j < totalCount; j++)
+            {
+                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+            }
+            i++;
+        }
 
-        await test.WaitForFullMeshAsync(topic);
+        await test.WaitForFullMeshAsync(topic, 15_000);
 
         var receivedMessages = new ConcurrentBag<(int RouterId, byte[] Message)>();
 
