@@ -12,7 +12,6 @@ public interface IReader
 {
     ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default);
 
-
     #region Read helpers
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
@@ -52,21 +51,6 @@ public interface IReader
         ReadOnlySequence<byte> serializedMessage = await ReadAsync(messageLength, token: token).OrThrow();
 
         return parser.ParseFrom(serializedMessage);
-    }
-
-    async ValueTask<T?> ReadAnyPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
-    {
-        int messageLength = await ReadVarintAsync(token);
-        ReadResult serializedMessage = await ReadAsync(messageLength, ReadBlockingMode.WaitAny, token: token);
-        if (serializedMessage.Result != IOResult.Ok)
-        {
-            return default;
-        }
-        if (messageLength > serializedMessage.Data.Length)
-        {
-            return default;
-        }
-        return parser.ParseFrom(serializedMessage.Data);
     }
     #endregion
 }

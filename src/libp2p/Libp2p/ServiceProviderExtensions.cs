@@ -1,23 +1,34 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
-using System.Runtime.Versioning;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
 public static class ServiceProviderExtensions
 {
-    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder> factorySetup)
+    public static IServiceCollection AddLibp2p(this IServiceCollection services, Func<ILibp2pPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
+    {
+        return services.AddLibp2p<Libp2pPeerFactoryBuilder>(factorySetup is null ? null : new Func<IPeerFactoryBuilder, IPeerFactoryBuilder>(b => factorySetup((ILibp2pPeerFactoryBuilder)b)))
+            .AddSingleton(sp => (ILibp2pPeerFactoryBuilder)sp.GetRequiredService<IPeerFactoryBuilder>());
+    }
+
+    public static IServiceCollection AddLibp2p<TPeerFactoryBuilder>(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
+        where TPeerFactoryBuilder : IPeerFactoryBuilder
     {
         return services
-            .AddScoped(sp => factorySetup(new Libp2pPeerFactoryBuilder(sp)))
-            .AddScoped(sp => (ILibp2pPeerFactoryBuilder)factorySetup(new Libp2pPeerFactoryBuilder(sp)))
-            .AddScoped(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
-            .AddScoped<PubsubRouter>()
-            .AddScoped<MultiplexerSettings>()
+            .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
+            .AddSingleton(sp => factorySetup is null ? ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp) : factorySetup(ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp)))
+            .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
+            .AddSingleton<MultiplexerSettings>()
+            .AddSingleton<PubsubRouter>()
+            .AddSingleton<PeerStore>()
+            .AddSingleton<MDnsDiscoveryProtocol>()
+            .AddSingleton<IdentifyNotifier>()
             ;
     }
 }

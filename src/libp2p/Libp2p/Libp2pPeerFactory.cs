@@ -1,32 +1,36 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Multiformats.Address;
-using Multiformats.Address.Protocols;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
+using System.Diagnostics;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
-public class Libp2pPeerFactory : PeerFactory
+public class Libp2pPeerFactory(
+        IProtocolStackSettings protocolStackSettings,
+        PeerStore peerStore,
+        IdentifyNotifier identifyNotifier,
+        ActivitySource? activitySource = null,
+        Activity? rootActivity = null,
+        ILoggerFactory? loggerFactory = null)
+    : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory)
 {
-    public Libp2pPeerFactory(IServiceProvider serviceProvider) : base(serviceProvider)
+    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
+}
+
+class Libp2pPeer : LocalPeer
+{
+    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
+        : base(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory)
     {
+        identifyNotifier.TrackChanges(this);
     }
 
-    protected override async Task ConnectedTo(IRemotePeer peer, bool isDialer)
+    protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        await peer.DialAsync<IdentifyProtocol>();
-    }
-
-    public override ILocalPeer Create(Identity? identity = null, Multiaddress? localAddr = null)
-    {
-        identity ??= new Identity();
-        localAddr ??= $"/ip4/0.0.0.0/tcp/0/p2p/{identity.PeerId}";
-        if (localAddr.Get<P2P>() is null)
-        {
-            localAddr.Add<P2P>(identity.PeerId.ToString());
-        }
-        return base.Create(identity, localAddr);
+        await session.DialAsync<IdentifyProtocol>();
     }
 }

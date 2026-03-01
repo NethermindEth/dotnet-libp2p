@@ -1,177 +1,143 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
-using System.Net;
-using System.Net.Security;
-using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using System.Xml.Linq;
 
 namespace Nethermind.Libp2p.Protocols.Quic;
+
 public class CertificateHelper
 {
     private const string PubkeyExtensionOidString = "1.3.6.1.4.1.53594.1.1";
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
-    static X509Certificate2 res = null;
+
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
     {
-        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls13;
-        byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(sessionKey.ExportSubjectPublicKeyInfo()));
-
-        AsnWriter asnWrtier = new(AsnEncodingRules.DER);
-        asnWrtier.PushSequence();
-        asnWrtier.WriteOctetString(identity.PublicKey.ToByteArray());
-        asnWrtier.WriteOctetString(signature);
-        asnWrtier.PopSequence();
-        byte[] pubkeyExtension = new byte[asnWrtier.GetEncodedLength()];
-        asnWrtier.Encode(pubkeyExtension);
-
-        CertificateRequest certRequest = new($"cn={new Random().Next()}", sessionKey, HashAlgorithmName.SHA256);
-        
-        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
-        var result = certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
-        var result0 = result;
-        //result = new X509Certificate2(result.Export(X509ContentType.Pfx));
-        var result2 = result;
-
-        X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-        store.Open(OpenFlags.MaxAllowed);
-        var d = store.Certificates.Count;
-        
-        store.Add(result);
-
-        var d2 = store.Certificates.Count;
-
-        store.Close();
-        store.Dispose();
-
-        try
+        // On Windows, SslStream (SChannel) requires a named CNG key.
+        // Ephemeral keys from ECDsa.Create() cannot be used with SslStream on Windows.
+        ECDsa certKey = sessionKey;
+        if (OperatingSystem.IsWindows())
         {
-            store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly);
-            X509Certificate2Collection cers = store.Certificates;
-            if (cers.Count > 0)
-            {
-                foreach (X509Certificate2 c in cers)
-                {
-                    if (c.SerialNumber == result.SerialNumber)
-                    {
-                        result = c;
-                    }
-                }
-            }
-            store.Close();
-
+            certKey = CreateWindowsCompatibleKey();
         }
-        catch
-        {
-            throw;
-        }
-        res = result;
 
-        return result;// new X509Certificate2(result.Export(X509ContentType.Pkcs7));
+        Span<byte> signature = identity.Sign(ContentToSignFromTlsPublicKey(certKey.ExportSubjectPublicKeyInfo()));
+        AsnWriter asnWriter = new(AsnEncodingRules.DER);
+        asnWriter.PushSequence();
+        asnWriter.WriteOctetString(identity.PublicKey.ToByteArray());
+        asnWriter.WriteOctetString(signature);
+        asnWriter.PopSequence();
+
+        Span<byte> pubkeyExtension = stackalloc byte[asnWriter.GetEncodedLength()];
+        int d = asnWriter.Encode(pubkeyExtension);
+
+        Span<byte> bytes = stackalloc byte[20];
+        Random random = new();
+        random.NextBytes(bytes);
+
+        CertificateRequest certRequest = new($"SERIALNUMBER={Convert.ToHexString(bytes)}", certKey, HashAlgorithmName.SHA256);
+
+        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, false));
+
+        X509Certificate2 certificate = certRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.MaxValue);
+
+        return certificate;
     }
 
-
-    public static (X509Certificate2, X509Certificate2) CertificateFromIdentity2(ECDsa sessionKey, Identity identity)
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static ECDsa CreateWindowsCompatibleKey()
     {
-        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls13;
-        byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(sessionKey.ExportSubjectPublicKeyInfo()));
-
-        AsnWriter asnWrtier = new(AsnEncodingRules.DER);
-        asnWrtier.PushSequence();
-        asnWrtier.WriteOctetString(identity.PublicKey.ToByteArray());
-        asnWrtier.WriteOctetString(signature);
-        asnWrtier.PopSequence();
-        byte[] pubkeyExtension = new byte[asnWrtier.GetEncodedLength()];
-        asnWrtier.Encode(pubkeyExtension);
-
-        CertificateRequest certRequest = new($"cn={new Random().Next()}", sessionKey, HashAlgorithmName.SHA256);
-
-        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, true));
-        var result = certRequest.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.MaxValue);
-        var result0 = result;
-        result = new X509Certificate2(result.Export(X509ContentType.Pfx), (string?)null, X509KeyStorageFlags.PersistKeySet);
-        var result2 = result;
-
-        X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-        store.Open(OpenFlags.MaxAllowed);
-        var d = store.Certificates.Count;
-
-        store.Add(result);
-
-        var d2 = store.Certificates.Count;
-        store.Close();
-        store.Dispose();
-
-        try
+        CngKeyCreationParameters cngParams = new()
         {
-            store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly);
-            X509Certificate2Collection cers = store.Certificates;
-            if (cers.Count > 0)
-            {
-                foreach (X509Certificate2 c in cers)
-                {
-                    if (c.SerialNumber == result.SerialNumber)
-                    {
-                        result = c;
-                    }
-                }
-            }
-            
-            store.Close();
-
-        }
-        catch
-        {
-            throw;
-        }
-        res = result;
-
-        
-        return (result, result0);// new X509Certificate2(result.Export(X509ContentType.Pkcs7));
+            ExportPolicy = CngExportPolicies.AllowPlaintextExport,
+            KeyUsage = CngKeyUsages.AllUsages,
+        };
+        CngKey cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", cngParams);
+        return new ECDsaCng(cngKey);
     }
 
-    public static bool ValidateCertificate(X509Certificate2? certificate, string? peerId)
+    public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId)
     {
+        // Per libp2p TLS spec: Check certificate validity dates
+        DateTime now = DateTime.UtcNow;
+        if (certificate.NotBefore > now)
+        {
+            return false; // Certificate not yet valid
+        }
+        if (certificate.NotAfter < now)
+        {
+            return false; // Certificate expired
+        }
+
+        // Per libp2p TLS spec: certificate must be self-signed (issuer == subject)
+        if (certificate.Subject != certificate.Issuer)
+        {
+            return false; // Not self-signed
+        }
+
+        Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
+
+        if (key is null || signature is null)
+        {
+            return false; // Missing libp2p extension or signature
+        }
+
+        Identity id = new(key);
+        if (peerId is not null && id.PeerId.ToString() != peerId)
+        {
+            return false; // Peer ID mismatch
+        }
+
+        // Verify the signature over the certificate's public key
+        return id.VerifySignature(ContentToSignFromTlsPublicKey(certificate.PublicKey.ExportSubjectPublicKeyInfo()), signature);
+    }
+
+    public static Core.Dto.PublicKey? ExtractPublicKey(X509Certificate2? certificate, [NotNullWhen(true)] out byte[]? signature)
+    {
+        signature = null;
+
         if (certificate is null)
         {
-            return false;
+            return null;
         }
 
+        // Per libp2p TLS spec: Find the libp2p extension
         X509Extension[] exts = certificate.Extensions.Where(e => e.Oid?.Value == PubkeyExtensionOidString).ToArray();
 
-        if (exts.Length is 0)
+        if (exts.Length == 0)
         {
-            return false;
+            return null; // libp2p extension missing
         }
 
-        if (exts.Length is not 1)
+        if (exts.Length > 1)
         {
-            return false;
+            return null; // Multiple libp2p extensions not allowed
         }
 
         X509Extension ext = exts.First();
 
-        AsnReader a = new(ext.RawData, AsnEncodingRules.DER);
-        AsnReader signedKey = a.ReadSequence();
-
-        byte[] publicKey = signedKey.ReadOctetString();
-        byte[] signature = signedKey.ReadOctetString();
-
-        Core.Dto.PublicKey key = Core.Dto.PublicKey.Parser.ParseFrom(publicKey);
-        Identity id = new(key);
-        if (peerId is not null && id.PeerId.ToString() != peerId)
+        try
         {
-            return false;
-        }
+            AsnReader a = new(ext.RawData, AsnEncodingRules.DER);
+            AsnReader signedKey = a.ReadSequence();
 
-        return id.VerifySignature(ContentToSignFromTlsPublicKey(certificate.PublicKey.ExportSubjectPublicKeyInfo()), signature);
+            byte[] publicKey = signedKey.ReadOctetString();
+            signature = signedKey.ReadOctetString();
+
+            return Core.Dto.PublicKey.Parser.ParseFrom(publicKey);
+        }
+        catch
+        {
+            // Invalid ASN.1 structure
+            signature = null;
+            return null;
+        }
     }
 
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();

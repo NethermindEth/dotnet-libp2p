@@ -11,7 +11,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core;
 
-internal class Channel : IChannel
+public class Channel : IChannel
 {
     private IChannel? _reversedChannel;
     private ReaderWriter _reader;
@@ -60,7 +60,7 @@ internal class Channel : IChannel
 
     public async ValueTask CloseAsync()
     {
-        ValueTask<IOResult> stopReader = _reader.WriteEofAsync();
+        ValueTask<IOResult> stopReader = _reader.WriteEofAsync().Preserve();
         await _writer.WriteEofAsync();
         if (!stopReader.IsCompleted)
         {

@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/ping/ping.md
 /// </summary>
-public class PingProtocol : IProtocol
+public class PingProtocol : ISessionProtocol
 {
     private const int PayloadLength = 32;
 
@@ -24,39 +24,41 @@ public class PingProtocol : IProtocol
         _logger = loggerFactory?.CreateLogger<PingProtocol>();
     }
 
-    public async Task DialAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task DialAsync(IChannel channel, ISessionContext context)
     {
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+
         byte[] ping = new byte[PayloadLength];
         _random.NextBytes(ping.AsSpan(0, PayloadLength));
         ReadOnlySequence<byte> bytes = new(ping);
 
-        _logger?.LogPing(context.RemotePeer.Address);
+        _logger?.LogPing(context.State.RemoteAddress);
         await channel.WriteAsync(bytes);
         _logger?.LogTrace("Sent ping: {ping}", Convert.ToHexString(ping));
 
-        _logger?.ReadingPong(context.RemotePeer.Address);
+        _logger?.ReadingPong(context.State.RemoteAddress);
         ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll).OrThrow();
         _logger?.LogTrace("Received pong: {ping}", Convert.ToHexString(ping));
 
-        _logger?.VerifyingPong(context.RemotePeer.Address);
+        _logger?.VerifyingPong(context.State.RemoteAddress);
         if (!ping[0..PayloadLength].SequenceEqual(response.ToArray()))
         {
-            _logger?.PingFailed(context.RemotePeer.Address);
+            _logger?.PingFailed(context.State.RemoteAddress);
             throw new ApplicationException();
         }
 
-        _logger?.LogPinged(context.RemotePeer.Address);
+        _logger?.LogPinged(context.State.RemoteAddress);
     }
 
-    public async Task ListenAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context)
+    public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
-        _logger?.PingListenStarted(context.RemotePeer.Address);
+        ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
+
+        _logger?.PingListenStarted(context.State.RemoteAddress);
 
         while (true)
         {
-            _logger?.ReadingPing(context.RemotePeer.Address);
+            _logger?.ReadingPing(context.State.RemoteAddress);
             ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAny);
             if (read.Result != IOResult.Ok)
             {
@@ -66,11 +68,11 @@ public class PingProtocol : IProtocol
             byte[] ping = read.Data.ToArray();
             _logger?.LogTrace("Received ping: {ping}", Convert.ToHexString(ping));
 
-            _logger?.ReturningPong(context.RemotePeer.Address);
+            _logger?.ReturningPong(context.State.RemoteAddress);
             await channel.WriteAsync(new ReadOnlySequence<byte>(ping));
             _logger?.LogTrace("Sent pong: {ping}", Convert.ToHexString(ping));
         }
 
-        _logger?.PingFinished(context.RemotePeer.Address);
+        _logger?.PingFinished(context.State.RemoteAddress);
     }
 }

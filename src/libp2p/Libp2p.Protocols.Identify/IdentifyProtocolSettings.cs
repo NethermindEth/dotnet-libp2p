@@ -5,12 +5,15 @@ namespace Nethermind.Libp2p.Protocols;
 
 public class IdentifyProtocolSettings
 {
-    public string? AgentVersion { get; set; }
-    public string? ProtocolVersion { get; set; }
+    public string AgentVersion { get; set; } = "ipfs/1.0.0";
+    public string ProtocolVersion { get; set; } = "dotnet-libp2p/1.0.0";
+    public PeerRecordsVerificationPolicy PeerRecordsVerificationPolicy { get; set; } = PeerRecordsVerificationPolicy.RequireWithWarning;
+}
 
-    public static IdentifyProtocolSettings Default { get; } = new()
-    {
-        ProtocolVersion = "ipfs/1.0.0",
-        AgentVersion = "dotnet-libp2p/1.0.0",
-    };
+
+public enum PeerRecordsVerificationPolicy
+{
+    RequireCorrect,
+    RequireWithWarning,
+    DoesNotRequire
 }

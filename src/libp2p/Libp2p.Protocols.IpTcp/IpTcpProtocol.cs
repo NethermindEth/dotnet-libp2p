@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -8,70 +8,81 @@ using Nethermind.Libp2p.Core;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Multiformats.Address.Net;
+using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Utils;
+using System.Runtime.CompilerServices;
+using System.Diagnostics;
+
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Pubsub.E2eTests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
+public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+    private static Multiaddress ToTcpMultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}");
+
 
     public string Id => "ip-tcp";
 
-    public async Task ListenAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) => [.. IpHelper.GetListenerAddresses().Select(a => ToTcpMultiAddress(a, peerId))];
+
+    public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>() && !addr.Has<WebSocketSecure>();
+
+    public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        if (channelFactory is null)
+        Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
+        IPEndPoint endpoint = listenAddr.ToEndPoint();
+
+        listener.Bind(endpoint);
+        listener.Listen();
+
+        context.Activity?.SetTag("listen-on-addr", endpoint.Address);
+        context.Activity?.SetTag("listen-on-port", endpoint.Port);
+
+        if (endpoint.Port is 0)
         {
-            throw new Exception("Protocol is not properly instantiated");
+            IPEndPoint localIpEndpoint = (IPEndPoint)listener.LocalEndPoint!;
+            listenAddr.ReplaceOrAdd<TCP>(localIpEndpoint.Port);
         }
 
-        Multiaddress addr = context.LocalPeer.Address;
-        bool isIP4 = addr.Has<IP4>();
-        MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
-        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
-        int tcpPort = int.Parse(addr.Get<TCP>().ToString());
+        token.Register(listener.Close);
 
-        Socket srv = new(SocketType.Stream, ProtocolType.Tcp);
-        srv.Bind(new IPEndPoint(ipAddress, tcpPort));
-        srv.Listen(tcpPort);
-        signalingChannel.GetAwaiter().OnCompleted(() =>
-        {
-            srv.Close();
-        });
-
-        IPEndPoint localIpEndpoint = (IPEndPoint)srv.LocalEndPoint!;
-
-
-        Multiaddress localMultiaddress = new();
-        localMultiaddress = isIP4 ? localMultiaddress.Add<IP4>(localIpEndpoint.Address.MapToIPv4()) : localMultiaddress.Add<IP6>(localIpEndpoint.Address.MapToIPv6());
-        localMultiaddress = localMultiaddress.Add<TCP>(localIpEndpoint.Port);
-        context.LocalEndpoint = localMultiaddress;
-
-        if (tcpPort == 0)
-        {
-            context.LocalPeer.Address = context.LocalPeer.Address
-                .ReplaceOrAdd<TCP>(localIpEndpoint.Port);
-        }
-
-        _logger?.LogDebug("Ready to handle connections");
-        context.ListenerReady();
+        _logger?.LogDebug($"Ready to handle connections at {listenAddr}");
+        context.ListenerReady(listenAddr);
+        context.Activity?.AddEvent(new ActivityEvent("ready"));
 
         await Task.Run(async () =>
         {
             for (; ; )
             {
-                Socket client = await srv.AcceptAsync();
-                IPeerContext clientContext = context.Fork();
-                IPEndPoint remoteIpEndpoint = (IPEndPoint)client.RemoteEndPoint!;
+                Socket client = await listener.AcceptAsync();
 
-                Multiaddress remoteMultiaddress = new();
-                remoteMultiaddress = isIP4 ? remoteMultiaddress.Add<IP4>(remoteIpEndpoint.Address.MapToIPv4()) : remoteMultiaddress.Add<IP6>(remoteIpEndpoint.Address.MapToIPv6());
-                remoteMultiaddress = remoteMultiaddress.Add<TCP>(remoteIpEndpoint.Port);
+                context.Activity?.AddEvent(new ActivityEvent($"connected {client.RemoteEndPoint}"));
 
-                clientContext.RemoteEndpoint = clientContext.RemotePeer.Address = remoteMultiaddress;
+                CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
 
-                IChannel upChannel = channelFactory.SubListen(clientContext);
+#if DEBUG
+                TriggerDisconnection += localPeerId =>
+                {
+                    if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
+                    {
+                        _logger?.LogDebug("Triggering disconnection of incoming connection");
+                        client.Close();
+                        internalCts.Cancel();
+                    }
+                };
+#endif
+                INewConnectionContext connectionCtx = context.CreateConnection();
+                connectionCtx.Token.Register(client.Close);
+                connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
 
-                _ = Task.Run(async () =>
+
+                IChannel upChannel = connectionCtx.Upgrade();
+
+                Task readTask = Task.Run(async () =>
                 {
                     try
                     {
@@ -84,32 +95,8 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
 
                             byte[] buf = new byte[client.ReceiveBufferSize];
                             int length = await client.ReceiveAsync(buf, SocketFlags.None);
-                            if (length != 0)
-                            {
-                                if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..length]))) != IOResult.Ok)
-                                {
-                                    break;
-                                }
-                            }
-                            else
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    catch (SocketException e)
-                    {
-                        await upChannel.CloseAsync();
-                    }
-                });
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
-                        {
-                            int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
-                            if (sent is 0 || !client.Connected)
+
+                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..length])) != IOResult.Ok)
                             {
                                 break;
                             }
@@ -117,92 +104,109 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
                     }
                     catch (SocketException)
                     {
-                        _logger?.LogInformation($"Disconnected({context.Id}) due to a socket exception");
-                        await upChannel.CloseAsync();
+                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
+                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
+                        _ = upChannel.CloseAsync();
                     }
                 });
+
+                Task writeTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+                        {
+                            int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
+                            if (sent is 0 || !client.Connected)
+                            {
+                                await upChannel.CloseAsync();
+                                break;
+                            }
+                        }
+                    }
+                    catch (SocketException)
+                    {
+                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
+                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
+                    }
+                });
+
+                _ = Task.WhenAny(readTask, writeTask).ContinueWith((t) => { _ = upChannel.CloseAsync(); connectionCtx.Dispose(); });
             }
-        });
+        }, token);
     }
 
-    public async Task DialAsync(IChannel signalingChannel, IChannelFactory? channelFactory, IPeerContext context)
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        if (channelFactory is null)
-        {
-            throw new ProtocolViolationException();
-        }
-
         Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        Multiaddress addr = context.RemotePeer.Address;
-        MultiaddressProtocol ipProtocol = addr.Has<IP4>() ? addr.Get<IP4>() : addr.Get<IP6>();
-        IPAddress ipAddress = IPAddress.Parse(ipProtocol.ToString());
-        int tcpPort = addr.Get<TCP>().Port;
 
-        _logger?.LogDebug("Dialing {0}:{1}", ipAddress, tcpPort);
+        CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
+
+#if DEBUG
+        TriggerDisconnection += localPeerId =>
+        {
+            if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
+            {
+                _logger?.LogDebug("Triggering disconnection of outgoing connection");
+                client.Close();
+                internalCts.Cancel();
+            }
+        };
+#endif
+
+        IPEndPoint remoteEndpoint = remoteAddr.ToEndPoint();
+        _logger?.LogDebug("Dialling {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
 
         try
         {
-            await client.ConnectAsync(new IPEndPoint(ipAddress, tcpPort), signalingChannel.CancellationToken);
+            await client.ConnectAsync(remoteEndpoint, token);
         }
         catch (SocketException e)
         {
-            _logger?.LogDebug($"Failed({context.Id}) to connect {addr}");
+            _logger?.LogDebug($"Failed to connect {remoteAddr}");
             _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
-            _ = signalingChannel.CloseAsync();
-            return;
+            throw;
         }
 
-        signalingChannel.GetAwaiter().OnCompleted(() =>
+        if (client.LocalEndPoint is null)
         {
-            client.Close();
-        });
+            throw new Libp2pException($"{nameof(client.LocalEndPoint)} is not set for client connection.");
+        }
+        if (client.RemoteEndPoint is null)
+        {
+            throw new Libp2pException($"{nameof(client.RemoteEndPoint)} is not set for client connection.");
+        }
 
-        IPEndPoint localEndpoint = (IPEndPoint)client.LocalEndPoint!;
-        IPEndPoint remoteEndpoint = (IPEndPoint)client.RemoteEndPoint!;
+        INewConnectionContext connectionCtx = context.CreateConnection();
+        connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+        connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
 
-        var isIP4 = addr.Has<IP4>();
+        connectionCtx.Token.Register(client.Close);
+        token.Register(client.Close);
 
-        var remoteMultiaddress = new Multiaddress();
-        var remoteIpAddress = isIP4 ? remoteEndpoint.Address.MapToIPv4() : remoteEndpoint.Address.MapToIPv6();
-        remoteMultiaddress = isIP4 ? remoteMultiaddress.Add<IP4>(remoteIpAddress) : remoteMultiaddress.Add<IP6>(remoteIpAddress);
-        context.RemoteEndpoint = remoteMultiaddress.Add<TCP>(remoteEndpoint.Port);
-
-
-        var localMultiaddress = new Multiaddress();
-        var localIpAddress = isIP4 ? localEndpoint.Address.MapToIPv4() : localEndpoint.Address.MapToIPv6();
-        localMultiaddress = isIP4 ? localMultiaddress.Add<IP4>(localIpAddress) : localMultiaddress.Add<IP6>(localIpAddress);
-        context.LocalEndpoint = localMultiaddress.Add<TCP>(localEndpoint.Port);
-
-        context.LocalPeer.Address = context.LocalEndpoint.Add<P2P>(context.LocalPeer.Identity.PeerId.ToString());
-
-        IChannel upChannel = channelFactory.SubDial(context);
+        IChannel upChannel = connectionCtx.Upgrade();
 
         Task receiveTask = Task.Run(async () =>
         {
-            byte[] buf = new byte[client.ReceiveBufferSize];
             try
             {
-                for (; client.Connected;)
+                while (client.Connected)
                 {
+                    byte[] buf = new byte[client.ReceiveBufferSize];
                     int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    if (dataLength != 0)
-                    {
-                        _logger?.LogDebug("Receive {0} data, len={1}", context.Id, dataLength);
-                        if ((await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
-                        {
-                            break;
-                        }
-                    }
-                    else
+                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
+
+                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
                     {
                         break;
                     }
                 }
-
+                _logger?.LogDebug("Ctx({0}): end receiving", connectionCtx.Id);
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
-                _ = upChannel.CloseAsync();
+                _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connectionCtx.Id, e.Message);
             }
         });
 
@@ -212,21 +216,35 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : IProtocol
             {
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
-                    _logger?.LogDebug("Send {0} data, len={1}", context.Id, data.Length);
+                    _logger?.LogDebug("Ctx({0}): send, length={2}", connectionCtx.Id, data.Length);
                     int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
                     if (sent is 0 || !client.Connected)
                     {
                         break;
                     }
                 }
+
+                _logger?.LogDebug("Ctx({0}): end sending", connectionCtx.Id);
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
-                _ = upChannel.CloseAsync();
+                _logger?.LogDebug("Ctx({0}): end sending, socket exception {1}", connectionCtx.Id, e.Message);
+            }
+            finally
+            {
+                client.Close();
             }
         });
 
-        await Task.WhenAll(receiveTask, sendTask);
+        await Task.WhenAny(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
+
         _ = upChannel.CloseAsync();
+        _logger?.LogDebug("Ctx({0}): dialling ended", connectionCtx.Id);
     }
+
+#if DEBUG
+    public static TriggerDisconnectionEvent TriggerDisconnection = (_) => { };
+
+    public delegate void TriggerDisconnectionEvent(PeerId? localPeerId = null);
+#endif
 }

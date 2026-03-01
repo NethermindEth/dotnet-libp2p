@@ -5,7 +5,8 @@ using Nethermind.Libp2p.Core.Exceptions;
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core;
-public static class UnwarpResultExtensions
+
+public static class UnwrapResultExtensions
 {
     public static async ValueTask OrThrow(this ValueTask<IOResult> self)
     {
