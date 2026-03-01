@@ -6,6 +6,7 @@
         "appgroup",
         "applayer",
         "appuser",
+        "alpn",
         "autoremove",
         "bafz",
         "buildtransitive",
