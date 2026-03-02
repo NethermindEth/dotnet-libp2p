@@ -13,7 +13,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         public DateTimeOffset ValidTill { get; set; }
     }
 
-    private readonly SortedDictionary<TKey, CachedItem> items = new();
+    private readonly SortedDictionary<TKey, CachedItem> items = [];
     private bool isDisposed;
 
     public TtlCache(int ttl)

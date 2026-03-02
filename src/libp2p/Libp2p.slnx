@@ -1,0 +1,50 @@
+<Solution>
+  <Folder Name="/protocols/">
+    <Project Path="Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj" />
+    <Project Path="Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj" />
+    <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
+    <Project Path="Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj" />
+    <Project Path="Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj" />
+    <Project Path="Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj" />
+    <Project Path="Libp2p.Protocols.Plaintext/Libp2p.Protocols.Plaintext.csproj" />
+    <Project Path="Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj" />
+    <Project Path="Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Pubsub/Libp2p.Protocols.Pubsub.csproj" />
+    <Project Path="Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj" />
+    <Project Path="Libp2p.Protocols.PubsubPeerDiscovery/Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
+    <Project Path="Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Quic/Libp2p.Protocols.Quic.csproj" />
+    <Project Path="Libp2p.Protocols.Relay/Libp2p.Protocols.Relay.csproj" />
+    <Project Path="Libp2p.Protocols.RequestResponse/Libp2p.Protocols.RequestResponse.csproj" />
+    <Project Path="Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj" />
+    <Project Path="Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="../samples/chat/Chat.csproj" />
+    <Project Path="../samples/perf-benchmarks/PerfBenchmarks.csproj" />
+    <Project Path="../samples/pubsub-chat/PubsubChat.csproj" />
+    <Project Path="../samples/transport-interop/TransportInterop.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="../../.github/workflows/format.yml" />
+    <File Path="../../.github/workflows/publish.yml" />
+    <File Path="../../.github/workflows/test.yml" />
+    <File Path="../../README.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Project Path="Libp2p.Core.Benchmarks/Libp2p.Core.Benchmarks.csproj" />
+  <Project Path="Libp2p.Core.Tests/Libp2p.Core.Tests.csproj" />
+  <Project Path="Libp2p.Core.TestsBase/Libp2p.Core.TestsBase.csproj" />
+  <Project Path="Libp2p.Core/Libp2p.Core.csproj" />
+  <Project Path="Libp2p.E2eTests/Libp2p.E2eTests.csproj" />
+  <Project Path="Libp2p.Generators.Enums/Libp2p.Generators.Enums.csproj" />
+  <Project Path="Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj" />
+  <Project Path="Libp2p.OpenTelemetry/Libp2p.OpenTelemetry.csproj" />
+  <Project Path="Libp2p/Libp2p.csproj" />
+</Solution>

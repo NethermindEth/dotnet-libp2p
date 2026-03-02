@@ -1,35 +1,57 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
-using System.Collections.Concurrent;
+using Nethermind.Libp2p.Core.Dto;
+using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IPeerContext
+public interface ITransportContext
 {
-    string Id { get; }
-    IPeer LocalPeer { get; }
-    IPeer RemotePeer { get; }
-
-    Multiaddress RemoteEndpoint { get; set; }
-    Multiaddress LocalEndpoint { get; set; }
-
-    // TODO: Get rid of this:
-    IPeerContext Fork();
-
-    #region Allows muxer to manage session and channels for the app protocols
-    BlockingCollection<IChannelRequest> SubDialRequests { get; }
-
-    IChannelRequest? SpecificProtocolRequest { get; set; }
-
-    event RemotePeerConnected OnRemotePeerConnection;
-    event ListenerReady OnListenerReady;
-
-    void Connected(IPeer peer);
-    void ListenerReady();
-    #endregion
+    ILocalPeer Peer { get; }
+    void ListenerReady(Multiaddress addr);
+    INewConnectionContext CreateConnection();
+    Activity? Activity { get; }
 }
 
-public delegate void RemotePeerConnected(IRemotePeer peer);
-public delegate void ListenerReady();
+public interface IContextState
+{
+    string Id { get; }
+    State State { get; }
+}
+
+public interface IConnectionContext : ITransportContext, IChannelFactory, IContextState
+{
+    UpgradeOptions? UpgradeOptions { get; }
+    Task DisconnectAsync();
+    INewSessionContext UpgradeToSession();
+}
+
+public interface ISessionContext : IConnectionContext
+{
+    Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
+    Task DialAsync(ISessionProtocol protocol);
+}
+
+
+public interface INewConnectionContext : IDisposable, IChannelFactory, IContextState
+{
+    ILocalPeer Peer { get; }
+    CancellationToken Token { get; }
+    INewSessionContext UpgradeToSession();
+    Activity? Activity { get; }
+}
+
+public interface INewSessionContext : IDisposable, INewConnectionContext
+{
+    IEnumerable<UpgradeOptions> DialRequests { get; }
+}
+
+public class State
+{
+    public Multiaddress? LocalAddress { get; set; }
+    public Multiaddress? RemoteAddress { get; set; }
+    public PublicKey? RemotePublicKey { get; set; }
+    public PeerId? RemotePeerId => RemoteAddress?.GetPeerId();
+}

@@ -3,7 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 
-namespace Nethermind.Libp2p.Stack;
+namespace Nethermind.Libp2p;
 
 internal static partial class LogMessages
 {

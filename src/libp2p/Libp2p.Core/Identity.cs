@@ -149,10 +149,7 @@ public class Identity
 
     public bool VerifySignature(byte[] message, byte[] signature)
     {
-        if (PublicKey is null)
-        {
-            throw new ArgumentNullException(nameof(PublicKey));
-        }
+        ArgumentNullException.ThrowIfNull(PublicKey);
 
         switch (PublicKey.Type)
         {
@@ -164,6 +161,7 @@ public class Identity
                 {
                     using RSA rsa = RSA.Create();
                     rsa.ImportSubjectPublicKeyInfo(PublicKey.Data.Span, out _);
+
                     return rsa.VerifyData(message, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
             case KeyType.Secp256K1:
@@ -171,13 +169,13 @@ public class Identity
                     X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
                     ISigner signer = SignerUtilities.GetSigner("SHA-256withECDSA");
 
-                    ECPublicKeyParameters publicKeyParamters = new(
+                    ECPublicKeyParameters publicKeyParameters = new(
                             "ECDSA",
                             curve.Curve.DecodePoint(PublicKey.Data.ToArray()),
                             new ECDomainParameters(curve)
                             );
 
-                    signer.Init(false, publicKeyParamters);
+                    signer.Init(false, publicKeyParameters);
                     signer.BlockUpdate(message, 0, message.Length);
                     return signer.VerifySignature(signature);
                 }

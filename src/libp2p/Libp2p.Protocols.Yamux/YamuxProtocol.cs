@@ -1,21 +1,27 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Protocols.Yamux;
 using System.Buffers;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Yamux.Tests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class YamuxProtocol : SymmetricProtocol, IProtocol
+public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 {
+    public const int ProtocolInitialWindowSize = 256 * 1024;
+
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
 
+    private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
     {
         multiplexerSettings?.Add(this);
@@ -26,58 +32,74 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
     public string Id => "/yamux/1.0.0";
 
-    protected override async Task ConnectAsync(IChannel channel, IChannelFactory? channelFactory,
-        IPeerContext context, bool isListener)
+    protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
-        if (channelFactory is null)
-        {
-            throw new ArgumentException("ChannelFactory should be available for a muxer", nameof(channelFactory));
-        }
-
-        _logger?.LogInformation(isListener ? "Listen" : "Dial");
+        using var scope = _logger?.BeginScope("Context id {ctx}", context.Id);
+        _logger?.LogInformation("Ctx({ctx}): {mode} {peer}", context.Id, isListener ? "Listen" : "Dial", context.State.RemoteAddress);
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
-        Dictionary<int, ChannelState> channels = new();
+        channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
+
+        ConcurrentDictionary<int, ChannelState> channels = [];
+        INewSessionContext? session = null;
+        Timer? timer = null;
 
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
-            context.Connected(context.RemotePeer);
-            int pingCounter = 0;
 
-            using Timer timer = new((s) =>
+            SemaphoreSlim waitForSession = new(0, 1);
+            if (!isListener)
             {
-                _ = WriteHeaderAsync(channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = ++pingCounter });
-            }, null, PingDelay, PingDelay);
+                session = context.UpgradeToSession();
+                _logger?.LogInformation("Ctx({ctx}): Session created by dialer for {peer}", session.Id, session.State.RemoteAddress);
+                waitForSession.Release();
+            }
 
-            _ = Task.Run(() =>
+            _ = Task.Run(async () =>
             {
-                foreach (IChannelRequest request in context.SubDialRequests.GetConsumingEnumerable())
+                await waitForSession.WaitAsync();
+                if (session is null)
+                {
+                    throw new Libp2pException("Session was not initialized.");
+                }
+
+                uint pingCounter = 0;
+
+                timer = new((s) =>
+                {
+                    _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
+                }, null, PingDelay, PingDelay);
+
+                foreach (UpgradeOptions request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
                     Interlocked.Add(ref streamIdCounter, 2);
 
-                    _logger?.LogDebug("Stream {stream id}: Dialing with protocol {proto}", streamId, request.SubProtocol?.Id);
-                    channels[streamId] = CreateUpchannel(streamId, YamuxHeaderFlags.Syn, request);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Dialing with protocol {proto}", session.Id, streamId, request.SelectedProtocol?.Id);
+                    channels[streamId] = CreateUpchannel(session.Id, streamId, YamuxHeaderFlags.Syn, request);
                 }
             });
 
             while (!downChannelAwaiter.IsCompleted)
             {
-                YamuxHeader header = await ReadHeaderAsync(channel);
+                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, channel.CancellationToken);
                 ReadOnlySequence<byte> data = default;
 
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
-                    // TODO: Handle bad packet
+                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? NoSession, header.Type);
+                    _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
+                    return;
                 }
+
                 if (header.StreamID is 0)
                 {
                     if (header.Type == YamuxHeaderType.Ping)
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(channel,
+                            _ = WriteHeaderAsync(session?.Id ?? NoSession, channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
@@ -85,14 +107,14 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                                     Length = header.Length,
                                 });
 
-                            _logger?.LogDebug("Ping received and acknowledged");
+                            _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? NoSession);
                         }
                         continue;
                     }
 
                     if (header.Type == YamuxHeaderType.GoAway)
                     {
-                        _logger?.LogDebug("Closing all streams");
+                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session?.Id ?? NoSession);
 
                         foreach (ChannelState channelState in channels.Values)
                         {
@@ -108,9 +130,21 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     continue;
                 }
 
+                if (isListener && session is null)
+                {
+                    session = context.UpgradeToSession();
+                    _logger?.LogInformation("Ctx({ctx}): Session created by listener for {peer}", session.Id, session.State.RemoteAddress);
+                    waitForSession.Release();
+                }
+
+                if (session is null)
+                {
+                    throw new Libp2pException("Session was not initialized.");
+                }
+
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
-                    channels[header.StreamID] = CreateUpchannel(header.StreamID, YamuxHeaderFlags.Ack, null);
+                    channels[header.StreamID] = CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
                 }
 
                 if (!channels.ContainsKey(header.StreamID))
@@ -119,100 +153,74 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                     {
                         await channel.ReadAsync(header.Length);
                     }
-                    _logger?.LogDebug("Stream {stream id}: Ignored for closed stream", header.StreamID);
+                    _logger?.LogDebug("Ctx({ctx}): Stream {stream id}: Ignored for closed stream", session.Id, header.StreamID);
                     continue;
                 }
 
                 if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
                 {
-                    if (header.Length > channels[header.StreamID].LocalWindow.Available)
+                    int available = channels[header.StreamID].LocalWindow.Available;
+                    if (header.Length > available)
                     {
-                        _logger?.LogDebug("Stream {stream id}: Data length > windows size: {length} > {window size}",
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Data length > windows size: {length} > {window size}", session.Id,
                            header.StreamID, header.Length, channels[header.StreamID].LocalWindow.Available);
 
-                        await WriteGoAwayAsync(channel, SessionTerminationCode.ProtocolError);
+                        await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.ProtocolError);
                         return;
                     }
 
                     data = await channel.ReadAsync(header.Length).OrThrow();
 
-                    bool spent = channels[header.StreamID].LocalWindow.SpendWindow((int)data.Length);
+                    bool spent = channels[header.StreamID].LocalWindow.TrySpend((int)data.Length);
                     if (!spent)
                     {
-                        _logger?.LogDebug("Stream {stream id}: Window spent out of budget", header.StreamID);
-                        await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local window spent out of budget", session.Id, header.StreamID);
+                        await WriteGoAwayAsync(session.Id, channel, SessionTerminationCode.InternalError);
                         return;
                     }
 
-                    ValueTask<IOResult> writeTask = channels[header.StreamID].Channel!.WriteAsync(data);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
+                               header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
 
-                    if (writeTask.IsCompleted)
+                    _ = channels[header.StreamID].Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
-                        if (writeTask.Result == IOResult.Ok)
+                        if (!t.IsCompletedSuccessfully)
                         {
-                            int extendedBy = channels[header.StreamID].LocalWindow.ExtendWindowIfNeeded();
-                            if (extendedBy is not 0)
-                            {
-                                _ = WriteHeaderAsync(channel,
-                                    new YamuxHeader
-                                    {
-                                        Type = YamuxHeaderType.WindowUpdate,
-                                        Length = extendedBy,
-                                        StreamID = header.StreamID
-                                    });
-                            }
+                            _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
                         }
-                    }
-                    else
-                    {
-                        writeTask.GetAwaiter().OnCompleted(() =>
-                        {
-                            if (writeTask.Result == IOResult.Ok && channels.TryGetValue(header.StreamID, out ChannelState? channelState))
-                            {
-                                int extendedBy = channelState.LocalWindow.ExtendWindowIfNeeded();
-                                if (extendedBy is not 0)
-                                {
-                                    _ = WriteHeaderAsync(channel,
-                                        new YamuxHeader
-                                        {
-                                            Type = YamuxHeaderType.WindowUpdate,
-                                            Length = extendedBy,
-                                            StreamID = header.StreamID
-                                        });
-                                }
-                            }
-                        });
-                    }
+
+                        ExtendWindow(channel, session.Id, header.StreamID, t.Result);
+                    });
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
                 {
                     int oldSize = channels[header.StreamID].RemoteWindow.Available;
-                    int newSize = channels[header.StreamID].RemoteWindow.ExtendWindow(header.Length);
-                    _logger?.LogDebug("Stream {stream id}: Window update requested: {old} => {new}", header.StreamID, oldSize, newSize);
+                    int newSize = channels[header.StreamID].RemoteWindow.Extend(header.Length);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window update received: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
                 {
-                    if (!channels.TryGetValue(header.StreamID, out ChannelState state))
+                    if (!channels.TryGetValue(header.StreamID, out ChannelState? state))
                     {
                         continue;
                     }
 
                     _ = state.Channel?.WriteEofAsync();
-                    _logger?.LogDebug("Stream {stream id}: Finish receiving", header.StreamID);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Finish receiving", session.Id, header.StreamID);
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
                 {
                     _ = channels[header.StreamID].Channel?.CloseAsync();
-                    _logger?.LogDebug("Stream {stream id}: Reset", header.StreamID);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset", session.Id, header.StreamID);
                 }
             }
 
-            await WriteGoAwayAsync(channel, SessionTerminationCode.Ok);
+            _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
-            ChannelState CreateUpchannel(int streamId, YamuxHeaderFlags initiationFlag, IChannelRequest? channelRequest)
+            ChannelState CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
                 bool isListenerChannel = isListener ^ (streamId % 2 == 0);
 
@@ -221,30 +229,26 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                 if (isListenerChannel)
                 {
-                    upChannel = channelFactory.SubListen(context);
+                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
                 }
                 else
                 {
-                    IPeerContext dialContext = context.Fork();
-                    dialContext.SpecificProtocolRequest = channelRequest;
-                    upChannel = channelFactory.SubDial(dialContext);
+                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                 }
 
-                ChannelState state = new(upChannel, channelRequest);
-                TaskCompletionSource? tcs = state.Request?.CompletionSource;
+                ChannelState state = new(upChannel);
 
                 upChannel.GetAwaiter().OnCompleted(() =>
                 {
-                    tcs?.SetResult();
-                    channels.Remove(streamId);
-                    _logger?.LogDebug("Stream {stream id}: Closed", streamId);
+                    channels.TryRemove(streamId, out ChannelState? _);
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
                 });
 
                 Task.Run(async () =>
                 {
                     try
                     {
-                        await WriteHeaderAsync(channel,
+                        await WriteHeaderAsync(contextId, channel,
                                    new YamuxHeader
                                    {
                                        Flags = initiationFlag,
@@ -254,48 +258,51 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
 
                         if (initiationFlag == YamuxHeaderFlags.Syn)
                         {
-                            _logger?.LogDebug("Stream {stream id}: New stream request sent", streamId);
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: New stream request sent", contextId, streamId);
                         }
                         else
                         {
-                            _logger?.LogDebug("Stream {stream id}: New stream request acknowledged", streamId);
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: New stream request acknowledged", contextId, streamId);
                         }
 
-                        await foreach (var upData in upChannel.ReadAllAsync())
+                        await foreach (ReadOnlySequence<byte> upData in upChannel.ReadAllAsync())
                         {
-                            _logger?.LogDebug("Stream {stream id}: Receive from upchannel, length={length}", streamId, upData.Length);
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Receive from upchannel, length={length}", contextId, streamId, upData.Length);
 
                             for (int i = 0; i < upData.Length;)
                             {
-                                int sendingSize = await state.RemoteWindow.SpendWindowOrWait((int)upData.Length - i);
+                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.Channel!.CancellationToken);
 
-                                await WriteHeaderAsync(channel,
+                                _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
+
+                                await WriteHeaderAsync(contextId, channel,
                                     new YamuxHeader
                                     {
                                         Type = YamuxHeaderType.Data,
                                         Length = sendingSize,
                                         StreamID = streamId
-                                    }, upData.Slice(i, sendingSize));
+                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()));
                                 i += sendingSize;
                             }
                         }
 
-                        await WriteHeaderAsync(channel,
+                        await WriteHeaderAsync(contextId, channel,
                             new YamuxHeader
                             {
                                 Flags = YamuxHeaderFlags.Fin,
                                 Type = YamuxHeaderType.WindowUpdate,
                                 StreamID = streamId
                             });
-                        _logger?.LogDebug("Stream {stream id}: Upchannel finished writing", streamId);
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Upchannel finished writing", contextId, streamId);
                     }
                     catch (ChannelClosedException e)
                     {
-                        _logger?.LogDebug("Stream {stream id}: Closed due to transport disconnection", streamId);
+                        context.Activity?.AddEvent(new ActivityEvent($"exception {e.Message}"));
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed due to transport disconnection", contextId, streamId);
                     }
                     catch (Exception e)
                     {
-                        await WriteHeaderAsync(channel,
+                        await WriteHeaderAsync(contextId, channel,
                           new YamuxHeader
                           {
                               Flags = YamuxHeaderFlags.Rst,
@@ -303,41 +310,70 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
                               StreamID = streamId
                           });
                         _ = upChannel.CloseAsync();
-                        channels.Remove(streamId);
+                        channels.TryRemove(streamId, out ChannelState? _);
 
-                        _logger?.LogDebug("Stream {stream id}: Unexpected error, closing: {error}", streamId, e.Message);
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Unexpected error, closing: {error}", contextId, streamId, e.Message);
                     }
                 });
 
                 return state;
             }
         }
-        catch (ChannelClosedException ex)
+        catch (ChannelClosedException)
         {
-            _logger?.LogDebug("Closed due to transport disconnection");
+            _logger?.LogDebug("Ctx({ctx}): Closed due to transport disconnection", context.Id);
         }
         catch (Exception ex)
         {
-            await WriteGoAwayAsync(channel, SessionTerminationCode.InternalError);
-            _logger?.LogDebug("Closed with exception {exception}", ex.Message);
-            _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+            _logger?.LogDebug("Ctx({ctx}): Closed with exception \"{exception}\" {stackTrace}", context.Id, ex.Message, ex.StackTrace);
+            await WriteGoAwayAsync(context.Id, channel, SessionTerminationCode.InternalError);
+            await channel.CloseAsync();
+        }
+        finally
+        {
+            timer?.Dispose();
+            session?.Dispose();
+
+            foreach (ChannelState? upChannel in channels.Values)
+            {
+                context.Activity?.AddEvent(new ActivityEvent("close an up chan"));
+                _ = upChannel?.Channel?.CloseAsync();
+            }
+
+            _ = channel.CloseAsync();
         }
 
-        foreach (ChannelState upChannel in channels.Values)
+        void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result)
         {
-            _ = upChannel.Channel?.CloseAsync();
+            if (result == IOResult.Ok)
+            {
+                if (channels.TryGetValue(streamId, out ChannelState? channelState))
+                {
+                    int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
+                    if (extendedBy is not 0)
+                    {
+                        _ = WriteHeaderAsync(sessionId, channel,
+                            new YamuxHeader
+                            {
+                                Type = YamuxHeaderType.WindowUpdate,
+                                Length = extendedBy,
+                                StreamID = streamId
+                            });
+                    }
+                }
+            }
         }
     }
 
-    private async Task<YamuxHeader> ReadHeaderAsync(IReader reader, CancellationToken token = default)
+    private async Task<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
     {
         byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token).OrThrow()).ToArray();
         YamuxHeader header = YamuxHeader.FromBytes(headerData);
-        _logger?.LogTrace("Stream {stream id}: Receive type={type} flags={flags} length={length}", header.StreamID, header.Type, header.Flags, header.Length);
+        _logger?.LogTrace("Ctx({ctx}), stream {stream id}: Receive type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
         return header;
     }
 
-    private async Task WriteHeaderAsync(IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
+    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
     {
         byte[] headerBuffer = new byte[HeaderLength];
         if (header.Type == YamuxHeaderType.Data)
@@ -346,100 +382,15 @@ public class YamuxProtocol : SymmetricProtocol, IProtocol
         }
         YamuxHeader.ToBytes(headerBuffer, ref header);
 
-        _logger?.LogTrace("Stream {stream id}: Send type={type} flags={flags} length={length}", header.StreamID, header.Type, header.Flags, header.Length);
+        _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
         await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
     }
 
-    private Task WriteGoAwayAsync(IWriter channel, SessionTerminationCode code) =>
-        WriteHeaderAsync(channel, new YamuxHeader
+    private Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code) =>
+        WriteHeaderAsync(contextId, channel, new YamuxHeader
         {
             Type = YamuxHeaderType.GoAway,
             Length = (int)code,
             StreamID = 0,
         });
-
-    private class ChannelState(IChannel? channel = default, IChannelRequest? request = default)
-    {
-        public IChannel? Channel { get; set; } = channel;
-        public IChannelRequest? Request { get; set; } = request;
-
-        public DataWindow LocalWindow { get; } = new();
-        public DataWindow RemoteWindow { get; } = new();
-    }
-
-    public class DataWindow(int defaultWindowSize = 256 * 1024)
-    {
-        private int _defaultWindowSize = defaultWindowSize;
-        private int _available = defaultWindowSize;
-        private int _requestedSize;
-        private TaskCompletionSource<int>? _windowSizeTcs;
-        public int Available { get => _available; }
-
-        internal int ExtendWindowIfNeeded()
-        {
-            if (_available < _defaultWindowSize / 2)
-            {
-                return ExtendWindow(_defaultWindowSize);
-            }
-
-            return 0;
-        }
-
-        internal int ExtendWindow(int length)
-        {
-            if (length is 0)
-            {
-                return 0;
-            }
-
-            lock (this)
-            {
-                _available += length;
-                if (_windowSizeTcs is not null)
-                {
-                    int availableSize = Math.Min(_requestedSize, _available);
-                    _available -= availableSize;
-                    _windowSizeTcs.SetResult(availableSize);
-                }
-                return _available;
-            }
-        }
-
-        internal async Task<int> SpendWindowOrWait(int requestedSize)
-        {
-            if (requestedSize is 0)
-            {
-                return 0;
-            }
-            if (_windowSizeTcs is not null)
-            {
-                await _windowSizeTcs.Task;
-            }
-
-            TaskCompletionSource<int>? taskToWait;
-
-            lock (this)
-            {
-                if (_available is 0)
-                {
-                    taskToWait = _windowSizeTcs = new();
-                    _requestedSize = requestedSize;
-                }
-                else
-                {
-                    int availableSize = Math.Min(requestedSize, _available);
-                    _available -= availableSize;
-                    return availableSize;
-                }
-            }
-
-            return await taskToWait.Task;
-        }
-
-        internal bool SpendWindow(int requestedSize)
-        {
-            int result = Interlocked.Add(ref _available, -requestedSize);
-            return result >= 0;
-        }
-    }
 }

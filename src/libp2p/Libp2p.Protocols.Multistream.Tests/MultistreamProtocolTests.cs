@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
-namespace Libp2p.Protocols.Multistream.Tests;
+namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
 
 [TestFixture]
 [Parallelizable(scope: ParallelScope.All)]
@@ -14,19 +16,16 @@ public class MultistreamProtocolTests
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
-        channelFactory.SubProtocols.Returns(new[] { proto1 });
-        IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(Task.CompletedTask);
+        peerContext.SubProtocols.Returns([proto1]);
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -38,7 +37,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
     }
 
@@ -47,21 +46,16 @@ public class MultistreamProtocolTests
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        IChannelRequest channelRequest = Substitute.For<IChannelRequest>();
-        peerContext.SpecificProtocolRequest.Returns(channelRequest);
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
-        channelRequest.SubProtocol.Returns(proto1);
-        IChannel upChannel = new TestChannel();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions { SelectedProtocol = proto1 });
 
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
-            .Returns(Task.CompletedTask);
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -73,7 +67,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
     }
 
@@ -82,13 +76,12 @@ public class MultistreamProtocolTests
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions() { SelectedProtocol = null });
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
-        channelFactory.SubProtocols.Returns(new[] { proto1 });
+        peerContext.SubProtocols.Returns([proto1]);
 
         MultistreamProtocol proto = new();
         _ = Task.Run(async () =>
@@ -97,14 +90,14 @@ public class MultistreamProtocolTests
             await downChannel.WriteLineAsync("proto2");
         });
 
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
 
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
         Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo("proto1"));
 
         await dialTask;
 
-        _ = channelFactory.DidNotReceive().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto1);
+        _ = peerContext.DidNotReceive().Upgrade(downChannelFromProtocolPov, proto1);
     }
 
     [Test]
@@ -112,21 +105,20 @@ public class MultistreamProtocolTests
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
         IProtocol? proto2 = Substitute.For<IProtocol>();
         proto2.Id.Returns("proto2");
-        channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
+        peerContext.SubProtocols.Returns([proto1, proto2]);
         IChannel upChannel = new TestChannel();
-        channelFactory.SubDialAndBind(Arg.Any<IChannel>(), Arg.Any<IPeerContext>(), Arg.Any<IProtocol>())
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>())
             .Returns(Task.CompletedTask);
 
         MultistreamProtocol proto = new();
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -140,7 +132,7 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.Received().SubDialAndBind(downChannelFromProtocolPov, peerContext, proto2);
+        _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto2);
         await upChannel.CloseAsync();
     }
 
@@ -149,18 +141,17 @@ public class MultistreamProtocolTests
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        peerContext.SpecificProtocolRequest.Returns((IChannelRequest?)null);
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
         IProtocol? proto2 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto2");
-        channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
+        peerContext.SubProtocols.Returns([proto1, proto2]);
 
         MultistreamProtocol proto = new();
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
         _ = Task.Run(async () =>
         {
             await downChannel.WriteLineAsync(proto.Id);
@@ -173,6 +164,6 @@ public class MultistreamProtocolTests
 
         await dialTask;
 
-        _ = channelFactory.DidNotReceiveWithAnyArgs().SubDialAndBind(null!, null!, (IProtocol)null!);
+        _ = peerContext.DidNotReceiveWithAnyArgs().Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>());
     }
 }

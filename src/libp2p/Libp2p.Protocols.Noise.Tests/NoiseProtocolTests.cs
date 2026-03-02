@@ -1,6 +1,11 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
+using NUnit.Framework;
+
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 
 [TestFixture]
@@ -13,9 +18,6 @@ public class NoiseProtocolTests
         // Arrange
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        IPeerContext listenerContext = Substitute.For<IPeerContext>();
 
         IProtocol? proto1 = Substitute.For<IProtocol>();
         proto1.Id.Returns("proto1");
@@ -23,101 +25,52 @@ public class NoiseProtocolTests
         IProtocol? proto2 = Substitute.For<IProtocol>();
         proto2.Id.Returns("proto2");
 
-        channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
+        // Dialer
+        MultiplexerSettings dialerSettings = new();
+        dialerSettings.Add(proto2);
+        dialerSettings.Add(proto1);
 
-        TestChannel upChannel = new TestChannel();
-        channelFactory.SubDial(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-            .Returns(upChannel);
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
+        dialerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        dialerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(2)}" });
 
-        TestChannel listenerUpChannel = new TestChannel();
 
-        channelFactory.SubListen(Arg.Any<IPeerContext>(), Arg.Any<IChannelRequest>())
-            .Returns(listenerUpChannel);
+        TestChannel dialerUpChannel = new();
+        dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(dialerUpChannel);
 
-        var i_multiplexerSettings = new MultiplexerSettings();
-        var r_multiplexerSettings = new MultiplexerSettings();
-        r_multiplexerSettings.Add(proto2);
-        r_multiplexerSettings.Add(proto1);
-        i_multiplexerSettings.Add(proto1);
+        NoiseProtocol dialer = new(dialerSettings);
 
-        NoiseProtocol proto_initiator = new(i_multiplexerSettings);
-        NoiseProtocol proto_responder = new(r_multiplexerSettings);
+        // Listener
+        MultiplexerSettings listenerSettings = new();
+        listenerSettings.Add(proto1);
 
-        peerContext.LocalPeer.Identity.Returns(new Identity());
-        listenerContext.LocalPeer.Identity.Returns(new Identity());
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
+        listenerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(2)]);
+        listenerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(1)}" });
 
-        string peerId = peerContext.LocalPeer.Identity.PeerId.ToString();
-        Multiaddress localAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{peerId}";
-        peerContext.RemotePeer.Address.Returns(localAddr);
+        TestChannel listenerUpChannel = new();
+        listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
-        string listenerPeerId = listenerContext.LocalPeer.Identity.PeerId.ToString();
-        Multiaddress listenerAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{listenerPeerId}";
-        listenerContext.RemotePeer.Address.Returns(listenerAddr);
+        NoiseProtocol listener = new(listenerSettings);
 
         // Act
-        Task listenTask = proto_responder.ListenAsync(downChannel, channelFactory, listenerContext);
-        Task dialTask = proto_initiator.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
+        Task listenTask = listener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = dialer.DialAsync(downChannelFromProtocolPov, dialerContext);
 
         int sent = 42;
-        ValueTask<IOResult> writeTask = upChannel.Reverse().WriteVarintAsync(sent);
+        ValueTask<IOResult> writeTask = dialerUpChannel.Reverse().WriteVarintAsync(sent);
         int received = await listenerUpChannel.Reverse().ReadVarintAsync();
         await writeTask;
 
-        await upChannel.CloseAsync();
+        await dialerUpChannel.CloseAsync();
         await listenerUpChannel.CloseAsync();
         await downChannel.CloseAsync();
 
+        await dialTask;
+        await listenTask;
+
         Assert.That(received, Is.EqualTo(sent));
-    }
-
-    [Test]
-    public async Task Test_ConnectionEstablished_With_PreSelectedMuxer()
-    {
-        // Arrange
-        IChannel downChannel = new TestChannel();
-        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IPeerContext peerContext = Substitute.For<IPeerContext>();
-        IPeerContext listenerContext = Substitute.For<IPeerContext>();
-
-        IProtocol? proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("proto1");
-
-        IProtocol? proto2 = Substitute.For<IProtocol>();
-        proto2.Id.Returns("proto2");
-
-        channelFactory.SubProtocols.Returns(new[] { proto1, proto2 });
-
-
-        var i_multiplexerSettings = new MultiplexerSettings();
-        var r_multiplexerSettings = new MultiplexerSettings();
-        r_multiplexerSettings.Add(proto2);
-        r_multiplexerSettings.Add(proto1);
-        i_multiplexerSettings.Add(proto1);
-
-        NoiseProtocol proto_initiator = new(i_multiplexerSettings);
-        NoiseProtocol proto_responder = new(r_multiplexerSettings);
-
-        peerContext.LocalPeer.Identity.Returns(new Identity());
-        listenerContext.LocalPeer.Identity.Returns(new Identity());
-        string peerId = peerContext.LocalPeer.Identity.PeerId.ToString();
-        Multiaddress localAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{peerId}";
-        peerContext.RemotePeer.Address.Returns(localAddr);
-
-        string listenerPeerId = listenerContext.LocalPeer.Identity.PeerId.ToString();
-        Multiaddress listenerAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{listenerPeerId}";
-        listenerContext.RemotePeer.Address.Returns(listenerAddr);
-
-        // Act
-        Task listenTask = proto_responder.ListenAsync(downChannel, channelFactory, listenerContext);
-        Task dialTask = proto_initiator.DialAsync(downChannelFromProtocolPov, channelFactory, peerContext);
-
-        await Task.Delay(TimeSpan.FromSeconds(2));
-
-        // Assert
-        Assert.That(peerContext.SpecificProtocolRequest.SubProtocol, Is.EqualTo(proto1));
-
-        // Cleanup
-        await downChannel.CloseAsync();
     }
 }

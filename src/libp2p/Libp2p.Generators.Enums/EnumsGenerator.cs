@@ -29,8 +29,7 @@ public class EnumsGenerator : ISourceGenerator
             return;
         }
 
-        string filePath = projectDirectory.Substring(0, projectDirectory.IndexOf("src") + "src".Length) +
-                          Path.DirectorySeparatorChar + "multicodec" + Path.DirectorySeparatorChar + "table.csv";
+        string filePath = Path.Combine(enumsDirectory, "table.csv");
         if (!File.Exists(filePath))
         {
             return;
@@ -53,7 +52,7 @@ public class EnumsGenerator : ISourceGenerator
                     $"{(x.Status == "permanent" ? "" : $"    // {x.Status}\n")}" + $"    {Cap(x.Name)} = {x.Code},\n")
                 .Concat(new[] { "    Unknown,\n" });
             File.WriteAllText(Path.Combine(enumsDirectory, $"{e}.cs"),
-                $"namespace Nethermind.Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
+                $"namespace Nethermind.Libp2p.Core.Enums;\n\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
         }
 
         string? Cap(string? s)

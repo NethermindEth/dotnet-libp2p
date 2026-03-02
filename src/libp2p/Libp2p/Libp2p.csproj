@@ -15,14 +15,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.MDns\Libp2p.Protocols.MDns.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Plaintext\Libp2p.Protocols.Plaintext.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Relay\Libp2p.Protocols.Relay.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
-     <ProjectReference Include="..\Libp2p.Protocols.TLS\Libp2p.Protocols.TLS.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
+
+    <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.RequestResponse\Libp2p.Protocols.RequestResponse.csproj" />
   </ItemGroup>
 
   <ItemGroup>
