@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework;
 
@@ -30,7 +31,7 @@ public class PeerScoringE2eTests
             i++;
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 15_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -95,7 +96,7 @@ public class PeerScoringE2eTests
             i++;
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 15_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -150,12 +151,10 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
         await test.WaitForFullMeshAsync(commonTopic);
@@ -221,16 +220,18 @@ public class PeerScoringE2eTests
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
+        int i = 0;
         foreach ((_, var peerStore) in test.PeerStores)
         {
             for (int j = 0; j < totalCount; j++)
             {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
             }
+            i++;
         }
 
-        await test.WaitForFullMeshAsync(topic1);
-        await test.WaitForFullMeshAsync(topic2);
+        await test.WaitForFullMeshAsync(topic1, 15_000);
+        await test.WaitForFullMeshAsync(topic2, 15_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
