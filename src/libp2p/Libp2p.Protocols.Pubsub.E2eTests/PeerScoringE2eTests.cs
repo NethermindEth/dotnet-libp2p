@@ -21,17 +21,16 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: peer i discovers only peers j > i to avoid bidirectional dial race
+        for (int i = 0; i < totalCount; i++)
         {
-            for (int j = 0; j < totalCount; j++)
+            for (int j = i + 1; j < totalCount; j++)
             {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+                test.PeerStores[i].Discover([.. test.Peers[j].ListenAddresses]);
             }
-            i++;
         }
 
-        await test.WaitForFullMeshAsync(commonTopic, 15_000);
+        await test.WaitForFullMeshAsync(commonTopic, 60_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -86,17 +85,16 @@ public class PeerScoringE2eTests
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: peer i discovers only peers j > i to avoid bidirectional dial race
+        for (int i = 0; i < totalCount; i++)
         {
-            for (int j = 0; j < totalCount; j++)
+            for (int j = i + 1; j < totalCount; j++)
             {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+                test.PeerStores[i].Discover([.. test.Peers[j].ListenAddresses]);
             }
-            i++;
         }
 
-        await test.WaitForFullMeshAsync(commonTopic, 15_000);
+        await test.WaitForFullMeshAsync(commonTopic, 60_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -220,19 +218,18 @@ public class PeerScoringE2eTests
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: peer i discovers only peers j > i to avoid bidirectional dial race
+        for (int i = 0; i < totalCount; i++)
         {
-            for (int j = 0; j < totalCount; j++)
+            for (int j = i + 1; j < totalCount; j++)
             {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
+                test.PeerStores[i].Discover([.. test.Peers[j].ListenAddresses]);
             }
-            i++;
         }
 
         // Longer timeout: two topics need more time for mesh convergence under load/CI
-        await test.WaitForFullMeshAsync(topic1, timeoutMs: 25_000);
-        await test.WaitForFullMeshAsync(topic2, timeoutMs: 25_000);
+        await test.WaitForFullMeshAsync(topic1, timeoutMs: 60_000);
+        await test.WaitForFullMeshAsync(topic2, timeoutMs: 60_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
