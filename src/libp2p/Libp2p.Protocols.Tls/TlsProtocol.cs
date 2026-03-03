@@ -16,7 +16,9 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
     private readonly ECDsa _sessionKey = ECDsa.Create();
     private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
 
-    public Lazy<List<SslApplicationProtocol>> ApplicationProtocols = new(() => multiplexerSettings?.Multiplexers.Select(proto => new SslApplicationProtocol(proto.Id)).ToList() ?? []);
+    // libp2p TLS spec requires "libp2p" as ALPN protocol
+    private static readonly SslApplicationProtocol Libp2pProtocol = new("libp2p");
+    public static List<SslApplicationProtocol> ApplicationProtocols => [Libp2pProtocol];
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     public string Id => "/tls/1.0.0";
 
@@ -33,18 +35,22 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
 
             SslServerAuthenticationOptions serverAuthenticationOptions = new()
             {
-                ApplicationProtocols = ApplicationProtocols.Value,
+                ApplicationProtocols = ApplicationProtocols,
                 RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.State.RemoteAddress, certificate),
                 ServerCertificate = certificate,
                 ClientCertificateRequired = true,
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13, // Enforce TLS 1.3
             };
-            _logger?.LogTrace("SslServerAuthenticationOptions initialized with ApplicationProtocols: {Protocols}.", string.Join(", ", ApplicationProtocols.Value));
+            _logger?.LogTrace("SslServerAuthenticationOptions initialized with ApplicationProtocols: {Protocols}.", string.Join(", ", ApplicationProtocols.Select(p => System.Text.Encoding.UTF8.GetString(p.Protocol.ToArray()))));
             SslStream sslStream = new(str, false, serverAuthenticationOptions.RemoteCertificateValidationCallback);
             _logger?.LogTrace("SslStream initialized.");
             try
             {
                 await sslStream.AuthenticateAsServerAsync(serverAuthenticationOptions);
-                _logger?.LogInformation("Server TLS Authentication successful. PeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.", context.State.RemotePeerId, sslStream.NegotiatedApplicationProtocol.Protocol);
+                LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
+                _logger?.LogInformation("Server TLS Authentication successful. PeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.",
+                    context.State.RemotePeerId,
+                    LastNegotiatedApplicationProtocol.HasValue ? System.Text.Encoding.UTF8.GetString(LastNegotiatedApplicationProtocol.Value.Protocol.ToArray()) : "None");
             }
             catch (Exception ex)
             {
@@ -52,9 +58,11 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 _logger?.LogDebug("TLS Authentication Exception Details: {StackTrace}", ex.StackTrace);
                 throw;
             }
-            _logger?.LogDebug($"{Encoding.UTF8.GetString(sslStream.NegotiatedApplicationProtocol.Protocol.ToArray())} protocol negotiated");
+            _logger?.LogDebug("SubDialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
             IChannel upChannel = context.Upgrade();
+            _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             await ExchangeData(sslStream, upChannel, _logger);
+            _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             _ = upChannel.CloseAsync();
         }
         catch (Exception ex)
@@ -64,8 +72,16 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         }
     }
 
-    private static bool VerifyRemoteCertificate(Multiaddress remotePeerAddress, X509Certificate certificate) =>
-        CertificateHelper.ValidateCertificate(certificate as X509Certificate2, remotePeerAddress.Get<P2P>().ToString());
+    private static bool VerifyRemoteCertificate(Multiaddress remotePeerAddress, X509Certificate certificate)
+    {
+        // Per libp2p TLS spec: Must be single certificate, not a chain
+        if (certificate is not X509Certificate2 x509Certificate2)
+        {
+            return false;
+        }
+
+        return CertificateHelper.ValidateCertificate(x509Certificate2, remotePeerAddress.Get<P2P>().ToString());
+    }
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
@@ -73,7 +89,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         {
             _logger?.LogInformation("Starting DialAsync: LocalPeerId {LocalPeerId}", context.Peer.Identity.PeerId);
 
-            // TODO
+            // Get remote address for target host
             Multiaddress addr = context.Peer.ListenAddresses.First();
             bool isIP4 = addr.Has<IP4>();
             MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
@@ -86,26 +102,31 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                     VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority
                 },
                 TargetHost = ipProtocol?.ToString(),
-                ApplicationProtocols = ApplicationProtocols.Value,
+                ApplicationProtocols = ApplicationProtocols,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                 RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.State.RemoteAddress, certificate),
                 ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
             };
-            //_logger?.LogTrace("SslClientAuthenticationOptions initialized for PeerId {RemotePeerId}.", context.State.RemotePeerId);
+
             Stream str = new ChannelStream(downChannel);
             SslStream sslStream = new(str, false, clientAuthenticationOptions.RemoteCertificateValidationCallback);
-            _logger?.LogTrace("Sslstream initialized.");
+            _logger?.LogTrace("SSLStream initialized for client authentication.");
+
             try
             {
                 await sslStream.AuthenticateAsClientAsync(clientAuthenticationOptions);
-                //_logger?.LogInformation("Client TLS Authentication successful. RemotePeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.", context.State.RemotePeerId, sslStream.NegotiatedApplicationProtocol.Protocol);
+                LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
+                _logger?.LogInformation("Client TLS Authentication successful. RemotePeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.",
+                    context.State.RemotePeerId,
+                    LastNegotiatedApplicationProtocol.HasValue ? System.Text.Encoding.UTF8.GetString(LastNegotiatedApplicationProtocol.Value.Protocol.ToArray()) : "None");
             }
             catch (Exception ex)
             {
-                //_logger?.LogError("Error during TLS client authentication for RemotePeerId {RemotePeerId}: {ErrorMessage}.", context.State.RemotePeerId, ex.Message);
+                _logger?.LogError("Error during TLS client authentication for RemotePeerId {RemotePeerId}: {ErrorMessage}.", context.State.RemotePeerId, ex.Message);
                 _logger?.LogDebug("TLS Authentication Exception Details: {StackTrace}", ex.StackTrace);
-                return;
+                throw;
             }
+
             _logger?.LogDebug("SubDialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
             IChannel upChannel = context.Upgrade();
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);

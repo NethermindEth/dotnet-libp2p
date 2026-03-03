@@ -251,7 +251,7 @@ class Program
                     $"Parsed multiaddr has no protocols. Raw string: '{listenerAddr}', Parsed: '{targetAddr}'");
             }
 
-            logger.LogInformation("Parsed multiaddr protocols: {Protocols}", 
+            logger.LogInformation("Parsed multiaddr protocols: {Protocols}",
                 string.Join(", ", protocols.Select(p => p.Name)));
 
             // Validate the multiaddr has a peer ID (required for dialing)
@@ -298,7 +298,7 @@ class Program
         if (stats.Outliers.Count > 0)
         {
             var outliers = string.Join(", ", stats.Outliers.Select(v => v.ToString(fmt)));
-                Console.WriteLine($"  outliers: [{outliers}]");
+            Console.WriteLine($"  outliers: [{outliers}]");
         }
         else
         {
@@ -453,7 +453,7 @@ class Program
                 {
                     logger.LogInformation("Dialing target address (raw): '{Raw}', protocols: {Count}",
                         targetAddr.ToString(), targetAddr.Protocols?.Count() ?? 0);
-                    
+
                     session = await localPeer.DialAsync(targetAddr);
                     logger.LogInformation("Session established to {Addr}", session.RemoteAddress);
                 }
@@ -463,7 +463,7 @@ class Program
             }
             catch (Exception ex)
             {
-                logger.LogWarning("Iteration {Iter} failed: {Message}\nFull Exception: {Ex}", 
+                logger.LogWarning("Iteration {Iter} failed: {Message}\nFull Exception: {Ex}",
                     i + 1, ex.Message, ex.ToString());
                 // Reset session so we reconnect on next iteration
                 try { if (session != null) await session.DisconnectAsync(); } catch { }
