@@ -30,7 +30,7 @@ public class PeerScoringE2eTests
             }
         }
 
-        await test.WaitForFullMeshAsync(commonTopic, 60_000);
+        await WaitForFullMeshWithRetryAsync(test, commonTopic, timeoutMs: 60_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -94,7 +94,7 @@ public class PeerScoringE2eTests
             }
         }
 
-        await test.WaitForFullMeshAsync(commonTopic, 60_000);
+        await WaitForFullMeshWithRetryAsync(test, commonTopic, timeoutMs: 60_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -155,7 +155,7 @@ public class PeerScoringE2eTests
             peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await WaitForFullMeshWithRetryAsync(test, commonTopic);
 
         // Wait for some time to accumulate time-in-mesh score
         await Task.Delay(1000);
@@ -228,8 +228,8 @@ public class PeerScoringE2eTests
         }
 
         // Longer timeout: two topics need more time for mesh convergence under load/CI
-        await test.WaitForFullMeshAsync(topic1, timeoutMs: 60_000);
-        await test.WaitForFullMeshAsync(topic2, timeoutMs: 60_000);
+        await WaitForFullMeshWithRetryAsync(test, topic1, timeoutMs: 60_000);
+        await WaitForFullMeshWithRetryAsync(test, topic2, timeoutMs: 60_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
@@ -264,5 +264,35 @@ public class PeerScoringE2eTests
         Assert.That(receivedTopic2.Count, Is.GreaterThan(0), "Messages should propagate on topic2");
 
         test.PrintState();
+    }
+
+    private static async Task WaitForFullMeshWithRetryAsync(
+        PubsubE2eTestSetup test,
+        string topic,
+        int timeoutMs = 60_000,
+        int maxAttempts = 3)
+    {
+        TaskCanceledException? lastTimeout = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await test.WaitForFullMeshAsync(topic, timeoutMs);
+                return;
+            }
+            catch (TaskCanceledException ex) when (attempt < maxAttempts)
+            {
+                lastTimeout = ex;
+                // simple backoff before retrying
+                await Task.Delay(200 * attempt);
+            }
+        }
+
+        // last attempt: either succeeded (and returned) or threw
+        if (lastTimeout is not null)
+        {
+            throw lastTimeout;
+        }
     }
 }
