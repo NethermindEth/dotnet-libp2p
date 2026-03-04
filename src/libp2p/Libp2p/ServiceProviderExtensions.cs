@@ -23,6 +23,7 @@ public static class ServiceProviderExtensions
     {
         return services
             .AddSingleton<IRelayReservationStore, RelayReservationStore>()
+            .AddSingleton<RelayStopProtocol>()
             .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
             .AddSingleton(sp => factorySetup is null ? ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp) : factorySetup(ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp)))
             .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
