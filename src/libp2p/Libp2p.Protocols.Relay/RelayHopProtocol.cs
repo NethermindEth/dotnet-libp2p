@@ -126,6 +126,8 @@ public class RelayHopProtocol : ISessionProtocol<HopMessage, HopMessage>
 
         try
         {
+            _stopProtocol.RegisterPendingBridge(entry.SessionContext, initiatorPeerId, channel);
+
             StopMessage stopResponse = await entry.SessionContext
                 .DialAsync<RelayStopProtocol, StopMessage, StopMessage>(connectStop)
                 .ConfigureAwait(false);
