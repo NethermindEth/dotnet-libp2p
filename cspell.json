@@ -76,6 +76,7 @@
         "mplex",
         "msquic",
         "multiaddr",
+        "multiaddrs",
         "multiaddress",
         "multiaddresses",
         "multiaddrs",

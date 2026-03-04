@@ -59,6 +59,16 @@ public class PubsubE2eTestSetup : E2eTestSetup
         sb.AppendLine(Routers[index].ToString());
     }
 
+    /// <summary>
+    /// Adds peers and then waits briefly so listeners are bound before discovery/dial.
+    /// Useful for flaky E2e tests under slower CI.
+    /// </summary>
+    public async Task AddPeersWithStartupDelayAsync(int count)
+    {
+        await base.AddPeersAsync(count);
+        await Task.Delay(300);
+    }
+
     protected override void AddAt(int index)
     {
         base.AddAt(index);
