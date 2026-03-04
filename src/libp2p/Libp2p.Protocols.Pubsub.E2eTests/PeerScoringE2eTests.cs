@@ -18,7 +18,7 @@ public class PeerScoringE2eTests
         int totalCount = 3;
         await using PubsubE2eTestSetup test = new();
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
         // Unidirectional discovery: peer i discovers only peers j > i to avoid bidirectional dial race
@@ -82,7 +82,7 @@ public class PeerScoringE2eTests
             FirstMessageDeliveriesCap = 2000.0,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
         // Unidirectional discovery: peer i discovers only peers j > i to avoid bidirectional dial race
@@ -146,7 +146,7 @@ public class PeerScoringE2eTests
             TimeInMeshCap = 3600.0,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
         // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
@@ -214,7 +214,7 @@ public class PeerScoringE2eTests
             FirstMessageDeliveriesDecay = 0.99,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
