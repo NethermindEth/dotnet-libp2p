@@ -20,6 +20,7 @@ public class ChannelClosedException : Libp2pException
 {
     public ChannelClosedException() : base("Channel closed") { }
     public ChannelClosedException(string message) : base(message) { }
+    public ChannelClosedException(IOResult result) : base($"Channel closed. IOResult: {result}") { }
 }
 
 /// <summary>
