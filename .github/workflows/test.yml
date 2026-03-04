@@ -46,3 +46,4 @@ jobs:
           dotnet test --project Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test --project Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test --project Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
+         
