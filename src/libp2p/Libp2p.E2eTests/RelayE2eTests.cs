@@ -16,6 +16,10 @@ using NUnit.Framework;
 
 namespace Libp2p.E2eTests;
 
+/// <summary>
+/// Circuit relay v2 E2e tests. These run in Libp2p.E2eTests (not Pubsub E2eTests);
+/// any failure in Libp2p.Protocols.Pubsub.E2eTests is unrelated (e.g. flaky reconnection tests).
+/// </summary>
 public class RelayE2eTestSetup : E2eTestSetup
 {
     protected override IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
