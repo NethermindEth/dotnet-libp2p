@@ -12,7 +12,7 @@ namespace Libp2p.Protocols.Pubsub.E2eTests;
 
 public class PubsubE2eTestSetup : E2eTestSetup
 {
-    public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 3, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200 };
+    public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 3, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200, ReconnectionPeriod = 2_000 };
     public Dictionary<int, PubsubRouter> Routers { get; } = [];
 
     /// <summary>
@@ -38,8 +38,25 @@ public class PubsubE2eTestSetup : E2eTestSetup
             await sp.DisposeAsync();
         }
 
-        // Brief delay to let TCP sockets fully release
+        // Brief delay to let TCP sockets fully release between tests
         await Task.Delay(200);
+    }
+
+    /// <summary>
+    /// Wait until the bag contains at least <paramref name="expectedCount"/> items,
+    /// polling every 50 ms with a configurable timeout.
+    /// </summary>
+    public static async Task WaitForMessagesAsync<T>(
+        System.Collections.Concurrent.ConcurrentBag<T> bag,
+        int expectedCount,
+        int timeoutMs = 10_000)
+    {
+        using CancellationTokenSource cts = new(timeoutMs);
+        while (bag.Count < expectedCount)
+        {
+            cts.Token.ThrowIfCancellationRequested();
+            await Task.Delay(50, cts.Token);
+        }
     }
 
 
