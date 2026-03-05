@@ -148,7 +148,7 @@ public class PeerScoringE2eTests
             peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await WaitForFullMeshWithRetryAsync(test, commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 30_000);
 
         // Wait for a few heartbeats so time-in-mesh score accumulates
         // (TimeInMeshQuantum is 100ms, 3 heartbeats at 200ms = 600ms worth)
