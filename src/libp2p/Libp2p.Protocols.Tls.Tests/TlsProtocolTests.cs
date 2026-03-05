@@ -22,35 +22,30 @@ namespace Nethermind.Libp2p.Protocols.TLS.Tests;
 public class TlsProtocolTests
 {
     [Test]
-    [Explicit("TestChannel-based test needs infrastructure fix")]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
         // Arrange
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IChannelFactory channelFactory = Substitute.For<IChannelFactory>();
-        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
         ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
 
         TestChannel upChannel = new();
-        channelFactory.Upgrade(Arg.Any<UpgradeOptions>()).Returns(upChannel);
-
         TestChannel listenerUpChannel = new();
-        channelFactory.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
+        // Dialer context (identity 1 dials to identity 2)
         IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
         dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
-        dialerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
-        dialerContext.State.Returns(new State());
+        dialerContext.Peer.ListenAddresses.Returns([(Multiaddress)$"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}"]);
+        dialerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(2)}" });
+        dialerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
+        dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(upChannel);
 
-
+        // Listener context (identity 2 listens for identity 1)
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
         listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
-
-        string peerId = dialerContext.Peer.Identity.PeerId.ToString();
-        Multiaddress localAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{peerId}";
-
-        string listenerPeerId = listenerContext.Peer.Identity.PeerId.ToString();
-        Multiaddress listenerAddr = $"/ip4/0.0.0.0/tcp/0/p2p/{listenerPeerId}";
+        listenerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(1)}" });
+        listenerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
+        listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
         MultiplexerSettings i_multiplexerSettings = new();
         MultiplexerSettings r_multiplexerSettings = new();

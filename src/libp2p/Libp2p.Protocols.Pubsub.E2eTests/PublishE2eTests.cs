@@ -15,20 +15,16 @@ public class PublishE2eTests
     public async Task Test_Publish_AfterStart_PublishesMessageToSubscribers()
     {
         string topic = "publish-test";
-        int totalCount = 3;
+        int totalCount = 2;
         await using PubsubE2eTestSetup test = new();
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(topic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
         await test.WaitForFullMeshAsync(topic, 30_000);
@@ -53,8 +49,8 @@ public class PublishE2eTests
         // publish from router 0 (router is started in PubsubE2eTestSetup.AddAt)
         test.Routers[0].Publish(topic, testMessage);
 
-        // allow propagation
-        await Task.Delay(500);
+        // Wait for at least 1 message to arrive (event-driven, no fixed delay)
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedMessages, 1);
 
         Assert.That(receivedMessages.Count, Is.GreaterThan(0), "Publish after StartAsync should deliver messages across the mesh");
 

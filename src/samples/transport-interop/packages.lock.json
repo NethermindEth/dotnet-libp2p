@@ -437,6 +437,7 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.33.1, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },

@@ -16,7 +16,11 @@ public class Libp2pException : Exception
 /// <summary>
 /// Exception instead of IOResult to signal a channel cannot send or receive data anymore
 /// </summary>
-public class ChannelClosedException() : Libp2pException("Channel closed");
+public class ChannelClosedException : Libp2pException
+{
+    public ChannelClosedException() : base("Channel closed") { }
+    public ChannelClosedException(IOResult result) : base($"Channel closed. IOResult: {result}") { }
+}
 
 /// <summary>
 /// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
