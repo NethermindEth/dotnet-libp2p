@@ -72,7 +72,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         }
     }
 
-    private static bool VerifyRemoteCertificate(Multiaddress remotePeerAddress, X509Certificate certificate)
+    private static bool VerifyRemoteCertificate(Multiaddress? remotePeerAddress, X509Certificate certificate)
     {
         // Per libp2p TLS spec: Must be single certificate, not a chain
         if (certificate is not X509Certificate2 x509Certificate2)
@@ -80,7 +80,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             return false;
         }
 
-        return CertificateHelper.ValidateCertificate(x509Certificate2, remotePeerAddress.Get<P2P>().ToString());
+        return CertificateHelper.ValidateCertificate(x509Certificate2, remotePeerAddress?.Get<P2P>().ToString());
     }
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
