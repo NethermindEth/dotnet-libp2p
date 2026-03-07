@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using Nethermind.Libp2p.Core.Metrics;
 using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
@@ -42,5 +44,19 @@ public static class ServiceProviderExtensions
 
         return result.AddSingleton(activitySource!)
                      .AddSingleton(tracerProvider);
+    }
+
+    private static MeterProvider? meterProvider;
+
+    public static IServiceCollection AddMetrics(this IServiceCollection services, string? appName = null)
+    {
+        meterProvider ??= Sdk.CreateMeterProviderBuilder()
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(
+                serviceName: appName ?? "app"))
+            .AddMeter(Libp2pMetrics.MeterName)
+            .AddOtlpExporter()
+            .Build();
+
+        return services.AddSingleton(meterProvider);
     }
 }

@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using Nethermind.Libp2p.Core.Metrics;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
@@ -167,6 +168,8 @@ public class Channel : IChannel
                 } while (bytesToRead != 0);
 
                 _readLock.Release();
+                Libp2pMetrics.DataReceivedBytes.Add(chunk.Length);
+                Libp2pMetrics.DataReceivedPackets.Add(1);
                 return ReadResult.Ok(chunk);
             }
             catch (TaskCanceledException)
@@ -201,6 +204,8 @@ public class Channel : IChannel
                 _bytes = bytes;
                 _canRead.Release();
                 await _read.WaitAsync(token);
+                Libp2pMetrics.DataSentBytes.Add(bytes.Length);
+                Libp2pMetrics.DataSentPackets.Add(1);
                 return IOResult.Ok;
             }
             catch (TaskCanceledException)
