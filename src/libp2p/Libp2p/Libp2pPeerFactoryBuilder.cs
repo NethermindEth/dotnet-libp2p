@@ -42,7 +42,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
 
-        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>()/*, Get<TlsProtocol>()*/];
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 
