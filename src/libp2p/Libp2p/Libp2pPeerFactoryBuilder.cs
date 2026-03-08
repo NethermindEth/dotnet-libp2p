@@ -3,6 +3,7 @@
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Tls;
 
 namespace Nethermind.Libp2p;
 

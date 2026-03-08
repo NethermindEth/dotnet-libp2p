@@ -6,6 +6,7 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Quic;
+using Nethermind.Libp2p.Protocols.Tls;
 using NSubstitute;
 using System.Net;
 using System.Net.Security;
