@@ -50,6 +50,7 @@ public static class KadDhtIntegrationExtensions
 
         var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey);
+        var dhtValidator = CompositeRecordValidator.CreateDefault();
 
         services.AddSingleton<LibP2pKademliaMessageSender>(sp =>
         {
@@ -112,7 +113,8 @@ public static class KadDhtIntegrationExtensions
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: dhtValueStore,
-            providerStore: dhtProviderStore);
+            providerStore: dhtProviderStore,
+            validator: dhtValidator);
     }
 
     /// <summary>

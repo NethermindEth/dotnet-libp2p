@@ -488,6 +488,11 @@
         "resolved": "9.0.0",
         "contentHash": "qd01+AqPhbAG14KtdtIqFk+cxHQFZ/oqRSCoxU1F+Q6Kv0cl726sl7RzU9yLFGd4BUOKdN4XojXF0pQf/R6YeA=="
       },
+      "System.Formats.Cbor": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "LwRJEV71pikJ2lR1VOAAejWT62LKlgIXI66tpdxjeRSQISKZoOuOFQt0ArXWrW5sPIQL0tisvqkg1tPleglYaQ=="
+      },
       "Tmds.LibC": {
         "type": "Transitive",
         "resolved": "0.2.0",
@@ -502,7 +507,8 @@
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.RequestResponse": "[1.0.0, )",
-          "Nethermind.Multiformats.Address": "[1.1.9, )"
+          "Nethermind.Multiformats.Address": "[1.1.9, )",
+          "System.Formats.Cbor": "[10.0.0, )"
         }
       },
       "Nethermind.Libp2p": {

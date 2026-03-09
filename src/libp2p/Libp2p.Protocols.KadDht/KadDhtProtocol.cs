@@ -82,7 +82,12 @@ public class KadDhtProtocol : ISessionProtocol
             _routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, _nodeHashProvider, effectiveLoggerFactory);
 
             var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, _routingTable, _nodeHashProvider, messageSender, effectiveLoggerFactory);
-            _lookupAlgo = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, _nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
+            ILookupAlgo<ValueHash256, DhtNode> baseLookup = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, _nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
+
+            // Wrap with disjoint path lookup for Sybil resistance when configured
+            _lookupAlgo = _options.DisjointPaths >= 2
+                ? new DisjointPathLookup<ValueHash256, DhtNode>(baseLookup, _nodeHashProvider, _options.DisjointPaths, effectiveLoggerFactory)
+                : baseLookup;
 
             _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
                 _keyOperator,

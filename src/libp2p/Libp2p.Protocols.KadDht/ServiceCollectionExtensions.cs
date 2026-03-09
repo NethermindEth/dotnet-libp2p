@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         configureOptions?.Invoke(options);
         services.AddSingleton(options);
 
+        services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
+
         services.AddSingleton<IValueStore>(sp =>
             new InMemoryValueStore(options.MaxStoredValues, sp.GetService<ILoggerFactory>()));
         services.AddSingleton<IProviderStore>(sp =>
@@ -55,9 +57,10 @@ public static class ServiceCollectionExtensions
             var kadDhtOptions = sp.GetRequiredService<KadDhtOptions>();
             var valueStore = sp.GetRequiredService<IValueStore>();
             var providerStore = sp.GetRequiredService<IProviderStore>();
+            var validator = sp.GetRequiredService<IRecordValidator>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
 
-            var protocol = new KadDhtProtocol(localPeer, messageSender, dhtMessageSender, kadDhtOptions, valueStore, providerStore, loggerFactory);
+            var protocol = new KadDhtProtocol(localPeer, messageSender, dhtMessageSender, kadDhtOptions, valueStore, providerStore, loggerFactory, validator);
 
             var sharedState = sp.GetService<SharedDhtState>();
             if (protocol.RoutingTable != null && sharedState != null)
@@ -83,6 +86,8 @@ public static class ServiceCollectionExtensions
             ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = serviceProvider.GetService<IProviderStore>()
             ?? new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
+        var validator = serviceProvider.GetService<IRecordValidator>()
+            ?? CompositeRecordValidator.CreateDefault();
         var peerStore = serviceProvider.GetService<PeerStore>();
 
         bool initialized = false;
@@ -143,7 +148,8 @@ public static class ServiceCollectionExtensions
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: valueStore,
-            providerStore: providerStore);
+            providerStore: providerStore,
+            validator: validator);
 
         return builder;
     }

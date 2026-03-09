@@ -228,8 +228,8 @@ This package provides a complete implementation of the Kademlia DHT protocol as 
 - **Configurable Limits**: Control storage capacity and record lifetimes
 
 ### Network Integration
-- **Request-Response Protocols**: Efficient protobuf-based messaging
-- **Sub-protocol Routing**: Dedicated protocols for each DHT operation
+- **Request-Response Protocol**: Single `/ipfs/kad/1.0.0` protocol with `Message.Type` dispatch per the libp2p spec
+- **Record Validation**: Pluggable `IRecordValidator` with public key and composite validators
 - **Error Handling**: Comprehensive error handling and logging
 - **Cancellation Support**: Full async/await with cancellation tokens
 
@@ -356,15 +356,13 @@ message AddProviderRequest { bytes key = 1; bytes provider_id = 2; /* ... */ }
 message GetProvidersRequest { bytes key = 1; int32 count = 2; }
 ```
 
-### Protocol IDs
+### Protocol ID
 
-- Base: `/ipfs/kad/1.0.0`
-- Ping: `/ipfs/kad/1.0.0/ping`
-- FindNeighbours: `/ipfs/kad/1.0.0/findneighbours`
-- PutValue: `/ipfs/kad/1.0.0/putvalue`
-- GetValue: `/ipfs/kad/1.0.0/getvalue`
-- AddProvider: `/ipfs/kad/1.0.0/addprovider`
-- GetProviders: `/ipfs/kad/1.0.0/getproviders`
+A single protocol ID is used for all DHT operations, per the libp2p Kademlia spec:
+
+- **`/ipfs/kad/1.0.0`**
+
+All six message types (`PING`, `FIND_NODE`, `PUT_VALUE`, `GET_VALUE`, `ADD_PROVIDER`, `GET_PROVIDERS`) are multiplexed over this single protocol using the `Message.Type` enum in the protobuf envelope. This ensures interoperability with Go, Rust, and JS libp2p implementations.
 
 ## Architecture
 

@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <AdditionalFiles Include="Dto\Kademlia.proto" CopyToOutputDirectory="Never" />
+    <AdditionalFiles Include="Dto\IpnsEntry.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="System.Formats.Cbor" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

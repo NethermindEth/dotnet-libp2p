@@ -92,6 +92,12 @@ public class KadDhtOptions
     public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// Number of disjoint lookup paths to use for Sybil resistance.
+    /// Set to 0 to disable disjoint path queries (uses standard single-path lookup).
+    /// </summary>
+    public int DisjointPaths { get; set; } = 0;
+
+    /// <summary>
     /// K parameter (same as KSize)
     /// Default: 20
     /// </summary>

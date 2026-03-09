@@ -293,9 +293,12 @@ internal static class Program
 
     private static async Task StoreDhtValue(KadDhtProtocol kadProtocol, CancellationToken token)
     {
-        Console.Write("\n  Key: ");
+        Console.Write("\n  Key (use /example/mykey format): ");
         var key = Console.ReadLine()?.Trim();
         if (string.IsNullOrEmpty(key)) { Console.WriteLine("  (cancelled)"); return; }
+
+        // Auto-prefix with /example/ for interoperability
+        if (!key.StartsWith("/")) key = $"/example/{key}";
 
         Console.Write("  Value: ");
         var value = Console.ReadLine()?.Trim();
@@ -318,9 +321,12 @@ internal static class Program
 
     private static async Task RetrieveDhtValue(KadDhtProtocol kadProtocol, CancellationToken token)
     {
-        Console.Write("\n  Key: ");
+        Console.Write("\n  Key (use /example/mykey format): ");
         var key = Console.ReadLine()?.Trim();
         if (string.IsNullOrEmpty(key)) { Console.WriteLine("  (cancelled)"); return; }
+
+        // Auto-prefix with /example/ for interoperability with examples
+        if (!key.StartsWith("/")) key = $"/example/{key}";
 
         Console.WriteLine($"  Looking up '{key}' ...");
         var keyBytes = Encoding.UTF8.GetBytes(key);
@@ -354,10 +360,10 @@ internal static class Program
 
         var testData = new Dictionary<string, string>
         {
-            ["greeting"] = $"Hello from {TruncatePeerId(localPeer.Identity.PeerId)}",
-            ["timestamp"] = DateTime.UtcNow.ToString("o"),
-            ["message"] = "DHT test message",
-            ["data"] = "Sample data for distributed hash table"
+            ["/example/greeting"] = $"Hello from {TruncatePeerId(localPeer.Identity.PeerId)}",
+            ["/example/timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["/example/message"] = "DHT test message",
+            ["/example/data"] = "Sample data for distributed hash table"
         };
 
         // 1. Store values

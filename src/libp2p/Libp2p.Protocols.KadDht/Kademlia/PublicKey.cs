@@ -18,7 +18,6 @@ public class PublicKey
 
     /// <summary>
     /// Deterministic 32-byte SHA-256 hash of the public key bytes (cached after first computation).
-    /// Per the libp2p Kademlia spec the DHT key is always SHA-256(PeerId bytes).
     /// </summary>
     public ValueHash256 Hash
     {
