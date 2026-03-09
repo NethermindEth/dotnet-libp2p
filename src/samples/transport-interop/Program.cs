@@ -223,6 +223,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
             ProtocolRef encryption = _encryption switch
             {
                 "noise" => Get<NoiseProtocol>(),
+                "tls" => Get<TlsProtocol>(),
                 _ => throw new NotImplementedException(),
             };
             ProtocolRef muxer = _muxer switch

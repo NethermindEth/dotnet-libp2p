@@ -89,10 +89,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
         {
             _logger?.LogInformation("Starting DialAsync: LocalPeerId {LocalPeerId}", context.Peer.Identity.PeerId);
 
-            // Get remote address for target host
-            Multiaddress addr = context.Peer.ListenAddresses.First();
-            bool isIP4 = addr.Has<IP4>();
-            MultiaddressProtocol ipProtocol = isIP4 ? addr.Get<IP4>() : addr.Get<IP6>();
+            X509Certificate2 clientCert = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
 
             SslClientAuthenticationOptions clientAuthenticationOptions = new()
             {
@@ -101,11 +98,13 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                     RevocationMode = X509RevocationMode.NoCheck,
                     VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority
                 },
-                TargetHost = ipProtocol?.ToString(),
+                // TargetHost must be null to avoid SNI hostname validation mismatch with other implementations
+                TargetHost = null,
                 ApplicationProtocols = ApplicationProtocols,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                 RemoteCertificateValidationCallback = (_, certificate, _, _) => VerifyRemoteCertificate(context.State.RemoteAddress, certificate),
-                ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
+                LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCert,
+                ClientCertificates = [clientCert],
             };
 
             Stream str = new ChannelStream(downChannel);
