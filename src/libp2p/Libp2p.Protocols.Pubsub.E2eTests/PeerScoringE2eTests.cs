@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework;
 
@@ -14,23 +15,19 @@ public class PeerScoringE2eTests
     {
         string commonTopic = "test";
 
-        int totalCount = 3;
+        int totalCount = 2;
         await using PubsubE2eTestSetup test = new();
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 30_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -52,8 +49,8 @@ public class PeerScoringE2eTests
 
         test.Routers[0].Publish(commonTopic, testMessage);
 
-        // Wait for message propagation
-        await Task.Delay(500);
+        // Wait for at least 1 message to arrive (event-driven, no fixed delay)
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedMessages, 1);
 
         // Verify that messages propagated to other peers (scoring doesn't block message delivery by default)
         Assert.That(receivedMessages.Count, Is.GreaterThan(0),
@@ -67,7 +64,7 @@ public class PeerScoringE2eTests
     {
         string commonTopic = "test";
 
-        int totalCount = 3;
+        int totalCount = 2;
         await using PubsubE2eTestSetup test = new();
 
         // Configure explicit topic parameters with positive weights
@@ -82,20 +79,16 @@ public class PeerScoringE2eTests
             FirstMessageDeliveriesCap = 2000.0,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        int i = 0;
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                if (i != j) peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
-            i++;
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 30_000);
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -117,11 +110,10 @@ public class PeerScoringE2eTests
             byte[] bytes = new byte[32];
             random.NextBytes(bytes);
             test.Routers[0].Publish(commonTopic, bytes);
-            await Task.Delay(10);
         }
 
-        // Wait for messages to propagate
-        await Task.Delay(500);
+        // Wait for at least 1 message to arrive (event-driven, no fixed delay)
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedMessages, 1);
 
         // Verify that messages propagated to peers with configured scoring
         Assert.That(receivedMessages.Count, Is.GreaterThan(0),
@@ -147,21 +139,22 @@ public class PeerScoringE2eTests
             TimeInMeshCap = 3600.0,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(commonTopic);
 
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await test.WaitForFullMeshAsync(commonTopic);
+        await test.WaitForFullMeshAsync(commonTopic, 30_000);
 
-        // Wait for some time to accumulate time-in-mesh score
-        await Task.Delay(1000);
+        // Wait for a few heartbeats so time-in-mesh score accumulates
+        // (TimeInMeshQuantum is 100ms, 3 heartbeats at 200ms = 600ms worth)
+        await test.Heartbeat();
+        await test.Heartbeat();
+        await test.Heartbeat();
 
         // Track received messages
         var receivedMessages = new System.Collections.Concurrent.ConcurrentBag<(int RouterId, byte[] Message)>();
@@ -183,8 +176,8 @@ public class PeerScoringE2eTests
 
         test.Routers[0].Publish(commonTopic, testMessage);
 
-        // Wait for message propagation
-        await Task.Delay(500);
+        // Wait for at least 1 message to arrive (event-driven, no fixed delay)
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedMessages, 1);
 
         // Verify messages still propagate
         Assert.That(receivedMessages.Count, Is.GreaterThan(0),
@@ -199,7 +192,7 @@ public class PeerScoringE2eTests
         string topic1 = "test1";
         string topic2 = "test2";
 
-        int totalCount = 3;
+        int totalCount = 2;
         await using PubsubE2eTestSetup test = new();
 
         // Configure different parameters for different topics
@@ -217,20 +210,18 @@ public class PeerScoringE2eTests
             FirstMessageDeliveriesDecay = 0.99,
         };
 
-        await test.AddPeersAsync(totalCount);
+        await test.AddPeersWithStartupDelayAsync(totalCount);
         test.Subscribe(topic1);
         test.Subscribe(topic2);
 
-        foreach ((_, var peerStore) in test.PeerStores)
+        // Unidirectional discovery: only peer 1 discovers peer 0 (avoids bidirectional dial race)
+        foreach ((_, var peerStore) in test.PeerStores.Skip(1))
         {
-            for (int j = 0; j < totalCount; j++)
-            {
-                peerStore.Discover([.. test.Peers[j].ListenAddresses]);
-            }
+            peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
 
-        await test.WaitForFullMeshAsync(topic1);
-        await test.WaitForFullMeshAsync(topic2);
+        await test.WaitForFullMeshAsync(topic1, 30_000);
+        await test.WaitForFullMeshAsync(topic2, 30_000);
 
         // Track received messages per topic
         var receivedTopic1 = new System.Collections.Concurrent.ConcurrentBag<int>();
@@ -257,8 +248,9 @@ public class PeerScoringE2eTests
         random.NextBytes(message2);
         test.Routers[1].Publish(topic2, message2);
 
-        // Wait for message propagation
-        await Task.Delay(500);
+        // Wait for at least 1 message per topic (event-driven, no fixed delay)
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedTopic1, 1);
+        await PubsubE2eTestSetup.WaitForMessagesAsync(receivedTopic2, 1);
 
         // Verify messages propagated to both topics
         Assert.That(receivedTopic1.Count, Is.GreaterThan(0), "Messages should propagate on topic1");

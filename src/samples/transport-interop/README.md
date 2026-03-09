@@ -2,6 +2,16 @@
 
 A .NET libp2p transport interoperability testing application that supports TCP and QUIC transports.
 
+## Prerequisites
+
+This sample requires Redis for coordination between dialer and listener instances.
+
+**Start Redis before running the application:**
+
+```bash
+docker run -d --name redis-interop -p 6379:6379 redis:alpine
+```
+
 ## Environment Variables
 
 Required:

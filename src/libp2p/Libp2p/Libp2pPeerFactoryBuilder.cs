@@ -35,7 +35,6 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithRelay()
     {
-        throw new NotImplementedException("Relay protocol is not yet implemented");
         addRelay = true;
         return this;
     }
@@ -50,14 +49,14 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
 
-        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>()/*, Get<TlsProtocol>()*/];
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 
         ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
         Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
 
-        ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
+        ProtocolRef[] relay = addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
             Get<GossipsubProtocolV12>(),
             Get<GossipsubProtocolV11>(),

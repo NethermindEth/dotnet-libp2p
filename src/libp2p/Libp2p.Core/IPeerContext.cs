@@ -32,6 +32,7 @@ public interface ISessionContext : IConnectionContext
 {
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol protocol);
+    Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
 }
 
 
