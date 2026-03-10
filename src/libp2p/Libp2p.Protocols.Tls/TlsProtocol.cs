@@ -75,7 +75,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                     {
                         Identity remoteIdentity = new(remotePubKey);
                         context.State.RemoteAddress.Add(new P2P(remoteIdentity.PeerId.ToString()));
-                        Console.Error.WriteLine($"[TlsProtocol] ListenAsync: set remote peer {remoteIdentity.PeerId}");
                     }
                 }
 
@@ -137,9 +136,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
             X509Certificate2 clientCert =
                 CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
 
-            var ecKey = clientCert.GetECDsaPrivateKey();
-            Console.Error.WriteLine($"[TlsProtocol] DialAsync clientCert: HasPrivateKey={clientCert.HasPrivateKey}, GetECDsaPrivateKey={ecKey != null}, Subject={clientCert.Subject}");
-
             SslClientAuthenticationOptions clientAuthenticationOptions = new()
             {
                 CertificateChainPolicy = new X509ChainPolicy
@@ -153,11 +149,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                 RemoteCertificateValidationCallback = (_, certificate, _, _) =>
                     VerifyRemoteCertificate(context.State.RemoteAddress, certificate),
-                LocalCertificateSelectionCallback = (_, _, _, _, _) =>
-                {
-                    Console.Error.WriteLine($"[TlsProtocol] LocalCertificateSelectionCallback invoked, returning cert HasPrivateKey={clientCert.HasPrivateKey}");
-                    return clientCert;
-                },
+                LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCert,
                 ClientCertificates = [clientCert],
             };
 
@@ -183,7 +175,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                     {
                         Identity remoteIdentity = new(remotePubKey);
                         context.State.RemoteAddress.Add(new P2P(remoteIdentity.PeerId.ToString()));
-                        Console.Error.WriteLine($"[TlsProtocol] DialAsync: set remote peer {remoteIdentity.PeerId}");
                     }
                 }
 
@@ -194,7 +185,6 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
                         ? System.Text.Encoding.UTF8.GetString(
                             LastNegotiatedApplicationProtocol.Value.Protocol.ToArray())
                         : "None");
-                Console.Error.WriteLine($"[TlsProtocol] After auth: LocalCertificate={sslStream.LocalCertificate?.Subject ?? "(null - EMPTY CERT SENT)"}");
             }
             catch (Exception ex)
             {
