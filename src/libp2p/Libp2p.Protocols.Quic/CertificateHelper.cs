@@ -45,11 +45,9 @@ public class CertificateHelper
 
         // Per libp2p TLS spec: NotAfter must not be later than 2^63-1 seconds from Unix epoch (~year 2292).
         // Using a 100-year validity to stay within spec and avoid ASN.1 parsing issues in other implementations.
-        X509Certificate2 certificate = certRequest.CreateSelfSigned(
+        return certRequest.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow.AddYears(100));
-
-        return certificate;
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

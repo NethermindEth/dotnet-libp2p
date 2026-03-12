@@ -30,6 +30,8 @@
         "dpkg",
         "dylib",
         "eror",
+        "EVP",
+        "PKEY",
         "fanout",
         "flcl",
         "floodsub",
