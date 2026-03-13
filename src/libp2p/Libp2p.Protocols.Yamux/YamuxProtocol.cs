@@ -134,7 +134,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if (isListener && session is null)
                 {
-                    session = context.UpgradeToSession();
+                    try
+                    {
+                        session = context.UpgradeToSession();
+                    }
+                    catch (SessionExistsException)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}): Rejected redundant session for {peer}", context.Id, context.State.RemoteAddress);
+                        return;
+                    }
                     _logger?.LogInformation("Ctx({ctx}): Session created by listener for {peer}", session.Id, session.State.RemoteAddress);
                     waitForSession.Release();
                 }

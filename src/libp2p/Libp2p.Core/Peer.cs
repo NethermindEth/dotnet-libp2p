@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Context;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
+using Nethermind.Libp2p.Core.Metrics;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -157,6 +158,8 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
     {
         session ??= new(this);
+        Libp2pMetrics.ConnectionsOpened.Add(1);
+        Libp2pMetrics.ConnectionsActive.Add(1);
         return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
     }
 
@@ -175,6 +178,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
             Sessions.Add(session);
         }
+
+        Libp2pMetrics.SessionsOpened.Add(1);
+        Libp2pMetrics.SessionsActive.Add(1);
 
         Task initializeSession = ConnectedTo(session, !isListener);
         initializeSession.ContinueWith(t =>
@@ -307,6 +313,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
         dialActivity?.SetTag("parent", peerActivity?.DisplayName);
 
+        Libp2pMetrics.DialAttempts.Add(1);
+        long startTimestamp = Stopwatch.GetTimestamp();
+
         ProtocolRef dialerProtocol = SelectProtocol(addr);
 
         if (dialerProtocol.Protocol is not ITransportProtocol transportProtocol)
@@ -325,6 +334,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
         if (dialingResult == dialingTask)
         {
+            Libp2pMetrics.DialFailures.Add(1);
             if (dialingResult.IsFaulted)
             {
                 dialActivity?.SetStatus(ActivityStatusCode.Error, dialingResult.Exception.Message);
@@ -333,6 +343,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             }
             throw new Libp2pException("Not able to dial the peer");
         }
+
+        double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+        Libp2pMetrics.DialDuration.Record(elapsedMs);
 
         dialActivity?.AddEvent(new ActivityEvent("connected"));
         return session;
