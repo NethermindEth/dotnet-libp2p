@@ -37,6 +37,7 @@
     <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.14.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.14.0" />
     <PackageVersion Include="SimpleBase" Version="4.0.2" />
+    <PackageVersion Include="SIPSorcery" Version="10.0.3" />
     <PackageVersion Include="System.Formats.Cbor" Version="10.0.0" />
     <PackageVersion Include="System.Runtime.Caching" Version="7.0.0" />
     <PackageVersion Include="Libp2p.Generators.Protobuf" Version="$(ProtobufVersion)" />
