@@ -17,4 +17,5 @@ public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
     public ILibp2pPeerFactoryBuilder WithPubsub();
     public ILibp2pPeerFactoryBuilder WithRelay();
     public ILibp2pPeerFactoryBuilder WithQuic();
+    public ILibp2pPeerFactoryBuilder WithWebRtcDirect();
 }
