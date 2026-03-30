@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Nethermind.Channels/Nethermind.Channels.csproj" />
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj" />
+</Solution>
