@@ -13,12 +13,13 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
     protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
     private static int _factoryCounter;
 
+    protected PeerStore PeerStore { get; } = peerStore ?? new PeerStore();
     protected ILoggerFactory? LoggerFactory { get; } = loggerFactory;
 
     protected Activity? rootActivity = rootActivity ?? activitySource?.StartActivity($"Factory #{Interlocked.Increment(ref _factoryCounter)}", ActivityKind.Internal, "");
 
     public virtual ILocalPeer Create(Identity? identity = default)
     {
-        return new LocalPeer(identity ?? new Identity(), peerStore, protocolStackSettings, activitySource, rootActivity, LoggerFactory);
+        return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, activitySource, rootActivity, LoggerFactory);
     }
 }

@@ -3,6 +3,7 @@
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Metrics;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -75,5 +76,8 @@ public partial class LocalPeer
         {
             Sessions.Remove(session);
         }
+        Libp2pMetrics.SessionsClosed.Add(1);
+        Libp2pMetrics.SessionsActive.Add(-1);
+        Libp2pMetrics.ConnectionsActive.Add(-1);
     }
 }

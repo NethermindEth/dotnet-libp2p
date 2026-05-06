@@ -19,10 +19,12 @@ public class ProtocolRef(IProtocol protocol, bool isExposed = true)
     {
         return $"ref#{RefId}({Protocol.Id})";
     }
+
+    public static implicit operator ProtocolRef[](ProtocolRef pr) => [pr];
 }
 
 
-public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>(IServiceProvider? serviceProvider = default) : IPeerFactoryBuilder
+public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory> : IPeerFactoryBuilder
     where TBuilder : PeerFactoryBuilderBase<TBuilder, TPeerFactory>, IPeerFactoryBuilder
     where TPeerFactory : IPeerFactory
 {
@@ -46,13 +48,34 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>(IServicePro
 
 
     private readonly List<ProtocolRef> _appLayerProtocols = [];
-    public IEnumerable<IProtocol> AppLayerProtocols => _appLayerProtocols.Select(x => x.Protocol);
 
-    internal readonly IServiceProvider ServiceProvider = serviceProvider ?? new ServiceCollection()
-            .AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings())
-            .BuildServiceProvider();
+    public IServiceProvider ServiceProvider { protected set; get; }
 
-    public IPeerFactoryBuilder AddAppLayerProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
+    /// <summary>
+    /// Internal service collection used for protocol registration.
+    /// Exposed via ILibp2pPeerFactoryBuilder for advanced protocol integration.
+    /// </summary>
+    protected internal IServiceCollection InternalServices { get; private set; }
+
+    protected PeerFactoryBuilderBase(IServiceProvider? serviceProvider = default)
+    {
+        // If no service provider given, create one from a new collection
+        if (serviceProvider is null)
+        {
+            InternalServices = new ServiceCollection();
+            InternalServices.AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings());
+            ServiceProvider = InternalServices.BuildServiceProvider();
+        }
+        else
+        {
+            // Extract service collection from provider if possible, otherwise create new one
+            // This maintains backwards compatibility while allowing access to the collection
+            InternalServices = new ServiceCollection();
+            ServiceProvider = serviceProvider;
+        }
+    }
+
+    public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
     {
         _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
         return (TBuilder)this;
@@ -60,7 +83,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, TPeerFactory>(IServicePro
 
     protected abstract ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols);
 
-    private Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
+    private readonly Dictionary<ProtocolRef, ProtocolRef[]> protocols = [];
 
     protected ProtocolRef[] Connect(ProtocolRef[] protocols, params ProtocolRef[][] upgradeToStacks)
     {

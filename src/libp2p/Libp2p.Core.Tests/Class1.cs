@@ -18,7 +18,7 @@ internal class StackTests
                 .AddSingleton(new Transport(new Channel()))
                 .AddSingleton(new IncrementNumberTestProtocol(delay, cancelOnToken))
                 .BuildServiceProvider())
-            .AddAppLayerProtocol<IncrementNumberTestProtocol>().Build();
+            .AddProtocol<IncrementNumberTestProtocol>().Build();
 
         var peer1 = factory.Create(TestPeers.Identity(1));
         var peer2 = factory.Create(TestPeers.Identity(2));

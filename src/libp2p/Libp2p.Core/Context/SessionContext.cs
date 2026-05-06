@@ -21,6 +21,11 @@ public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, Prot
         await session.DialAsync(protocol);
     }
 
+    public Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
+    {
+        return session.DialAsync<TProtocol, TRequest, TResponse>(request, token);
+    }
+
     public Task DisconnectAsync()
     {
         return session.DisconnectAsync();

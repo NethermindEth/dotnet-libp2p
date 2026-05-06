@@ -1,7 +1,7 @@
-//// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
-//// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
-//namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
+namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
@@ -10,6 +10,33 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 [TestFixture]
 public class PubsubProtocolTests
 {
+    [Test]
+    public void Publish_WhenRouterNotStarted_ThrowsInvalidOperationException()
+    {
+        PeerStore peerStore = new();
+        PubsubRouter router = new(peerStore);
+
+        InvalidOperationException? ex = Assert.Throws<InvalidOperationException>(() => router.Publish("test-topic", [1, 2, 3]));
+        Assert.That(ex!.Message, Is.EqualTo("Router has not been started. Call StartAsync() first."));
+    }
+
+    [Test]
+    public void Publish_WithNullTopicId_ThrowsArgumentNullException()
+    {
+        PeerStore peerStore = new();
+        PubsubRouter router = new(peerStore);
+
+        Assert.Throws<ArgumentNullException>(() => router.Publish(null!, [1, 2, 3]));
+    }
+
+    [Test]
+    public void Publish_WithNullMessage_ThrowsArgumentNullException()
+    {
+        PeerStore peerStore = new();
+        PubsubRouter router = new(peerStore);
+
+        Assert.Throws<ArgumentNullException>(() => router.Publish("test-topic", null!));
+    }
     [Test]
     public async Task Test_Peer_is_dialed_when_added_by_discovery()
     {

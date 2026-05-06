@@ -5,6 +5,7 @@ using Libp2p.Core.TestsBase;
 using Makaretu.Dns.Resolving;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -52,7 +53,7 @@ public class E2eTestSetup : IAsyncDisposable
 
     protected virtual IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
     {
-        return builder.AddAppLayerProtocol<IncrementNumberTestProtocol>();
+        return builder.AddProtocol<IncrementNumberTestProtocol>();
     }
 
     protected virtual IServiceCollection ConfigureServices(IServiceCollection col)
@@ -63,6 +64,12 @@ public class E2eTestSetup : IAsyncDisposable
     protected virtual void AddToPrintState(StringBuilder sb, int index)
     {
     }
+
+    /// <summary>
+    /// Returns the addresses the peer should listen on, or null for defaults (all interfaces).
+    /// Override in subclasses to restrict listening to specific addresses (e.g. localhost only).
+    /// </summary>
+    protected virtual Multiaddress[]? GetListenAddresses(int index) => null;
 
     protected virtual void AddAt(int index)
     {
@@ -75,7 +82,7 @@ public class E2eTestSetup : IAsyncDisposable
 
         for (; _peerCounter < totalCount; _peerCounter++)
         {
-            // But we create a seprate setup for every peer
+            // But we create a separate setup for every peer
             ServiceProvider sp = ServiceProviders[_peerCounter] =
                 ConfigureServices(
                     new ServiceCollection()
@@ -95,7 +102,8 @@ public class E2eTestSetup : IAsyncDisposable
             PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
             Peers[_peerCounter] = sp.GetService<IPeerFactory>()!.Create(TestPeers.Identity(_peerCounter));
 
-            await Peers[_peerCounter].StartListenAsync(token: Token);
+            Multiaddress[]? listenAddrs = GetListenAddresses(_peerCounter);
+            await Peers[_peerCounter].StartListenAsync(listenAddrs, Token);
 
             AddAt(_peerCounter);
 
