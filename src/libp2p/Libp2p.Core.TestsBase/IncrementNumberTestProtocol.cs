@@ -11,9 +11,11 @@ public class IncrementNumberTestProtocol(int? delay = null, bool cancelOnToken =
 
     public async Task<int> DialAsync(IChannel downChannel, ISessionContext context, int request)
     {
+        CancellationToken token = cancelOnToken ? context.UpgradeOptions?.CancellationToken ?? default : default;
+
         await downChannel.WriteVarintAsync(request);
-        if (delay is not null) await Task.Delay(delay.Value);
-        return await downChannel.ReadVarintAsync();
+        if (delay is not null) await Task.Delay(delay.Value, token);
+        return await downChannel.ReadVarintAsync(token);
     }
 
     public async Task ListenAsync(IChannel downChannel, ISessionContext context)

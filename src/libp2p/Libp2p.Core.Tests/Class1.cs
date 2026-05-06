@@ -40,57 +40,48 @@ internal class StackTests
     public async Task Test_Cancellation_WhenNotYetDialed()
     {
         ISession session = await Init();
-        CancellationToken t = new(true);
+        CancellationToken token = new(true);
 
-        try
-        {
-            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, t);
-        }
-        catch (OperationCanceledException)
-        {
-            Assert.Pass();
-            return;
-        }
-        Assert.Fail();
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, token));
     }
 
 
     [Test]
     public async Task Test_Cancellation_WhenDialed()
     {
-        ISession session = await Init(2000, false);
+        ISession session = await Init(2000);
+        using CancellationTokenSource cts = new(1000);
 
-        CancellationToken t = new CancellationTokenSource(1000).Token;
-
-        try
-        {
-            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, t);
-        }
-        catch (OperationCanceledException)
-        {
-            Assert.Pass();
-            return;
-        }
-        Assert.Fail();
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, cts.Token));
     }
 
-    [Ignore("Not yet implemented.")]
     [Test]
     public async Task Test_Cancellation_WhenDialedButWithTokenIgnored()
     {
         ISession session = await Init(2000, false);
+        using CancellationTokenSource cts = new(1000);
 
-        CancellationToken t = new CancellationTokenSource(1000).Token;
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, cts.Token));
+    }
 
-        try
-        {
-            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42, t);
-        }
-        catch (OperationCanceledException)
-        {
-            Assert.Fail();
-        }
-        Assert.Pass();
+    [Test]
+    public void Test_DialCancellation_WhenTransportIgnoresToken()
+    {
+        IPeerFactory factory = new HangingStackBuilder(new ServiceCollection()
+                .AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings())
+                .AddSingleton(new HangingTransport())
+                .BuildServiceProvider())
+            .Build();
+
+        ILocalPeer peer = factory.Create(TestPeers.Identity(1));
+        Multiaddress remoteAddr = $"/p2p/{TestPeers.Identity(2).PeerId}";
+        using CancellationTokenSource cts = new(100);
+
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await peer.DialAsync(remoteAddr, cts.Token).WaitAsync(TimeSpan.FromSeconds(2)));
     }
 }
 
@@ -183,5 +174,41 @@ class Transport(Channel p2p) : ITransportProtocol
 
             await Task.WhenAll(t1, t2);
         }
+    }
+}
+
+class HangingStackBuilder(IServiceProvider serviceProvider) : PeerFactoryBuilderBase<HangingStackBuilder, PeerFactory>(serviceProvider)
+{
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+    {
+        ProtocolRef transport = Get<HangingTransport>();
+        Connect([transport], [.. additionalProtocols]);
+        return [transport];
+    }
+}
+
+class HangingTransport : ITransportProtocol
+{
+    public string Id => "hanging";
+
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId)
+    {
+        return [$"/p2p/{peerId}"];
+    }
+
+    public static bool IsAddressMatch(Multiaddress addr)
+    {
+        return true;
+    }
+
+    public Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
+    {
+        return new TaskCompletionSource().Task;
+    }
+
+    public Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
+    {
+        context.ListenerReady(listenAddr);
+        return Task.CompletedTask;
     }
 }
