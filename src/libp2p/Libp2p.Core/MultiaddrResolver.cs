@@ -57,6 +57,12 @@ public class MultiaddrResolver
         }
         else
         {
+            if (addr.Has<WebSocketSecure>() && (addr.Has<DNS>() || addr.Has<DNS4>() || addr.Has<DNS6>()))
+            {
+                yield return addr;
+                yield break;
+            }
+
             bool resolved = false;
             if (addr.Has<DNS6>() || addr.Has<DNS>())
             {

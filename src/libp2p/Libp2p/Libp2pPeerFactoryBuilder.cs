@@ -15,6 +15,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
+    private bool addWebSockets;
 
     /// <summary>
     /// Exposes the service collection for protocol integration.
@@ -46,16 +47,23 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    public ILibp2pPeerFactoryBuilder WithWebSockets()
+    {
+        addWebSockets = true;
+        return this;
+    }
+
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         ProtocolRef tcp = Get<IpTcpProtocol>();
+        ProtocolRef[] streamTransports = addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
 
         ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 
         ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
-        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
+        Connect(streamTransports, [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
 
         ProtocolRef[] relay = addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
@@ -84,9 +92,9 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         {
             ProtocolRef quic = Get<QuicProtocol>();
             Connect([quic], commonAppProtocolSelector);
-            return [tcp, quic];
+            return [.. streamTransports, quic];
         }
 
-        return [tcp];
+        return streamTransports;
     }
 }

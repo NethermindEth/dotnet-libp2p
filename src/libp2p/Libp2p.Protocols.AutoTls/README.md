@@ -15,9 +15,8 @@ wildcard certificate for `*.<base36 PeerID CID>.libp2p.direct`. With such a
 certificate, browsers can open Secure WebSocket (WSS) connections directly to
 your node, which the in-browser TLS stack would otherwise reject.
 
-This module produces and renews the certificate. Consuming it requires a
-WebSocket transport that reads from `ITlsCertificateProvider` (not yet
-shipped in this repo).
+This module produces and renews the certificate. `Libp2p.Protocols.WebSockets`
+can consume `ITlsCertificateProvider` for `/wss` listeners.
 
 ## Usage
 
@@ -26,7 +25,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Protocols.AutoTls;
 
 services
-    .AddLibp2p(builder => /* ... */)
+    .AddLibp2p(builder => builder.WithWebSockets())
     .AddAutoTls(opts =>
     {
         opts.ContactEmail = "you@example.com";
@@ -39,7 +38,7 @@ provider.Configure(localPeer.Identity, localPeer.ListenAddresses.ToArray());
 
 provider.CertificateChanged += cert =>
 {
-    // hand `cert` to your WSS listener
+    // The WSS listener picks up renewed certificates from ITlsCertificateProvider.
 };
 ```
 
@@ -65,8 +64,8 @@ provider.CertificateChanged += cert =>
 - **HTTP peer-id auth is implemented to spec but unverified against a live
   broker** in this PR. Test against staging
   (`AutoTlsOptions.StagingAcmeDirectoryUrl`) before pointing at production.
-- **No transport currently consumes the certificate.** A WSS transport is a
-  prerequisite to surface this feature to end users.
+- **WSS requires a public WebSocket listen address.** Configure the provider
+  after the peer is listening on the addresses that the broker can probe.
 
 ## References
 
