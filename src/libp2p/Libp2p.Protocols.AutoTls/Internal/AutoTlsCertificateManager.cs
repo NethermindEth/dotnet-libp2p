@@ -107,7 +107,7 @@ public sealed class AutoTlsCertificateManager : IHostedService, ITlsCertificateP
 
                 Identity identity = _identity;
                 IReadOnlyList<Multiaddress> addresses = _addresses;
-                string peerId = identity.PeerId.ToString();
+                string peerId = PeerIdEncoding.ToBase36CidString(identity.PeerId);
 
                 X509Certificate2? cached = _store.TryLoad(peerId);
                 if (cached is not null && cached.NotAfter - DateTime.UtcNow > _options.RenewBefore)

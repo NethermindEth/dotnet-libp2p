@@ -92,10 +92,10 @@ public sealed class P2pForgeClient
 
     private sealed class ForgeChallengePayload
     {
-        [JsonPropertyName("Value")]
+        [JsonPropertyName("value")]
         public string Value { get; set; } = string.Empty;
 
-        [JsonPropertyName("Addresses")]
+        [JsonPropertyName("addresses")]
         public string[] Addresses { get; set; } = Array.Empty<string>();
     }
 }

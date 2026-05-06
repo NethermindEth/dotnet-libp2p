@@ -46,7 +46,9 @@ public sealed class AcmeFlow
             throw new AutoTlsException("AutoTLS requires at least one announced multiaddress; the broker probes these for reachability.");
         }
 
-        string peerId = identity.PeerId.ToString();
+        // p2p-forge / AutoTLS uses CIDv1 / libp2p-key in base36 lower (k-prefix)
+        // for the subdomain — NOT the default base58btc PeerId.ToString().
+        string peerId = PeerIdEncoding.ToBase36CidString(identity.PeerId);
         string wildcardDomain = $"*.{peerId}.{_options.ForgeDomain}";
 
         AcmeContext acme = await GetOrCreateAccountAsync(ct);
