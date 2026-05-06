@@ -20,20 +20,23 @@ internal static class PeerIdAuth
         Identity identity,
         string hostname,
         string serverChallenge,
+        string serverPublicKey,
         string? opaque = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentException.ThrowIfNullOrEmpty(hostname);
         ArgumentException.ThrowIfNullOrEmpty(serverChallenge);
+        ArgumentException.ThrowIfNullOrEmpty(serverPublicKey);
 
         byte[] clientChallenge = RandomNumberGenerator.GetBytes(32);
-        string clientChallengeB64 = Convert.ToBase64String(clientChallenge);
+        string clientChallengeB64 = Base64UrlEncode(clientChallenge);
 
-        byte[] payload = BuildSignaturePayload(hostname, serverChallenge, clientChallengeB64);
+        byte[] serverPublicKeyBytes = Base64UrlDecode(serverPublicKey);
+        byte[] payload = BuildSignaturePayload(hostname, serverChallenge, serverPublicKeyBytes);
         byte[] signature = identity.Sign(payload);
 
-        string publicKeyB64 = Convert.ToBase64String(identity.PublicKey.ToByteArray());
-        string sigB64 = Convert.ToBase64String(signature);
+        string publicKeyB64 = Base64UrlEncode(identity.PublicKey.ToByteArray());
+        string sigB64 = Base64UrlEncode(signature);
 
         StringBuilder sb = new();
         sb.Append(AuthScheme).Append(' ');
@@ -76,27 +79,44 @@ internal static class PeerIdAuth
 
     /// <summary>
     /// Build the canonical signature payload per peer-id-auth spec.
-    /// Format: length-prefixed UTF-8 strings: "challenge-client=<b64>", "hostname=<host>", "challenge-server=<b64>".
+    /// Format: scheme prefix followed by sorted, uvarint length-prefixed fields.
     /// </summary>
-    private static byte[] BuildSignaturePayload(string hostname, string serverChallenge, string clientChallenge)
+    private static byte[] BuildSignaturePayload(string hostname, string serverChallenge, byte[] serverPublicKey)
     {
-        // Sorted keys per spec for determinism.
-        string[] parts = new[]
+        (string Key, byte[] Value)[] parts =
         {
-            "challenge-server=" + clientChallenge,
-            "challenge-client=" + serverChallenge,
-            "hostname=" + hostname,
+            ("challenge-client", Encoding.UTF8.GetBytes(serverChallenge)),
+            ("hostname", Encoding.UTF8.GetBytes(hostname)),
+            ("server-public-key", serverPublicKey),
         };
-        Array.Sort(parts, StringComparer.Ordinal);
+        Array.Sort(parts, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
 
         using MemoryStream ms = new();
-        foreach (string p in parts)
+        ms.Write(Encoding.ASCII.GetBytes(AuthScheme));
+        foreach ((string key, byte[] value) in parts)
         {
-            byte[] bytes = Encoding.UTF8.GetBytes(p);
-            // 1-byte length prefix (parts are well under 256 bytes).
-            ms.WriteByte(checked((byte)bytes.Length));
-            ms.Write(bytes);
+            byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+            WriteUVarInt(ms, (ulong)(keyBytes.Length + 1 + value.Length));
+            ms.Write(keyBytes);
+            ms.WriteByte((byte)'=');
+            ms.Write(value);
         }
         return ms.ToArray();
     }
+
+    private static void WriteUVarInt(Stream stream, ulong value)
+    {
+        while (value >= 0x80)
+        {
+            stream.WriteByte((byte)(value | 0x80));
+            value >>= 7;
+        }
+        stream.WriteByte((byte)value);
+    }
+
+    private static string Base64UrlEncode(byte[] value)
+        => Convert.ToBase64String(value).Replace('+', '-').Replace('/', '_');
+
+    private static byte[] Base64UrlDecode(string value)
+        => Convert.FromBase64String(value.Replace('-', '+').Replace('_', '/'));
 }

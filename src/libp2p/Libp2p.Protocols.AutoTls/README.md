@@ -11,9 +11,9 @@ encrypts every connection with self-signed, identity-derived certificates.
 **That is not what AutoTLS replaces.**
 
 AutoTLS exists so a non-browser libp2p node can obtain a publicly-trusted
-wildcard certificate for `*.<PeerID>.libp2p.direct`. With such a certificate,
-browsers can open Secure WebSocket (WSS) connections directly to your node,
-which the in-browser TLS stack would otherwise reject.
+wildcard certificate for `*.<base36 PeerID CID>.libp2p.direct`. With such a
+certificate, browsers can open Secure WebSocket (WSS) connections directly to
+your node, which the in-browser TLS stack would otherwise reject.
 
 This module produces and renews the certificate. Consuming it requires a
 WebSocket transport that reads from `ITlsCertificateProvider` (not yet
