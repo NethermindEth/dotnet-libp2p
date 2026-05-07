@@ -78,6 +78,9 @@ internal static class WebRtcDirectSdp
             ? "IP6"
             : "IP4";
 
+        string ufrag = RandomToken(8);
+        string pwd = RandomToken(24);
+
         string sdp = string.Join("\r\n", new[]
         {
             "v=0",
@@ -90,8 +93,8 @@ internal static class WebRtcDirectSdp
             $"c=IN {ipFamily} {ip}",
             "a=mid:0",
             "a=setup:passive",
-            "a=ice-ufrag:listener",
-            "a=ice-pwd:listenerpassword",
+            $"a=ice-ufrag:{ufrag}",
+            $"a=ice-pwd:{pwd}",
             $"a=fingerprint:{localFingerprint.ToSdpString()}",
             "a=sctp-port:5000",
             "a=max-message-size:16384",

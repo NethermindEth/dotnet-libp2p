@@ -10,9 +10,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Noise.NET" />
     <PackageReference Include="SIPSorcery" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
