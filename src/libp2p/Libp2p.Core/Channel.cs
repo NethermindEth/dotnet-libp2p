@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -113,7 +113,7 @@ public class Channel : IChannel
                     return ReadResult.Ended;
                 }
 
-                if (blockingMode == ReadBlockingMode.DontWait && _bytes.Length == 0)
+                if (blockingMode == ReadBlockingMode.DoNotWait && _bytes.Length == 0)
                 {
                     _readLock.Release();
                     return ReadResult.Empty;

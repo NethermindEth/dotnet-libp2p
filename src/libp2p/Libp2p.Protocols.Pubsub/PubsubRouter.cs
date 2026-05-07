@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -129,7 +129,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private readonly PubsubSettings _settings;
     private readonly TtlCache<MessageId, MessageWithId> _messageCache;
     private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
-    private readonly TtlCache<(PeerId, MessageId)> _dontWantMessages;
+    private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -171,7 +171,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _settings = settings ?? PubsubSettings.Default;
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
-        _dontWantMessages = new(_settings.MessageCacheTtl);
+        _idontwantMessages = new(_settings.MessageCacheTtl);
     }
 
     public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
