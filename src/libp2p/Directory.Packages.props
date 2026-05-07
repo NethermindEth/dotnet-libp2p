@@ -7,6 +7,7 @@
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.6" />
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.15.6" />
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageVersion Include="Certes" Version="3.0.4" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="DnsClient" Version="1.8.0" />
     <PackageVersion Include="Google.Protobuf" Version="$(ProtobufVersion)" />
@@ -42,5 +43,8 @@
     <PackageVersion Include="System.Runtime.Caching" Version="7.0.0" />
     <PackageVersion Include="Libp2p.Generators.Protobuf" Version="$(ProtobufVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
   </ItemGroup>
 </Project>
