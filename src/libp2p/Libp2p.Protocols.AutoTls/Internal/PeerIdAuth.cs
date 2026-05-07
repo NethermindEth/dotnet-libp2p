@@ -79,7 +79,7 @@ internal static class PeerIdAuth
 
     /// <summary>
     /// Build the canonical signature payload per peer-id-auth spec.
-    /// Format: scheme prefix followed by sorted, uvarint length-prefixed fields.
+    /// Format: scheme prefix followed by sorted, VarInt length-prefixed fields.
     /// </summary>
     private static byte[] BuildSignaturePayload(string hostname, string serverChallenge, byte[] serverPublicKey)
     {
@@ -96,7 +96,7 @@ internal static class PeerIdAuth
         foreach ((string key, byte[] value) in parts)
         {
             byte[] keyBytes = Encoding.UTF8.GetBytes(key);
-            WriteUVarInt(ms, (ulong)(keyBytes.Length + 1 + value.Length));
+            WriteVarInt(ms, keyBytes.Length + 1 + value.Length);
             ms.Write(keyBytes);
             ms.WriteByte((byte)'=');
             ms.Write(value);
@@ -104,14 +104,12 @@ internal static class PeerIdAuth
         return ms.ToArray();
     }
 
-    private static void WriteUVarInt(Stream stream, ulong value)
+    private static void WriteVarInt(Stream stream, int value)
     {
-        while (value >= 0x80)
-        {
-            stream.WriteByte((byte)(value | 0x80));
-            value >>= 7;
-        }
-        stream.WriteByte((byte)value);
+        Span<byte> buffer = stackalloc byte[VarInt.GetSizeInBytes(value)];
+        int offset = 0;
+        VarInt.Encode(value, buffer, ref offset);
+        stream.Write(buffer[..offset]);
     }
 
     private static string Base64UrlEncode(byte[] value)

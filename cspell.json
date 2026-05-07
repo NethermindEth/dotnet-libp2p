@@ -159,7 +159,6 @@
         "trac",
         "traceevent",
         "typeextensions",
-        "uvarint",
         "valuetuple",
         "varint",
         "webtransport",
