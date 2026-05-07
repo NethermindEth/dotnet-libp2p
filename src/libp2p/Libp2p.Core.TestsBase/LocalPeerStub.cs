@@ -37,6 +37,11 @@ public class LocalPeerStub : ILocalPeer
         throw new NotImplementedException();
     }
 
+    public T? GetProtocol<T>() where T : class, IProtocol
+    {
+        return default(T);
+    }
+
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;

@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core.Discovery;
 using NUnit.Framework;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
+
 internal class TestMuxerTests
 {
     [Test]

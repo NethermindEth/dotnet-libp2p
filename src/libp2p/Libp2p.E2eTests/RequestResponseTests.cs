@@ -9,7 +9,7 @@ namespace Libp2p.E2eTests;
 public class RequestResponseTests
 {
     [Test]
-    public async Task Test_RequestReponse()
+    public async Task Test_RequestResponse()
     {
         E2eTestSetup test = new();
         int request = 1;

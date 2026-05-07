@@ -14,9 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <AdditionalFiles Include="Dto\Peer.proto">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </AdditionalFiles>
+    <AdditionalFiles Include="Dto\Peer.proto" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup>
