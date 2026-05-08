@@ -78,8 +78,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             throw new Libp2pException("Responder identity signature is missing in the handshake payload.");
         }
 
-        byte[]? remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey?.ToArray();
-        if (remoteNoiseStaticKey is null || remoteNoiseStaticKey.Length == 0)
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
         {
             throw new Libp2pException("Responder noise static public key is absent after handshake.");
         }
@@ -207,8 +207,8 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             throw new Libp2pException("Initiator identity signature is missing in the handshake payload.");
         }
 
-        byte[]? remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey?.ToArray();
-        if (remoteNoiseStaticKey is null || remoteNoiseStaticKey.Length == 0)
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
         {
             throw new Libp2pException("Initiator noise static public key is absent after handshake.");
         }

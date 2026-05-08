@@ -322,7 +322,7 @@ public class NoiseProtocolTests
             _rogueIdentity = new Identity();
         }
 
-        public override async Task ListenAsync(IChannel downChannel, IConnectionContext context)
+        public new async Task ListenAsync(IChannel downChannel, IConnectionContext context)
         {
             ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
@@ -410,7 +410,7 @@ public class NoiseProtocolTests
             _rogueIdentity = new Identity();
         }
 
-        public override async Task DialAsync(IChannel downChannel, IConnectionContext context)
+        public new async Task DialAsync(IChannel downChannel, IConnectionContext context)
         {
             ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
