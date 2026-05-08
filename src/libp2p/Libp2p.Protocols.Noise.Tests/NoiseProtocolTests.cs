@@ -487,9 +487,9 @@ public class NoiseProtocolTests
             buffer = new byte[Protocol.MaxMessageLength];
             (int BytesWritten2, byte[] HandshakeHash, Transport Transport) msg2 =
                 handshakeState.WriteMessage(payload.ToByteArray(), buffer);
-            BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten);
+            BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten2);
             await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten));
+            await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten2));
         }
     }
 }
