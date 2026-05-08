@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -14,16 +14,22 @@ using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Tls;
 
-public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
+public class TlsProtocol : IConnectionProtocol
 {
     private readonly ECDsa _sessionKey = ECDsa.Create();
-    private readonly ILogger<TlsProtocol>? _logger = loggerFactory?.CreateLogger<TlsProtocol>();
+    private readonly ILogger<TlsProtocol>? _logger;
 
     // libp2p TLS spec requires "libp2p" as ALPN protocol
     private static readonly SslApplicationProtocol Libp2pProtocol = new("libp2p");
     public static List<SslApplicationProtocol> ApplicationProtocols => [Libp2pProtocol];
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     public string Id => "/tls/1.0.0";
+
+    public TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    {
+        _ = multiplexerSettings;
+        _logger = loggerFactory?.CreateLogger<TlsProtocol>();
+    }
 
     public async Task ListenAsync(IChannel downChannel, IConnectionContext context)
     {
@@ -92,7 +98,7 @@ public class TlsProtocol(MultiplexerSettings? multiplexerSettings = null, ILogge
     // Use null-safe access; CertificateHelper.ValidateCertificate handles null peerId by
     // skipping peer-ID verification (still verifies the libp2p extension and signature).
     private static bool VerifyRemoteCertificate(Multiaddress? remotePeerAddress,
-        X509Certificate certificate)
+        X509Certificate? certificate)
     {
         // Per libp2p TLS spec: Must be single certificate, not a chain
         if (certificate is not X509Certificate2 x509Certificate2)

@@ -23,8 +23,8 @@ public class ChannelsBenchmark
     //    }
     //}
 
-    IChannel chan;
-    IChannel revChan;
+    private IChannel chan = null!;
+    private IChannel revChan = null!;
 
     [GlobalSetup]
     public void Setup()

@@ -16,8 +16,7 @@ public class WebRtcDirectIntegrationTests
     public async Task ListenAsync_AnnouncesWebRtcDirectAddressWithCerthash()
     {
         WebRtcDirectProtocol protocol = new();
-        ITransportContext context = Substitute.For<ITransportContext>();
-        context.Peer.Returns(Substitute.For<ILocalPeer>());
+        ITransportContext context = CreateContext(new Identity(), CreateCompletionSource(), out _);
 
         Multiaddress? announcedAddress = null;
         context
@@ -47,8 +46,7 @@ public class WebRtcDirectIntegrationTests
     public async Task ListenAsync_StopsOnCancellation()
     {
         WebRtcDirectProtocol protocol = new();
-        ITransportContext context = Substitute.For<ITransportContext>();
-        context.Peer.Returns(Substitute.For<ILocalPeer>());
+        ITransportContext context = CreateContext(new Identity(), CreateCompletionSource(), out _);
 
         using CancellationTokenSource cts = new(TimeSpan.FromSeconds(3));
         Task listenTask = protocol.ListenAsync(context, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
@@ -75,16 +73,17 @@ public class WebRtcDirectIntegrationTests
     [Explicit("Manual end-to-end loopback for WebRTC-Direct handshake and upgrade.")]
     public async Task DialAndListen_UpgradesOnBothSides()
     {
-        WebRtcDirectProtocol protocol = new();
+        WebRtcDirectProtocol listenerProtocol = new();
+        WebRtcDirectProtocol dialerProtocol = new();
         using CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
 
         TaskCompletionSource listenerUpgrade = CreateCompletionSource();
         TaskCompletionSource dialerUpgrade = CreateCompletionSource();
 
-        ITransportContext listenerContext = CreateContext(listenerUpgrade, out Func<Multiaddress?> getListenerAddress);
-        ITransportContext dialerContext = CreateContext(dialerUpgrade, out _);
+        ITransportContext listenerContext = CreateContext(new Identity(), listenerUpgrade, out Func<Multiaddress?> getListenerAddress);
+        ITransportContext dialerContext = CreateContext(new Identity(), dialerUpgrade, out _);
 
-        Task listenerTask = protocol.ListenAsync(listenerContext, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
+        Task listenerTask = listenerProtocol.ListenAsync(listenerContext, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
         Multiaddress listenerAddress;
         try
         {
@@ -96,9 +95,9 @@ public class WebRtcDirectIntegrationTests
             return;
         }
 
-        Task dialTask = protocol.DialAsync(dialerContext, listenerAddress, cts.Token);
+        Task dialTask = dialerProtocol.DialAsync(dialerContext, listenerAddress, cts.Token);
 
-        await Task.WhenAll(listenerUpgrade.Task, dialerUpgrade.Task);
+        await Task.WhenAll(listenerUpgrade.Task, dialerUpgrade.Task, dialTask).WaitAsync(TimeSpan.FromSeconds(20));
 
         cts.Cancel();
         await Task.WhenAll(dialTask, listenerTask);
@@ -108,14 +107,15 @@ public class WebRtcDirectIntegrationTests
     [Explicit("Manual end-to-end loopback for fingerprint mismatch rejection.")]
     public async Task DialAndListen_RejectsWhenCerthashMismatches()
     {
-        WebRtcDirectProtocol protocol = new();
+        WebRtcDirectProtocol listenerProtocol = new();
+        WebRtcDirectProtocol dialerProtocol = new();
         using CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
 
         TaskCompletionSource listenerUpgrade = CreateCompletionSource();
-        ITransportContext listenerContext = CreateContext(listenerUpgrade, out Func<Multiaddress?> getListenerAddress);
-        ITransportContext dialerContext = CreateContext(CreateCompletionSource(), out _);
+        ITransportContext listenerContext = CreateContext(new Identity(), listenerUpgrade, out Func<Multiaddress?> getListenerAddress);
+        ITransportContext dialerContext = CreateContext(new Identity(), CreateCompletionSource(), out _);
 
-        Task listenerTask = protocol.ListenAsync(listenerContext, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
+        Task listenerTask = listenerProtocol.ListenAsync(listenerContext, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
         Multiaddress listenerAddress;
         try
         {
@@ -128,16 +128,20 @@ public class WebRtcDirectIntegrationTests
         }
         Multiaddress tamperedAddress = TamperCerthash(listenerAddress);
 
-        Assert.That(async () => await protocol.DialAsync(dialerContext, tamperedAddress, cts.Token), Throws.TypeOf<InvalidOperationException>());
+        Assert.That(
+            async () => await dialerProtocol.DialAsync(dialerContext, tamperedAddress, cts.Token).WaitAsync(TimeSpan.FromSeconds(10)),
+            Throws.TypeOf<InvalidOperationException>());
 
         cts.Cancel();
         await listenerTask;
     }
 
-    private static ITransportContext CreateContext(TaskCompletionSource upgradeSignal, out Func<Multiaddress?> getListenerAddress)
+    private static ITransportContext CreateContext(Identity identity, TaskCompletionSource upgradeSignal, out Func<Multiaddress?> getListenerAddress)
     {
         ITransportContext context = Substitute.For<ITransportContext>();
-        context.Peer.Returns(Substitute.For<ILocalPeer>());
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
+        peer.Identity.Returns(identity);
+        context.Peer.Returns(peer);
 
         Multiaddress? listenerAddress = null;
         context.When(c => c.ListenerReady(Arg.Any<Multiaddress>())).Do(callInfo => listenerAddress = callInfo.Arg<Multiaddress>());
@@ -204,8 +208,10 @@ public class WebRtcDirectIntegrationTests
         }
 
         string value = parts[certhashIndex + 1];
-        char replacement = value[^1] == 'A' ? 'B' : 'A';
-        parts[certhashIndex + 1] = value[..^1] + replacement;
+        int indexToMutate = Math.Max(1, value.Length / 2);
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char replacement = alphabet.First(c => c != value[indexToMutate]);
+        parts[certhashIndex + 1] = value[..indexToMutate] + replacement + value[(indexToMutate + 1)..];
         return Multiaddress.Decode(string.Join('/', parts));
     }
 

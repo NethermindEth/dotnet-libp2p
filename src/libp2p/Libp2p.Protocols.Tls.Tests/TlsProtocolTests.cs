@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -163,7 +163,7 @@ public class TlsProtocolTests
                     ServerCertificate = serverCert,
                     ClientCertificateRequired = true,
                     RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                        CertificateHelper.ValidateCertificate(cert as X509Certificate2, null),
+                        cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
                 };
 
                 using SslStream sslStream = new(networkStream, false, serverOptions.RemoteCertificateValidationCallback);
@@ -198,7 +198,7 @@ public class TlsProtocolTests
                     ClientCertificates = [clientCert],
                     EnabledSslProtocols = SslProtocols.Tls13,
                     RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                        CertificateHelper.ValidateCertificate(cert as X509Certificate2, null),
+                        cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
                     CertificateChainPolicy = new X509ChainPolicy
                     {
                         RevocationMode = X509RevocationMode.NoCheck,
@@ -265,7 +265,7 @@ public class TlsProtocolTests
                 ServerCertificate = serverCert,
                 ClientCertificateRequired = true,
                 RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                    CertificateHelper.ValidateCertificate(cert as X509Certificate2, null),
+                    cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
             };
 
             using SslStream sslStream = new(networkStream, false, opts.RemoteCertificateValidationCallback);
@@ -293,7 +293,7 @@ public class TlsProtocolTests
                 ClientCertificates = [clientCert],
                 EnabledSslProtocols = SslProtocols.Tls13,
                 RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                    CertificateHelper.ValidateCertificate(cert as X509Certificate2, null),
+                    cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
                 CertificateChainPolicy = new X509ChainPolicy
                 {
                     RevocationMode = X509RevocationMode.NoCheck,
