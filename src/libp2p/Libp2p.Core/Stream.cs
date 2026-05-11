@@ -1,14 +1,12 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using System.Buffers;
 
 public class ChannelStream : Stream
 {
     private readonly IChannel _chan;
-    private readonly ILogger<ChannelStream> logger;
     private bool _disposed = false;
     private bool _canRead = true;
     private bool _canWrite = true;

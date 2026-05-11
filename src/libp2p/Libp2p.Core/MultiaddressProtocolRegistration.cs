@@ -12,7 +12,9 @@ internal static class MultiaddressProtocolRegistration
 {
     private static int _initialized;
 
+#pragma warning disable CA2255 // Multiaddr protocol setup must happen before callers decode /webrtc-direct addresses.
     [ModuleInitializer]
+#pragma warning restore CA2255
     internal static void Register()
     {
         EnsureRegistered();

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using NUnit.Framework;
@@ -11,16 +11,16 @@ namespace Nethermind.Libp2p.Protocols.Tests;
 
 public class TestRequest : IMessage<TestRequest>
 {
-    public string Message { get; set; }
+    public string Message { get; set; } = string.Empty;
     public int Value { get; set; }
 
     public static MessageParser<TestRequest> Parser { get; } =
         new MessageParser<TestRequest>(() => new TestRequest());
-    public static MessageDescriptor StaticDescriptor { get; } = null;
+    public static MessageDescriptor StaticDescriptor { get; } = null!;
     MessageDescriptor IMessage.Descriptor => StaticDescriptor;
 
     public TestRequest Clone() => new TestRequest { Message = Message, Value = Value };
-    public bool Equals(TestRequest other) => other != null && Message == other.Message && Value == other.Value;
+    public bool Equals(TestRequest? other) => other != null && Message == other.Message && Value == other.Value;
     public void MergeFrom(TestRequest message) { Message = message.Message; Value = message.Value; }
     public void MergeFrom(CodedInputStream input) { Message = input.ReadString(); Value = input.ReadInt32(); }
     public void WriteTo(CodedOutputStream output) { output.WriteString(Message); output.WriteInt32(Value); }
@@ -30,16 +30,16 @@ public class TestRequest : IMessage<TestRequest>
 // Mock interface initialization for IMessage->TestResponse
 public class TestResponse : IMessage<TestResponse>
 {
-    public string Echo { get; set; }
+    public string Echo { get; set; } = string.Empty;
     public int ProcessedValue { get; set; }
 
     public static MessageParser<TestResponse> Parser { get; } =
         new MessageParser<TestResponse>(() => new TestResponse());
-    public static MessageDescriptor StaticDescriptor { get; } = null;
+    public static MessageDescriptor StaticDescriptor { get; } = null!;
     MessageDescriptor IMessage.Descriptor => StaticDescriptor;
 
     public TestResponse Clone() => new TestResponse { Echo = Echo, ProcessedValue = ProcessedValue };
-    public bool Equals(TestResponse other) =>
+    public bool Equals(TestResponse? other) =>
         other != null && Echo == other.Echo && ProcessedValue == other.ProcessedValue;
     public void MergeFrom(TestResponse message)
     {
@@ -82,7 +82,7 @@ public class RequestResponseProtocolTests
 
         // Deserialization handler check
         var sampleRequest = new TestRequest { Message = "hi", Value = 5 };
-        var result = await handler(sampleRequest, null);
+        var result = await handler(sampleRequest, Substitute.For<ISessionContext>());
 
         Assert.That(result.Echo, Is.EqualTo("hi"));
         Assert.That(result.ProcessedValue, Is.EqualTo(10));
@@ -129,10 +129,11 @@ public class RequestResponseExtensionsTests
         var handler = new Func<TestRequest, ISessionContext, Task<TestResponse>>((req, ctx) =>
             Task.FromResult(new TestResponse()));
 
-        Assert.Throws<ArgumentNullException>(() =>
+        Assert.That(() =>
             mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
                 null!,
-                handler));
+                handler),
+            Throws.TypeOf<ArgumentNullException>());
     }
 
     [Test]

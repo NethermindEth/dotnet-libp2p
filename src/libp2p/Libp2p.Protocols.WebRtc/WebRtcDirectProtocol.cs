@@ -7,6 +7,8 @@ using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.X509;
 using SIPSorcery.Net;
 using System.Net;
 using System.Net.Sockets;
@@ -29,10 +31,13 @@ public class WebRtcDirectProtocol : ITransportProtocol
     private readonly WebRtcDirectReplayWindow _replayWindow = new();
     private readonly WebRtcDirectRateLimiter _offerRateLimiter = new();
     private readonly SemaphoreSlim _incomingOfferSlots = new(MaxConcurrentIncomingOffers, MaxConcurrentIncomingOffers);
+    private readonly RTCCertificate2 _certificate;
+    private readonly DtlsFingerprint _fingerprint;
 
     public WebRtcDirectProtocol(ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<WebRtcDirectProtocol>();
+        (_certificate, _fingerprint) = CreateLocalCertificate();
     }
 
     public string Id => "webrtc-direct";
@@ -52,8 +57,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             endpoint = (IPEndPoint)udp.Client.LocalEndPoint!;
         }
 
-        DtlsFingerprint listenerFingerprint = await ProbeListenerFingerprintAsync(token);
-        Multiaddress listenerAddr = WebRtcDirectMultiaddr.Build(endpoint, listenerFingerprint);
+        Multiaddress listenerAddr = WebRtcDirectMultiaddr.Build(endpoint, _fingerprint);
         context.ListenerReady(listenerAddr);
 
         _logger?.LogInformation("WebRTC-Direct listening on {Endpoint}", endpoint);
@@ -122,8 +126,8 @@ public class WebRtcDirectProtocol : ITransportProtocol
             Task<RTCDataChannel> noiseOpenTask = WaitForDataChannelOpenAsync(noiseDataChannel, token);
             Task connectionTask = WaitForConnectionAsync(pc, token);
 
-            DtlsFingerprint dialerFingerprint = await ProbeLocalFingerprintAsync(pc, token);
-            RTCSessionDescriptionInit offer = WebRtcDirectSdp.BuildOffer(endpoint, dialerFingerprint);
+            RTCSessionDescriptionInit offer = pc.createOffer(new RTCOfferOptions { X_WaitForIceGatheringToComplete = true });
+            ValidateExpectedFingerprint(WebRtcDirectSdp.ExtractFingerprint(offer.sdp ?? string.Empty), _fingerprint, "offer");
             string signedOffer = WebRtcDirectSignaling.BuildSignedPayload(
                 WebRtcDirectSignalType.Offer,
                 context.Peer.Identity,
@@ -136,7 +140,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             RTCSessionDescriptionInit answer = await ReceiveAnswerAsync(signalingUdp, endpoint, signalingSessionId, token);
             DtlsFingerprint answerFingerprint = WebRtcDirectSdp.ExtractFingerprint(answer.sdp ?? string.Empty);
             ValidateExpectedFingerprint(answerFingerprint, expectedFingerprint, "answer");
-            pc.setRemoteDescription(answer);
+            EnsureRemoteDescriptionApplied(pc.setRemoteDescription(answer), "answer");
 
             await connectionTask;
             RTCDataChannel openedNoiseDataChannel = await noiseOpenTask;
@@ -148,7 +152,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
             DataChannelOverIChannel rawChannel = new(openedNoiseDataChannel);
-            byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, expectedFingerprint);
+            byte[] prologue = WebRtcNoisePrologue.Build(_fingerprint, expectedFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
                 rawChannel, context.Peer.Identity, prologue, isInitiator: true, token);
             connectionContext.State.RemotePublicKey = remoteKey;
@@ -180,10 +184,13 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 _replayWindow);
             RTCSessionDescriptionInit offer = new() { type = RTCSdpType.offer, sdp = remoteOfferSdp };
             DtlsFingerprint offeredFingerprint = WebRtcDirectSdp.ExtractFingerprint(remoteOfferSdp);
-            pc.setRemoteDescription(offer);
+            EnsureRemoteDescriptionApplied(pc.setRemoteDescription(offer), "offer");
 
-            DtlsFingerprint localFingerprint = await ProbeLocalFingerprintAsync(pc, token);
-            RTCSessionDescriptionInit answer = WebRtcDirectSdp.BuildAnswer(offer, localFingerprint);
+            RTCDataChannel noiseChannel = await pc.createDataChannel(NoiseChannelLabel, new RTCDataChannelInit { negotiated = true, id = 0 });
+            Task<RTCDataChannel> noiseOpenTask = WaitForDataChannelOpenAsync(noiseChannel, token);
+
+            RTCSessionDescriptionInit answer = pc.createAnswer();
+            ValidateExpectedFingerprint(WebRtcDirectSdp.ExtractFingerprint(answer.sdp ?? string.Empty), _fingerprint, "answer");
             string signedAnswer = WebRtcDirectSignaling.BuildSignedPayload(
                 WebRtcDirectSignalType.Answer,
                 context.Peer.Identity,
@@ -194,8 +201,6 @@ public class WebRtcDirectProtocol : ITransportProtocol
             byte[] answerBytes = Encoding.UTF8.GetBytes(AnswerPrefix + signedAnswer);
             await signalingUdp.SendAsync(answerBytes, answerBytes.Length, remoteEndpoint);
 
-            RTCDataChannel noiseChannel = await pc.createDataChannel(NoiseChannelLabel, new RTCDataChannelInit { negotiated = true, id = 0 });
-            Task<RTCDataChannel> noiseOpenTask = WaitForDataChannelOpenAsync(noiseChannel, token);
             await WaitForConnectionAsync(pc, token);
             ValidateRemoteFingerprint(pc, offeredFingerprint);
             RTCDataChannel openedNoiseChannel = await noiseOpenTask;
@@ -205,7 +210,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Udp);
 
             DataChannelOverIChannel rawChannel = new(openedNoiseChannel);
-            byte[] prologue = WebRtcNoisePrologue.Build(offeredFingerprint, localFingerprint);
+            byte[] prologue = WebRtcNoisePrologue.Build(offeredFingerprint, _fingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
                 rawChannel, context.Peer.Identity, prologue, isInitiator: false, token);
             connectionContext.State.RemotePublicKey = remoteKey;
@@ -222,15 +227,28 @@ public class WebRtcDirectProtocol : ITransportProtocol
         }
     }
 
-    private static RTCPeerConnection CreatePeerConnection()
+    private RTCPeerConnection CreatePeerConnection()
     {
         RTCConfiguration config = new()
         {
             X_ICEIncludeAllInterfaceAddresses = false,
             X_GatherTimeoutMs = 2000,
+            certificates2 = [_certificate],
         };
 
         return new RTCPeerConnection(config);
+    }
+
+    private static (RTCCertificate2 Certificate, DtlsFingerprint Fingerprint) CreateLocalCertificate()
+    {
+        (X509Certificate certificate, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedEcdsaCert();
+        RTCCertificate2 rtcCertificate = new()
+        {
+            Certificate = certificate,
+            PrivateKey = privateKey,
+        };
+
+        return (rtcCertificate, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificate)));
     }
 
     private async Task<RTCSessionDescriptionInit> ReceiveAnswerAsync(
@@ -310,68 +328,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
         }
     }
 
-    private Task<DtlsFingerprint> ProbeLocalFingerprintAsync(RTCPeerConnection pc, CancellationToken token)
+    private static void EnsureRemoteDescriptionApplied(SetDescriptionResultEnum result, string source)
     {
-        _ = token;
-        if (TryGetLocalFingerprint(pc, out DtlsFingerprint? fingerprint))
+        if (result != SetDescriptionResultEnum.OK)
         {
-            _logger?.LogDebug("DTLS fingerprint resolved via DtlsCertificateFingerprint (pre-offer).");
-            return Task.FromResult(fingerprint!);
-        }
-
-        _logger?.LogDebug("DtlsCertificateFingerprint unavailable; probing via createOffer SDP.");
-        RTCSessionDescriptionInit probeOffer = pc.createOffer(null);
-        pc.setLocalDescription(probeOffer);
-
-        if (!string.IsNullOrWhiteSpace(probeOffer.sdp))
-        {
-            try
-            {
-                DtlsFingerprint fromSdp = WebRtcDirectSdp.ExtractFingerprint(probeOffer.sdp);
-                _logger?.LogDebug("DTLS fingerprint resolved via SDP a=fingerprint line.");
-                return Task.FromResult(fromSdp);
-            }
-            catch (FormatException ex)
-            {
-                _logger?.LogDebug(ex, "SDP probe did not contain an a=fingerprint line.");
-            }
-        }
-
-        if (TryGetLocalFingerprint(pc, out fingerprint))
-        {
-            _logger?.LogDebug("DTLS fingerprint resolved via DtlsCertificateFingerprint (post-setLocalDescription).");
-            return Task.FromResult(fingerprint!);
-        }
-
-        _logger?.LogWarning(
-            "Host WebRTC stack did not expose a local DTLS fingerprint via any probe path " +
-            "(DtlsCertificateFingerprint pre/post-offer, SDP a=fingerprint). " +
-            "SIPSorcery may require an explicit certificate or a newer runtime.");
-        throw new InvalidOperationException("Unable to determine local DTLS fingerprint from RTCPeerConnection.");
-    }
-
-    private static bool TryGetLocalFingerprint(RTCPeerConnection pc, out DtlsFingerprint? fingerprint)
-    {
-        fingerprint = null;
-        if (pc.DtlsCertificateFingerprint is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            fingerprint = DtlsFingerprint.FromRtcFingerprint(pc.DtlsCertificateFingerprint);
-            return true;
-        }
-        catch (FormatException)
-        {
-            return false;
+            throw new InvalidOperationException($"Failed to apply WebRTC remote {source} SDP: {result}.");
         }
     }
 
-    private async Task<DtlsFingerprint> ProbeListenerFingerprintAsync(CancellationToken token)
-    {
-        using RTCPeerConnection probe = CreatePeerConnection();
-        return await ProbeLocalFingerprintAsync(probe, token);
-    }
 }

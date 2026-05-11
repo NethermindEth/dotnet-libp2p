@@ -8,6 +8,7 @@ using NoiseHandshakePayload = Nethermind.Libp2p.Protocols.Noise.Dto.NoiseHandsha
 using Noise;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
@@ -39,7 +40,7 @@ internal static class WebRtcDirectNoiseHandshake
             byte[] msg1Raw = await ReadFramedAsync(channel, token);
             byte[] msg1Buf = new byte[Protocol.MaxMessageLength];
             (int r1, _, _) = hs.ReadMessage(msg1Raw, msg1Buf);
-            remoteKey = ParseRemoteKey(msg1Buf, r1);
+            remoteKey = ParseAndValidateRemoteKey(msg1Buf, r1, hs.RemoteStaticPublicKey);
 
             byte[] identityPayload = BuildIdentityPayload(localIdentity, staticKey.PublicKey);
             byte[] msg2Buf = new byte[Protocol.MaxMessageLength];
@@ -61,7 +62,7 @@ internal static class WebRtcDirectNoiseHandshake
             byte[] msg2Raw = await ReadFramedAsync(channel, token);
             byte[] msg2Buf = new byte[Protocol.MaxMessageLength];
             (int r2, _, Transport t) = hs.ReadMessage(msg2Raw, msg2Buf);
-            remoteKey = ParseRemoteKey(msg2Buf, r2);
+            remoteKey = ParseAndValidateRemoteKey(msg2Buf, r2, hs.RemoteStaticPublicKey);
             transport = t;
         }
 
@@ -79,18 +80,51 @@ internal static class WebRtcDirectNoiseHandshake
         return payload.ToByteArray();
     }
 
-    private static PublicKey ParseRemoteKey(byte[] payloadBuffer, int payloadLength)
+    internal static PublicKey ParseAndValidateRemoteKey(byte[] payloadBuffer, int payloadLength, ReadOnlySpan<byte> remoteStaticPublicKey)
     {
+        if (payloadLength <= 0)
+        {
+            throw new CryptographicException("Noise handshake payload is empty.");
+        }
+
+        if (remoteStaticPublicKey.IsEmpty)
+        {
+            throw new CryptographicException("Noise handshake did not expose the remote static public key.");
+        }
+
         NoiseHandshakePayload envelope = NoiseHandshakePayload.Parser.ParseFrom(payloadBuffer.AsSpan(0, payloadLength));
-        return PublicKey.Parser.ParseFrom(envelope.IdentityKey);
+        PublicKey remoteKey = PublicKey.Parser.ParseFrom(envelope.IdentityKey);
+        byte[] signature = envelope.IdentitySig.ToByteArray();
+        if (signature.Length == 0)
+        {
+            throw new CryptographicException("Noise handshake identity signature is missing.");
+        }
+
+        Identity remoteIdentity = new(remoteKey);
+        byte[] sigInput = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. remoteStaticPublicKey.ToArray()];
+        if (!remoteIdentity.VerifySignature(sigInput, signature))
+        {
+            throw new CryptographicException("Noise handshake identity signature is invalid.");
+        }
+
+        return remoteKey;
     }
 
     private static async Task WriteFramedAsync(IChannel channel, byte[] buffer, int length, CancellationToken token)
     {
+        if (length > ushort.MaxValue)
+        {
+            throw new InvalidOperationException($"Noise handshake frame is too large: {length} bytes.");
+        }
+
         byte[] frame = new byte[2 + length];
         BinaryPrimitives.WriteUInt16BigEndian(frame, (ushort)length);
         buffer.AsSpan(0, length).CopyTo(frame.AsSpan(2));
-        await channel.WriteAsync(new ReadOnlySequence<byte>(frame), token);
+        IOResult result = await channel.WriteAsync(new ReadOnlySequence<byte>(frame), token);
+        if (result != IOResult.Ok)
+        {
+            throw new InvalidOperationException($"Noise handshake write failed: {result}");
+        }
     }
 
     private static async Task<byte[]> ReadFramedAsync(IChannel channel, CancellationToken token)
