@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
 using System;
@@ -129,7 +129,7 @@ public class DhtNodeTests
 
         // Act & Assert
         Assert.That(node.Equals(null), Is.False);
-        Assert.That(node.Equals((object?)null), Is.False);
+        Assert.That(object.Equals(node, null), Is.False);
     }
 
     [Test]

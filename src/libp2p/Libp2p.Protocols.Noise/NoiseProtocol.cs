@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
+public class NoiseProtocol : IConnectionProtocol
 {
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,
@@ -25,7 +25,13 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             HashFunction.Sha256
         );
 
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    private readonly ILogger? _logger;
+
+    public NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    {
+        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    }
+
     private NoiseExtensions _extensions => new()
     {
         StreamMuxers = { } // TODO: return the following after go question resolution:
