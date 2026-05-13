@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Tls;
+using Nethermind.Libp2p.Protocols.WebRtc;
 
 namespace Nethermind.Libp2p;
 
@@ -16,6 +17,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool addRelay;
     private bool addQuic;
     private bool addWebSockets;
+    private bool addWebRtcDirect;
 
     /// <summary>
     /// Exposes the service collection for protocol integration.
@@ -50,6 +52,12 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     public ILibp2pPeerFactoryBuilder WithWebSockets()
     {
         addWebSockets = true;
+        return this;
+    }
+
+    public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
+    {
+        addWebRtcDirect = true;
         return this;
     }
 
@@ -88,13 +96,22 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
             Connect(relay, [Get<MultistreamProtocol>()], apps.Where(a => !relay.Contains(a)).ToArray());
         }
 
+        List<ProtocolRef> transports = [.. streamTransports];
+
         if (addQuic)
         {
             ProtocolRef quic = Get<QuicProtocol>();
             Connect([quic], commonAppProtocolSelector);
-            return [.. streamTransports, quic];
+            transports.Add(quic);
         }
 
-        return streamTransports;
+        if (addWebRtcDirect)
+        {
+            ProtocolRef webrtcDirect = Get<WebRtcDirectProtocol>();
+            Connect([webrtcDirect], commonAppProtocolSelector);
+            transports.Add(webrtcDirect);
+        }
+
+        return [.. transports];
     }
 }

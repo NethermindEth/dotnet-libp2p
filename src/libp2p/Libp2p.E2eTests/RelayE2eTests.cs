@@ -27,6 +27,9 @@ public class RelayE2eTestSetup : E2eTestSetup
         // Reuse the base stack (Identify, RequestResponse sample, etc.) and enable relay support.
         return base.ConfigureLibp2p(builder.WithRelay());
     }
+
+    protected override Multiaddress[] GetListenAddresses(int index) =>
+        [Multiaddress.Decode("/ip4/127.0.0.1/tcp/0")];
 }
 
 [TestFixture]
@@ -90,4 +93,3 @@ public class RelayE2eTests
         Assert.That(connectResponse.Status, Is.EqualTo(Status.Ok), "CONNECT should succeed once reservation exists");
     }
 }
-

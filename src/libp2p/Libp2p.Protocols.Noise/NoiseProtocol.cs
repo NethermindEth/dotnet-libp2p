@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
+public class NoiseProtocol : IConnectionProtocol
 {
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,
@@ -25,7 +25,13 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             HashFunction.Sha256
         );
 
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    private readonly ILogger? _logger;
+
+    public NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    {
+        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    }
+
     private NoiseExtensions _extensions => new()
     {
         StreamMuxers = { } // TODO: return the following after go question resolution:
@@ -67,13 +73,31 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         }
 
         PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
-        context.State.RemotePublicKey = msg1KeyDecoded;
-        // TODO: verify signature
 
         if (msg1KeyDecoded is null)
         {
             throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
         }
+
+        if (msg1Decoded.IdentitySig is null || msg1Decoded.IdentitySig.IsEmpty)
+        {
+            throw new Libp2pException("Responder identity signature is missing in the handshake payload.");
+        }
+
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
+        {
+            throw new Libp2pException("Responder noise static public key is absent after handshake.");
+        }
+
+        byte[] responderSignedMessage = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. remoteNoiseStaticKey];
+        Identity responderIdentity = new(msg1KeyDecoded);
+        if (!responderIdentity.VerifySignature(responderSignedMessage, msg1Decoded.IdentitySig.ToByteArray()))
+        {
+            throw new Libp2pException("Noise handshake signature verification failed: responder identity key does not match noise static key.");
+        }
+
+        context.State.RemotePublicKey = msg1KeyDecoded;
 
 
         List<string> responderMuxers = msg1Decoded.Extensions?.StreamMuxers?
@@ -184,8 +208,25 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
         }
 
+        if (msg2Decoded.IdentitySig is null || msg2Decoded.IdentitySig.IsEmpty)
+        {
+            throw new Libp2pException("Initiator identity signature is missing in the handshake payload.");
+        }
+
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
+        {
+            throw new Libp2pException("Initiator noise static public key is absent after handshake.");
+        }
+
+        byte[] initiatorSignedMessage = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. remoteNoiseStaticKey];
+        Identity initiatorIdentity = new(msg2KeyDecoded);
+        if (!initiatorIdentity.VerifySignature(initiatorSignedMessage, msg2Decoded.IdentitySig.ToByteArray()))
+        {
+            throw new Libp2pException("Noise handshake signature verification failed: initiator identity key does not match noise static key.");
+        }
+
         context.State.RemotePublicKey = msg2KeyDecoded;
-        // TODO: verify signature
 
         Transport? transport = msg2.Transport;
 

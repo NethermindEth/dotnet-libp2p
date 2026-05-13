@@ -25,6 +25,8 @@
     <Project Path="Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj" />
+    <Project Path="Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.WebRtc/Libp2p.Protocols.WebRtc.csproj" />
     <Project Path="Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj" />
     <Project Path="Libp2p.Protocols.WebSockets/Libp2p.Protocols.WebSockets.csproj" />
     <Project Path="Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj" />

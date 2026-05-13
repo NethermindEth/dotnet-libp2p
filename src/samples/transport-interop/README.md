@@ -1,6 +1,6 @@
 # Transport interop app
 
-A .NET libp2p transport interoperability testing application that supports TCP and QUIC transports.
+A .NET libp2p transport interoperability testing application that supports TCP, QUIC, and WebRTC-Direct transports.
 
 ## Prerequisites
 
@@ -15,11 +15,11 @@ docker run -d --name redis-interop -p 6379:6379 redis:alpine
 ## Environment Variables
 
 Required:
-- `TRANSPORT`: Transport protocol to use (`tcp`, `quic-v1`)
+- `TRANSPORT`: Transport protocol to use (`tcp`, `quic-v1`, `webrtc-direct`)
 - `IS_DIALER`: Whether this instance is a dialer (`true`) or listener (`false`)
 - `TEST_KEY`: Key prefix for Redis communication
-- `SECURE_CHANNEL`: Security protocol (`noise`) - not required for stackless protocols like `quic-v1`
-- `MUXER`: Multiplexer protocol (`yamux`) - not required for stackless protocols like `quic-v1`
+- `SECURE_CHANNEL`: Security protocol (`noise`) - not required for stackless protocols like `quic-v1` or `webrtc-direct`
+- `MUXER`: Multiplexer protocol (`yamux`) - not required for stackless protocols like `quic-v1` or `webrtc-direct`
 
 Optional:
 - `REDIS_ADDR`: Redis server address (default: empty)
@@ -48,5 +48,4 @@ dotnet run
 # build from repo root
 docker build -f src/samples/transport-interop/Dockerfile -t transport-interop:latest .
 # run from repository root
-
 

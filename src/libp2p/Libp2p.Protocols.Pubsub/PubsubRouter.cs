@@ -104,7 +104,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
 
         public ConnectionInitiation InitiatedBy { get; internal set; }
-        public Multiaddress Address { get; internal set; }
+        public Multiaddress Address { get; internal set; } = null!;
 
         // Peer scoring (Gossipsub v1.1)
         public PeerScore Score { get; internal set; }
@@ -224,7 +224,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         try
         {
-            ISession session = await localPeer.DialAsync(addrs, token);
+            ILocalPeer peer = localPeer ?? throw new InvalidOperationException("Router has not been started.");
+            ISession session = await peer.DialAsync(addrs, token);
 
             if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
