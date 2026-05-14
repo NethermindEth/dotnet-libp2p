@@ -18,31 +18,43 @@ using System.Net.Sockets;
 
 try
 {
-    string transport = GetRequiredEnv("TRANSPORT", "transport");
+    string transport = Environment.GetEnvironmentVariable("TRANSPORT")!;
+    if (string.IsNullOrEmpty(transport))
+    {
+        throw new Exception("TRANSPORT environment variable is required");
+    }
 
     // For QUIC, muxer and security are built-in and not required
     bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport" || transport == "webrtc-direct";
 
-    string muxer = GetEnv("MUXER", "muxer") ?? "";
+    string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
     if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
     {
         throw new Exception("MUXER environment variable is required");
     }
-    string security = GetEnv("SECURE_CHANNEL", "security") ?? "";
+    string security = Environment.GetEnvironmentVariable("SECURE_CHANNEL") ?? "";
     if (string.IsNullOrEmpty(security) && !isStacklessProtocol)
     {
         throw new Exception("SECURE_CHANNEL environment variable is required");
     }
 
-    bool isDialer = bool.Parse(GetRequiredEnv("IS_DIALER", "is_dialer"));
-    string ip = GetEnv("LISTENER_IP", "ip") ?? "0.0.0.0";
+    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("IS_DIALER")!);
+    if (string.IsNullOrEmpty(isDialer.ToString()))
+    {
+        throw new Exception("IS_DIALER environment variable is required");
+    }
+    string ip = Environment.GetEnvironmentVariable("LISTENER_IP") ?? "0.0.0.0";
 
-    string redisAddr = GetEnv("REDIS_ADDR", "redis_addr") ?? "redis:6379";
+    string redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "";
 
-    int testTimeoutSeconds = int.Parse(GetEnv("TEST_TIMEOUT_SECS", "test_timeout_seconds") ?? "180");
+    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("TEST_TIMEOUT_SECS") ?? "180");
 
-    string testKey = GetEnv("TEST_KEY", "test_key") ?? "";
-    string redisKey = GetEnv("REDIS_KEY", "redis_key") ?? (string.IsNullOrEmpty(testKey) ? "listenerAddr" : $"{testKey}_listener_multiaddr");
+    string testKey = Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
+    if (string.IsNullOrEmpty(testKey))
+    {
+        throw new Exception("TEST_KEY environment variable is required");
+    }
+    string redisKey = $"{testKey}_listener_multiaddr";
 
     TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();
@@ -74,7 +86,10 @@ try
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
-        PrintResult($"{{\"handshakePlusOneRTTMillis\":{handshakePlusOneRTT},\"pingRTTMilllis\":{pingRTT}}}");
+        PrintResult("latency:");
+        PrintResult($"  handshake_plus_one_rtt: {handshakePlusOneRTT}");
+        PrintResult($"  ping_rtt: {pingRTT}");
+        PrintResult("  unit: ms");
         Log("Done");
         return 0;
     }
@@ -142,17 +157,6 @@ catch (Exception ex)
 
 static void Log(string info) => Console.Error.WriteLine(info);
 static void PrintResult(string info) => Console.WriteLine(info);
-
-static string? GetEnv(string primary, string secondary) =>
-    Environment.GetEnvironmentVariable(primary) ?? Environment.GetEnvironmentVariable(secondary);
-
-static string GetRequiredEnv(string primary, string secondary)
-{
-    string? value = GetEnv(primary, secondary);
-    return !string.IsNullOrEmpty(value)
-        ? value
-        : throw new Exception($"{primary}/{secondary} environment variable is required");
-}
 
 static int GetInterfacePriority(NetworkInterface networkInterface)
 {
