@@ -41,7 +41,7 @@ public class CertificateHelper
 
         CertificateRequest certRequest = new($"SERIALNUMBER={Convert.ToHexString(bytes)}", certKey, HashAlgorithmName.SHA256);
 
-        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, false));
+        certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, critical: false));
 
         // Per libp2p TLS spec: NotAfter must not be later than 2^63-1 seconds from Unix epoch (~year 2292).
         // Using a 100-year validity to stay within spec and avoid ASN.1 parsing issues in other implementations.
@@ -75,12 +75,6 @@ public class CertificateHelper
             return false; // Certificate expired
         }
 
-        // Per libp2p TLS spec: certificate must be self-signed (issuer == subject)
-        if (certificate.Subject != certificate.Issuer)
-        {
-            return false; // Not self-signed
-        }
-
         Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
 
         if (key is null || signature is null)
@@ -94,8 +88,11 @@ public class CertificateHelper
             return false; // Peer ID mismatch
         }
 
-        // Verify the signature over the certificate's public key
-        return id.VerifySignature(ContentToSignFromTlsPublicKey(certificate.PublicKey.ExportSubjectPublicKeyInfo()), signature);
+        // Verify the signature over the certificate's subjectPublicKeyInfo.
+        // Parse it from the certificate DER instead of going through
+        // X509Certificate2.PublicKey, which does not cover every key type used
+        // by libp2p QUIC peers.
+        return id.VerifySignature(ContentToSignFromTlsPublicKey(ReadSubjectPublicKeyInfo(certificate)), signature);
     }
 
     public static Core.Dto.PublicKey? ExtractPublicKey(X509Certificate2? certificate, [NotNullWhen(true)] out byte[]? signature)
@@ -142,4 +139,24 @@ public class CertificateHelper
 
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();
     private static byte[] ContentToSignFromTlsPublicKey(byte[] keyInfo) => [.. SignaturePrefix, .. keyInfo];
+
+    private static byte[] ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
+    {
+        AsnReader certificateReader = new(certificate.RawData, AsnEncodingRules.DER);
+        AsnReader certificateSequence = certificateReader.ReadSequence();
+        AsnReader tbsCertificate = certificateSequence.ReadSequence();
+
+        if (tbsCertificate.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
+        {
+            tbsCertificate.ReadEncodedValue();
+        }
+
+        tbsCertificate.ReadEncodedValue(); // serialNumber
+        tbsCertificate.ReadEncodedValue(); // signature
+        tbsCertificate.ReadEncodedValue(); // issuer
+        tbsCertificate.ReadEncodedValue(); // validity
+        tbsCertificate.ReadEncodedValue(); // subject
+
+        return tbsCertificate.ReadEncodedValue().ToArray();
+    }
 }
