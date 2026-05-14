@@ -3,6 +3,7 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using Org.BouncyCastle.X509;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.Security.Cryptography;
@@ -75,6 +76,11 @@ public class CertificateHelper
             return false; // Certificate expired
         }
 
+        if (!HasValidSelfSignature(certificate))
+        {
+            return false; // Certificate self-signature is invalid
+        }
+
         Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
 
         if (key is null || signature is null)
@@ -139,6 +145,21 @@ public class CertificateHelper
 
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();
     private static byte[] ContentToSignFromTlsPublicKey(byte[] keyInfo) => [.. SignaturePrefix, .. keyInfo];
+
+    private static bool HasValidSelfSignature(X509Certificate2 certificate)
+    {
+        try
+        {
+            X509CertificateParser parser = new();
+            Org.BouncyCastle.X509.X509Certificate parsedCertificate = parser.ReadCertificate(certificate.RawData);
+            parsedCertificate.Verify(parsedCertificate.GetPublicKey());
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static byte[] ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
     {

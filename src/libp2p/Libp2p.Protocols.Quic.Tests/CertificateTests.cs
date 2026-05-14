@@ -46,6 +46,7 @@ public class CertificateTests
             "12D3KooWRja6riywsP8bE7V2gGg55Jsx7HrHLQcEwxvmwD8SQynV"
             )
         { TestName = "Invalid", ExpectedResult = false };
+        yield return InvalidSelfSignatureCertificate();
         foreach (KeyType keyType in Enum.GetValues<KeyType>())
         {
             Identity id = new(null, keyType);
@@ -55,5 +56,20 @@ public class CertificateTests
               )
             { TestName = $"Roundtrip valid {keyType} key", ExpectedResult = true };
         }
+    }
+
+    private static TestCaseData InvalidSelfSignatureCertificate()
+    {
+        Identity id = new();
+        using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(certificateKey, id);
+        byte[] certificateBytes = certificate.GetRawCertData();
+        certificateBytes[^1] ^= 0x01;
+
+        return new TestCaseData(certificateBytes, id.PeerId.ToString())
+        {
+            TestName = "Invalid certificate self-signature",
+            ExpectedResult = false,
+        };
     }
 }
