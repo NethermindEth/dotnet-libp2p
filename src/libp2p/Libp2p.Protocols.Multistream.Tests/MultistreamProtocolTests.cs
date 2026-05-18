@@ -72,6 +72,34 @@ public class MultistreamProtocolTests
     }
 
     [Test]
+    public async Task Test_SpecificRequest_IsProposedBeforeRemoteHello()
+    {
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+
+        IProtocol? proto1 = Substitute.For<IProtocol>();
+        proto1.Id.Returns("proto1");
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions { SelectedProtocol = proto1 });
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
+
+        MultistreamProtocol proto = new();
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
+
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
+
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync(proto1.Id);
+        await dialTask;
+
+        ReadResult extraWrite = await downChannel.ReadAsync(0, ReadBlockingMode.DontWait);
+        Assert.That(extraWrite.Data.Length, Is.Zero);
+        _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
+        await downChannel.CloseAsync();
+    }
+
+    [Test]
     public async Task Test_ConnectionClosed_ForUnknownProtocol()
     {
         IChannel downChannel = new TestChannel();
