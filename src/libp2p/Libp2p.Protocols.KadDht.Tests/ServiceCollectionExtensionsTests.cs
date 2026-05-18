@@ -209,6 +209,8 @@ public class ServiceCollectionExtensionsTests
 
         public ILibp2pPeerFactoryBuilder WithQuic() => this;
 
+        public ILibp2pPeerFactoryBuilder WithWebSockets() => this;
+
         public ILibp2pPeerFactoryBuilder WithWebRtcDirect() => this;
     }
 }

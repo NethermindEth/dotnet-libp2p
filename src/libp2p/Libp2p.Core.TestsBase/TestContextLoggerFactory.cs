@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -20,11 +20,11 @@ public class TestContextLoggerFactory : ILoggerFactory
 
         private static string ToString(LogLevel level) => level switch
         {
-            LogLevel.Trace => "TRAC",
-            LogLevel.Debug => "DEBG",
+            LogLevel.Trace => "TRCE",
+            LogLevel.Debug => "DBUG",
             LogLevel.Information => "INFO",
             LogLevel.Warning => "WARN",
-            LogLevel.Error => "EROR",
+            LogLevel.Error => "FAIL",
             LogLevel.Critical => "CRIT",
             LogLevel.None => "NONE",
             _ => throw new NotImplementedException()

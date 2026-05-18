@@ -45,7 +45,7 @@ internal class DataChannelOverIChannel : IChannel
             {
                 if (!_incoming.Reader.TryRead(out _currentBuffer!))
                 {
-                    if (blockingMode == ReadBlockingMode.DontWait)
+                    if (blockingMode == ReadBlockingMode.DoNotWait)
                     {
                         return ReadResult.Empty;
                     }
