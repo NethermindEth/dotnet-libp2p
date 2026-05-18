@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Exceptions;
@@ -77,14 +77,14 @@ public class ReaderWriterTests
     }
 
     [Test]
-    public async Task Test_ChannelReadsNothing_WhenItIsDontWaitAndEmpty()
+    public async Task Test_ChannelReadsNothing_WhenItIsDoNotWaitAndEmpty()
     {
         Channel.ReaderWriter readerWriter = new();
-        ReadOnlySequence<byte> anyData = await readerWriter.ReadAsync(0, ReadBlockingMode.DontWait).OrThrow();
+        ReadOnlySequence<byte> anyData = await readerWriter.ReadAsync(0, ReadBlockingMode.DoNotWait).OrThrow();
         Assert.That(anyData.ToArray(), Is.Empty);
-        anyData = await readerWriter.ReadAsync(1, ReadBlockingMode.DontWait).OrThrow();
+        anyData = await readerWriter.ReadAsync(1, ReadBlockingMode.DoNotWait).OrThrow();
         Assert.That(anyData.ToArray(), Is.Empty);
-        anyData = await readerWriter.ReadAsync(10, ReadBlockingMode.DontWait).OrThrow();
+        anyData = await readerWriter.ReadAsync(10, ReadBlockingMode.DoNotWait).OrThrow();
         Assert.That(anyData.ToArray(), Is.Empty);
     }
 
@@ -92,7 +92,7 @@ public class ReaderWriterTests
     public async Task Test_ChannelWrites_WhenReadIsRequested3()
     {
         Channel.ReaderWriter readerWriter = new();
-        ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow();
+        ReadOnlySequence<byte> res1 = await readerWriter.ReadAsync(3, ReadBlockingMode.DoNotWait).OrThrow();
         Assert.That(res1.ToArray().Length, Is.EqualTo(0));
     }
 
@@ -113,7 +113,7 @@ public class ReaderWriterTests
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DoNotWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());
@@ -151,7 +151,7 @@ public class ReaderWriterTests
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAny).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
-        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DontWait).OrThrow());
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.DoNotWait).OrThrow());
         Assert.That(await readerWriter.CanReadAsync(), Is.EqualTo(IOResult.Ended));
 
         Assert.ThrowsAsync<ChannelClosedException>(async () => await readerWriter.ReadAsync(3, ReadBlockingMode.WaitAll).OrThrow());

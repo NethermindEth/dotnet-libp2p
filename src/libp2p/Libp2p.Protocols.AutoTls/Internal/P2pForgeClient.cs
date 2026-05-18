@@ -52,10 +52,15 @@ public sealed class P2pForgeClient
             string body = await SafeReadAsync(probeResp, ct);
             throw new AutoTlsException($"Forge broker did not return a peer-id-auth challenge. Status={(int)probeResp.StatusCode}, Body={body}");
         }
+        if (!challenge.TryGetValue("public-key", out string? serverPublicKey) || string.IsNullOrEmpty(serverPublicKey))
+        {
+            string body = await SafeReadAsync(probeResp, ct);
+            throw new AutoTlsException($"Forge broker did not return a peer-id-auth public key. Status={(int)probeResp.StatusCode}, Body={body}");
+        }
         challenge.TryGetValue("opaque", out string? opaque);
 
         // Step 2: send the signed payload + DNS-01 value + multiaddrs.
-        string authHeader = PeerIdAuth.BuildAuthorizationHeader(identity, hostname, serverChallenge, opaque);
+        string authHeader = PeerIdAuth.BuildAuthorizationHeader(identity, hostname, serverChallenge, serverPublicKey, opaque);
         ForgeChallengePayload payload = new()
         {
             Value = dns01Value,

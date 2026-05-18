@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
 using Libp2p.Protocols.KadDht.Kademlia;
@@ -32,7 +32,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
     // cost of trying many node for increasingly lower new node.
     private const int MaxRounds = 3;
 
-    // These two dont come into effect as MaxRounds is low.
+    // These two do not come into effect as MaxRounds is low.
     private const int MaxNonProgressingRound = 3;
     private const int MinResult = 128;
 
@@ -115,7 +115,7 @@ public class IteratorNodeLookup<TPublicKey, THash, TNode>(
                     continue;
                 }
 
-                // When seen already dont record
+                // When seen already do not record
                 if (!seen.TryAdd(neighbourHash, neighbour))
                 {
                     seenIgnored++;

@@ -9,11 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NSubstitute" />
-    <PackageReference Include="NSubstitute.Analyzers.CSharp">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
     <PackageReference Include="NUnit" />
     <PackageReference Include="NUnit3TestAdapter" />
     <PackageReference Include="NUnit.Analyzers">
@@ -23,8 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
-    <ProjectReference Include="..\Libp2p.Protocols.KadDht\Libp2p.Protocols.KadDht.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.AutoTls\Libp2p.Protocols.AutoTls.csproj" />
   </ItemGroup>
 
 </Project>
