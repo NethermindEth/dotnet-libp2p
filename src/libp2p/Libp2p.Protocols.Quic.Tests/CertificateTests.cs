@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
@@ -12,7 +12,7 @@ public class CertificateTests
 {
     [TestCaseSource(nameof(CertificatesSerialized))]
     public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
-        CertificateHelper.ValidateCertificate(new X509Certificate2(certificateBytes), peerId);
+        CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
 
     public static IEnumerable<TestCaseData> CertificatesSerialized()
     {

@@ -66,6 +66,15 @@
         "resolved": "2.6.2",
         "contentHash": "7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w=="
       },
+      "Certes": {
+        "type": "Transitive",
+        "resolved": "3.0.4",
+        "contentHash": "dWst/ss3+b9HjkwP3V7zxUngL8puQwrjce22w4xdZoGMovYi8NFF7xSE5A4A2zqR+M5n70Z5d2RDJR73iNggsA==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.2",
+          "Portable.BouncyCastle": "1.9.0"
+        }
+      },
       "Common.Logging": {
         "type": "Transitive",
         "resolved": "3.4.1",
@@ -78,6 +87,11 @@
         "type": "Transitive",
         "resolved": "3.4.1",
         "contentHash": "wLHldZHvxsSD6Ahonfj00/SkfHfKqO+YT6jsUwVm8Rch1REL9IArHAcSLXxYxYfu5/4ydGtmXvOtaH3AkVPu0A=="
+      },
+      "Concentus": {
+        "type": "Transitive",
+        "resolved": "2.2.2",
+        "contentHash": "2B9YmHPKO+k7YpAAnqmiXwiMJnfjfj1C868RszOll2iZWLnGTAiC1q21L/d7CvTan7T+hyqU8dR0Dcy3cpjVfQ=="
       },
       "DnsClient": {
         "type": "Transitive",
@@ -206,29 +220,29 @@
       },
       "Microsoft.Extensions.Diagnostics": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "0CF9ZrNw5RAlRfbZuVIvzzhP8QeWqHiUmMBU/2H7Nmit8/vwP3/SbHeEctth7D4Gz2fBnEbokPc1NU8/j/1ZLw==",
+        "resolved": "10.0.0",
+        "contentHash": "xjkxIPgrT0mKTfBwb+CVqZnRchyZgzKIfDQOp8z+WUC6vPe3WokIf71z+hJPkH0YBUYJwa7Z/al1R087ib9oiw==",
         "dependencies": {
-          "Microsoft.Extensions.Configuration": "9.0.0",
-          "Microsoft.Extensions.Diagnostics.Abstractions": "9.0.0",
-          "Microsoft.Extensions.Options.ConfigurationExtensions": "9.0.0"
+          "Microsoft.Extensions.Configuration": "10.0.0",
+          "Microsoft.Extensions.Diagnostics.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "10.0.0"
         }
       },
       "Microsoft.Extensions.Diagnostics.Abstractions": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "1K8P7XzuzX8W8pmXcZjcrqS6x5eSSdvhQohmcpgiQNY/HlDAlnrhR9dvlURfFz428A+RTCJpUyB+aKTA6AgVcQ==",
+        "resolved": "10.0.0",
+        "contentHash": "SfK89ytD61S7DgzorFljSkUeluC1ncn6dtZgwc0ot39f/BEYWBl5jpgvodxduoYAs1d9HG8faCDRZxE95UMo2A==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.0",
-          "Microsoft.Extensions.Options": "9.0.0"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Options": "10.0.0"
         }
       },
       "Microsoft.Extensions.FileProviders.Abstractions": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "uK439QzYR0q2emLVtYzwyK3x+T5bTY4yWsd/k/ZUS9LR6Sflp8MIdhGXW8kQCd86dQD4tLqvcbLkku8qHY263Q==",
+        "resolved": "10.0.0",
+        "contentHash": "/ppSdehKk3fuXjlqCDgSOtjRK/pSHU8eWgzSHfHdwVm5BP4Dgejehkw+PtxKG2j98qTDEHDst2Y99aNsmJldmw==",
         "dependencies": {
-          "Microsoft.Extensions.Primitives": "9.0.0"
+          "Microsoft.Extensions.Primitives": "10.0.0"
         }
       },
       "Microsoft.Extensions.FileProviders.Physical": {
@@ -277,14 +291,27 @@
       },
       "Microsoft.Extensions.Hosting.Abstractions": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "yUKJgu81ExjvqbNWqZKshBbLntZMbMVz/P7Way2SBx7bMqA08Mfdc9O7hWDKAiSp+zPUGT6LKcSCQIPeDK+CCw==",
+        "resolved": "10.0.0",
+        "contentHash": "KrN6TGFwCwqOkLLk/idW/XtDQh+8In+CL9T4M1Dx+5ScsjTq4TlVbal8q532m82UYrMr6RiQJF2HvYCN0QwVsA==",
         "dependencies": {
-          "Microsoft.Extensions.Configuration.Abstractions": "9.0.0",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.0",
-          "Microsoft.Extensions.Diagnostics.Abstractions": "9.0.0",
-          "Microsoft.Extensions.FileProviders.Abstractions": "9.0.0",
-          "Microsoft.Extensions.Logging.Abstractions": "9.0.0"
+          "Microsoft.Extensions.Configuration.Abstractions": "10.0.0",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Diagnostics.Abstractions": "10.0.0",
+          "Microsoft.Extensions.FileProviders.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.0"
+        }
+      },
+      "Microsoft.Extensions.Http": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "r+mSvm/Ryc/iYcc9zcUG5VP9EBB8PL1rgVU6macEaYk45vmGRk9PntM3aynFKN6s3Q4WW36kedTycIctctpTUQ==",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "10.0.0",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Diagnostics": "10.0.0",
+          "Microsoft.Extensions.Logging": "10.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.0",
+          "Microsoft.Extensions.Options": "10.0.0"
         }
       },
       "Microsoft.Extensions.Logging.Configuration": {
@@ -407,6 +434,11 @@
           "Microsoft.NETCore.Platforms": "1.1.0"
         }
       },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.2",
+        "contentHash": "R2pZ3B0UjeyHShm9vG+Tu0EBb2lC8b0dFzV9gVn50ofHXh9Smjk6kTn7A/FdAsC8B5cKib1OnGYOXxRBz5XQDg=="
+      },
       "Noise.NET": {
         "type": "Transitive",
         "resolved": "1.0.0",
@@ -421,10 +453,40 @@
         "resolved": "2.2.8",
         "contentHash": "zG2FApP5zxSx6OcdJQLbZDk2AVlN2BNQD6MorwIfV6gVj0RRxWPEp2LXAxqDGZqeNV1Zp0BNPcNaey/GXmTdvQ=="
       },
+      "Portable.BouncyCastle": {
+        "type": "Transitive",
+        "resolved": "1.9.0",
+        "contentHash": "eZZBCABzVOek+id9Xy04HhmgykF0wZg9wpByzrWN7q8qEI0Qen9b7tfd7w8VA3dOeesumMG7C5ZPy0jk7PSRHw=="
+      },
       "SimpleBase": {
         "type": "Transitive",
         "resolved": "4.0.2",
         "contentHash": "sNKHP2Qzy4DafamgH44UGg1YeyHFT08AMgHPraxYt4CVBoHHYD5f0MjbBfdmtGca69xikPU5aV8H+MMP7ZnfIg=="
+      },
+      "SIPSorcery": {
+        "type": "Transitive",
+        "resolved": "10.0.3",
+        "contentHash": "+VnD/wvg5myZY2Gj3CXWKdTnfoigv1WyU0uh55pmksT28MBMXBSULLSQt6csNV8VYTJ2aT1CYr9LvBEZrbX6aw==",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "2.6.2",
+          "Concentus": "2.2.2",
+          "DnsClient": "1.8.0",
+          "SIPSorcery.WebSocketSharp": "0.0.1",
+          "SIPSorceryMedia.Abstractions": "8.0.12"
+        }
+      },
+      "SIPSorcery.WebSocketSharp": {
+        "type": "Transitive",
+        "resolved": "0.0.1",
+        "contentHash": "lBlR9rZmMty2v5kPzCseAyuSv95FSoGuYZJgDy6M/qqZ/xq1ejFnOVEpXMDqBIthiTUOH8rvMcpnva7HXK0ZVw=="
+      },
+      "SIPSorceryMedia.Abstractions": {
+        "type": "Transitive",
+        "resolved": "8.0.12",
+        "contentHash": "70bYl3RFc0lkL6Z2M2GD/vymnWvmnvTSJfEpFHE4Uh+bp5Rz9DWsEvuF8EZEhaW3foPGvpNIfP5nGj52cCXjgw==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "9.0.0"
+        }
       },
       "StackExchange.Redis": {
         "type": "Transitive",
@@ -531,6 +593,8 @@
           "Nethermind.Libp2p.Protocols.Relay": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.RequestResponse": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Tls": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.WebRtc": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.WebSockets": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Yamux": "[1.0.0, )"
         }
       },
@@ -545,6 +609,18 @@
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
           "Nethermind.Multiformats.Address": "[1.1.9, )",
           "SimpleBase": "[4.0.2, )"
+        }
+      },
+      "Nethermind.Libp2p.Protocols.AutoTls": {
+        "type": "Project",
+        "dependencies": {
+          "Certes": "[3.0.4, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Hosting.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Http": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Options": "[10.0.0, )",
+          "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
       "Nethermind.Libp2p.Protocols.Identify": {
@@ -648,6 +724,24 @@
           "Microsoft.Extensions.Logging": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Quic": "[1.0.0, )"
+        }
+      },
+      "Nethermind.Libp2p.Protocols.WebSockets": {
+        "type": "Project",
+        "dependencies": {
+          "Nethermind.Libp2p.Core": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.AutoTls": "[1.0.0, )"
+        }
+      },
+      "Nethermind.Libp2p.Protocols.WebRtc": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Nethermind.Libp2p.Core": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.Noise": "[1.0.0, )",
+          "Noise.NET": "[1.0.0, )",
+          "SIPSorcery": "[10.0.3, )"
         }
       },
       "Nethermind.Libp2p.Protocols.Yamux": {

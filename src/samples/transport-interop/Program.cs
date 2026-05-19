@@ -8,6 +8,7 @@ using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Tls;
+using Nethermind.Libp2p.Protocols.WebRtc;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.Net;
@@ -24,7 +25,7 @@ try
     }
 
     // For QUIC, muxer and security are built-in and not required
-    bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport";
+    bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport" || transport == "webrtc-direct";
 
     string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
     if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
@@ -201,7 +202,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
         _encryption = encryption;
     }
 
-    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport"];
+    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport", "webrtc-direct"];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
@@ -210,6 +211,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
             "tcp" => Get<IpTcpProtocol>(),
             // TODO: Improve QUIC interoperability
             "quic-v1" => Get<QuicProtocol>(),
+            "webrtc-direct" => Get<WebRtcDirectProtocol>(),
             _ => throw new NotImplementedException(),
         };
 
@@ -246,6 +248,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
     {
         "tcp" => $"/ip4/{ip}/tcp/{port}",
         "quic-v1" => $"/ip4/{ip}/udp/{port}/quic-v1",
+        "webrtc-direct" => $"/ip4/{ip}/udp/{port}/webrtc-direct",
         _ => throw new NotImplementedException(),
     };
 }

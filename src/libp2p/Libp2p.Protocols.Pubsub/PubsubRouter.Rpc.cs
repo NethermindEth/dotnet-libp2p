@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -342,7 +342,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (MessageId messageId in idontwants.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray())).Take(_settings.MaxIdontwantMessages))
         {
-            _dontWantMessages.Add((peerId, messageId));
+            _idontwantMessages.Add((peerId, messageId));
         }
     }
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: LGPL-3.0-only
 
 using System.Collections.Concurrent;
@@ -177,7 +177,7 @@ public class LookupKNearestNeighbour<THash, TNode>(
                 // Already queried, we ignore
                 if (queried.ContainsKey(neighbourHash)) continue;
 
-                // When seen already dont record
+                // When seen already do not record
                 if (!seen.TryAdd(neighbourHash, neighbour)) continue;
 
                 bestSeen.Enqueue((neighbourHash, neighbour), neighbourHash);
