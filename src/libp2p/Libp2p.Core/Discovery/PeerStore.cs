@@ -11,10 +11,6 @@ namespace Nethermind.Libp2p.Core.Discovery;
 
 public class PeerStore
 {
-    public PeerStore()
-    {
-
-    }
     private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
 
     public void Discover(ByteString signedPeerRecord)

@@ -8,7 +8,7 @@ using Nethermind.Libp2p.Core.TestsBase;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
-internal class StackTests
+internal class SessionCancellationTests
 {
     public async Task<ISession> Init(int? delay = null, bool cancelOnToken = true)
     {
