@@ -1,54 +1,82 @@
-# Developing a lower layer protocol
+# Developing transport and connection protocols
 
-There are to kinds of protocols below session ones:
+dotnet-libp2p has two protocol layers below application/session protocols:
 
-- transport protocols that is responsible for establishing connection via `tcp`/`udp`
-- connection protocols that handle encryption, authentication and establishing sessions `multistream-select`, `nois`, `yamux`, etc
+- Transport protocols establish network connections from peer addresses, for example TCP or QUIC.
+- Connection protocols run over an established channel and handle protocol negotiation, peer authentication, encryption, session creation, or stream multiplexing. Examples include multistream-select, noise, TLS, and yamux.
 
-A protocol may cover several aspects also, like `quic-v1` does for example
+A protocol may cover several responsibilities. QUIC is the common example because the transport also includes security and multiplexed streams.
 
-**Session** is an important concept in dotnet-libp2p. The client code can access established session to gain information about peers, dial peers with app layer protocols and manage connections. The entire stack of the protocols works for establishing such sessions.
+**Session** is an important concept in dotnet-libp2p. Client code can access an established session to inspect peer information, dial application protocols, and manage connections. The lower protocol stack exists to establish those sessions.
 
 The usual routine of a protocol is to:
 
-- Wait for connection by listening or dial actively;
-- Make a handshake;
-- Start an upper layer protocol and redirect communication to it.
+- listen for an inbound connection or dial a remote peer
+- complete any required handshake
+- start the upper layer protocol and forward communication to it
 
 ## Transport protocol
 
-Transport layer protocols implement `ITransportProtocol`, their goal is to upgrade to connected state. When real connection is established, the implementation has to:
+Transport protocols implement `ITransportProtocol`. Their goal is to turn a peer address into a live connection.
 
-- create connection context via `ITransportContext.CreateConnection`
-- upgrade to the upper protocol, by spawning a channel via `connectionContext.Upgrade()`
-- send to and received data from that upper channel, passing it from and to the remote peer
+Implementations provide static helpers for address matching and default listener addresses:
 
-Additionally
+```csharp
+public interface ITransportProtocol : IProtocol
+{
+    static abstract Multiaddress[] GetDefaultAddresses(PeerId peerId);
+    static abstract bool IsAddressMatch(Multiaddress addr);
 
-- listener should inform libp2p that it's ready, using `context.ListenerReady`
-- listener has to share real addresses used for listening
-- both listener and dialer parts should fill out `context.State`
+    Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token);
+    Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token);
+}
+```
+
+When a real connection is established, the implementation should:
+
+- create a connection context with `ITransportContext.CreateConnection()`
+- fill `connection.State.LocalAddress` and `connection.State.RemoteAddress` when they are known
+- call `connection.Upgrade()` to create the upper channel
+- forward bytes between the upper channel and the remote peer
+
+Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
 ## Connection protocol
 
-Connection protocols are different from transport ones: they receive data from a channel below, their aim is to:
+Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.
 
-- negotiate upper level protocols
-- ensure correctness of remote peer information like their public key, id, etc
-- encrypt/decrypt data
-- enable simultaneous communications via different protocols, via multiplexing
+```csharp
+public interface IConnectionProtocol : IProtocol
+{
+    Task ListenAsync(IChannel downChannel, IConnectionContext context);
+    Task DialAsync(IChannel downChannel, IConnectionContext context);
+}
+```
 
-Usually the top level connection protocol is responsible for starting up session.
-Transport layer protocol can do all connection protocol does.
+Connection protocols typically do one or more of the following:
 
-Connection layer protocols typically do some of this:
+- choose one of `context.SubProtocols` and call `context.Upgrade(downChannel, selectedProtocol)` when negotiating protocols
+- call `context.Upgrade()` and forward bytes when the protocol transforms the stream, such as encryption
+- set `context.State.RemotePublicKey`, `context.State.RemoteAddress`, or other peer metadata discovered during the handshake
+- call `context.UpgradeToSession()` when the connection is ready to become a libp2p session
 
-- upgrade to the upper protocol, by spawning a channel via `context.Upgrade()`
-- set `context.State.RemotePublicKey` / adjust `context.State.RemoteAddress`
-- create session context via `IConnectionContext.UpgradeToSession()`
-- send to and received data from that upper channel, passing it from and to the down channel
+For example, multistream-select negotiates the next protocol with `context.SubProtocols`, Noise and TLS authenticate and encrypt the channel, and Yamux creates the session and multiplexes application streams.
 
 ## Adding protocol to stack
 
-In case you develop for libp2p protocol, you may want to include it in `Libp2pPeerFactoryBuilder`. See `BuildStack` implementation
-Application layer protocols then can be added via a separate API(`AddAppLayerProtocol`)
+If you develop a protocol for the standard libp2p stack, include it in `Libp2pPeerFactoryBuilder.BuildStack`. The builder creates protocol instances with `Get<TProtocol>()` and wires protocol layers with `Connect(...)`:
+
+```csharp
+protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+{
+    ProtocolRef tcp = Get<IpTcpProtocol>();
+    ProtocolRef selector = Get<MultistreamProtocol>();
+
+    Connect([tcp], [selector], [Get<NoiseProtocol>(), Get<TlsProtocol>()], [selector], [Get<YamuxProtocol>()], [selector]);
+    Connect([selector], [Get<PingProtocol>(), .. additionalProtocols]);
+
+    return [tcp];
+}
+```
+
+Application protocols can be added by application code with `AddAppLayerProtocol<TProtocol>()`.

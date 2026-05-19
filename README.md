@@ -22,7 +22,7 @@ As a libp2p protocol implementer, you may be interested in [more advanced tutori
 
 ## Adding libp2p to your project
 
-```
+```sh
 dotnet add package Nethermind.Libp2p --prerelease
 ```
 
