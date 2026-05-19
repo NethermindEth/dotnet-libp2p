@@ -1,6 +1,5 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
-// SPDX-Author: Luca Fabbri
 
 using Nethermind.Libp2p.Core.Extensions;
 
@@ -8,65 +7,73 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelTests
 {
-    /// <summary>
-    /// Tests the i channel extensions as stream write read asynchronous.
-    /// </summary>
     [Test]
-    public async Task Test_IChannelExtensions_AsStreamWriteReadAsync()
+    public async Task Test_AsStream_ReadsDataWrittenToReverseChannel()
     {
-        // Arrange
         Channel channel = new();
         using Stream stream = channel.AsStream();
         using Stream reverseStream = channel.Reverse.AsStream();
 
         byte[] data = [1, 2, 3, 4];
 
-        // Act
-        var _ = Task.Run(async () => await stream.WriteAsync(data, 0, data.Length));
+        Task write = stream.WriteAsync(data, 0, data.Length);
 
         byte[] buffer = new byte[4];
         int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await write;
 
-        // Assert
         Assert.That(bytesRead, Is.EqualTo(data.Length));
-        Assert.That(buffer, Is.EquivalentTo(data));
+        Assert.That(buffer, Is.EqualTo(data));
     }
 
     [Test]
-    public async Task Test_IChannelExtensions_AsStreamWriteReadAsync_Empty()
+    public async Task Test_AsStream_ReadsDataWrittenWithMemoryOverloads()
     {
-        // Arrange
         Channel channel = new();
         using Stream stream = channel.AsStream();
         using Stream reverseStream = channel.Reverse.AsStream();
-        byte[] data = Array.Empty<byte>();
 
-        // Act
-        var _ = Task.Run(async () => await stream.WriteAsync(data, 0, data.Length));
+        byte[] data = [5, 6, 7, 8];
+
+        ValueTask write = stream.WriteAsync(data.AsMemory());
+
         byte[] buffer = new byte[4];
-        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        int bytesRead = await reverseStream.ReadAsync(buffer.AsMemory());
+        await write;
 
-        // Assert
         Assert.That(bytesRead, Is.EqualTo(data.Length));
-        Assert.That(buffer, Is.EquivalentTo(new byte[4])); // Buffer should remain unchanged
+        Assert.That(buffer, Is.EqualTo(data));
     }
 
     [Test]
-    public async Task Test_IChannelExtensions_AsStreamWriteReadAsync_ZeroLength()
+    public async Task Test_AsStream_ZeroLengthReadReturnsImmediately()
     {
-        // Arrange
         Channel channel = new();
         using Stream stream = channel.AsStream();
-        using Stream reverseStream = channel.Reverse.AsStream();
-        byte[] data = [1, 2, 3, 4];
 
-        // Act
-        var _ = Task.Run(async () => await stream.WriteAsync(data, 0, 0)); // Writing zero length
         byte[] buffer = new byte[4];
-        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        int bytesRead = await stream.ReadAsync(buffer, 0, 0);
 
-        // Assert
-        Assert.That(bytesRead, Is.EqualTo(0));
-        Assert.That(buffer, Is.EquivalentTo(new byte[4])); // Buffer should remain unchanged
+        Assert.That(bytesRead, Is.Zero);
+        Assert.That(buffer, Is.EqualTo(new byte[4]));
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthWriteCompletes()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await stream.WriteAsync(Array.Empty<byte>(), 0, 0);
+
+        Assert.That(stream.CanWrite, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_NullChannelThrows()
+    {
+        IChannel? channel = null;
+
+        Assert.Throws<ArgumentNullException>(() => channel!.AsStream());
     }
 }

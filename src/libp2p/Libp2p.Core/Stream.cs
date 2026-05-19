@@ -11,10 +11,9 @@ public class ChannelStream : Stream
     private bool _canRead = true;
     private bool _canWrite = true;
 
-    // Constructor
     public ChannelStream(IChannel chan)
     {
-        _chan = chan ?? throw new ArgumentNullException(nameof(_chan));
+        _chan = chan ?? throw new ArgumentNullException(nameof(chan));
     }
 
     public override bool CanRead => _canRead;
@@ -64,25 +63,50 @@ public class ChannelStream : Stream
     }
 
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        => base.WriteAsync(buffer, cancellationToken);
+        => WriteAsyncCore(buffer, cancellationToken);
+
+    private async ValueTask WriteAsyncCore(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+    {
+        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken)) != IOResult.Ok)
+        {
+            _canWrite = false;
+        }
+    }
 
     public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if (buffer is { Length: 0 } && _canRead) return 0;
+        if (count == 0 && _canRead) return 0;
 
-        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        ReadResult result = await _chan.ReadAsync(count, ReadBlockingMode.WaitAny, cancellationToken);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
             return 0;
         }
 
-        result.Data.CopyTo(buffer);
+        result.Data.CopyTo(buffer.AsSpan(offset, count));
         return (int)result.Data.Length;
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        => base.ReadAsync(buffer, cancellationToken);
+    {
+        if (buffer.IsEmpty && _canRead) return ValueTask.FromResult(0);
+
+        return ReadAsyncCore(buffer, cancellationToken);
+    }
+
+    private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
+    {
+        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken);
+        if (result.Result != IOResult.Ok)
+        {
+            _canRead = false;
+            return 0;
+        }
+
+        result.Data.CopyTo(buffer.Span);
+        return (int)result.Data.Length;
+    }
 
     public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 

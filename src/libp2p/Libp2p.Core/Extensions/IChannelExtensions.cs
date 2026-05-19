@@ -1,6 +1,5 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
-// SPDX-Author: Luca Fabbri
 
 namespace Nethermind.Libp2p.Core.Extensions;
 
@@ -17,11 +16,8 @@ public static class IChannelExtensions
     /// <exception cref="ArgumentNullException">Channel is null throws an <see cref="ArgumentNullException"/></exception>
     public static Stream AsStream(this IChannel channel)
     {
-        if (channel is null)
-        {
-            throw new ArgumentNullException(nameof(channel));
-        }
+        ArgumentNullException.ThrowIfNull(channel);
 
-        return new ChannelStream(channel);
+        return new global::ChannelStream(channel);
     }
 }
