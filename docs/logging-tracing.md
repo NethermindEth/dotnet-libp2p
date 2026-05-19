@@ -1,6 +1,8 @@
-# Logging
+# Logging and tracing
 
-Libp2p integrates a standard `ILoggerFactory`/`ILogger` approach. When logging is not injected no logs are printed.
+## Logging
+
+Libp2p uses the standard `ILoggerFactory`/`ILogger` approach. When logging is not injected, no logs are printed.
 
 Such code allows logs to be displayed in the console:
 
@@ -14,14 +16,15 @@ new ServiceCollection()
                                   }))
 ```
 
-# Tracing using open telemetry
+## Tracing using OpenTelemetry
 
-Tracing is implemented using standard `Activities`, check [Microsoft docs](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/distributed-tracing-instrumentation-walkthroughs#activity) for more details.
+Tracing is implemented with standard `Activities`. Check [Microsoft docs](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/distributed-tracing-instrumentation-walkthroughs#activity) for more details.
 
 There is an optional separate package containing a helper that allows you to:
-- activate telemetry sending to standard address
-- inject "root" activity that will be used as a parent for all activities created in libp2p
-- inject activity source required for spawning tracing activities
+
+- activate telemetry export to the standard endpoint
+- inject a root activity that is used as a parent for all activities created in libp2p
+- inject the activity source required for spawning tracing activities
 
 ```sh
 dotnet add package Nethermind.Libp2p.OpenTelemetry --prerelease
@@ -32,10 +35,10 @@ new ServiceCollection()
     .AddTracing(appName: "my app", createRootActivity: true)
 ```
 
-or you can just copy and customize [tracing related dependencies injection code](../src/libp2p/Libp2p.OpenTelemetry/ServiceProviderExtensions.cs).
+or copy and customize the [tracing-related dependency injection code](../src/libp2p/Libp2p.OpenTelemetry/ServiceProviderExtensions.cs).
 
-### Tips on `Activities` tracing
+## Tips on `Activities` tracing
 
-- Activities need to be disposed, otherwise they will not be sent to server. You can try to dispose `TracerProvider` instance used, and it may help. But I found some activities still not disposed and therefore not sent. Additional effort that finally fixes the issue with sending really all activity information is to track all of them and dispose, see [ActivityTracker](../src/libp2p/Libp2p.E2eTests/E2eTestSetup.cs) as a last resort.
+- Activities need to be disposed; otherwise they might not be exported. Disposing the `TracerProvider` instance can help. If some activities are still not sent, track and dispose them explicitly, as shown by [ActivityTracker](../src/libp2p/Libp2p.E2eTests/E2eTestSetup.cs).
 
-- Pretty convenient dev tool to receive telemetry and to check graphs is jaeger: https://www.jaegertracing.io/download/ (just download, start jaeger executable from cli and navigate to http://localhost:16686/search, then run your app)
+- Jaeger is a convenient development tool for receiving telemetry and checking graphs: https://www.jaegertracing.io/download/. Start the Jaeger executable from the CLI, navigate to http://localhost:16686/search, then run your app.

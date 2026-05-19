@@ -23,6 +23,7 @@ public partial class LocalPeer
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
 
+        /// <inheritdoc />
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
             TaskCompletionSource<object?> tcs = new();
@@ -31,6 +32,12 @@ public partial class LocalPeer
             MarkAsConnected();
         }
 
+        /// <summary>
+        /// Dials a specific protocol instance on this session.
+        /// </summary>
+        /// <param name="protocol">The protocol instance to negotiate over this session.</param>
+        /// <param name="token">Cancellation token used while queueing the dial request.</param>
+        /// <returns>A task that completes when the dial request has been handled.</returns>
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
             TaskCompletionSource<object?> tcs = new();
@@ -39,6 +46,7 @@ public partial class LocalPeer
             MarkAsConnected();
         }
 
+        /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
             TaskCompletionSource<object?> tcs = new();

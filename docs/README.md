@@ -1,20 +1,21 @@
-# Application developers quick start
+# Application developer quick start
 
-Libp2p network stack includes all necessary to bypass typical networking obstacles, find peers, connect to them and exchange data according to the selected protocol. The implementation allows to build your own transport, but standard stack can be used for rapid development.
+The libp2p network stack contains the pieces needed to work around common networking obstacles, find peers, connect to them, negotiate protocols, and exchange data. dotnet-libp2p lets you build custom transports and protocols, while the standard stack is available for rapid application development.
 
-The following package includes links to protocols and provides them assembled in a single convenient LibP2P library:
+The following package links the core protocols and assembles them into a single convenient libp2p library:
 
-```
+```sh
 dotnet add package Nethermind.Libp2p --prerelease
 ```
 
-The library requires [.NET 8](https://dotnet.microsoft.com/en-us/download) or higher
+The library targets [.NET 10](https://dotnet.microsoft.com/en-us/download) or higher.
 
 ## Basic usage
 
-.NET libp2p is IoC friendly. `AddLibp2p` service collection extension allows to provide basic customization:
-- add user define protocols
-- customize included ones
+.NET libp2p is IoC friendly. The `AddLibp2p` service collection extension allows basic customization:
+
+- add user-defined protocols
+- customize included protocols
 - change libp2p core behavior
 
 ```cs
@@ -23,7 +24,7 @@ ServiceProvider serviceProvider = new ServiceCollection()
     .BuildServiceProvider();
 ```
 
-One of the injected services is `IPeerFactory`. It allows peer to be created that can wait for connections:
+One of the injected services is `IPeerFactory`. It creates peers that can wait for incoming connections:
 
 ```cs
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
@@ -34,14 +35,14 @@ peer.OnConnected += async remotePeer => Console.WriteLine("A peer connected {0}"
 await peer.StartListenAsync();
 ```
 
-It can also dial other peers:
+Peers can also dial other peers:
 
 ```cs
 ISession remotePeer = await localPeer.DialAsync(remoteAddr);
 await remotePeer.DialAsync<SomeProtocol>();
 ```
 
-When properly implemented protocols may receive arguments and return data:
+Protocols can receive arguments and return data when they implement a typed session protocol:
 
 ```cs
 ISession remotePeer = await localPeer.DialAsync(remoteAddr);
@@ -53,9 +54,10 @@ int answer = await remotePeer.DialAsync<SomeProtocol, string, int>("what is answ
 1. Write your protocol
 
 Libp2p protocols can be divided into 3 layers:
-- Transport layer protocols, that actively use peer address to discover network and establish connection
-- Connection layer protocols
-- Application layer protocols, that rely on an established session and are used to exchange an actual payload
+
+- Transport protocols use peer addresses to establish network connections.
+- Connection protocols negotiate protocols, authenticate or encrypt traffic, create sessions, or multiplex streams.
+- Application protocols rely on an established session and exchange the actual payload.
 
 The protocol can be used to dial other peers or listen for connections.
 
@@ -67,16 +69,16 @@ using Nethermind.Libp2p.Core;
 // implement application layer protocol interface
 class DeepThoughtProtocol : ISessionProtocol<string, int>
 {
-    // protocol id is required: libp2p exchange with protocol ids at some step
+    // protocol id is required: libp2p peers negotiate protocols by id
     public string Id => "/deep-thought/2.0";
 
     // called when you dial a remote peer
     public async Task<int> DialAsync(IChannel downChannel, ISessionContext context, string request)
     {
-        // `downChannel` contains various method to send and receive data
-        // you can write a string with \n at the end
+        // `downChannel` contains various methods to send and receive data
+        // for example, you can write a line
         await downChannel.WriteLineAsync(request);
-        // or read an integer
+        // or read a variable-size integer
         return await downChannel.ReadVarintAsync();
     }
 
@@ -89,12 +91,14 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 }
 ```
 
-- The `downChannel` is used to receive from and send data to the transport layer.
+- The `downChannel` is used to receive data from and send data to the lower protocol layer.
 - `context` holds information about local and remote peers. It allows more connections to be initiated within the current session.
+- `IChannel` is implemented by `Nethermind.Libp2p.Core.Channel`; it supports concurrent readers and writers.
 
 ### Further exploration
+
 - Add [logging and tracing](./logging-tracing.md)
-- Go check samples dir! It include chat apps, pubsub, discovery and more
-- If the protocol is symmetric (i.e. listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class.
-- Need more information about other connected peers - check `IPeerStore`
-- Conventions and more potentially useful tips can be found in [the best practices list](./development/best-practices.md)
+- Check the samples directory. It includes chat apps, pubsub, discovery, and more.
+- If the protocol is symmetric (i.e. listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class. A remote peer does not need to use the same helper type; successful communication depends on both peers negotiating the same `ISessionProtocol.Id`.
+- Need more information about other connected peers? Check `IPeerStore`.
+- Conventions and other useful tips can be found in [the best practices list](./development/best-practices.md).
