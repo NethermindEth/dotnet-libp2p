@@ -4,6 +4,7 @@
 using Multiformats.Hash;
 
 namespace Nethermind.Libp2p.Core.Tests;
+
 public class PeerIdTests
 {
     [TestCaseSource(nameof(PeerIdsWithExpectedMultihashes))]

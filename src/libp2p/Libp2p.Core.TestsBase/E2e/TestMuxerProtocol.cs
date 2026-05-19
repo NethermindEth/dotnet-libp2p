@@ -50,7 +50,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 }
                 catch (SessionExistsException)
                 {
-                    logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener rejected inititation of a redundant session");
+                    logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listener rejected initiation of a redundant session");
                 }
                 catch (Exception e)
                 {
@@ -175,12 +175,12 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             UpgradeOptions req = new() { SelectedProtocol = session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First()), CompletionSource = chans[packet.ChannelId].Tcs, Argument = chans[packet.ChannelId].Argument, ModeOverride = UpgradeModeOverride.Dial };
                             IChannel upChannel = session.Upgrade(session.SubProtocols.FirstOrDefault(x => x.Id == packet.Protocols.First())!, req);
                             chans[packet.ChannelId].UpChannel = upChannel;
-                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upchanel with {req.SelectedProtocol}");
+                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Start upChannel with {req.SelectedProtocol}");
                             _ = HandleUpchannelData(downChannel, chans, packet.ChannelId, upChannel, logPrefix);
                         }
                         else
                         {
-                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): No protocols = no upchanel");
+                            logger?.LogDebug($"{logPrefix}({packet.ChannelId}): No protocols = no upChannel");
                         }
                         break;
                     case MuxerPacketType.Data:
@@ -189,7 +189,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             logger?.LogWarning($"{logPrefix}({packet.ChannelId}): Empty data received");
                             break;
                         }
-                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Data to upchanel {packet.Data.Length} {Hex.ToHexString(packet.Data.ToByteArray())}");
+                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Data to upChannel {packet.Data.Length} {Hex.ToHexString(packet.Data.ToByteArray())}");
                         _ = chans.GetValueOrDefault(packet.ChannelId)?.UpChannel?.WriteAsync(new ReadOnlySequence<byte>(packet.Data.ToByteArray()));
                         break;
                     case MuxerPacketType.CloseWrite:

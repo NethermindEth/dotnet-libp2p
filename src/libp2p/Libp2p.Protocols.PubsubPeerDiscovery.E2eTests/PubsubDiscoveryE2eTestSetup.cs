@@ -16,7 +16,7 @@ public class PubsubDiscoveryE2eTestSetup : PubsubE2eTestSetup
     protected override IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
     {
         return base.ConfigureLibp2p(builder)
-            .AddAppLayerProtocol<IncrementNumberTestProtocol>();
+            .AddProtocol<IncrementNumberTestProtocol>();
     }
 
     protected override IServiceCollection ConfigureServices(IServiceCollection col)

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -7,11 +7,11 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core.TestsBase;
 
-public sealed class LocalPeerStub : ILocalPeer
+public class LocalPeerStub : ILocalPeer
 {
     public LocalPeerStub()
     {
-        Identity = new([.. Enumerable.Repeat((byte)42, 32)]);
+        Identity = new(Enumerable.Repeat((byte)42, 32).ToArray());
         Address = $"/p2p/{Identity.PeerId}";
     }
 
@@ -37,21 +37,32 @@ public sealed class LocalPeerStub : ILocalPeer
         throw new NotImplementedException();
     }
 
+    public T? GetProtocol<T>() where T : class, IProtocol
+    {
+        return default(T);
+    }
+
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
     }
 
-    public Task StartListenAsync(Multiaddress[]? addrs = null, CancellationToken token = default)
+    public Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
     {
         return Task.CompletedTask;
     }
 }
 
-public class TestRemotePeer(Multiaddress addr) : ISession
+public class TestRemotePeer : ISession
 {
-    public Identity Identity { get; set; } = TestPeers.Identity(addr);
-    public Multiaddress Address { get; set; } = addr;
+    public TestRemotePeer(Multiaddress addr)
+    {
+        Identity = TestPeers.Identity(addr);
+        Address = addr;
+    }
+
+    public Identity Identity { get; set; }
+    public Multiaddress Address { get; set; }
 
     public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
 

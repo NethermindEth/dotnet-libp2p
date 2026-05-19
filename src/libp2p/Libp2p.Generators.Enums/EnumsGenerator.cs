@@ -52,7 +52,7 @@ public class EnumsGenerator : ISourceGenerator
                     $"{(x.Status == "permanent" ? "" : $"    // {x.Status}\n")}" + $"    {Cap(x.Name)} = {x.Code},\n")
                 .Concat(new[] { "    Unknown,\n" });
             File.WriteAllText(Path.Combine(enumsDirectory, $"{e}.cs"),
-                $"namespace Nethermind.Libp2p.Core.Enums;\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
+                $"namespace Nethermind.Libp2p.Core.Enums;\n\npublic enum {e}\n{{\n{string.Join("", vs)}}}\n");
         }
 
         string? Cap(string? s)

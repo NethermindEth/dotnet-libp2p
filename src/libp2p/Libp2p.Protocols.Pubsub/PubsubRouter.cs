@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
@@ -32,14 +32,24 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
     public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
 
-    class PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, Multiaddress address, ConnectionInitiation initialisedBy)
+    class PubsubPeer
     {
-        public CancellationTokenSource TokenSource { get; init; } = new CancellationTokenSource();
-        public PeerId PeerId { get; set; } = peerId;
-        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
-        public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
-        public ConnectionInitiation InititatedBy { get; internal set; } = initialisedBy;
-        public Multiaddress Address { get; } = address;
+        public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings)
+        {
+            PeerId = peerId;
+            _logger = logger;
+            Protocol = protocolId switch
+            {
+                GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
+                GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
+                GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+                _ => PubsubProtocol.Floodsub,
+            };
+            TokenSource = new CancellationTokenSource();
+            Backoff = [];
+            SendRpcQueue = new ConcurrentQueue<Rpc>();
+            Score = new PeerScore(settings);
+        }
 
         public enum PubsubProtocol
         {
@@ -48,9 +58,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             GossipsubV10 = 2,
             GossipsubV11 = 4,
             GossipsubV12 = 8,
-            GossipsubV13 = 16,
-            GossipsubV14 = 32,
-            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12 | GossipsubV13 | GossipsubV14,
+            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
         }
 
         public void Send(Rpc rpc)
@@ -67,16 +75,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
-        public Dictionary<string, DateTime> Backoff { get; internal set; } = [];
-        public ConcurrentQueue<Rpc> SendRpcQueue { get; } = new ConcurrentQueue<Rpc>();
+        public Dictionary<string, DateTime> Backoff { get; internal set; }
+        public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
-        private readonly ILogger? _logger = logger;
+        private readonly ILogger? _logger;
 
         public Action<Rpc>? SendRpc
         {
             get => _sendRpc; set
             {
-                _logger?.LogDebug("Set SENDRPC for {peerId}: {value}", PeerId, value);
+                _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
                 _sendRpc = value;
                 if (_sendRpc is not null)
                     lock (SendRpcQueue)
@@ -88,14 +96,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
             }
         }
+        public CancellationTokenSource TokenSource { get; init; }
+        public PeerId PeerId { get; set; }
 
-        public PubsubProtocol Protocol { get; set; } = protocolId switch
-        {
-            GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
-            GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
-            GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
-            _ => PubsubProtocol.Floodsub,
-        };
+        public PubsubProtocol Protocol { get; set; }
+        public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
+        public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
+
+        public ConnectionInitiation InitiatedBy { get; internal set; }
+        public Multiaddress Address { get; internal set; } = null!;
+
+        // Peer scoring (Gossipsub v1.1)
+        public PeerScore Score { get; internal set; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -117,7 +129,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private readonly PubsubSettings _settings;
     private readonly TtlCache<MessageId, MessageWithId> _messageCache;
     private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
-    private readonly TtlCache<(PeerId, MessageId)> _dontWantMessages;
+    private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -159,12 +171,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _settings = settings ?? PubsubSettings.Default;
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
-        _dontWantMessages = new(_settings.MessageCacheTtl);
+        _idontwantMessages = new(_settings.MessageCacheTtl);
     }
 
     public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
     {
-        logger?.LogDebug("Running pubsub for {listenAddresses}", string.Join(",", localPeer.ListenAddresses));
+        logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
 
         if (this.localPeer is not null)
         {
@@ -210,11 +222,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
     {
-        ArgumentNullException.ThrowIfNull(localPeer);
-
         try
         {
-            ISession session = await localPeer.DialAsync(addrs, token);
+            ILocalPeer peer = localPeer ?? throw new InvalidOperationException("Router has not been started.");
+            ISession session = await peer.DialAsync(addrs, token);
 
             if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
@@ -240,8 +251,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     _ = session.DisconnectAsync();
                     return;
                 }
-                logger?.LogDebug("Dialing ended to {remoteAddress}", session.RemoteAddress);
-                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InititatedBy == ConnectionInitiation.Remote)
+                logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
+                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InitiatedBy == ConnectionInitiation.Remote)
                 {
                     _ = session.DisconnectAsync();
                 }
@@ -249,14 +260,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
         catch (Exception e)
         {
-            logger?.LogDebug("Adding reconnections for {addrs}: {message}", string.Join(",", addrs.Select(a => a.ToString())), e.Message);
+            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
             if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
         }
     }
 
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
         _messageCache.Dispose();
         _limboMessageCache.Dispose();
     }
@@ -267,7 +277,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
         {
-            logger?.LogDebug("Reconnect to {addrs}", string.Join(",", rec.Addresses.Select(a => a.ToString())));
+            logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
             _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
             {
                 if (t.IsFaulted && rec.Attempts != 1)
@@ -280,39 +290,106 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     public Task Heartbeat()
     {
+        // Apply score decay
+        DecayScores();
+
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
         lock (this)
         {
-            foreach (KeyValuePair<string, HashSet<PeerId>> mesh in mesh)
+            // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
-                if (mesh.Value.Count < _settings.LowestDegree)
+                string topic = meshEntry.Key;
+                var negativePeers = meshEntry.Value.Where(p => GetPeerScore(p) < 0).ToList();
+                foreach (var peerId in negativePeers)
                 {
-                    PeerId[] peersToGraft = [.. gPeers[mesh.Key]
-                        .Where(p => !mesh.Value.Contains(p) && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(mesh.Key, out DateTime backoff) != true || backoff < DateTime.Now))
-                        .Take(_settings.Degree - mesh.Value.Count)];
+                    logger?.LogDebug("Pruning peer {peerId} from mesh for topic {topic} due to negative score", peerId, topic);
+                    meshEntry.Value.Remove(peerId);
+                    RecordPeerLeaveMesh(peerId, topic);
+
+                    ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                         .Ensure(r => r.Control.Prune)
+                         .Add(prune);
+                }
+            }
+
+            foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
+            {
+                string topic = meshEntry.Key;
+                HashSet<PeerId> meshPeers = meshEntry.Value;
+
+                if (meshPeers.Count < _settings.LowestDegree)
+                {
+                    // Need to graft more peers - exclude peers with negative scores
+                    PeerId[] peersToGraft = gPeers[topic]
+                        .Where(p => !meshPeers.Contains(p)
+                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
+                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff < DateTime.Now))
+                        .Take(_settings.Degree - meshPeers.Count).ToArray();
+
                     foreach (PeerId peerId in peersToGraft)
                     {
-                        mesh.Value.Add(peerId);
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                             .Ensure(r => r.Control.Graft)
-                            .Add(new ControlGraft { TopicID = mesh.Key });
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
-                else if (mesh.Value.Count > _settings.HighestDegree)
+                else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    PeerId[] peerstoPrune = [.. mesh.Value.Take(mesh.Value.Count - _settings.HighestDegree)];
-                    foreach (PeerId? peerId in peerstoPrune)
+                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
+                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
+
+                    // Get D_score best peers
+                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
+
+                    // Ensure we have D_out outbound connections
+                    var outboundPeers = meshPeers
+                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
+                        .Take(_settings.DOut)
+                        .ToHashSet();
+
+                    // Peers to keep: best scores + outbound quota + random
+                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
+
+                    // Fill remaining spots randomly
+                    int remaining = _settings.HighestDegree - peersToKeep.Count;
+                    if (remaining > 0)
                     {
-                        mesh.Value.Remove(peerId);
-                        ControlPrune prune = new() { TopicID = mesh.Key, Backoff = 60 };
-                        prune.Peers.AddRange(mesh.Value.ToArray()
-                            .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
-                            .Where(pid => pid.Record is not null)
-                            .Select(pid => new PeerInfo
-                            {
-                                PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
-                                SignedPeerRecord = pid.Record,
-                            }));
+                        var candidates = meshPeers.Except(peersToKeep).ToList();
+                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
+                        {
+                            peersToKeep.Add(peer);
+                        }
+                    }
+
+                    // Prune the rest
+                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
+
+                    foreach (PeerId peerId in peersToPrune)
+                    {
+                        meshPeers.Remove(peerId);
+                        RecordPeerLeaveMesh(peerId, topic);
+
+                        ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+
+                        // Only include PX if peer has non-negative score
+                        if (GetPeerScore(peerId) >= 0)
+                        {
+                            prune.Peers.AddRange(meshPeers
+                                .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
+                                .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
+                                .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                                .Where(pid => pid.Record is not null)
+                                .Select(pid => new PeerInfo
+                                {
+                                    PeerID = ByteString.CopyFrom(pid.PeerId.Bytes),
+                                    SignedPeerRecord = pid.Record,
+                                }));
+                        }
+
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
                              .Add(prune);
@@ -350,7 +427,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     ControlIHave ihave = new() { TopicID = topic };
                     ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
 
-                    foreach (PeerId? peer in gPeers[topic].Where(p => !mesh[topic].Contains(p) && !fanout[topic].Contains(p)).Take(_settings.LazyDegree))
+                    // Only send gossip to peers above gossip threshold
+                    var eligiblePeers = gPeers[topic]
+                        .Where(p => !mesh[topic].Contains(p)
+                            && !fanout[topic].Contains(p)
+                            && GetPeerScore(p) >= _settings.GossipThreshold);
+
+                    // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy)
+                    int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Count() * _settings.GossipFactor));
+
+                    foreach (PeerId? peer in eligiblePeers.Take(gossipCount))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc())
                             .Ensure(r => r.Control.Ihave).Add(ihave);
@@ -376,7 +462,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return Canceled;
         }
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, addr, ConnectionInitiation.Local) { SendRpc = sendRpc, InititatedBy = ConnectionInitiation.Local });
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
 
         lock (peer)
         {
@@ -419,9 +505,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
             });
 
-            string[] topics = [.. topicState.Keys];
+            string[] topics = topicState.Keys.ToArray();
 
-            if (topics.Length != 0)
+            if (topics.Any())
             {
                 logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
 
@@ -434,9 +520,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress remoteAddr, string protocolId, Task listTask, Func<Task> subDial)
+    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
     {
-        PeerId? peerId = remoteAddr.GetPeerId();
+        PeerId? peerId = addr.GetPeerId();
 
         if (peerId is null || peerId == localPeer!.Identity.PeerId)
         {
@@ -444,7 +530,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, remoteAddr, ConnectionInitiation.Remote));
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
         lock (existingPeer)
         {
 
@@ -471,7 +557,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         topicPeers.Value.Remove(peerId);
                     }
-                    reconnections.Add(new Reconnection([remoteAddr], _settings.ReconnectionAttempts));
+                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
                 });
 
                 subDial();

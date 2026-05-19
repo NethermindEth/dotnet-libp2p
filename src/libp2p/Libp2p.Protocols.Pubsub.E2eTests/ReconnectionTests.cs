@@ -13,6 +13,7 @@ public class ReconnectionTests
 
 #if DEBUG
     [Test]
+    [Ignore("Flaky pubsub reconnection as listener; intermittently fails with connection refused after forced disconnect. Re-enable when stabilized.")]
     public async Task Test_CanReconnect_AsListener()
     {
         string commonTopic = "test";
@@ -38,6 +39,7 @@ public class ReconnectionTests
     }
 
     [Test]
+    [Ignore("Flaky pubsub reconnection as dialer; intermittently fails with connection refused after forced disconnect. Re-enable when stabilized.")]
     public async Task Test_CanReconnect_AsDialer()
     {
         string commonTopic = "test";

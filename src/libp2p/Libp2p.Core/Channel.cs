@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using Nethermind.Libp2p.Core.Metrics;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
@@ -43,7 +44,8 @@ public class Channel : IChannel
     public IWriter Writer { get => _writer; }
 
 
-    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+    public ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default)
     {
         return Reader.ReadAsync(length, blockingMode, token);
@@ -98,7 +100,8 @@ public class Channel : IChannel
         internal bool _eow = false;
 
         public async ValueTask<ReadResult> ReadAsync(int length,
-            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default)
         {
             try
             {
@@ -110,10 +113,20 @@ public class Channel : IChannel
                     return ReadResult.Ended;
                 }
 
-                if (blockingMode == ReadBlockingMode.DontWait && _bytes.Length == 0)
+                if (blockingMode == ReadBlockingMode.DoNotWait && _bytes.Length == 0)
                 {
                     _readLock.Release();
                     return ReadResult.Empty;
+                }
+
+                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
+                // WriteAsync returns early for zero-length writes without signaling _canRead
+                // Only apply this optimization for WaitAll mode (exact length reads)
+                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
+                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+                {
+                    _readLock.Release();
+                    return ReadResult.Ok(default);
                 }
 
                 await _canRead.WaitAsync(token);
@@ -167,6 +180,8 @@ public class Channel : IChannel
                 } while (bytesToRead != 0);
 
                 _readLock.Release();
+                Libp2pMetrics.DataReceivedBytes.Add(chunk.Length);
+                Libp2pMetrics.DataReceivedPackets.Add(1);
                 return ReadResult.Ok(chunk);
             }
             catch (TaskCanceledException)
@@ -201,6 +216,8 @@ public class Channel : IChannel
                 _bytes = bytes;
                 _canRead.Release();
                 await _read.WaitAsync(token);
+                Libp2pMetrics.DataSentBytes.Add(bytes.Length);
+                Libp2pMetrics.DataSentPackets.Add(1);
                 return IOResult.Ok;
             }
             catch (TaskCanceledException)

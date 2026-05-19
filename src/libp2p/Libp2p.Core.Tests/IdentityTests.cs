@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Core.Tests;
+
 public class IdentityTests
 {
     [TestCaseSource(nameof(KeysEncoded))]

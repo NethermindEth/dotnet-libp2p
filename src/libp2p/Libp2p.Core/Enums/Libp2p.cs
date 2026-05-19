@@ -1,4 +1,5 @@
 namespace Nethermind.Libp2p.Core.Enums;
+
 public enum Libp2p
 {
     // libp2p peer record type

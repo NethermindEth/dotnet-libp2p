@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -12,7 +12,7 @@ public class FloodsubProtocolTests
 {
     [Ignore("TODO")]
     [Test]
-    public async Task Test_Peer_is_in_fpeers()
+    public async Task Test_Peer_is_in_floodsub_peers()
     {
         PeerStore peerStore = new();
         PubsubRouter router = new(peerStore);
@@ -43,7 +43,7 @@ public class FloodsubProtocolTests
         TaskCompletionSource tcs = new();
 
         router.OutboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, sentRpcs.Add);
-        router.InboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, tcs.Task, () => Task.CompletedTask);
+        router.InboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, () => Task.CompletedTask);
         router.OnRpc(discoveredPeer.PeerId, new Rpc().WithTopics(new[] { commonTopic }, []));
 
         Assert.Multiple(() =>

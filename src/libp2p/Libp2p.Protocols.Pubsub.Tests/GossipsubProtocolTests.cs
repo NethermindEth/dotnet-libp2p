@@ -36,7 +36,7 @@ public class GossipsubProtocolTests
 
             peerStore.Discover([discoveredPeer]);
             router.OutboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, sentRpcs.Add);
-            router.InboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, tcs.Task, () => Task.CompletedTask);
+            router.InboundConnection(discoveredPeer, PubsubRouter.GossipsubProtocolVersionV10, tcs.Task, () => Task.CompletedTask);
             router.OnRpc(peerId, new Rpc().WithTopics([commonTopic], []));
         }
 

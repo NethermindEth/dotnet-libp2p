@@ -10,7 +10,9 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
-    ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default);
+    ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default);
 
     #region Read helpers
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
@@ -20,7 +22,7 @@ public interface IReader
         {
             token.ThrowIfCancellationRequested();
 
-            switch (await ReadAsync(0, ReadBlockingMode.WaitAny, token))
+            switch (await ReadAsync(0, ReadBlockingMode.WaitAny, token: token))
             {
                 case { Result: IOResult.Ok, Data: ReadOnlySequence<byte> data }: yield return data; break;
                 case { Result: IOResult.Ended }: yield break;

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
@@ -9,15 +9,15 @@ using Noise;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
-#pragma warning disable IDE0130
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null) : IConnectionProtocol
+public class NoiseProtocol : IConnectionProtocol
 {
     private readonly Protocol _protocol = new(
             HandshakePattern.XX,
@@ -25,13 +25,18 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             HashFunction.Sha256
         );
 
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    private readonly ILogger? _logger;
+
+    public NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
+    {
+        _logger = loggerFactory?.CreateLogger<NoiseProtocol>();
+    }
 
     private NoiseExtensions _extensions => new()
     {
         StreamMuxers = { } // TODO: return the following after go question resolution:
         //{
-        //    multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
+        //   multiplexerSettings is null || !multiplexerSettings.Multiplexers.Any() ? ["na"] : [.. multiplexerSettings.Multiplexers.Select(proto => proto.Id)]
         //}
     };
 
@@ -62,11 +67,42 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
 
-        PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
-        context.State.RemotePublicKey = msg1KeyDecoded;
-        // TODO: verify signature
+        if (msg1Decoded is null)
+        {
+            throw new Libp2pException("Bad handshake message has been received.");
+        }
 
-        List<string> responderMuxers = [.. msg1Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m))];
+        PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
+
+        if (msg1KeyDecoded is null)
+        {
+            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
+        }
+
+        if (msg1Decoded.IdentitySig is null || msg1Decoded.IdentitySig.IsEmpty)
+        {
+            throw new Libp2pException("Responder identity signature is missing in the handshake payload.");
+        }
+
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
+        {
+            throw new Libp2pException("Responder noise static public key is absent after handshake.");
+        }
+
+        byte[] responderSignedMessage = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. remoteNoiseStaticKey];
+        Identity responderIdentity = new(msg1KeyDecoded);
+        if (!responderIdentity.VerifySignature(responderSignedMessage, msg1Decoded.IdentitySig.ToByteArray()))
+        {
+            throw new Libp2pException("Noise handshake signature verification failed: responder identity key does not match noise static key.");
+        }
+
+        context.State.RemotePublicKey = msg1KeyDecoded;
+
+
+        List<string> responderMuxers = msg1Decoded.Extensions?.StreamMuxers?
+            .Where(m => !string.IsNullOrEmpty(m))
+            .ToList() ?? [];
         IProtocol? commonMuxer = null;// multiplexerSettings?.Multiplexers.FirstOrDefault(m => responderMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;
@@ -134,7 +170,9 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
         handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
 
-        byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(serverStatic.PublicKey)];
+        byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
+            .Concat(ByteString.CopyFrom(serverStatic.PublicKey))
+            .ToArray();
         byte[] sig = context.Peer.Identity.Sign(msg);
 
         NoiseHandshakePayload payload = new()
@@ -157,12 +195,44 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
+
+        if (msg2Decoded is null)
+        {
+            throw new Libp2pException("Bad handshake message has not been received.");
+        }
+
         PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
+
+        if (msg2KeyDecoded is null)
+        {
+            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
+        }
+
+        if (msg2Decoded.IdentitySig is null || msg2Decoded.IdentitySig.IsEmpty)
+        {
+            throw new Libp2pException("Initiator identity signature is missing in the handshake payload.");
+        }
+
+        byte[] remoteNoiseStaticKey = handshakeState.RemoteStaticPublicKey.ToArray();
+        if (remoteNoiseStaticKey.Length == 0)
+        {
+            throw new Libp2pException("Initiator noise static public key is absent after handshake.");
+        }
+
+        byte[] initiatorSignedMessage = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. remoteNoiseStaticKey];
+        Identity initiatorIdentity = new(msg2KeyDecoded);
+        if (!initiatorIdentity.VerifySignature(initiatorSignedMessage, msg2Decoded.IdentitySig.ToByteArray()))
+        {
+            throw new Libp2pException("Noise handshake signature verification failed: initiator identity key does not match noise static key.");
+        }
+
         context.State.RemotePublicKey = msg2KeyDecoded;
-        // TODO: verify signature
 
         Transport? transport = msg2.Transport;
-        List<string> initiatorMuxers = [.. msg2Decoded.Extensions.StreamMuxers.Where(m => !string.IsNullOrEmpty(m))];
+
+        List<string> initiatorMuxers = msg2Decoded.Extensions?.StreamMuxers?.Where(m => !string.IsNullOrEmpty(m)).ToList() ?? [];
+        _logger?.LogTrace("Initiator muxers received are {initiatorMuxers}.", string.Join(",", initiatorMuxers));
+
         IProtocol? commonMuxer = null; // multiplexerSettings?.Multiplexers.FirstOrDefault(m => initiatorMuxers.Contains(m.Id));
 
         UpgradeOptions? upgradeOptions = null;
@@ -210,7 +280,7 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
                 int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer));
+                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten));
                 if (writeResult != IOResult.Ok)
                 {
                     logger?.LogDebug("End sending, due to {}", writeResult);
@@ -242,11 +312,14 @@ public class NoiseProtocol(MultiplexerSettings? multiplexerSettings = null, ILog
 
                 int bytesRead = transport.ReadMessage(dataReadResult.Data.ToArray(), buffer);
 
-                IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
-                if (writeResult != IOResult.Ok)
+                if (bytesRead != 0)
                 {
-                    logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
-                    return;
+                    IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                    if (writeResult != IOResult.Ok)
+                    {
+                        logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
+                        return;
+                    }
                 }
             }
         });
