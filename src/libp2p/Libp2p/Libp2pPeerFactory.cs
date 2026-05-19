@@ -18,7 +18,7 @@ public class Libp2pPeerFactory(
         ILoggerFactory? loggerFactory = null)
     : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory)
 {
-    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
+    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, peerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
 }
 
 class Libp2pPeer : LocalPeer

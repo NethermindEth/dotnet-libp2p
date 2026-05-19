@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Libp2p.Core.TestsBase;
 using Makaretu.Dns.Resolving;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

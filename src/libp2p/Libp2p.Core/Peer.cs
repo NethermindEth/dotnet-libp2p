@@ -15,14 +15,14 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocolStackSettings protocolStackSettings,
+public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
     ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
     : ILocalPeer
 {
     private const int ConnectionTimeout = 15_000;
 
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
-    protected readonly PeerStore _peerStore = peerStore;
+    protected readonly PeerStore? _peerStore = peerStore;
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
     protected readonly MultiaddrResolver _multiaddrResolver = new();
@@ -251,6 +251,9 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token)
     {
+        Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
+        Multiaddress? connectedAddress = null;
+
         try
         {
             List<Multiaddress> resolvedAddrs = [];
@@ -274,14 +277,13 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
                 throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have multiple different peer ids");
             }
 
-            Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
             foreach (Multiaddress addr in resolvedAddrs)
             {
                 cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
             }
 
-            Task timeoutTask = Task.Delay(ConnectionTimeout, token);
-            Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr => DialAsyncCore(addr, cancellations[addr].Token))]);
+            Task timeoutTask = Task.Delay(ConnectionTimeout);
+            Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr => DialAsyncCore(addr, cancellations[addr].Token))]).WaitAsync(token);
 
             if (wait == timeoutTask)
             {
@@ -289,19 +291,23 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             }
 
             ISession firstConnected = (wait as Task<ISession>)!.Result;
-
-            foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
-            {
-                if (c.Key != firstConnected.RemoteAddress)
-                {
-                    c.Value.Cancel(false);
-                }
-            }
+            connectedAddress = firstConnected.RemoteAddress;
 
             return firstConnected;
         }
         finally
         {
+            foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
+            {
+                if (c.Key == connectedAddress)
+                {
+                    continue;
+                }
+
+                c.Value.Cancel(false);
+                c.Value.Dispose();
+            }
+
             _pendingDials.TryRemove(remotePeerId, out _);
         }
     }
@@ -330,11 +336,28 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
         _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
 
-        Task dialingResult = await Task.WhenAny(dialingTask, session.Connected);
+        Task dialingResult;
+        try
+        {
+            dialingResult = await Task.WhenAny(dialingTask, session.Connected).WaitAsync(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            Libp2pMetrics.DialFailures.Add(1);
+            dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
+            dialActivity?.Dispose();
+            throw;
+        }
 
         if (dialingResult == dialingTask)
         {
             Libp2pMetrics.DialFailures.Add(1);
+            if (dialingResult.IsCanceled)
+            {
+                dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
+                dialActivity?.Dispose();
+                throw new OperationCanceledException(token);
+            }
             if (dialingResult.IsFaulted)
             {
                 dialActivity?.SetStatus(ActivityStatusCode.Error, dialingResult.Exception.Message);
@@ -360,7 +383,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
             return Task.FromResult(existingSession);
         }
 
-        PeerStore.PeerInfo existingPeerInfo = _peerStore.GetPeerInfo(peerId);
+        PeerStore.PeerInfo? existingPeerInfo = _peerStore?.GetPeerInfo(peerId);
 
         if (existingPeerInfo?.Addrs is null)
         {
@@ -374,15 +397,18 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
     {
         if (t.IsCompletedSuccessfully)
         {
-            tcs.SetResult(t.GetType().GenericTypeArguments.Any() ? t.GetType().GetProperty("Result")!.GetValue(t) : null);
+            tcs.TrySetResult(t.GetType().GenericTypeArguments.Any() ? t.GetType().GetProperty("Result")!.GetValue(t) : null);
             return;
         }
         if (t.IsCanceled)
         {
-            tcs.SetCanceled();
+            tcs.TrySetCanceled();
             return;
         }
-        tcs.SetException(t.Exception!);
+        if (t.Exception is not null)
+        {
+            tcs.TrySetException(t.Exception);
+        }
     }
 
     internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
@@ -418,6 +444,24 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
         upgradeActivity?.SetTag("parent", activity?.DisplayName);
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
+        CancellationTokenRegistration cancellationRegistration = default;
+
+        if (options?.CancellationToken.IsCancellationRequested == true)
+        {
+            options.CompletionSource?.TrySetCanceled(options.CancellationToken);
+            _ = downChannel.CloseAsync();
+            upgradeActivity?.Dispose();
+            return Task.FromCanceled(options.CancellationToken);
+        }
+
+        if (options?.CancellationToken.CanBeCanceled == true)
+        {
+            cancellationRegistration = options.CancellationToken.Register(() =>
+            {
+                options.CompletionSource?.TrySetCanceled(options.CancellationToken);
+                _ = downChannel.CloseAsync();
+            });
+        }
 
         try
         {
@@ -480,6 +524,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
 
             upgradeTask.ContinueWith(t =>
             {
+                cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {
                     if (t.Exception?.InnerException is ChannelClosedException or SessionExistsException)
@@ -500,6 +545,7 @@ public partial class LocalPeer(Identity identity, PeerStore peerStore, IProtocol
         }
         catch
         {
+            cancellationRegistration.Dispose();
             upgradeActivity?.Dispose();
             throw;
         }
