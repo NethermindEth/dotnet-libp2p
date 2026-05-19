@@ -7,12 +7,14 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Diagnostics;
 
+#pragma warning disable IDE0130
 namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
 public abstract class PubsubProtocol : ISessionProtocol
+#pragma warning restore IDE0079 // Remove unnecessary suppression
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -34,7 +36,7 @@ public abstract class PubsubProtocol : ISessionProtocol
 
         PeerId? remotePeerId = context.State.RemotePeerId;
 
-        _logger?.LogDebug($"Dialed({context.Id}) {context.State.RemoteAddress}");
+        _logger?.LogDebug("Dialed({contextId}) {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource dialTcs = new();
         CancellationToken token = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task, (rpc) =>
@@ -61,12 +63,12 @@ public abstract class PubsubProtocol : ISessionProtocol
 
         PeerId? remotePeerId = context.State.RemotePeerId;
 
-        _logger?.LogDebug($"Listen({context.Id}) to {context.State.RemoteAddress}");
+        _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
         TaskCompletionSource dialTcs = new();
 
-        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, dialTcs.Task, () =>
+        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () =>
         {
             _ = context.DialAsync(this);
             return dialTcs.Task;
@@ -79,16 +81,14 @@ public abstract class PubsubProtocol : ISessionProtocol
                 Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
                 if (rpc is null)
                 {
-                    string logMessage = $"Received a broken message or EOF from {remotePeerId}";
-                    _logger?.LogDebug(logMessage);
-                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    _logger?.LogDebug("Received a broken message or EOF from {remotePeerId}", remotePeerId);
+                    context.Activity?.AddEvent(new ActivityEvent($"Received a broken message or EOF from {remotePeerId}"));
                     break;
                 }
                 else
                 {
-                    string logMessage = $"Received message from {remotePeerId}: {rpc}";
-                    _logger?.LogTrace(logMessage);
-                    context.Activity?.AddEvent(new ActivityEvent(logMessage));
+                    _logger?.LogTrace("Received message from {remotePeerId}: {rpc}", remotePeerId, rpc);
+                    context.Activity?.AddEvent(new ActivityEvent($"Received message from {remotePeerId}: {rpc}"));
                     router.OnRpc(remotePeerId, rpc);
                 }
             }

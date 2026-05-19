@@ -32,4 +32,4 @@ public interface ILocalPeer : IAsyncDisposable
     event Connected? OnConnected;
 }
 
-public delegate Task Connected(ISession newSession);
+public delegate void Connected(ISession newSession);

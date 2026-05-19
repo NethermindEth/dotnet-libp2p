@@ -24,7 +24,7 @@ public class NetworkDiscoveryTests
         foreach ((int index, PeerStore peerStore) in test.PeerStores.Skip(1))
         {
             TaskCompletionSource connectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            test.Peers[index].OnConnected += _ => { connectedTcs.TrySetResult(); return Task.CompletedTask; };
+            test.Peers[index].OnConnected += _ => connectedTcs.TrySetResult();
 
             peerStore.Discover(test.Peers[0].ListenAddresses.ToArray());
 

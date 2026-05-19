@@ -51,7 +51,7 @@ else
         }
     };
 
-    peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
+    peer.OnConnected += newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
     int indexOfPort = Array.IndexOf(args, "-sp");
 
