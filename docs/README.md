@@ -93,7 +93,7 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 
 - The `downChannel` is used to receive data from and send data to the lower protocol layer.
 - `context` holds information about local and remote peers. It allows more connections to be initiated within the current session.
-- The current implementation for IChannel is Nethermind.Libp2p.Core.Channel and supports reading and writing by multiple threads
+- `IChannel` is implemented by `Nethermind.Libp2p.Core.Channel`; it supports concurrent readers and writers.
 
 ### Further exploration
 
