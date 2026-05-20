@@ -100,7 +100,7 @@ class DeepThoughtProtocol : ISessionProtocol<string, int>
 - Add [logging and tracing](./logging-tracing.md)
 - Learn how to [work with sessions](./sessions.md)
 - Learn how to [discover peers](./discovery.md)
-- Learn how to [publish and subscribe to topics](./pubsub.md)
+- Learn how to [publish and subscribe to topics](../src/libp2p/Libp2p.Protocols.Pubsub/README.md)
 - Check the samples directory. It includes chat apps, pubsub, discovery, and more.
 - If the protocol is symmetric (i.e. listen and dial share the same logic), consider using `SymmetricProtocol` helper as base class. A remote peer does not need to use the same helper type; successful communication depends on both peers negotiating the same `ISessionProtocol.Id`.
 - Need more information about other connected peers? Check `IPeerStore`.
