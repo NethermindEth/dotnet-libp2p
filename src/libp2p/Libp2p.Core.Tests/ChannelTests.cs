@@ -59,6 +59,37 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task Test_AsStream_ZeroLengthReadReturnsAfterEnd()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await channel.CloseAsync();
+        byte[] buffer = new byte[4];
+        int endedRead = await stream.ReadAsync(buffer, 0, 1);
+        int emptyRead = await stream.ReadAsync(buffer, 0, 0).WaitAsync(TimeSpan.FromSeconds(1));
+        int emptyMemoryRead = await stream.ReadAsync(Memory<byte>.Empty).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(endedRead, Is.Zero);
+            Assert.That(emptyRead, Is.Zero);
+            Assert.That(emptyMemoryRead, Is.Zero);
+            Assert.That(stream.CanRead, Is.False);
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_ZeroLengthReadValidatesOffset()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        byte[] buffer = new byte[1];
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = stream.ReadAsync(buffer, 2, 0, CancellationToken.None));
+    }
+
+    [Test]
     public async Task Test_AsStream_ZeroLengthWriteCompletes()
     {
         Channel channel = new();
@@ -66,6 +97,34 @@ public class ChannelTests
 
         await stream.WriteAsync(Array.Empty<byte>(), 0, 0);
 
+        Assert.That(stream.CanWrite, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_ReadAsyncCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 1, cts.Token));
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1].AsMemory(), cts.Token));
+#pragma warning restore CA2022
+        Assert.That(stream.CanRead, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_WriteAsyncCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.WriteAsync([1], 0, 1, cts.Token));
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory(), cts.Token));
         Assert.That(stream.CanWrite, Is.True);
     }
 

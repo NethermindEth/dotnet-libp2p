@@ -12,8 +12,8 @@ public static class IChannelExtensions
     /// Converts an <see cref="IChannel"/> to a <see cref="Stream"/>.
     /// </summary>
     /// <param name="channel">The input channel</param>
-    /// <returns>The Channel as Stream</returns>
-    /// <exception cref="ArgumentNullException">Channel is null throws an <see cref="ArgumentNullException"/></exception>
+    /// <returns>The channel as a <see cref="Stream"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="channel"/> is null.</exception>
     public static Stream AsStream(this IChannel channel)
     {
         ArgumentNullException.ThrowIfNull(channel);

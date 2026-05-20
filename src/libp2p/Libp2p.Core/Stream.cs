@@ -33,7 +33,7 @@ public class ChannelStream : Stream
 
     public override int Read(Span<byte> buffer)
     {
-        if (buffer is { Length: 0 } && _canRead) return 0;
+        if (buffer.IsEmpty) return 0;
 
         ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
@@ -54,12 +54,11 @@ public class ChannelStream : Stream
         }
     }
 
-    public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
-        {
-            _canWrite = false;
-        }
+        ArgumentNullException.ThrowIfNull(buffer);
+
+        return WriteAsyncCore(buffer.AsMemory(offset, count), cancellationToken).AsTask();
     }
 
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
@@ -67,30 +66,31 @@ public class ChannelStream : Stream
 
     private async ValueTask WriteAsyncCore(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
-        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken)) != IOResult.Ok)
+        IOResult result = await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken);
+        if (result == IOResult.Cancelled)
+        {
+            throw CreateOperationCanceledException(cancellationToken);
+        }
+
+        if (result != IOResult.Ok)
         {
             _canWrite = false;
         }
     }
 
-    public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if (count == 0 && _canRead) return 0;
+        ArgumentNullException.ThrowIfNull(buffer);
 
-        ReadResult result = await _chan.ReadAsync(count, ReadBlockingMode.WaitAny, cancellationToken);
-        if (result.Result != IOResult.Ok)
-        {
-            _canRead = false;
-            return 0;
-        }
+        Memory<byte> target = buffer.AsMemory(offset, count);
+        if (target.IsEmpty) return Task.FromResult(0);
 
-        result.Data.CopyTo(buffer.AsSpan(offset, count));
-        return (int)result.Data.Length;
+        return ReadAsyncCore(target, cancellationToken).AsTask();
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        if (buffer.IsEmpty && _canRead) return ValueTask.FromResult(0);
+        if (buffer.IsEmpty) return ValueTask.FromResult(0);
 
         return ReadAsyncCore(buffer, cancellationToken);
     }
@@ -98,6 +98,11 @@ public class ChannelStream : Stream
     private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
     {
         ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken);
+        if (result.Result == IOResult.Cancelled)
+        {
+            throw CreateOperationCanceledException(cancellationToken);
+        }
+
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -107,6 +112,11 @@ public class ChannelStream : Stream
         result.Data.CopyTo(buffer.Span);
         return (int)result.Data.Length;
     }
+
+    private static OperationCanceledException CreateOperationCanceledException(CancellationToken cancellationToken)
+        => cancellationToken.IsCancellationRequested
+            ? new OperationCanceledException(cancellationToken)
+            : new OperationCanceledException();
 
     public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
