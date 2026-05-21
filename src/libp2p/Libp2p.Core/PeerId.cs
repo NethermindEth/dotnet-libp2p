@@ -80,10 +80,16 @@ public class PeerId : IComparable<PeerId>, IComparable
 
     public string ToCidString()
     {
-        byte[] encodedPeerIdBytes = new byte[Bytes.Length + 2];
-        encodedPeerIdBytes[0] = (byte)Cid.Cidv1;
-        encodedPeerIdBytes[1] = (byte)Ipld.Libp2pKey;
-        Array.Copy(Bytes, 0, encodedPeerIdBytes, 2, Bytes.Length);
+        // CID format: <multibase><cid-version><multicodec><multihash>
+        // Calculate required buffer size
+        int codecSize = VarInt.GetSizeInBytes((int)Ipld.Libp2pKey);
+        byte[] encodedPeerIdBytes = new byte[1 + codecSize + Bytes.Length];
+
+        int offset = 0;
+        encodedPeerIdBytes[offset++] = (byte)Cid.Cidv1;
+        VarInt.Encode((int)Ipld.Libp2pKey, encodedPeerIdBytes, ref offset);
+        Array.Copy(Bytes, 0, encodedPeerIdBytes, offset, Bytes.Length);
+
         return Multibase.Encode(MultibaseEncoding.Base32Lower, encodedPeerIdBytes);
     }
 

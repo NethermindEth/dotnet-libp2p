@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
@@ -22,13 +23,34 @@ IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
 CancellationTokenSource ts = new();
 
+bool quicOnly = args.Contains("--quic-only") || args.Contains("-quic");
+bool tcpOnly = args.Contains("--tcp-only") || args.Contains("-tcp");
+if (quicOnly && tcpOnly)
+{
+    throw new ArgumentException("Use either --quic-only or --tcp-only, not both.");
+}
+
+int indexOfPort = Array.IndexOf(args, "-sp");
+if (indexOfPort < 0)
+{
+    indexOfPort = Array.IndexOf(args, "--server-port");
+}
+
+string port = indexOfPort >= 0 && indexOfPort < args.Length - 1 ? args[indexOfPort + 1] : "42000";
 
 Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
 await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
-string addrTemplate = args.Contains("-quic") ?
-    "/ip4/0.0.0.0/udp/{0}/quic-v1" :
-    "/ip4/0.0.0.0/tcp/{0}";
+List<Multiaddress> listenAddresses = [];
+if (!tcpOnly)
+{
+    listenAddresses.Add($"/ip4/0.0.0.0/udp/{port}/quic-v1");
+}
+
+if (!quicOnly)
+{
+    listenAddresses.Add($"/ip4/0.0.0.0/tcp/{port}");
+}
 
 peer.ListenAddresses.CollectionChanged += (_, args) =>
 {
@@ -40,11 +62,7 @@ peer.ListenAddresses.CollectionChanged += (_, args) =>
 
 peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
-int indexOfPort = Array.IndexOf(args, "-sp");
-
-await peer.StartListenAsync(
-    ["/ip4/0.0.0.0/udp/42000/quic-v1", "/ip4/0.0.0.0/tcp/42000"],
-    ts.Token);
+await peer.StartListenAsync([.. listenAddresses], ts.Token);
 logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));
 
 Console.CancelKeyPress += delegate { ts.Cancel(); };

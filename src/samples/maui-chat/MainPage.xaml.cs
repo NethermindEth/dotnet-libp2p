@@ -3,8 +3,8 @@
 
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
-using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
 
 namespace MauiChat;
 
@@ -36,13 +36,17 @@ public class Prov(Action<string, string> addLine) : ILoggerProvider
 
         void ILogger.Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            addLine(logLevel.ToString(), state?.ToString());
+            addLine(logLevel.ToString(), state?.ToString() ?? string.Empty);
         }
     }
 }
 public partial class MainPage : ContentPage
 {
     ChatProtocol? chatProtocol;
+#if ANDROID
+    private static IntPtr sodiumHandle;
+    private static bool sodiumResolverConfigured;
+#endif
 
     public MainPage()
     {
@@ -52,34 +56,58 @@ public partial class MainPage : ContentPage
         {
             try
             {
+#if ANDROID
+                ConfigureNoiseNativeLibrary();
+#endif
+
                 chatProtocol = new ChatProtocol() { OnServerMessage = (msg) => AddLine("AI", msg) };
 
-                ServiceProvider serviceProvider = new ServiceCollection()
+                ServiceCollection services = new ServiceCollection();
+                services
                     .AddLogging(logging =>
                     {
                         logging.ClearProviders();
                         logging.AddDebug();   // logs to platform debug output
                         logging.AddConsole(); // works on Windows/macOS
-                        logging.SetMinimumLevel(LogLevel.Trace);
+                        logging.SetMinimumLevel(LogLevel.Warning);
                         logging.AddProvider(new Prov(AddLine));
                     })
-                    .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddProtocol(chatProtocol))
-                    .BuildServiceProvider();
+                    .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
+                    .AddSingleton<PeerStore>()
+                    .AddSingleton<MultiplexerSettings>()
+                    .AddSingleton<IPeerFactoryBuilder>(sp => new MauiChatPeerFactoryBuilder(sp).WithQuic().AddProtocol(chatProtocol))
+                    .AddSingleton(sp => sp.GetRequiredService<IPeerFactoryBuilder>().Build());
+
+                ServiceProvider serviceProvider = services.BuildServiceProvider();
 
                 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
                 CancellationTokenSource ts = new();
 
-                Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
-                //Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+                Multiaddress[] remoteAddrs = [
+                    "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL",
+                    "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL",
+                ];
 
                 await using ILocalPeer localPeer = peerFactory.Create();
 
-                ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
+                ISession remotePeer = await localPeer.DialAsync(remoteAddrs, ts.Token);
 
-                await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-
-                AddLine("System", $"Connected");
+                AddLine("System", $"Connected via {remotePeer.RemoteAddress}");
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await remotePeer.DialAsync<ChatProtocol>(ts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch (Exception e)
+                    {
+                        AddLine("System", $"Problem, {e}");
+                    }
+                });
                 await Task.Delay(-1, ts.Token);
             }
             catch (Exception e)
@@ -113,6 +141,32 @@ public partial class MainPage : ContentPage
         });
     }
 
+#if ANDROID
+    private static void ConfigureNoiseNativeLibrary()
+    {
+        if (sodiumResolverConfigured)
+        {
+            return;
+        }
+
+        string? nativeLibraryDir = Android.App.Application.Context.ApplicationInfo?.NativeLibraryDir;
+        string? sodiumPath = nativeLibraryDir is null
+            ? null
+            : System.IO.Directory.EnumerateFiles(nativeLibraryDir, "libsodium.so", System.IO.SearchOption.AllDirectories)
+                .FirstOrDefault();
+        if (sodiumPath is null)
+        {
+            throw new System.IO.FileNotFoundException("libsodium.so was not found in the app native library directory.", nativeLibraryDir);
+        }
+
+        sodiumHandle = System.Runtime.InteropServices.NativeLibrary.Load(sodiumPath);
+        System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(
+            typeof(Noise.KeyPair).Assembly,
+            (libraryName, _, _) => libraryName is "libsodium" or "sodium" ? sodiumHandle : IntPtr.Zero);
+        sodiumResolverConfigured = true;
+    }
+#endif
+
     private void AddLine(string from, string msg)
     {
         Dispatcher.Dispatch(() =>
@@ -130,11 +184,31 @@ public partial class MainPage : ContentPage
         });
     }
 
-    private void Button_Clicked(object sender, EventArgs e)
+    private async void Button_Clicked(object sender, EventArgs e)
     {
-        chatProtocol?.OnClientMessage?.Invoke(Msg.Text);
-        AddLine("me", Msg.Text);
-        Msg.Text = "";
-        Msg.Focus();
+        string msg = Msg.Text;
+        if (string.IsNullOrWhiteSpace(msg))
+        {
+            return;
+        }
+
+        Func<string, Task>? send = chatProtocol?.OnClientMessage;
+        if (send is null)
+        {
+            AddLine("System", "Problem, chat protocol is not connected.");
+            return;
+        }
+
+        try
+        {
+            await send(msg);
+            AddLine("me", msg);
+            Msg.Text = "";
+            Msg.Focus();
+        }
+        catch (Exception ex)
+        {
+            AddLine("System", $"Problem, failed to send message: {ex.Message}");
+        }
     }
 }

@@ -7,7 +7,15 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
-var chatProtocol = new ChatProtocol() { OnServerMessage = (msg) => Console.WriteLine("AI: {0}", msg) };
+TaskCompletionSource<string> firstReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+var chatProtocol = new ChatProtocol()
+{
+    OnServerMessage = msg =>
+    {
+        Console.WriteLine("AI: {0}", msg);
+        firstReply.TrySetResult(msg);
+    }
+};
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLogging(logging =>
@@ -22,16 +30,48 @@ ServiceProvider serviceProvider = new ServiceCollection()
 IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
 CancellationTokenSource ts = new();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    ts.Cancel();
+};
 
-Multiaddress remoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
-//Multiaddress remoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+const string tcpRemoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+const string quicRemoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+
+int messageIndex = Array.IndexOf(args, "--message");
+string? singleMessage = messageIndex >= 0 && messageIndex < args.Length - 1
+    ? string.Join(' ', args.Skip(messageIndex + 1))
+    : null;
+
+Multiaddress remoteAddr = args.FirstOrDefault(a => a.StartsWith('/')) ??
+    (args.Contains("--quic") ? quicRemoteAddr : tcpRemoteAddr);
 
 await using ILocalPeer localPeer = peerFactory.Create();
 
 ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
-await remotePeer.DialAsync<ChatProtocol>(ts.Token);
+Task chatTask = remotePeer.DialAsync<ChatProtocol>(ts.Token);
+await chatProtocol.Ready.Task.WaitAsync(ts.Token);
 
-Console.WriteLine("System: {0}", "Connected {}");
-await Task.Delay(-1, ts.Token);
+Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
 
+if (singleMessage is not null)
+{
+    chatProtocol.OnClientMessage?.Invoke(singleMessage);
+    await firstReply.Task.WaitAsync(TimeSpan.FromSeconds(120));
+    await remotePeer.DisconnectAsync();
+    return;
+}
+
+ConsoleReader reader = new();
+while (!ts.IsCancellationRequested)
+{
+    string msg = await reader.ReadLineAsync(ts.Token);
+    if (!string.IsNullOrWhiteSpace(msg))
+    {
+        chatProtocol.OnClientMessage?.Invoke(msg);
+    }
+}
+
+await chatTask;

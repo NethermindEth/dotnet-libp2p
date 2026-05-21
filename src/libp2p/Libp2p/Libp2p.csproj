@@ -14,6 +14,13 @@
     <PackageTags>libp2p network</PackageTags>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <_IsMobileRuntime Condition="'$(DisableLibp2pWebSockets)' == 'true'">true</_IsMobileRuntime>
+    <_IsMobileRuntime Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('android')) Or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('ios')) Or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('maccatalyst'))">true</_IsMobileRuntime>
+    <_IsMobileRuntime Condition="$([System.String]::Copy('$(RuntimeIdentifiers)').Contains('android')) Or $([System.String]::Copy('$(RuntimeIdentifiers)').Contains('ios')) Or $([System.String]::Copy('$(RuntimeIdentifiers)').Contains('maccatalyst'))">true</_IsMobileRuntime>
+    <DefineConstants Condition="'$(_IsMobileRuntime)' != 'true'">$(DefineConstants);LIBP2P_WEBSOCKETS</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
@@ -28,9 +35,12 @@
     <ProjectReference Include="..\Libp2p.Protocols.Relay\Libp2p.Protocols.Relay.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.WebRtc\Libp2p.Protocols.WebRtc.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.WebSockets\Libp2p.Protocols.WebSockets.csproj" Condition="'$(_IsMobileRuntime)' != 'true'" />
 
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.RequestResponse\Libp2p.Protocols.RequestResponse.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.KadDht\Libp2p.Protocols.KadDht.csproj" />
   </ItemGroup>
 
   <ItemGroup>

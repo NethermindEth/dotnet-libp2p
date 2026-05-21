@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using PubsubChat;
+using Terminal.Gui;
 using Timer = System.Threading.Timer;
 
 public static class Gui

@@ -1,12 +1,14 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core;
 
 public class ChannelStream(IChannel chan) : Stream
 {
+    private readonly IChannel _chan = chan;
     private bool _disposed = false;
     private bool _canRead = true;
     private bool _canWrite = true;
@@ -30,7 +32,7 @@ public class ChannelStream(IChannel chan) : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        ReadResult result = chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).Result;
+        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -43,7 +45,7 @@ public class ChannelStream(IChannel chan) : Stream
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        if (chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).Result != IOResult.Ok)
+        if (_chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).GetAwaiter().GetResult() != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -51,7 +53,7 @@ public class ChannelStream(IChannel chan) : Stream
 
     public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if ((await chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
+        if ((await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -64,7 +66,7 @@ public class ChannelStream(IChannel chan) : Stream
     {
         if (buffer is { Length: 0 } && _canRead) return 0;
 
-        ReadResult result = await chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -88,7 +90,7 @@ public class ChannelStream(IChannel chan) : Stream
         {
             if (disposing)
             {
-                _ = chan.CloseAsync();
+                _ = _chan.CloseAsync();
             }
             _disposed = true;
         }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -37,12 +37,17 @@ public class LocalPeerStub : ILocalPeer
         throw new NotImplementedException();
     }
 
+    public T? GetProtocol<T>() where T : class, IProtocol
+    {
+        return default(T);
+    }
+
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
     }
 
-    public Task StartListenAsync(Multiaddress[] addrs, CancellationToken token = default)
+    public Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
     {
         return Task.CompletedTask;
     }

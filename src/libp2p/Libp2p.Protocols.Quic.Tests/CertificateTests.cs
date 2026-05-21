@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
@@ -12,7 +12,7 @@ public class CertificateTests
 {
     [TestCaseSource(nameof(CertificatesSerialized))]
     public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
-        CertificateHelper.ValidateCertificate(new X509Certificate2(certificateBytes), peerId);
+        CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
 
     public static IEnumerable<TestCaseData> CertificatesSerialized()
     {
@@ -32,10 +32,21 @@ public class CertificateTests
             )
         { TestName = "Valid secp256k1", ExpectedResult = true };
         yield return new TestCaseData(
+            Convert.FromHexString("3082015530820107a0030201020204075bcd15300506032b65703011310f300d06035504030c066c69627032703020170d3235303130313030303030305a180f32323030303130313030303030305a3011310f300d06035504030c066c6962703270302a300506032b6570032100da29e95b02e00ffa15645775fb1d2ba222a1943395eea06b94e2c057b7be69d0a37f307d307b060a2b0601040183a25a01010101ff046a306804240801122079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404406259ccea88a47a9fbd48e3983608269361085fe411eff48a57efbc427669c4d70a0506f166f57864053914f7c3abc76c3fc24dbb1bf2ba6c9fcd3756b260fb0f300506032b657003410000150e1ab6bd2e369a197068af86b56d1269d398b79346f811aeb82b0ae08953649474511c976168ec712ea4a4d7c05fc5fe45886fa3ffb8ca6207b19ea2af07"),
+            "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf"
+            )
+        { TestName = "Valid ED25519 certificate key", ExpectedResult = true };
+        yield return new TestCaseData(
+            Convert.FromHexString("308201433081f6a0030201020204075bcd15300506032b657030003020170d3235303130313030303030305a180f32323030303130313030303030305a3011310f300d06035504030c066c6962703270302a300506032b6570032100da29e95b02e00ffa15645775fb1d2ba222a1943395eea06b94e2c057b7be69d0a37f307d307b060a2b0601040183a25a01010101ff046a306804240801122079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404406259ccea88a47a9fbd48e3983608269361085fe411eff48a57efbc427669c4d70a0506f166f57864053914f7c3abc76c3fc24dbb1bf2ba6c9fcd3756b260fb0f300506032b6570034100f170b0b0b387a6f7df14fefd0d45499217a8dbd70dba19214a16c681d5347eb29f8dafa392c548da3b7d140befd3c7b6f42ef25ab591d1df385c15a573271b0a"),
+            "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf"
+            )
+        { TestName = "Valid ED25519 certificate key with distinct issuer", ExpectedResult = true };
+        yield return new TestCaseData(
         Convert.FromHexString("308201773082011da003020102020830a73c5d896a1109300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d03010703420004bbe62df9a7c1c46b7f1f21d556deec5382a36df146fb29c7f1240e60d7d5328570e3b71d99602b77a65c9b3655f62837f8d66b59f1763b8c9beba3be07778043a37f307d307b060a2b0601040183a25a01010101ff046a3068042408011220ec8094573afb9728088860864f7bcea2d4fd412fef09a8e2d24d482377c20db60440ecabae8354afa2f0af4b8d2ad871e865cb5a7c0c8d3dbdbf42de577f92461a0ebb0a28703e33581af7d2a4f2270fc37aec6261fcc95f8af08f3f4806581c730a300a06082a8648ce3d040302034800304502202dfb17a6fa0f94ee0e2e6a3b9fb6e986f311dee27392058016464bd130930a61022100ba4b937a11c8d3172b81e7cd04aedb79b978c4379c2b5b24d565dd5d67d3cb3c"),
             "12D3KooWRja6riywsP8bE7V2gGg55Jsx7HrHLQcEwxvmwD8SQynV"
             )
         { TestName = "Invalid", ExpectedResult = false };
+        yield return InvalidSelfSignatureCertificate();
         foreach (KeyType keyType in Enum.GetValues<KeyType>())
         {
             Identity id = new(null, keyType);
@@ -45,5 +56,20 @@ public class CertificateTests
               )
             { TestName = $"Roundtrip valid {keyType} key", ExpectedResult = true };
         }
+    }
+
+    private static TestCaseData InvalidSelfSignatureCertificate()
+    {
+        Identity id = new();
+        using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(certificateKey, id);
+        byte[] certificateBytes = certificate.GetRawCertData();
+        certificateBytes[^1] ^= 0x01;
+
+        return new TestCaseData(certificateBytes, id.PeerId.ToString())
+        {
+            TestName = "Invalid certificate self-signature",
+            ExpectedResult = false,
+        };
     }
 }

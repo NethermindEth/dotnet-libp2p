@@ -1,3 +1,4 @@
+using BenchmarkDotNet.Attributes;
 using System.Buffers;
 
 namespace Nethermind.Libp2p.Core.Benchmarks;
@@ -20,8 +21,8 @@ public class ChannelsBenchmark
     //    }
     //}
 
-    IChannel chan;
-    IChannel revChan;
+    private IChannel chan = null!;
+    private IChannel revChan = null!;
 
     [GlobalSetup]
     public void Setup()

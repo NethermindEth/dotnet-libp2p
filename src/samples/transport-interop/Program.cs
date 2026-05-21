@@ -7,23 +7,54 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Tls;
+using Nethermind.Libp2p.Protocols.WebRtc;
+using StackExchange.Redis;
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
 
 try
 {
-    string transport = Environment.GetEnvironmentVariable("transport")!;
-    string muxer = Environment.GetEnvironmentVariable("muxer")!;
-    string security = Environment.GetEnvironmentVariable("security")!;
+    string transport = Environment.GetEnvironmentVariable("TRANSPORT")!;
+    if (string.IsNullOrEmpty(transport))
+    {
+        throw new Exception("TRANSPORT environment variable is required");
+    }
 
-    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("is_dialer")!);
-    string ip = Environment.GetEnvironmentVariable("ip") ?? "0.0.0.0";
+    // For QUIC, muxer and security are built-in and not required
+    bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport" || transport == "webrtc-direct";
 
-    string redisAddr = Environment.GetEnvironmentVariable("redis_addr") ?? "redis:6379";
+    string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
+    if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
+    {
+        throw new Exception("MUXER environment variable is required");
+    }
+    string security = Environment.GetEnvironmentVariable("SECURE_CHANNEL") ?? "";
+    if (string.IsNullOrEmpty(security) && !isStacklessProtocol)
+    {
+        throw new Exception("SECURE_CHANNEL environment variable is required");
+    }
 
-    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("test_timeout_seconds") ?? "180");
+    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("IS_DIALER")!);
+    if (string.IsNullOrEmpty(isDialer.ToString()))
+    {
+        throw new Exception("IS_DIALER environment variable is required");
+    }
+    string ip = Environment.GetEnvironmentVariable("LISTENER_IP") ?? "0.0.0.0";
+
+    string redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "";
+
+    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("TEST_TIMEOUT_SECS") ?? "180");
+
+    string testKey = Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
+    if (string.IsNullOrEmpty(testKey))
+    {
+        throw new Exception("TEST_KEY environment variable is required");
+    }
+    string redisKey = $"{testKey}_listener_multiaddr";
 
     TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();
@@ -40,7 +71,7 @@ try
 
         CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
         string? listenerAddr = null;
-        while ((listenerAddr = await db.ListRightPopAsync("listenerAddr")) is null)
+        while ((listenerAddr = await db.ListRightPopAsync(redisKey)) is null)
         {
             await Task.Delay(10, cts.Token);
         }
@@ -55,7 +86,10 @@ try
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
-        PrintResult($"{{\"handshakePlusOneRTTMillis\": {handshakePlusOneRTT}, \"pingRTTMilllis\": {pingRTT}}}");
+        PrintResult("latency:");
+        PrintResult($"  handshake_plus_one_rtt: {handshakePlusOneRTT}");
+        PrintResult($"  ping_rtt: {pingRTT}");
+        PrintResult("  unit: ms");
         Log("Done");
         return 0;
     }
@@ -63,23 +97,44 @@ try
     {
         if (ip == "0.0.0.0")
         {
-            List<NetworkInterface> interfaces = NetworkInterface.GetAllNetworkInterfaces()!
-                 .Where(i => i.Name == "eth0" ||
-                    (i.OperationalStatus == OperationalStatus.Up &&
-                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet)).ToList();
+            Log("Auto-detecting network interface...");
 
-            IEnumerable<UnicastIPAddressInformation> addresses = NetworkInterface.GetAllNetworkInterfaces()!
-                 .Where(i => i.Name == "eth0" ||
-                    (i.OperationalStatus == OperationalStatus.Up &&
-                     i.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
-                     i.GetIPProperties().GatewayAddresses.Any())
-                 ).First()
-                 .GetIPProperties()
-                 .UnicastAddresses
-                 .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
+            // Get all active network interfaces with IPv4 addresses
+            var candidates = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(i => i.OperationalStatus == OperationalStatus.Up)
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .Select(i => new
+                {
+                    Interface = i,
+                    Addresses = i.GetIPProperties().UnicastAddresses
+                        .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+                        .Where(a => !IPAddress.IsLoopback(a.Address))
+                        .ToList()
+                })
+                .Where(x => x.Addresses.Any())
+                .ToList();
 
-            Log("Available addresses detected, picking the first: " + string.Join(",", addresses.Select(a => a.Address)));
-            ip = addresses.First().Address.ToString()!;
+            Log($"Found {candidates.Count} candidate interfaces: {string.Join(", ", candidates.Select(c => $"{c.Interface.Name}({c.Interface.NetworkInterfaceType})"))}");
+
+            // Priority order: Physical Ethernet > Wi-Fi > Virtual Ethernet > Others
+            var selectedInterface = candidates
+                .OrderBy(c => GetInterfacePriority(c.Interface))
+                .ThenByDescending(c => c.Interface.Speed) // Prefer faster interfaces
+                .FirstOrDefault();
+
+            if (selectedInterface == null)
+            {
+                Log("No suitable network interface found. Available interfaces:");
+                foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    Log($"  {ni.Name}: {ni.NetworkInterfaceType}, {ni.OperationalStatus}");
+                }
+                throw new Exception("No active network interface with IPv4 address found. Set LISTENER_IP environment variable to specify an IP address.");
+            }
+
+            var selectedAddress = selectedInterface.Addresses.First();
+            ip = selectedAddress.Address.ToString();
+            Log($"Selected interface: {selectedInterface.Interface.Name} ({selectedInterface.Interface.NetworkInterfaceType}) -> {ip}");
         }
         Log("Starting to listen...");
         ILocalPeer localPeer = peerFactory.Create();
@@ -88,7 +143,7 @@ try
         await localPeer.StartListenAsync([builder.MakeAddress(ip)], listenTcs.Token);
         localPeer.OnConnected += (session) => { Log($"Connected {session.RemoteAddress}"); return Task.CompletedTask; };
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
-        db.ListRightPush(new RedisKey("listenerAddr"), new RedisValue(localPeer.ListenAddresses.First().ToString()));
+        db.ListRightPush(new RedisKey(redisKey), new RedisValue(localPeer.ListenAddresses.First().ToString()));
         await Task.Delay(testTimeoutSeconds * 1000);
         await listenTcs.CancelAsync();
         return -1;
@@ -102,6 +157,27 @@ catch (Exception ex)
 
 static void Log(string info) => Console.Error.WriteLine(info);
 static void PrintResult(string info) => Console.WriteLine(info);
+
+static int GetInterfacePriority(NetworkInterface networkInterface)
+{
+    // Lower number = higher priority
+    return networkInterface.NetworkInterfaceType switch
+    {
+        NetworkInterfaceType.Ethernet => 1,           // Physical Ethernet (best)
+        NetworkInterfaceType.Wireless80211 => 2,      // Wi-Fi (good)
+        NetworkInterfaceType.GigabitEthernet => 1,     // Gigabit Ethernet (best)
+        NetworkInterfaceType.FastEthernetT => 1,       // Fast Ethernet (best)
+        NetworkInterfaceType.Ethernet3Megabit => 1,    // Legacy Ethernet (best)
+        NetworkInterfaceType.GenericModem => 5,        // Modem (low priority)
+        NetworkInterfaceType.Ppp => 5,                 // PPP connection (low priority)
+        NetworkInterfaceType.Tunnel => 4,              // Tunnel interface (medium-low)
+        _ when networkInterface.Name.Contains("vEthernet") => 3, // Hyper-V virtual (medium)
+        _ when networkInterface.Name.Contains("VirtualBox") => 3, // VirtualBox (medium)
+        _ when networkInterface.Name.Contains("VMware") => 3,     // VMware (medium)
+        _ when networkInterface.Description.Contains("Virtual") => 3, // Other virtual (medium)
+        _ => 6  // Unknown/other (lowest priority)
+    };
+}
 
 class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryBuilder, PeerFactory>
 {
@@ -126,7 +202,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
         _encryption = encryption;
     }
 
-    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport"];
+    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport", "webrtc-direct"];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
@@ -135,6 +211,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
             "tcp" => Get<IpTcpProtocol>(),
             // TODO: Improve QUIC interoperability
             "quic-v1" => Get<QuicProtocol>(),
+            "webrtc-direct" => Get<WebRtcDirectProtocol>(),
             _ => throw new NotImplementedException(),
         };
 
@@ -149,6 +226,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
             ProtocolRef encryption = _encryption switch
             {
                 "noise" => Get<NoiseProtocol>(),
+                "tls" => Get<TlsProtocol>(),
                 _ => throw new NotImplementedException(),
             };
             ProtocolRef muxer = _muxer switch
@@ -170,6 +248,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
     {
         "tcp" => $"/ip4/{ip}/tcp/{port}",
         "quic-v1" => $"/ip4/{ip}/udp/{port}/quic-v1",
+        "webrtc-direct" => $"/ip4/{ip}/udp/{port}/webrtc-direct",
         _ => throw new NotImplementedException(),
     };
 }

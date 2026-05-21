@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;

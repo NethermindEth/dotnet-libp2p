@@ -8,12 +8,14 @@ internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
     internal Action<string>? OnServerMessage;
     internal Action<string>? OnClientMessage;
+    internal TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string Id => "/chat/1.0.0";
 
     protected override async Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener)
     {
         OnClientMessage += (msg) => channel.WriteLineAsync(msg);
+        Ready.TrySetResult();
 
         for (; ; )
         {

@@ -1,0 +1,40 @@
+syntax = "proto2";
+
+package Nethermind.Libp2p.Protocols.KadDht.Dto;
+
+// IpnsEntry per https://specs.ipfs.tech/ipns/ipns-record/
+// Compatible with go-libp2p, js-libp2p, rust-libp2p
+message IpnsEntry {
+  enum ValidityType {
+    // Setting an EOL says "this record is valid until..."
+    EOL = 0;
+  }
+
+  // value is the value this record is storing (e.g., /ipfs/Qm... path)
+  optional bytes value = 1;
+
+  // signatureV1 is a legacy RSA signature (deprecated in v2, kept for backward compat)
+  optional bytes signatureV1 = 2;
+
+  // validityType specifies the type of validity check (currently only EOL)
+  optional ValidityType validityType = 3;
+
+  // validity contains the data for the validity type (RFC 3339 datetime for EOL)
+  optional bytes validity = 4;
+
+  // sequence is a monotonically increasing counter for ordering records
+  optional uint64 sequence = 5;
+
+  // ttl is a hint for how long the record should be cached (nanoseconds)
+  optional uint64 ttl = 6;
+
+  // pubKey is the public key of the author (may be omitted if extractable from IPNS key)
+  optional bytes pubKey = 7;
+
+  // signatureV2 is the v2 signature over the CBOR-encoded "data" field
+  optional bytes signatureV2 = 8;
+
+  // data is the CBOR-encoded payload: { Value, Validity, ValidityType, Sequence, TTL }
+  // Used for v2 signature verification
+  optional bytes data = 9;
+}

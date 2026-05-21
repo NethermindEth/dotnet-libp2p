@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Tls;
+using Nethermind.Libp2p.Protocols.WebRtc;
 
 namespace Nethermind.Libp2p;
 
@@ -24,6 +27,16 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
+#if LIBP2P_WEBSOCKETS
+    private bool addWebSockets;
+#endif
+    private bool addWebRtcDirect;
+
+    /// <summary>
+    /// Exposes the service collection for protocol integration.
+    /// Protocols can register their services here before the peer is built.
+    /// </summary>
+    public IServiceCollection Services => InternalServices;
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
@@ -39,7 +52,6 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithRelay()
     {
-        throw new NotImplementedException("Relay protocol is not yet implemented");
         addRelay = true;
         return this;
     }
@@ -50,21 +62,42 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    public ILibp2pPeerFactoryBuilder WithWebSockets()
+    {
+#if LIBP2P_WEBSOCKETS
+        addWebSockets = true;
+        return this;
+#else
+        throw new PlatformNotSupportedException("WebSockets transport is not available on this target runtime.");
+#endif
+    }
+
+    public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
+    {
+        addWebRtcDirect = true;
+        return this;
+    }
+
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         // Ensure transport protocol static methods are preserved for AOT/trimming
         PreserveTransportProtocolMetadata();
 
         ProtocolRef tcp = Get<IpTcpProtocol>();
+#if LIBP2P_WEBSOCKETS
+        ProtocolRef[] streamTransports = addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
+#else
+        ProtocolRef[] streamTransports = [tcp];
+#endif
 
-        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>()/*, Get<TlsProtocol>()*/];
+        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 
         ProtocolRef[] muxers = [Get<YamuxProtocol>()];
 
         ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
-        Connect([tcp], [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
+        Connect(streamTransports, [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
 
-        ProtocolRef[] relay = addRelay ? [Get<RelayHopProtocol>(), Get<RelayStopProtocol>()] : [];
+        ProtocolRef[] relay = addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
             Get<GossipsubProtocolV12>(),
             Get<GossipsubProtocolV11>(),
@@ -87,13 +120,22 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
             Connect(relay, [Get<MultistreamProtocol>()], apps.Where(a => !relay.Contains(a)).ToArray());
         }
 
+        List<ProtocolRef> transports = [.. streamTransports];
+
         if (addQuic)
         {
             ProtocolRef quic = Get<QuicProtocol>();
             Connect([quic], commonAppProtocolSelector);
-            return [tcp, quic];
+            transports.Add(quic);
         }
 
-        return [tcp];
+        if (addWebRtcDirect)
+        {
+            ProtocolRef webrtcDirect = Get<WebRtcDirectProtocol>();
+            Connect([webrtcDirect], commonAppProtocolSelector);
+            transports.Add(webrtcDirect);
+        }
+
+        return [.. transports];
     }
 }

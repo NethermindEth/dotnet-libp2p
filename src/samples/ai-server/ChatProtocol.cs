@@ -40,9 +40,8 @@ internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 
             var sb = new StringBuilder();
 
-            while (!reader.EndOfStream)
+            while (await reader.ReadLineAsync() is { } line)
             {
-                var line = await reader.ReadLineAsync();
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
                 using var doc = JsonDocument.Parse(line);

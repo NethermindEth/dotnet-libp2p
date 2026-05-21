@@ -1,4 +1,5 @@
 namespace Nethermind.Libp2p.Core.Enums;
+
 public enum Key
 {
     // 128-bit AES symmetric key

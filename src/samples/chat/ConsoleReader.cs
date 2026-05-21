@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 internal class ConsoleReader
@@ -9,7 +9,7 @@ internal class ConsoleReader
     public Task<string> ReadLineAsync(CancellationToken token = default)
     {
         TaskCompletionSource<string> result = new();
-        token.Register(() => { result.SetResult(""); });
+        token.Register(() => { result.TrySetResult(""); });
         _requests.Enqueue(result);
         if (!_isRequested)
         {
@@ -17,9 +17,9 @@ internal class ConsoleReader
             Task.Run(() =>
             {
                 string? input = Console.ReadLine();
-                while (_requests.TryDequeue(out TaskCompletionSource<string> src))
+                while (_requests.TryDequeue(out TaskCompletionSource<string>? src))
                 {
-                    Task.Run(() => src.SetResult(input));
+                    Task.Run(() => src.TrySetResult(input ?? string.Empty));
                 }
 
                 _isRequested = false;

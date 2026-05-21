@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+option csharp_namespace = "Nethermind.Libp2p.Protocols.Relay.Dto";
+
+message HopMessage {
+  enum Type {
+    RESERVE = 0;
+    CONNECT = 1;
+    STATUS = 2;
+  }
+
+  optional Type type = 1;
+  optional Peer peer = 2;
+  optional Reservation reservation = 3;
+  optional Limit limit = 4;
+  optional Status status = 5;
+}
+
+message StopMessage {
+  enum Type {
+    CONNECT = 0;
+    STATUS = 1;
+  }
+
+  optional Type type = 1;
+  optional Peer peer = 2;
+  optional Limit limit = 3;
+  optional Status status = 4;
+}
+
+message Peer {
+  optional bytes id = 1;
+  repeated bytes addrs = 2;
+}
+
+message Reservation {
+  optional uint64 expire = 1;
+  repeated bytes addrs = 2;
+  optional bytes voucher = 3;
+}
+
+message Limit {
+  optional uint32 duration = 1;
+  optional uint64 data = 2;
+}
+
+enum Status {
+  UNUSED = 0;
+  OK = 100;
+  RESERVATION_REFUSED = 200;
+  RESOURCE_LIMIT_EXCEEDED = 201;
+  PERMISSION_DENIED = 202;
+  CONNECTION_FAILED = 203;
+  NO_RESERVATION = 204;
+  MALFORMED_MESSAGE = 400;
+  UNEXPECTED_MESSAGE = 401;
+}
