@@ -65,7 +65,9 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             {
                 ClientCertificateRequired = true,
                 ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, c, _, _) => true,
+                RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                    cert is X509Certificate2 x509
+                    && CertificateHelper.ValidateCertificate(x509, peerId: null),
                 ServerCertificate = cert,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                 AllowRenegotiation = true,
@@ -137,7 +139,6 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 LocalCertificateSelectionCallback = (a, b, c, d, e) => c[0],
                 AllowTlsResume = true,
                 AllowRenegotiation = true,
-                TargetHost = null,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert ?? throw new Libp2pException("Remote public key not found")),
                 ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],

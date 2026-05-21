@@ -20,6 +20,20 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
     {
         _logger?.LogTrace("Hello started");
 
+        IProtocol? selectedProtocol = context.UpgradeOptions?.SelectedProtocol;
+        if (selectedProtocol is not null)
+        {
+            if (!await DialSelectedProtocolOptimistically(channel, selectedProtocol))
+            {
+                _logger?.LogDebug("Negotiation failed");
+                return;
+            }
+
+            _logger?.LogDebug("Protocol selected during dialing: {Id}", selectedProtocol.Id);
+            await context.Upgrade(channel, selectedProtocol);
+            return;
+        }
+
         if (!await SendHello(channel))
         {
             await channel.CloseAsync();
@@ -62,29 +76,17 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
 
         IProtocol? selected = null;
 
-        IProtocol? selectedProtocol = context.UpgradeOptions?.SelectedProtocol;
-        if (selectedProtocol is not null)
+        foreach (IProtocol selector in context!.SubProtocols)
         {
-            _logger?.LogDebug("Proposing just {Protocol}", selectedProtocol.Id);
-            if (await DialProtocol(selectedProtocol) == true)
+            bool? dialResult = await DialProtocol(selector);
+            if (dialResult == true)
             {
-                selected = selectedProtocol;
+                selected = selector;
+                break;
             }
-        }
-        else
-        {
-            foreach (IProtocol selector in context!.SubProtocols)
+            else if (dialResult == false)
             {
-                bool? dialResult = await DialProtocol(selector);
-                if (dialResult == true)
-                {
-                    selected = selector;
-                    break;
-                }
-                else if (dialResult == false)
-                {
-                    break;
-                }
+                break;
             }
         }
 
@@ -164,6 +166,38 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
         catch (OperationCanceledException)
         {
             _logger?.LogDebug("Multistream hello canceled.");
+            return false;
+        }
+    }
+
+    private async Task<bool> DialSelectedProtocolOptimistically(IChannel channel, IProtocol selectedProtocol)
+    {
+        try
+        {
+            _logger?.LogTrace("SendHello: sending multistream id");
+            await channel.WriteLineAsync(Id);
+            _logger?.LogTrace("DialProtocol: optimistically proposing {Id}", selectedProtocol.Id);
+            await channel.WriteLineAsync(selectedProtocol.Id);
+
+            string line = await channel.ReadLineAsync();
+            _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
+            if (line != Id)
+            {
+                return false;
+            }
+
+            string selectorLine = await channel.ReadLineAsync();
+            _logger?.LogTrace("Proposed {Id}, answer: {Answer}", selectedProtocol.Id, selectorLine ?? "(null)");
+            return selectorLine == selectedProtocol.Id;
+        }
+        catch (ChannelClosedException)
+        {
+            _logger?.LogWarning("Channel closed during optimistic protocol negotiation (dial, selector {Id}).", selectedProtocol.Id);
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogDebug("Optimistic protocol negotiation canceled (dial, selector {Id}).", selectedProtocol.Id);
             return false;
         }
     }
