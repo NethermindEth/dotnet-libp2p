@@ -93,7 +93,7 @@ public class MultistreamProtocolTests
         await downChannel.WriteLineAsync(proto1.Id);
         await dialTask;
 
-        ReadResult extraWrite = await downChannel.ReadAsync(0, ReadBlockingMode.DontWait);
+        ReadResult extraWrite = await downChannel.ReadAsync(0, ReadBlockingMode.DoNotWait);
         Assert.That(extraWrite.Data.Length, Is.Zero);
         _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
