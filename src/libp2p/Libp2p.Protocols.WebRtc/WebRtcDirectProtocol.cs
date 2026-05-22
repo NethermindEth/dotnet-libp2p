@@ -48,8 +48,6 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        MultiaddrProtocolRegistry.EnsureRegistered();
-
         IPEndPoint endpoint = listenAddr.ToEndPoint();
         using UdpClient udp = new(endpoint);
         if (endpoint.Port == 0)
@@ -111,8 +109,6 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        MultiaddrProtocolRegistry.EnsureRegistered();
-
         (IPEndPoint endpoint, DtlsFingerprint expectedFingerprint) = WebRtcDirectMultiaddr.Parse(remoteAddr);
 
         using UdpClient signalingUdp = new(0);

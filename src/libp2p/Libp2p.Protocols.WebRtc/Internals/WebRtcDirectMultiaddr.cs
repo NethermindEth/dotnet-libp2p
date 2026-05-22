@@ -4,7 +4,6 @@
 using Multiformats.Address;
 using Multiformats.Base;
 using Multiformats.Hash;
-using Nethermind.Libp2p.Core;
 using System.Net;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
@@ -13,14 +12,12 @@ internal static class WebRtcDirectMultiaddr
 {
     public static bool IsWebRtcDirect(Multiaddress addr)
     {
-        MultiaddrProtocolRegistry.EnsureRegistered();
         ArgumentNullException.ThrowIfNull(addr);
         return addr.ToString().Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("webrtc-direct", StringComparer.OrdinalIgnoreCase);
     }
 
     public static (IPEndPoint Endpoint, DtlsFingerprint ExpectedFingerprint) Parse(Multiaddress addr)
     {
-        MultiaddrProtocolRegistry.EnsureRegistered();
         ArgumentNullException.ThrowIfNull(addr);
 
         string[] segments = addr.ToString().Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -74,7 +71,6 @@ internal static class WebRtcDirectMultiaddr
 
     public static Multiaddress Build(IPEndPoint endpoint, DtlsFingerprint fingerprint)
     {
-        MultiaddrProtocolRegistry.EnsureRegistered();
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(fingerprint);
 
