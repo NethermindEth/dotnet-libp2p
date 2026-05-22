@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.TestsBase;
 using NUnit.Framework;
 
 namespace Libp2p.E2eTests;

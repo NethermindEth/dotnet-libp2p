@@ -3,7 +3,7 @@
 
 using Nethermind.Libp2p.Core;
 
-namespace Libp2p.Core.TestsBase;
+namespace Nethermind.Libp2p.Core.TestsBase;
 
 public class IncrementNumberTestProtocol(int? delay = null, bool cancelOnToken = true) : ISessionProtocol<int, int>
 {
