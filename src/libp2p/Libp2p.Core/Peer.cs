@@ -20,6 +20,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     : ILocalPeer
 {
     private const int ConnectionTimeout = 15_000;
+    private const int CanceledDialDisposalGracePeriod = 1_000;
 
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
     protected readonly PeerStore? _peerStore = peerStore;
@@ -254,6 +255,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
         Dictionary<Multiaddress, Task> transportDials = [];
         Multiaddress? connectedAddress = null;
+        Task<Task>? firstSuccessTask = null;
 
         try
         {
@@ -280,33 +282,34 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             foreach (Multiaddress addr in resolvedAddrs)
             {
-                cancellations[addr] = CancellationTokenSource.CreateLinkedTokenSource(token);
+                cancellations[addr] = new CancellationTokenSource();
             }
 
-            Task timeoutTask = Task.Delay(ConnectionTimeout);
-            Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr =>
-                DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial))]).WaitAsync(token);
-
-            if (wait == timeoutTask)
-            {
-                throw new TimeoutException();
-            }
+            firstSuccessTask = TaskHelper.FirstSuccess([.. resolvedAddrs.Select(addr =>
+                DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial))]);
+            Task wait = await firstSuccessTask.WaitAsync(TimeSpan.FromMilliseconds(ConnectionTimeout), token);
 
             ISession firstConnected = (wait as Task<ISession>)!.Result;
             connectedAddress = firstConnected.RemoteAddress;
 
             return firstConnected;
         }
+        catch
+        {
+            ObserveLateFailure(firstSuccessTask);
+            throw;
+        }
         finally
         {
             foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
             {
-                if (!c.Key.Equals(connectedAddress))
+                bool isConnectedAddress = c.Key.Equals(connectedAddress);
+                if (!isConnectedAddress)
                 {
                     c.Value.Cancel(false);
                 }
 
-                DisposeCancellationAfterDialCompletes(c.Value, transportDials.GetValueOrDefault(c.Key));
+                DisposeCancellationAfterDialCompletes(c.Value, transportDials.GetValueOrDefault(c.Key), isConnectedAddress);
             }
 
             _pendingDials.TryRemove(remotePeerId, out _);
@@ -376,7 +379,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return session;
     }
 
-    private static void DisposeCancellationAfterDialCompletes(CancellationTokenSource cts, Task? transportDial)
+    private static void DisposeCancellationAfterDialCompletes(CancellationTokenSource cts, Task? transportDial, bool waitForTransport)
     {
         if (transportDial is null || transportDial.IsCompleted)
         {
@@ -384,10 +387,42 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             return;
         }
 
-        _ = transportDial.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
-            cts,
+        if (waitForTransport)
+        {
+            _ = transportDial.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                cts,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return;
+        }
+
+        CancellationTokenSource fallbackDelayCts = new();
+        Task fallbackDelay = Task.Delay(CanceledDialDisposalGracePeriod, fallbackDelayCts.Token);
+        _ = Task.WhenAny(transportDial, fallbackDelay).ContinueWith(static (_, state) =>
+        {
+            (CancellationTokenSource cts, CancellationTokenSource fallbackDelayCts) =
+                ((CancellationTokenSource, CancellationTokenSource))state!;
+            fallbackDelayCts.Cancel();
+            fallbackDelayCts.Dispose();
+            cts.Dispose();
+        },
+            (cts, fallbackDelayCts),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static void ObserveLateFailure(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        _ = task.ContinueWith(static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
 

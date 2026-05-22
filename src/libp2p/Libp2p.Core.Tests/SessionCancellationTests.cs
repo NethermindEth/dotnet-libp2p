@@ -97,7 +97,9 @@ internal class SessionCancellationTests
         ILocalPeer peer = factory.Create(TestPeers.Identity(1));
         Multiaddress remoteAddr = $"/p2p/{TestPeers.Identity(2).PeerId}";
 
-        ISession session = await peer.DialAsync(remoteAddr).WaitAsync(TimeSpan.FromSeconds(2));
+        using CancellationTokenSource cts = new();
+        ISession session = await peer.DialAsync(remoteAddr, cts.Token).WaitAsync(TimeSpan.FromSeconds(2));
+        cts.Cancel();
         transport.ContinueAfterConnected.SetResult();
         await transport.TokenRegistered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await session.DisconnectAsync();
@@ -269,6 +271,11 @@ class TokenUsingAfterConnectedTransport : ITransportProtocol
 
         try
         {
+            if (token.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(token);
+            }
+
             using CancellationTokenRegistration registration = token.Register(static () => { });
             TokenRegistered.SetResult();
         }
