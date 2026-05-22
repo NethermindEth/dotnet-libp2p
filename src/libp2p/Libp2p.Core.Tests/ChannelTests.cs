@@ -143,6 +143,49 @@ public class ChannelTests
     }
 
     [Test]
+    public void Test_AsStream_ReadAsyncAfterDisposeThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync disposal behavior.
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.ReadAsync(new byte[1], 0, 0, CancellationToken.None));
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.ReadAsync(Memory<byte>.Empty, CancellationToken.None));
+#pragma warning restore CA2022
+        Assert.That(stream.CanRead, Is.False);
+    }
+
+    [Test]
+    public void Test_AsStream_WriteAsyncAfterDisposeThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(new byte[1], 0, 0, CancellationToken.None));
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(ReadOnlyMemory<byte>.Empty, CancellationToken.None));
+        Assert.That(stream.CanWrite, Is.False);
+    }
+
+    [Test]
+    public void Test_AsStream_CancelledAsyncAfterDisposeThrowsCancellation()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        stream.Dispose();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(Memory<byte>.Empty, cts.Token));
+#pragma warning restore CA2022
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(ReadOnlyMemory<byte>.Empty, cts.Token));
+    }
+
+    [Test]
     public void Test_AsStream_NullChannelThrows()
     {
         IChannel? channel = null;
