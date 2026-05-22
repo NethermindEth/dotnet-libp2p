@@ -252,7 +252,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token)
     {
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
-        string? connectedAddress = null;
+        Multiaddress? connectedAddress = null;
 
         try
         {
@@ -291,7 +291,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             }
 
             ISession firstConnected = (wait as Task<ISession>)!.Result;
-            connectedAddress = firstConnected.RemoteAddress.ToString();
+            connectedAddress = firstConnected.RemoteAddress;
 
             return firstConnected;
         }
@@ -299,7 +299,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             foreach (KeyValuePair<Multiaddress, CancellationTokenSource> c in cancellations)
             {
-                if (!string.Equals(c.Key.ToString(), connectedAddress, StringComparison.Ordinal))
+                if (!c.Key.Equals(connectedAddress))
                 {
                     c.Value.Cancel(false);
                 }
