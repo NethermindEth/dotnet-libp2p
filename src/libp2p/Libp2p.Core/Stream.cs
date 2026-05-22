@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Nethermind.Libp2p.Core;
 using System.Buffers;
+
+namespace Nethermind.Libp2p.Core;
 
 public class ChannelStream : Stream
 {
@@ -19,15 +20,33 @@ public class ChannelStream : Stream
     public override bool CanRead => !_disposed && _canRead;
     public override bool CanSeek => false;
     public override bool CanWrite => !_disposed && _canWrite;
-    public override long Length => throw new Exception();
+    public override long Length
+    {
+        get
+        {
+            ThrowIfDisposed();
+            throw new NotSupportedException();
+        }
+    }
 
     public override long Position
     {
-        get => 0;
-        set => throw new NotSupportedException();
+        get
+        {
+            ThrowIfDisposed();
+            throw new NotSupportedException();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            throw new NotSupportedException();
+        }
     }
 
-    public override void Flush() { }
+    public override void Flush()
+    {
+        ThrowIfDisposed();
+    }
 
     public override int Read(byte[] buffer, int offset, int count)
     {
@@ -42,7 +61,7 @@ public class ChannelStream : Stream
 
         if (buffer.IsEmpty) return 0;
 
-        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).GetAwaiter().GetResult();
+        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).ConfigureAwait(false).GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -60,7 +79,7 @@ public class ChannelStream : Stream
         ReadOnlyMemory<byte> source = buffer.AsMemory(offset, count);
         ThrowIfDisposed();
 
-        if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).GetAwaiter().GetResult() != IOResult.Ok)
+        if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -87,7 +106,7 @@ public class ChannelStream : Stream
 
     private async ValueTask WriteAsyncCore(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
-        IOResult result = await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken);
+        IOResult result = await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken).ConfigureAwait(false);
         if (result == IOResult.Cancelled)
         {
             throw CreateOperationCanceledException(cancellationToken);
@@ -136,7 +155,7 @@ public class ChannelStream : Stream
 
     private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
     {
-        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken);
+        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
         if (result.Result == IOResult.Cancelled)
         {
             throw CreateOperationCanceledException(cancellationToken);
@@ -168,9 +187,17 @@ public class ChannelStream : Stream
         }
     }
 
-    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override long Seek(long offset, SeekOrigin origin)
+    {
+        ThrowIfDisposed();
+        throw new NotSupportedException();
+    }
 
-    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void SetLength(long value)
+    {
+        ThrowIfDisposed();
+        throw new NotSupportedException();
+    }
 
     protected override void Dispose(bool disposing)
     {

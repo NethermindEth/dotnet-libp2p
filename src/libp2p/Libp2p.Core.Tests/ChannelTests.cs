@@ -27,6 +27,16 @@ public class ChannelTests
     }
 
     [Test]
+    public void Test_AsStream_ReturnsCoreChannelStream()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.That(stream, Is.TypeOf<ChannelStream>());
+        Assert.That(stream.GetType().Namespace, Is.EqualTo("Nethermind.Libp2p.Core"));
+    }
+
+    [Test]
     public async Task Test_AsStream_ReadsDataWrittenWithMemoryOverloads()
     {
         Channel channel = new();
@@ -166,6 +176,41 @@ public class ChannelTests
         Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(new byte[1], 0, 0, CancellationToken.None));
         Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(ReadOnlyMemory<byte>.Empty, CancellationToken.None));
         Assert.That(stream.CanWrite, Is.False);
+    }
+
+    [Test]
+    public void Test_AsStream_NonSeekableMembersThrow()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stream.CanSeek, Is.False);
+            Assert.Throws<NotSupportedException>(() => _ = stream.Length);
+            Assert.Throws<NotSupportedException>(() => _ = stream.Position);
+            Assert.Throws<NotSupportedException>(() => stream.Position = 1);
+            Assert.Throws<NotSupportedException>(() => stream.Seek(0, SeekOrigin.Begin));
+            Assert.Throws<NotSupportedException>(() => stream.SetLength(1));
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_DisposedMembersThrow()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<ObjectDisposedException>(() => _ = stream.Length);
+            Assert.Throws<ObjectDisposedException>(() => _ = stream.Position);
+            Assert.Throws<ObjectDisposedException>(() => stream.Position = 1);
+            Assert.Throws<ObjectDisposedException>(() => stream.Flush());
+            Assert.Throws<ObjectDisposedException>(() => stream.Seek(0, SeekOrigin.Begin));
+            Assert.Throws<ObjectDisposedException>(() => stream.SetLength(1));
+        });
     }
 
     [Test]

@@ -18,6 +18,6 @@ public static class IChannelExtensions
     {
         ArgumentNullException.ThrowIfNull(channel);
 
-        return new global::ChannelStream(channel);
+        return new ChannelStream(channel);
     }
 }
