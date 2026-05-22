@@ -16,11 +16,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         try
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
+            List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             lock (this)
             {
                 if (rpc.Publish.Count != 0)
                 {
-                    HandleNewMessages(peerId, rpc.Publish, peerMessages);
+                    HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages);
                 }
 
                 if (rpc.Subscriptions.Count != 0)
@@ -56,6 +57,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 }
             }
+            foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
+            {
+                OnMessage?.Invoke(topic, receivedFrom, data);
+            }
+
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
             {
                 peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
@@ -67,7 +73,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages)
+    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
     {
         // Check if peer is graylisted (Gossipsub v1.1)
         if (ShouldGraylistPeer(peerId))
@@ -123,7 +129,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             RecordMessageDelivery(peerId, message, message.Topic, true);
 
             PeerId author = new(message.From.ToArray());
-            OnMessage?.Invoke(message.Topic, peerId, message.Data.ToByteArray());
+            receivedMessages.Add((message.Topic, peerId, message.Data.ToByteArray()));
 
             if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
             {
