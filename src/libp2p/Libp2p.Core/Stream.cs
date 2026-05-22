@@ -83,14 +83,24 @@ public class ChannelStream : Stream
         ArgumentNullException.ThrowIfNull(buffer);
 
         Memory<byte> target = buffer.AsMemory(offset, count);
-        if (target.IsEmpty) return Task.FromResult(0);
+        if (target.IsEmpty)
+        {
+            return cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled<int>(cancellationToken)
+                : Task.FromResult(0);
+        }
 
         return ReadAsyncCore(target, cancellationToken).AsTask();
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        if (buffer.IsEmpty) return ValueTask.FromResult(0);
+        if (buffer.IsEmpty)
+        {
+            return cancellationToken.IsCancellationRequested
+                ? new ValueTask<int>(Task.FromCanceled<int>(cancellationToken))
+                : ValueTask.FromResult(0);
+        }
 
         return ReadAsyncCore(buffer, cancellationToken);
     }

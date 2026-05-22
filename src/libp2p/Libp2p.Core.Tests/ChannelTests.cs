@@ -90,6 +90,20 @@ public class ChannelTests
     }
 
     [Test]
+    public void Test_AsStream_ZeroLengthReadCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(Memory<byte>.Empty, cts.Token));
+#pragma warning restore CA2022
+    }
+
+    [Test]
     public async Task Test_AsStream_ZeroLengthWriteCompletes()
     {
         Channel channel = new();
@@ -109,8 +123,8 @@ public class ChannelTests
         cts.Cancel();
 
 #pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 1, cts.Token));
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1].AsMemory(), cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 1, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1].AsMemory(), cts.Token));
 #pragma warning restore CA2022
         Assert.That(stream.CanRead, Is.True);
     }
@@ -123,8 +137,8 @@ public class ChannelTests
         using CancellationTokenSource cts = new();
         cts.Cancel();
 
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.WriteAsync([1], 0, 1, cts.Token));
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory(), cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync([1], 0, 1, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory(), cts.Token));
         Assert.That(stream.CanWrite, Is.True);
     }
 
