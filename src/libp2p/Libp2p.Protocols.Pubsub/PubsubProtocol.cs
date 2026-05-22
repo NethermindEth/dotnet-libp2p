@@ -14,7 +14,7 @@ namespace Nethermind.Libp2p.Protocols;
 ///     https://github.com/libp2p/specs/tree/master/pubsub
 /// </summary>
 public abstract class PubsubProtocol : ISessionProtocol
-#pragma warning restore IDE0079 // Remove unnecessary suppression
+#pragma warning restore IDE0130
 {
     private readonly ILogger? _logger;
     private readonly PubsubRouter router;
@@ -66,12 +66,9 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        TaskCompletionSource dialTcs = new();
-
         CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () =>
         {
             _ = context.DialAsync(this);
-            return dialTcs.Task;
         });
 
         try

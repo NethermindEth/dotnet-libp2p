@@ -520,7 +520,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
+    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Action subDial)
     {
         PeerId? peerId = addr.GetPeerId();
 
