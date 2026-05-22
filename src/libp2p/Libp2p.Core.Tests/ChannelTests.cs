@@ -77,14 +77,37 @@ public class ChannelTests
         await channel.CloseAsync();
         byte[] buffer = new byte[4];
         int endedRead = await stream.ReadAsync(buffer, 0, 1);
+        int secondRead = await stream.ReadAsync(buffer, 0, 1).WaitAsync(TimeSpan.FromSeconds(1));
+        int secondMemoryRead = await stream.ReadAsync(buffer.AsMemory(0, 1)).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
         int emptyRead = await stream.ReadAsync(buffer, 0, 0).WaitAsync(TimeSpan.FromSeconds(1));
         int emptyMemoryRead = await stream.ReadAsync(Memory<byte>.Empty).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Multiple(() =>
         {
             Assert.That(endedRead, Is.Zero);
+            Assert.That(secondRead, Is.Zero);
+            Assert.That(secondMemoryRead, Is.Zero);
             Assert.That(emptyRead, Is.Zero);
             Assert.That(emptyMemoryRead, Is.Zero);
+            Assert.That(stream.CanRead, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncReadAfterEndReturnsImmediately()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await channel.CloseAsync();
+        byte[] buffer = new byte[1];
+        int endedRead = stream.Read(buffer, 0, 1);
+        int secondRead = await Task.Run(() => stream.Read(buffer, 0, 1)).WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(endedRead, Is.Zero);
+            Assert.That(secondRead, Is.Zero);
             Assert.That(stream.CanRead, Is.False);
         });
     }
@@ -122,6 +145,52 @@ public class ChannelTests
         await stream.WriteAsync(Array.Empty<byte>(), 0, 0);
 
         Assert.That(stream.CanWrite, Is.True);
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthWriteDoesNotWaitForPendingWrite()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        ValueTask pendingWrite = stream.WriteAsync(new byte[] { 1 }.AsMemory());
+
+        await stream.WriteAsync(Array.Empty<byte>(), 0, 0).WaitAsync(TimeSpan.FromSeconds(1));
+
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await pendingWrite;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+            Assert.That(stream.CanWrite, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncZeroLengthWriteDoesNotWaitForPendingWrite()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        ValueTask pendingWrite = stream.WriteAsync(new byte[] { 1 }.AsMemory());
+
+        await Task.Run(() => stream.Write(Array.Empty<byte>(), 0, 0)).WaitAsync(TimeSpan.FromSeconds(1));
+
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await pendingWrite;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+            Assert.That(stream.CanWrite, Is.True);
+        });
     }
 
     [Test]

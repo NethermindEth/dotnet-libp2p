@@ -60,6 +60,7 @@ public class ChannelStream : Stream
         ThrowIfDisposed();
 
         if (buffer.IsEmpty) return 0;
+        if (!_canRead) return 0;
 
         ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).ConfigureAwait(false).GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
@@ -78,6 +79,7 @@ public class ChannelStream : Stream
 
         ReadOnlyMemory<byte> source = buffer.AsMemory(offset, count);
         ThrowIfDisposed();
+        if (source.IsEmpty) return;
 
         if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
         {
@@ -92,6 +94,7 @@ public class ChannelStream : Stream
         ReadOnlyMemory<byte> source = buffer.AsMemory(offset, count);
         if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
         if (_disposed) return Task.FromException(CreateObjectDisposedException());
+        if (source.IsEmpty) return Task.CompletedTask;
 
         return WriteAsyncCore(source, cancellationToken).AsTask();
     }
@@ -100,6 +103,7 @@ public class ChannelStream : Stream
     {
         if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
         if (_disposed) return new ValueTask(Task.FromException(CreateObjectDisposedException()));
+        if (buffer.IsEmpty) return ValueTask.CompletedTask;
 
         return WriteAsyncCore(buffer, cancellationToken);
     }
@@ -155,6 +159,8 @@ public class ChannelStream : Stream
 
     private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
     {
+        if (!_canRead) return 0;
+
         ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
         if (result.Result == IOResult.Cancelled)
         {
