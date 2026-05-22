@@ -11,6 +11,8 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.OpenTelemetry;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
 using System.Diagnostics;
 using System.Text;
 

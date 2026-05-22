@@ -10,7 +10,7 @@
 		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
 		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
 		The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
-		either BOTH runtimes must be indicated or ONLY macatalyst-x64. -->
+		either BOTH runtimes must be indicated or ONLY maccatalyst-x64. -->
 		<!-- For example: <RuntimeIdentifiers>net10.0-android;maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
     <!--<RuntimeIdentifiers>android-arm64;android-x64;win-x64</RuntimeIdentifiers>-->
 		<OutputType>Exe</OutputType>

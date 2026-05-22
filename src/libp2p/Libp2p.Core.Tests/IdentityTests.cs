@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Core.Tests;
