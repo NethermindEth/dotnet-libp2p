@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-namespace Nethermind.Libp2p.Protocols.Pubsub;
-
 using Nethermind.Libp2p.Core;
+
+namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 internal class Topic : ITopic
 {

@@ -40,13 +40,14 @@ public class PubsubProtocolTests
     }
 
     [Test]
-    public void Topic_OnMessage_IncludesSenderPeerId()
+    public void Topic_OnMessage_IncludesReceivedFromPeerId()
     {
         PeerStore peerStore = new();
         PubsubRouter router = new(peerStore);
         const string topic = "test-topic";
         byte[] expectedMessage = [1, 2, 3];
-        Identity sender = TestPeers.Identity(1);
+        PeerId receivedFrom = TestPeers.PeerId(1);
+        Identity author = TestPeers.Identity(2);
         PeerId? receivedPeerId = null;
         byte[]? receivedMessage = null;
 
@@ -57,11 +58,11 @@ public class PubsubProtocolTests
             receivedMessage = message;
         };
 
-        router.OnRpc(sender.PeerId, new Rpc().WithMessages(topic, 1, sender.PeerId.Bytes, expectedMessage, sender));
+        router.OnRpc(receivedFrom, new Rpc().WithMessages(topic, 1, author.PeerId.Bytes, expectedMessage, author));
 
         Assert.Multiple(() =>
         {
-            Assert.That(receivedPeerId, Is.EqualTo(sender.PeerId));
+            Assert.That(receivedPeerId, Is.EqualTo(receivedFrom));
             Assert.That(receivedMessage, Is.EqualTo(expectedMessage));
         });
     }

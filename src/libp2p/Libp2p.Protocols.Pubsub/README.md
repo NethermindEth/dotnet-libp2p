@@ -42,6 +42,8 @@ chat.OnMessage += (peerId, bytes) =>
 };
 ```
 
+The `peerId` argument is the connected peer that delivered the RPC message to the local router. It is not necessarily the original pubsub message author when messages are forwarded through the mesh. If your application needs author identity, include it in the published payload and validate it at the application layer.
+
 To create a topic handle without subscribing immediately, pass `subscribe: false` and call `Subscribe()` later:
 
 ```csharp
