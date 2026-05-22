@@ -252,6 +252,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token)
     {
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
+        Dictionary<Multiaddress, Task> transportDials = [];
         Multiaddress? connectedAddress = null;
 
         try
@@ -283,7 +284,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             }
 
             Task timeoutTask = Task.Delay(ConnectionTimeout);
-            Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr => DialAsyncCore(addr, cancellations[addr].Token))]).WaitAsync(token);
+            Task wait = await TaskHelper.FirstSuccess([timeoutTask, .. resolvedAddrs.Select(addr =>
+                DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial))]).WaitAsync(token);
 
             if (wait == timeoutTask)
             {
@@ -304,7 +306,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     c.Value.Cancel(false);
                 }
 
-                c.Value.Dispose();
+                DisposeCancellationAfterDialCompletes(c.Value, transportDials.GetValueOrDefault(c.Key));
             }
 
             _pendingDials.TryRemove(remotePeerId, out _);
@@ -313,7 +315,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
 
-    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token = default)
+    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token = default, Action<Task>? transportDialStarted = null)
     {
         Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
         dialActivity?.SetTag("parent", peerActivity?.DisplayName);
@@ -332,6 +334,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol, dialActivity);
 
         Task dialingTask = transportProtocol.DialAsync(ctx, addr, token);
+        transportDialStarted?.Invoke(dialingTask);
 
         _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
 
@@ -371,6 +374,21 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
         dialActivity?.AddEvent(new ActivityEvent("connected"));
         return session;
+    }
+
+    private static void DisposeCancellationAfterDialCompletes(CancellationTokenSource cts, Task? transportDial)
+    {
+        if (transportDial is null || transportDial.IsCompleted)
+        {
+            cts.Dispose();
+            return;
+        }
+
+        _ = transportDial.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+            cts,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     public Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default)

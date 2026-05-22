@@ -83,6 +83,25 @@ internal class SessionCancellationTests
         Assert.CatchAsync<OperationCanceledException>(async () =>
             await peer.DialAsync(remoteAddr, cts.Token).WaitAsync(TimeSpan.FromSeconds(2)));
     }
+
+    [Test]
+    public async Task Test_DialToken_RemainsUsableAfterSessionConnects()
+    {
+        TokenUsingAfterConnectedTransport transport = new();
+        IPeerFactory factory = new TokenUsingAfterConnectedStackBuilder(new ServiceCollection()
+                .AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings())
+                .AddSingleton(transport)
+                .BuildServiceProvider())
+            .Build();
+
+        ILocalPeer peer = factory.Create(TestPeers.Identity(1));
+        Multiaddress remoteAddr = $"/p2p/{TestPeers.Identity(2).PeerId}";
+
+        ISession session = await peer.DialAsync(remoteAddr).WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ContinueAfterConnected.SetResult();
+        await transport.TokenRegistered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await session.DisconnectAsync();
+    }
 }
 
 class StackBuilder(IServiceProvider serviceProvider) : PeerFactoryBuilderBase<StackBuilder, PeerFactory>(serviceProvider)
@@ -204,6 +223,68 @@ class HangingTransport : ITransportProtocol
     public Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         return new TaskCompletionSource().Task;
+    }
+
+    public Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
+    {
+        context.ListenerReady(listenAddr);
+        return Task.CompletedTask;
+    }
+}
+
+class TokenUsingAfterConnectedStackBuilder(IServiceProvider serviceProvider) : PeerFactoryBuilderBase<TokenUsingAfterConnectedStackBuilder, PeerFactory>(serviceProvider)
+{
+    protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+    {
+        ProtocolRef transport = Get<TokenUsingAfterConnectedTransport>();
+        Connect([transport], [.. additionalProtocols]);
+        return [transport];
+    }
+}
+
+class TokenUsingAfterConnectedTransport : ITransportProtocol
+{
+    public string Id => "token-after-connected";
+
+    public TaskCompletionSource ContinueAfterConnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource TokenRegistered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId)
+    {
+        return [$"/p2p/{peerId}"];
+    }
+
+    public static bool IsAddressMatch(Multiaddress addr)
+    {
+        return true;
+    }
+
+    public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
+    {
+        INewConnectionContext conCtx = context.CreateConnection();
+        conCtx.State.RemoteAddress = remoteAddr;
+        using INewSessionContext session = conCtx.UpgradeToSession();
+
+        await ContinueAfterConnected.Task;
+
+        try
+        {
+            using CancellationTokenRegistration registration = token.Register(static () => { });
+            TokenRegistered.SetResult();
+        }
+        catch (Exception ex)
+        {
+            TokenRegistered.SetException(ex);
+            throw;
+        }
+
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, conCtx.Token);
+        }
+        catch (OperationCanceledException) when (conCtx.Token.IsCancellationRequested)
+        {
+        }
     }
 
     public Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
