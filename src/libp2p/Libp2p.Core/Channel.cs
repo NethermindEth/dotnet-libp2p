@@ -63,10 +63,10 @@ public class Channel : IChannel
     public async ValueTask CloseAsync()
     {
         ValueTask<IOResult> stopReader = _reader.WriteEofAsync().Preserve();
-        await _writer.WriteEofAsync();
+        await _writer.WriteEofAsync().ConfigureAwait(false);
         if (!stopReader.IsCompleted)
         {
-            await stopReader;
+            await stopReader.ConfigureAwait(false);
         }
         Completion.TrySetResult();
     }
@@ -105,7 +105,7 @@ public class Channel : IChannel
         {
             try
             {
-                await _readLock.WaitAsync(token);
+                await _readLock.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
@@ -129,7 +129,7 @@ public class Channel : IChannel
                     return ReadResult.Ok(default);
                 }
 
-                await _canRead.WaitAsync(token);
+                await _canRead.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
@@ -147,7 +147,7 @@ public class Channel : IChannel
                 ReadOnlySequence<byte> chunk = default;
                 do
                 {
-                    if (lockAgain) await _canRead.WaitAsync(token);
+                    if (lockAgain) await _canRead.WaitAsync(token).ConfigureAwait(false);
 
                     if (_eow)
                     {
@@ -194,7 +194,7 @@ public class Channel : IChannel
         {
             try
             {
-                await _canWrite.WaitAsync(token);
+                await _canWrite.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
@@ -215,7 +215,7 @@ public class Channel : IChannel
 
                 _bytes = bytes;
                 _canRead.Release();
-                await _read.WaitAsync(token);
+                await _read.WaitAsync(token).ConfigureAwait(false);
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);
                 Libp2pMetrics.DataSentPackets.Add(1);
                 return IOResult.Ok;
@@ -230,7 +230,7 @@ public class Channel : IChannel
         {
             try
             {
-                await _canWrite.WaitAsync(token);
+                await _canWrite.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
@@ -257,7 +257,7 @@ public class Channel : IChannel
                 {
                     return IOResult.Ended;
                 }
-                await _readLock.WaitAsync(token);
+                await _readLock.WaitAsync(token).ConfigureAwait(false);
                 _readLock.Release();
                 return !_eow ? IOResult.Ok : IOResult.Ended;
             }

@@ -113,6 +113,39 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task Test_AsStream_SyncReadDoesNotCaptureSynchronizationContext()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        byte[] buffer = new byte[1];
+
+        Task<int> read = Task.Run(() =>
+        {
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            try
+            {
+                return stream.Read(buffer, 0, buffer.Length);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+            }
+        });
+
+        await Task.Delay(100);
+        await reverseStream.WriteAsync([1], 0, 1).WaitAsync(TimeSpan.FromSeconds(1));
+        int bytesRead = await read.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+        });
+    }
+
+    [Test]
     public void Test_AsStream_ZeroLengthReadValidatesOffset()
     {
         Channel channel = new();
@@ -190,6 +223,39 @@ public class ChannelTests
             Assert.That(bytesRead, Is.EqualTo(1));
             Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
             Assert.That(stream.CanWrite, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncWriteDoesNotCaptureSynchronizationContext()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        Task write = Task.Run(() =>
+        {
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            try
+            {
+                stream.Write([1], 0, 1);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+            }
+        });
+
+        await Task.Delay(100);
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length).WaitAsync(TimeSpan.FromSeconds(1));
+        await write.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
         });
     }
 
@@ -305,5 +371,12 @@ public class ChannelTests
         IChannel? channel = null;
 
         Assert.Throws<ArgumentNullException>(() => channel!.AsStream());
+    }
+
+    private sealed class NonPumpingSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+        }
     }
 }
