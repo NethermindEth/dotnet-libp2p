@@ -35,10 +35,10 @@ await router.StartAsync(peer);
 ```csharp
 ITopic chat = router.GetTopic("chat");
 
-chat.OnMessage += bytes =>
+chat.OnMessage += (peerId, bytes) =>
 {
     string text = Encoding.UTF8.GetString(bytes);
-    Console.WriteLine($"chat: {text}");
+    Console.WriteLine($"{peerId}: {text}");
 };
 ```
 

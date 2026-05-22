@@ -6,6 +6,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 [TestFixture]
 public class PubsubProtocolTests
@@ -37,6 +38,34 @@ public class PubsubProtocolTests
 
         Assert.Throws<ArgumentNullException>(() => router.Publish("test-topic", null!));
     }
+
+    [Test]
+    public void Topic_OnMessage_IncludesSenderPeerId()
+    {
+        PeerStore peerStore = new();
+        PubsubRouter router = new(peerStore);
+        const string topic = "test-topic";
+        byte[] expectedMessage = [1, 2, 3];
+        Identity sender = TestPeers.Identity(1);
+        PeerId? receivedPeerId = null;
+        byte[]? receivedMessage = null;
+
+        ITopic subscription = router.GetTopic(topic);
+        subscription.OnMessage += (peerId, message) =>
+        {
+            receivedPeerId = peerId;
+            receivedMessage = message;
+        };
+
+        router.OnRpc(sender.PeerId, new Rpc().WithMessages(topic, 1, sender.PeerId.Bytes, expectedMessage, sender));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(receivedPeerId, Is.EqualTo(sender.PeerId));
+            Assert.That(receivedMessage, Is.EqualTo(expectedMessage));
+        });
+    }
+
     [Test]
     public async Task Test_Peer_is_dialed_when_added_by_discovery()
     {

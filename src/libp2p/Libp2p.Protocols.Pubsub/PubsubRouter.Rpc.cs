@@ -123,7 +123,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             RecordMessageDelivery(peerId, message, message.Topic, true);
 
             PeerId author = new(message.From.ToArray());
-            OnMessage?.Invoke(message.Topic, message.Data.ToByteArray());
+            OnMessage?.Invoke(message.Topic, peerId, message.Data.ToByteArray());
 
             if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
             {

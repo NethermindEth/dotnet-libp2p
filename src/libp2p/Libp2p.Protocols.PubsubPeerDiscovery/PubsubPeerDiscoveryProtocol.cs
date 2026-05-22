@@ -69,7 +69,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
         }
     }
 
-    private void OnPeerMessage(byte[] msg)
+    private void OnPeerMessage(PeerId _, byte[] msg)
     {
         try
         {
@@ -88,4 +88,3 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
         }
     }
 }
-
