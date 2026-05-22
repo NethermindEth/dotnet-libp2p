@@ -43,7 +43,7 @@ public class FloodsubProtocolTests
         TaskCompletionSource tcs = new();
 
         router.OutboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, sentRpcs.Add);
-        router.InboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, tcs.Task, () => Task.CompletedTask);
+        router.InboundConnection(discoveredPeerAddress, PubsubRouter.FloodsubProtocolVersion, tcs.Task, () => { });
         router.OnRpc(discoveredPeer.PeerId, new Rpc().WithTopics(new[] { commonTopic }, []));
 
         Assert.Multiple(() =>
