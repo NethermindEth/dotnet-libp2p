@@ -9,6 +9,8 @@
     <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
     <Project Path="Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj" />
+    <Project Path="Libp2p.Protocols.NatTraversal.Tests/Libp2p.Protocols.NatTraversal.Tests.csproj" />
+    <Project Path="Libp2p.Protocols.NatTraversal/Libp2p.Protocols.NatTraversal.csproj" />
     <Project Path="Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj" />
     <Project Path="Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj" />
