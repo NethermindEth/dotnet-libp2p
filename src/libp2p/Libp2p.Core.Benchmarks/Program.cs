@@ -42,7 +42,7 @@ await Task.Run(async () =>
     {
         try
         {
-            d = (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow());
+            d = await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
             i += d.Length;
         }
         catch
