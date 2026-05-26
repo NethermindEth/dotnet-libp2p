@@ -23,29 +23,48 @@ public partial class LocalPeer
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
 
+        /// <inheritdoc />
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs!, SelectedProtocol = peer.GetProtocolInstance<TProtocol>() }, token);
-            await tcs.Task;
-            MarkAsConnected();
+            await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), null, token);
         }
 
+        /// <summary>
+        /// Dials a specific protocol instance on this session.
+        /// </summary>
+        /// <param name="protocol">The protocol instance to negotiate over this session.</param>
+        /// <param name="token">Cancellation token used while queueing the dial request.</param>
+        /// <returns>A task that completes when the dial request has been handled.</returns>
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = protocol }, token);
-            await tcs.Task;
-            MarkAsConnected();
+            await DialAsyncCore(protocol, null, token);
         }
 
+        /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>(), Argument = request }, token);
-            await tcs.Task;
+            object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), request, token);
+            return (TResponse)result!;
+        }
+
+        private async Task<object?> DialAsyncCore(IProtocol? protocol, object? argument, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+
+            SubDialRequests.Add(new UpgradeOptions()
+            {
+                CompletionSource = tcs,
+                SelectedProtocol = protocol,
+                Argument = argument,
+                CancellationToken = token
+            }, token);
+
+            object? result = await tcs.Task;
             MarkAsConnected();
-            return (TResponse)tcs.Task.Result!;
+            return result;
         }
 
 

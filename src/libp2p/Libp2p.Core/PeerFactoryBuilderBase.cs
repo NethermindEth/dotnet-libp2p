@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
@@ -64,6 +64,7 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
         if (serviceProvider is null)
         {
             InternalServices = new ServiceCollection();
+            InternalServices.AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings());
             ServiceProvider = InternalServices.BuildServiceProvider();
         }
         else

@@ -8,7 +8,7 @@ using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
 TaskCompletionSource<string> firstReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
-var chatProtocol = new ChatProtocol()
+var chatProtocol = new ChatProtocol
 {
     OnServerMessage = msg =>
     {
@@ -21,23 +21,27 @@ ServiceProvider serviceProvider = new ServiceCollection()
     .AddLogging(logging =>
     {
         logging.ClearProviders();
-        logging.AddConsole(); // works on Windows/macOS
-        logging.SetMinimumLevel(LogLevel.Trace);
+        logging.AddSimpleConsole(options =>
+        {
+            options.SingleLine = true;
+            options.TimestampFormat = "[HH:mm:ss.FFF]";
+        });
+        logging.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information);
     })
-    .AddLibp2p(builder => ((Libp2pPeerFactoryBuilder)builder).WithQuic().AddProtocol(chatProtocol))
+    .AddLibp2p(builder => builder.WithQuic().AddProtocol(chatProtocol))
     .BuildServiceProvider();
 
-IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
+IPeerFactory peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
 
-CancellationTokenSource ts = new();
+using CancellationTokenSource cancellation = new();
 Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
-    ts.Cancel();
+    cancellation.Cancel();
 };
 
-const string tcpRemoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
-const string quicRemoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+const string TcpRemoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+const string QuicRemoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
 
 int messageIndex = Array.IndexOf(args, "--message");
 string? singleMessage = messageIndex >= 0 && messageIndex < args.Length - 1
@@ -45,14 +49,13 @@ string? singleMessage = messageIndex >= 0 && messageIndex < args.Length - 1
     : null;
 
 Multiaddress remoteAddr = args.FirstOrDefault(a => a.StartsWith('/')) ??
-    (args.Contains("--quic") ? quicRemoteAddr : tcpRemoteAddr);
+    (args.Contains("--quic") ? QuicRemoteAddr : TcpRemoteAddr);
 
 await using ILocalPeer localPeer = peerFactory.Create();
+ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
 
-ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
-
-Task chatTask = remotePeer.DialAsync<ChatProtocol>(ts.Token);
-await chatProtocol.Ready.Task.WaitAsync(ts.Token);
+Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
+await chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
 
 Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
 
@@ -65,9 +68,9 @@ if (singleMessage is not null)
 }
 
 ConsoleReader reader = new();
-while (!ts.IsCancellationRequested)
+while (!cancellation.IsCancellationRequested)
 {
-    string msg = await reader.ReadLineAsync(ts.Token);
+    string msg = await reader.ReadLineAsync(cancellation.Token);
     if (!string.IsNullOrWhiteSpace(msg))
     {
         chatProtocol.OnClientMessage?.Invoke(msg);

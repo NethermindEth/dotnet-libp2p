@@ -91,7 +91,6 @@ internal static class Program
                         : Array.Empty<string>()
                 });
             }
-            return Task.CompletedTask;
         };
 
         // Start listening — KadDhtProtocol will pick up ListenAddresses once they're populated
