@@ -7,20 +7,31 @@ using Nethermind.Libp2p.Core;
 internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
     internal Action<string>? OnServerMessage;
-    internal Action<string>? OnClientMessage;
+    internal Func<string, Task<IOResult>>? OnClientMessage;
     internal TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string Id => "/chat/1.0.0";
 
     protected override async Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener)
     {
-        OnClientMessage += (msg) => channel.WriteLineAsync(msg);
+        Func<string, Task<IOResult>> send = msg => channel.WriteLineAsync(msg).AsTask();
+        OnClientMessage = send;
         Ready.TrySetResult();
 
-        for (; ; )
+        try
         {
-            string read = await channel.ReadLineAsync();
-            OnServerMessage?.Invoke(read);
+            for (; ; )
+            {
+                string read = await channel.ReadLineAsync();
+                OnServerMessage?.Invoke(read);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(OnClientMessage, send))
+            {
+                OnClientMessage = null;
+            }
         }
     }
 }

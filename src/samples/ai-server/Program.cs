@@ -18,10 +18,10 @@ ServiceProvider serviceProvider = new ServiceCollection()
             }))
     .BuildServiceProvider();
 
-ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
-IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
+ILogger logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Chat");
+IPeerFactory peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
 
-CancellationTokenSource ts = new();
+using CancellationTokenSource ts = new();
 
 bool quicOnly = args.Contains("--quic-only") || args.Contains("-quic");
 bool tcpOnly = args.Contains("--tcp-only") || args.Contains("-tcp");
@@ -60,7 +60,7 @@ peer.ListenAddresses.CollectionChanged += (_, args) =>
     }
 };
 
-peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
+peer.OnConnected += newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
 
 await peer.StartListenAsync([.. listenAddresses], ts.Token);
 logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));

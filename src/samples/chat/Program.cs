@@ -56,12 +56,14 @@ ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
 
 Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
 await chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
+Func<string, Task<IOResult>> sendMessage = chatProtocol.OnClientMessage ??
+    throw new InvalidOperationException("Chat protocol became ready without a send delegate.");
 
 Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
 
 if (singleMessage is not null)
 {
-    chatProtocol.OnClientMessage?.Invoke(singleMessage);
+    await SendMessageAsync(sendMessage, singleMessage);
     await firstReply.Task.WaitAsync(TimeSpan.FromSeconds(120));
     await remotePeer.DisconnectAsync();
     return;
@@ -73,8 +75,16 @@ while (!cancellation.IsCancellationRequested)
     string msg = await reader.ReadLineAsync(cancellation.Token);
     if (!string.IsNullOrWhiteSpace(msg))
     {
-        chatProtocol.OnClientMessage?.Invoke(msg);
+        await SendMessageAsync(sendMessage, msg);
     }
 }
 
 await chatTask;
+
+static async Task SendMessageAsync(Func<string, Task<IOResult>> sendMessage, string message)
+{
+    if (await sendMessage(message) != IOResult.Ok)
+    {
+        throw new IOException("Failed to send chat message.");
+    }
+}
