@@ -152,7 +152,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCertificate,
                 AllowTlsResume = true,
                 AllowRenegotiation = true,
-                TargetHost = null,
+                TargetHost = ipAddress.ToString(),
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert),
                 ClientCertificates = [clientCertificate],
