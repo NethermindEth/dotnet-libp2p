@@ -7,8 +7,10 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
+var chatProtocol = new ChatProtocol();
+
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder.WithQuic().AddProtocol<ChatProtocol>())
+    .AddLibp2p(builder => builder.WithQuic().AddProtocol(chatProtocol))
     .AddLogging(builder =>
         builder.SetMinimumLevel(LogLevel.Trace)
             .AddSimpleConsole(l =>

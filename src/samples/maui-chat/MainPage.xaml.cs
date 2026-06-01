@@ -178,7 +178,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        Func<string, Task>? send = _chatProtocol?.OnClientMessage;
+        Func<string, Task<IOResult>>? send = _chatProtocol?.OnClientMessage;
         if (send is null)
         {
             AddLine("System", "Problem, chat protocol is not connected.");
@@ -187,7 +187,13 @@ public partial class MainPage : ContentPage
 
         try
         {
-            await send(msg);
+            IOResult result = await send(msg);
+            if (result != IOResult.Ok)
+            {
+                AddLine("System", $"Problem, failed to send message: {result}.");
+                return;
+            }
+
             AddLine("me", msg);
             Msg.Text = string.Empty;
             Msg.Focus();

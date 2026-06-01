@@ -105,8 +105,6 @@
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
                              Condition="'%(ResolvedFileToPublish.NuGetPackageId)' == 'libsodium' and '%(ResolvedFileToPublish.Extension)' == '.so'" />
-      <ResolvedFileToPublish Remove="$(NuGetPackageRoot)libsodium\1.0.20.1\runtimes\linux-arm64\native\libsodium.so" />
-      <ResolvedFileToPublish Remove="$(NuGetPackageRoot)libsodium\1.0.20.1\runtimes\linux-x64\native\libsodium.so" />
     </ItemGroup>
   </Target>
 

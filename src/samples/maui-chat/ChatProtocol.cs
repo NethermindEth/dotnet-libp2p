@@ -6,13 +6,13 @@ using Nethermind.Libp2p.Core;
 internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
     internal Action<string>? OnServerMessage;
-    internal Func<string, Task>? OnClientMessage;
+    internal Func<string, Task<IOResult>>? OnClientMessage;
 
     public string Id => "/chat/1.0.0";
 
     protected override async Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener)
     {
-        Func<string, Task> send = msg => channel.WriteLineAsync(msg).AsTask();
+        Func<string, Task<IOResult>> send = msg => channel.WriteLineAsync(msg).AsTask();
         OnClientMessage = send;
         try
         {

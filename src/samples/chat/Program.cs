@@ -55,7 +55,15 @@ await using ILocalPeer localPeer = peerFactory.Create();
 ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
 
 Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
-await chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
+Task readyTask = chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
+Task completed = await Task.WhenAny(chatTask, readyTask);
+if (completed == chatTask)
+{
+    await chatTask;
+    throw new InvalidOperationException("Chat protocol closed before it became ready.");
+}
+
+await readyTask;
 Func<string, Task<IOResult>> sendMessage = chatProtocol.OnClientMessage ??
     throw new InvalidOperationException("Chat protocol became ready without a send delegate.");
 
