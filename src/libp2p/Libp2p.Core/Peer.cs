@@ -384,6 +384,15 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 throw new OperationCanceledException(token);
             }
 
+            Exception? innerException = GetTaskException(dialingResult);
+            if (innerException is SessionExistsException)
+            {
+                dialActivity?.SetStatus(ActivityStatusCode.Error, innerException.Message);
+                dialActivity?.Dispose();
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(innerException).Throw();
+                throw new UnreachableException();
+            }
+
             PeerConnectionException exception = CreatePeerConnectionException(addr, session, dialingResult);
             dialActivity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             dialActivity?.Dispose();
@@ -465,12 +474,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     private PeerConnectionException CreatePeerConnectionException(Multiaddress remoteAddress, Session session, Task dialingResult)
     {
-        Exception? innerException = dialingResult switch
-        {
-            { IsFaulted: true } => UnwrapException(dialingResult.Exception),
-            { IsCanceled: true } => new TaskCanceledException(dialingResult),
-            _ => null,
-        };
+        Exception? innerException = GetTaskException(dialingResult);
 
         string message = innerException is null
             ? $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}."
@@ -483,6 +487,14 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             remoteAddress.ToString(),
             innerException);
     }
+
+    private static Exception? GetTaskException(Task task)
+        => task switch
+        {
+            { IsFaulted: true } => UnwrapException(task.Exception),
+            { IsCanceled: true } => new TaskCanceledException(task),
+            _ => null,
+        };
 
     private static Exception? UnwrapException(Exception? exception)
         => exception switch
