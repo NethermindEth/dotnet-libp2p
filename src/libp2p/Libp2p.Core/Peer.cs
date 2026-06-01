@@ -369,7 +369,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 dialActivity?.Dispose();
                 throw dialingResult.Exception;
             }
-            throw new Libp2pException($"Not able to dial the peer. {dialingResult.Exception?.Message}");
+            string message = $"Not able to dial {addr}. Dial task status: {dialingResult.Status}.";
+            dialActivity?.SetStatus(ActivityStatusCode.Error, message);
+            dialActivity?.Dispose();
+            throw new Libp2pException(message);
         }
 
         double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
