@@ -3,6 +3,8 @@
 
 using Nethermind.Libp2p.Core;
 
+namespace MauiChat;
+
 internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
     internal Action<string>? OnServerMessage;
