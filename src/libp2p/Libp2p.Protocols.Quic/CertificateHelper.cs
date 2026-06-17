@@ -63,21 +63,29 @@ public class CertificateHelper
         return new ECDsaCng(cngKey);
     }
 
-    public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId)
+    public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId) =>
+        ValidateCertificate(certificate, peerId, out _);
+
+    internal static bool ValidateCertificate(X509Certificate2 certificate, string? peerId, [NotNullWhen(false)] out string? failureReason)
     {
+        failureReason = null;
+
         // Per libp2p TLS spec: Check certificate validity dates
         DateTime now = DateTime.UtcNow;
-        if (certificate.NotBefore > now)
+        if (certificate.NotBefore.ToUniversalTime() > now)
         {
+            failureReason = "certificate is not yet valid";
             return false; // Certificate not yet valid
         }
-        if (certificate.NotAfter < now)
+        if (certificate.NotAfter.ToUniversalTime() < now)
         {
+            failureReason = "certificate expired";
             return false; // Certificate expired
         }
 
         if (!HasValidSelfSignature(certificate))
         {
+            failureReason = "certificate self-signature is invalid";
             return false; // Certificate self-signature is invalid
         }
 
@@ -85,12 +93,14 @@ public class CertificateHelper
 
         if (key is null || signature is null)
         {
+            failureReason = "libp2p public key extension is missing or invalid";
             return false; // Missing libp2p extension or signature
         }
 
         Identity id = new(key);
         if (peerId is not null && id.PeerId.ToString() != peerId)
         {
+            failureReason = "peer id does not match certificate public key";
             return false; // Peer ID mismatch
         }
 
@@ -98,7 +108,20 @@ public class CertificateHelper
         // Parse it from the certificate DER instead of going through
         // X509Certificate2.PublicKey, which does not cover every key type used
         // by libp2p QUIC peers.
-        return id.VerifySignature(ContentToSignFromTlsPublicKey(ReadSubjectPublicKeyInfo(certificate)), signature);
+        byte[]? subjectPublicKeyInfo = ReadSubjectPublicKeyInfo(certificate);
+        if (subjectPublicKeyInfo is null)
+        {
+            failureReason = "certificate subject public key info is malformed";
+            return false; // Malformed certificate body
+        }
+
+        if (!id.VerifySignature(ContentToSignFromTlsPublicKey(subjectPublicKeyInfo), signature))
+        {
+            failureReason = "libp2p public key extension signature is invalid";
+            return false;
+        }
+
+        return true;
     }
 
     public static Core.Dto.PublicKey? ExtractPublicKey(X509Certificate2? certificate, [NotNullWhen(true)] out byte[]? signature)
@@ -161,23 +184,31 @@ public class CertificateHelper
         }
     }
 
-    private static byte[] ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
+    private static byte[]? ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
     {
-        AsnReader certificateReader = new(certificate.RawData, AsnEncodingRules.DER);
-        AsnReader certificateSequence = certificateReader.ReadSequence();
-        AsnReader tbsCertificate = certificateSequence.ReadSequence();
-
-        if (tbsCertificate.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
+        try
         {
-            tbsCertificate.ReadEncodedValue();
+            AsnReader certificateReader = new(certificate.RawData, AsnEncodingRules.DER);
+            AsnReader certificateSequence = certificateReader.ReadSequence();
+            AsnReader tbsCertificate = certificateSequence.ReadSequence();
+
+            if (tbsCertificate.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
+            {
+                tbsCertificate.ReadEncodedValue();
+            }
+
+            tbsCertificate.ReadEncodedValue(); // serialNumber
+            tbsCertificate.ReadEncodedValue(); // signature
+            tbsCertificate.ReadEncodedValue(); // issuer
+            tbsCertificate.ReadEncodedValue(); // validity
+            tbsCertificate.ReadEncodedValue(); // subject
+
+            return tbsCertificate.ReadEncodedValue().ToArray();
         }
-
-        tbsCertificate.ReadEncodedValue(); // serialNumber
-        tbsCertificate.ReadEncodedValue(); // signature
-        tbsCertificate.ReadEncodedValue(); // issuer
-        tbsCertificate.ReadEncodedValue(); // validity
-        tbsCertificate.ReadEncodedValue(); // subject
-
-        return tbsCertificate.ReadEncodedValue().ToArray();
+        catch
+        {
+            // Invalid ASN.1 structure
+            return null;
+        }
     }
 }

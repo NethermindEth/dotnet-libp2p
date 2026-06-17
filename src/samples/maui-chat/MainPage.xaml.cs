@@ -48,6 +48,7 @@ public partial class MainPage : ContentPage
     ];
 
     private ChatProtocol? _chatProtocol;
+    private CancellationTokenSource? _cancellation;
 
 #if ANDROID
     private static IntPtr sodiumHandle;
@@ -58,6 +59,21 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         _ = RunChatAsync();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+
+        // Cancel the chat loop so the ILocalPeer and DI container created in
+        // RunChatAsync are disposed instead of leaking for the app's lifetime.
+        try
+        {
+            _cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private async Task RunChatAsync()
@@ -73,6 +89,7 @@ public partial class MainPage : ContentPage
             IPeerFactory peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
 
             using CancellationTokenSource cancellation = new();
+            _cancellation = cancellation;
             await using ILocalPeer localPeer = peerFactory.Create();
 
             ISession remotePeer = await localPeer.DialAsync(RemoteAddresses, cancellation.Token);

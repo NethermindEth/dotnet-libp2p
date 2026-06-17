@@ -152,7 +152,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCertificate,
                 AllowTlsResume = true,
                 AllowRenegotiation = true,
-                TargetHost = ipAddress.ToString(),
+                TargetHost = remoteAddr.Has<P2P>() ? remoteAddr.Get<P2P>().ToString() : "libp2p",
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert),
                 ClientCertificates = [clientCertificate],
@@ -204,12 +204,13 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
     private bool ValidateClientCertificate(X509Certificate? certificate)
     {
+        string? failureReason = null;
         bool valid = certificate is X509Certificate2 x509
-            && CertificateHelper.ValidateCertificate(x509, peerId: null);
+            && CertificateHelper.ValidateCertificate(x509, peerId: null, out failureReason);
 
         if (!valid)
         {
-            _logger?.LogWarning("QUIC client certificate validation failed. Certificate type: {certificateType}", certificate?.GetType().FullName ?? "<null>");
+            _logger?.LogWarning("QUIC client certificate validation failed. Certificate type: {certificateType}; reason: {reason}", certificate?.GetType().FullName ?? "<null>", failureReason ?? "not an X509Certificate2");
         }
 
         return valid;
@@ -217,12 +218,13 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
     private bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate? certificate)
     {
+        string? failureReason = null;
         bool valid = certificate is X509Certificate2 x509
-            && CertificateHelper.ValidateCertificate(x509, remoteAddr.Get<P2P>().ToString());
+            && CertificateHelper.ValidateCertificate(x509, remoteAddr.Get<P2P>().ToString(), out failureReason);
 
         if (!valid)
         {
-            _logger?.LogWarning("QUIC remote certificate validation failed for {remoteAddress}. Certificate type: {certificateType}", remoteAddr, certificate?.GetType().FullName ?? "<null>");
+            _logger?.LogWarning("QUIC remote certificate validation failed for {remoteAddress}. Certificate type: {certificateType}; reason: {reason}", remoteAddr, certificate?.GetType().FullName ?? "<null>", failureReason ?? "not an X509Certificate2");
         }
 
         return valid;

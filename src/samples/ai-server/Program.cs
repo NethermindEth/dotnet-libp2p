@@ -7,7 +7,9 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
-var chatProtocol = new ChatProtocol();
+using CancellationTokenSource ts = new();
+
+var chatProtocol = new ChatProtocol(ts.Token);
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddLibp2p(builder => builder.WithQuic().AddProtocol(chatProtocol))
@@ -22,8 +24,6 @@ ServiceProvider serviceProvider = new ServiceCollection()
 
 ILogger logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Chat");
 IPeerFactory peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
-
-using CancellationTokenSource ts = new();
 
 bool quicOnly = args.Contains("--quic-only") || args.Contains("-quic");
 bool tcpOnly = args.Contains("--tcp-only") || args.Contains("-tcp");

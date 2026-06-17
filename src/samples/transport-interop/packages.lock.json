@@ -44,6 +44,12 @@
           "Microsoft.Extensions.Options": "10.0.0"
         }
       },
+      "Microsoft.Native.Quic.MsQuic.OpenSSL": {
+        "type": "Direct",
+        "requested": "[2.5.7, )",
+        "resolved": "2.5.7",
+        "contentHash": "d9PWpMuv3LzMLHT1zfSwkVvDKrdoOEA1tv6OjBE2kuJ5zQTDsoQ5Zq4qAMS5ddz2wm2/o2XJT89pO+RhOld5vA=="
+      },
       "NRedisStack": {
         "type": "Direct",
         "requested": "[1.1.1, )",

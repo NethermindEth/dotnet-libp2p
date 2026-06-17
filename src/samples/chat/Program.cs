@@ -7,14 +7,9 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
-TaskCompletionSource<string> firstReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
 var chatProtocol = new ChatProtocol
 {
-    OnServerMessage = msg =>
-    {
-        Console.WriteLine("AI: {0}", msg);
-        firstReply.TrySetResult(msg);
-    }
+    OnServerMessage = msg => Console.WriteLine("AI: {0}", msg)
 };
 
 ServiceProvider serviceProvider = new ServiceCollection()
@@ -51,43 +46,71 @@ string? singleMessage = messageIndex >= 0 && messageIndex < args.Length - 1
 Multiaddress remoteAddr = args.FirstOrDefault(a => a.StartsWith('/')) ??
     (args.Contains("--quic") ? QuicRemoteAddr : TcpRemoteAddr);
 
-await using ILocalPeer localPeer = peerFactory.Create();
-ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
-
-Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
-Task readyTask = chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
-Task completed = await Task.WhenAny(chatTask, readyTask);
-if (completed == chatTask)
+try
 {
-    await chatTask;
-    throw new InvalidOperationException("Chat protocol closed before it became ready.");
-}
+    await using ILocalPeer localPeer = peerFactory.Create();
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
 
-await readyTask;
-Func<string, Task<IOResult>> sendMessage = chatProtocol.OnClientMessage ??
-    throw new InvalidOperationException("Chat protocol became ready without a send delegate.");
-
-Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
-
-if (singleMessage is not null)
-{
-    await SendMessageAsync(sendMessage, singleMessage);
-    await firstReply.Task.WaitAsync(TimeSpan.FromSeconds(120));
-    await remotePeer.DisconnectAsync();
-    return;
-}
-
-ConsoleReader reader = new();
-while (!cancellation.IsCancellationRequested)
-{
-    string msg = await reader.ReadLineAsync(cancellation.Token);
-    if (!string.IsNullOrWhiteSpace(msg))
+    Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
+    Task readyTask = chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
+    Task completed = await Task.WhenAny(chatTask, readyTask);
+    if (completed == chatTask)
     {
-        await SendMessageAsync(sendMessage, msg);
+        await chatTask;
+        throw new InvalidOperationException("Chat protocol closed before it became ready.");
     }
-}
 
-await chatTask;
+    await readyTask;
+    Func<string, Task<IOResult>> sendMessage = chatProtocol.OnClientMessage ??
+        throw new InvalidOperationException("Chat protocol became ready without a send delegate.");
+
+    Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
+
+    if (singleMessage is not null)
+    {
+        // Capture the reply to the sent message. The server sends a greeting on
+        // connect, and it can race with this handler swap on stackless transports.
+        TaskCompletionSource<string> reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool messageSent = false;
+        chatProtocol.OnServerMessage = msg =>
+        {
+            Console.WriteLine("AI: {0}", msg);
+            if (messageSent && msg != "Hello from AI!")
+            {
+                reply.TrySetResult(msg);
+            }
+        };
+
+        messageSent = true;
+        await SendMessageAsync(sendMessage, singleMessage);
+        try
+        {
+            await reply.Task.WaitAsync(TimeSpan.FromSeconds(120), cancellation.Token);
+        }
+        catch (TimeoutException)
+        {
+            Console.WriteLine("System: Timed out waiting for a reply.");
+        }
+        await remotePeer.DisconnectAsync();
+        return;
+    }
+
+    ConsoleReader reader = new();
+    while (!cancellation.IsCancellationRequested)
+    {
+        string msg = await reader.ReadLineAsync(cancellation.Token);
+        if (!string.IsNullOrWhiteSpace(msg))
+        {
+            await SendMessageAsync(sendMessage, msg);
+        }
+    }
+
+    await chatTask;
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("System: Shutting down.");
+}
 
 static async Task SendMessageAsync(Func<string, Task<IOResult>> sendMessage, string message)
 {
