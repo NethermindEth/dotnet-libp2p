@@ -373,6 +373,66 @@ public class ChannelTests
         Assert.Throws<ArgumentNullException>(() => channel!.AsStream());
     }
 
+    [Test]
+    public async Task Test_AsStream_ReadCancelledMidFlightDoesNotDeadlockChannel()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        using CancellationTokenSource cts = new();
+
+        // Start a read that blocks inside the channel waiting for data, then cancel it mid-flight.
+        byte[] buffer = new byte[4];
+        Task<int> cancelledRead = stream.ReadAsync(buffer, 0, buffer.Length, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await cancelledRead.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        // A subsequent read on the same channel must not deadlock (regression: a cancelled read
+        // used to leak the channel's read lock, blocking every later read forever).
+        byte[] data = [1, 2, 3, 4];
+        Task write = reverseStream.WriteAsync(data, 0, data.Length);
+        byte[] next = new byte[4];
+        int bytesRead = await stream.ReadAsync(next, 0, next.Length).WaitAsync(TimeSpan.FromSeconds(2));
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(data.Length));
+            Assert.That(next, Is.EqualTo(data));
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_WriteCancelledMidFlightDoesNotDeadlockChannel()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        using CancellationTokenSource cts = new();
+
+        // Start a write that blocks inside the channel waiting for a reader, then cancel it mid-flight.
+        byte[] data = [1, 2, 3, 4];
+        Task cancelledWrite = stream.WriteAsync(data, 0, data.Length, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await cancelledWrite.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        // A subsequent write on the same channel must not deadlock (regression: a cancelled write
+        // used to leak the channel's write lock, blocking every later write forever).
+        byte[] next = [5, 6, 7, 8];
+        Task write = stream.WriteAsync(next, 0, next.Length);
+        byte[] buffer = new byte[4];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length).WaitAsync(TimeSpan.FromSeconds(2));
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(next.Length));
+            Assert.That(buffer, Is.EqualTo(next));
+        });
+    }
+
     private sealed class NonPumpingSynchronizationContext : SynchronizationContext
     {
         public override void Post(SendOrPostCallback d, object? state)
