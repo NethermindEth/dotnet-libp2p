@@ -230,7 +230,7 @@ public class Channel : IChannel
                     // Cancelled after publishing the chunk. If no reader has taken the
                     // data-available signal yet, reclaim it and roll the publish back so the
                     // cancelled bytes are never delivered to a later read. Otherwise a reader
-                    // is already committed to consuming, so wait (uncancellably) for it to
+                    // is already committed to consuming, so wait without cancellation for it to
                     // finish and hand back _read/_canWrite, keeping the channel consistent.
                     if (_canRead.Wait(0))
                     {
