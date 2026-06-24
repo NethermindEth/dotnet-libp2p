@@ -158,7 +158,7 @@ public class ChatService
         AddLog($"Started listening on {string.Join(", ", _peer.ListenAddresses)}");
     }
 
-    private void OnMessageReceived(byte[] msg)
+    private void OnMessageReceived(PeerId _, byte[] msg)
     {
         try
         {

@@ -35,12 +35,14 @@ await router.StartAsync(peer);
 ```csharp
 ITopic chat = router.GetTopic("chat");
 
-chat.OnMessage += bytes =>
+chat.OnMessage += (peerId, bytes) =>
 {
     string text = Encoding.UTF8.GetString(bytes);
-    Console.WriteLine($"chat: {text}");
+    Console.WriteLine($"{peerId}: {text}");
 };
 ```
+
+The `peerId` argument is the connected peer that delivered the RPC message to the local router. It is not necessarily the original pubsub message author when messages are forwarded through the mesh. If your application needs author identity, include it in the published payload and validate it at the application layer.
 
 To create a topic handle without subscribing immediately, pass `subscribe: false` and call `Subscribe()` later:
 

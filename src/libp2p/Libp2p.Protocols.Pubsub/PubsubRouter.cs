@@ -123,7 +123,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     Task IRoutingStateContainer.Heartbeat() => Heartbeat();
     #endregion
 
-    public event Action<string, byte[]>? OnMessage;
+    public event Action<string, PeerId, byte[]>? OnMessage;
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
     private readonly PubsubSettings _settings;

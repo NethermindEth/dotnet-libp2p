@@ -33,7 +33,7 @@ public class PublishE2eTests
 
         foreach (var (routerId, router) in test.Routers)
         {
-            router.OnMessage += (t, data) =>
+            router.OnMessage += (t, _, data) =>
             {
                 if (t == topic)
                 {
