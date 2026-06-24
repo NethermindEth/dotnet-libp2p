@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
@@ -158,7 +158,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
     {
-        session ??= new(this);
+        session ??= new(this, activity);
+        activity?.SetTag("session.id", session.Id);
+        activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
         Libp2pMetrics.ConnectionsOpened.Add(1);
         Libp2pMetrics.ConnectionsActive.Add(1);
         return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
@@ -179,6 +181,11 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
             Sessions.Add(session);
         }
+
+        activity?.SetTag("session.id", session.Id);
+        activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
+        activity?.SetTag("remote.peer.id", remotePeerId.ToString());
+        activity?.SetTag("remote.addr", session.RemoteAddress.ToString());
 
         Libp2pMetrics.SessionsOpened.Add(1);
         Libp2pMetrics.SessionsActive.Add(1);
@@ -287,7 +294,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             firstSuccessTask = TaskHelper.FirstSuccess([.. resolvedAddrs.Select(addr =>
                 DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial))]);
-            Task wait = await firstSuccessTask.WaitAsync(TimeSpan.FromMilliseconds(ConnectionTimeout), token);
+
+            Task wait;
+            try
+            {
+                wait = await firstSuccessTask.WaitAsync(TimeSpan.FromMilliseconds(ConnectionTimeout), token);
+            }
+            catch (AggregateException ex) when (ex.InnerExceptions.Count == 1)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerExceptions[0]).Throw();
+                throw;
+            }
 
             ISession firstConnected = (wait as Task<ISession>)!.Result;
             connectedAddress = firstConnected.RemoteAddress;
@@ -333,7 +350,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {dialerProtocol.GetType()}");
         }
 
-        Session session = new(this);
+        Session session = new(this, dialActivity);
+        dialActivity?.SetTag("session.id", session.Id);
+        dialActivity?.SetTag("local.peer.id", Identity.PeerId.ToString());
+        dialActivity?.SetTag("remote.addr", addr.ToString());
         ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol, dialActivity);
 
         Task dialingTask = transportProtocol.DialAsync(ctx, addr, token);
@@ -363,16 +383,19 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 dialActivity?.Dispose();
                 throw new OperationCanceledException(token);
             }
-            if (dialingResult.IsFaulted)
+
+            Exception? innerException = GetTaskException(dialingResult);
+            if (innerException is SessionExistsException)
             {
-                dialActivity?.SetStatus(ActivityStatusCode.Error, dialingResult.Exception.Message);
+                dialActivity?.SetStatus(ActivityStatusCode.Error, innerException.Message);
                 dialActivity?.Dispose();
-                throw dialingResult.Exception;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(innerException).Throw();
+                throw new UnreachableException();
             }
-            string message = $"Not able to dial {addr}. Dial task status: {dialingResult.Status}.";
-            dialActivity?.SetStatus(ActivityStatusCode.Error, message);
+            PeerConnectionException exception = CreatePeerConnectionException(addr, session, dialingResult);
+            dialActivity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             dialActivity?.Dispose();
-            throw new Libp2pException(message);
+            throw exception;
         }
 
         double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
@@ -448,6 +471,38 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return DialAsync([.. existingPeerInfo.Addrs], token);
     }
 
+    private PeerConnectionException CreatePeerConnectionException(Multiaddress remoteAddress, Session session, Task dialingResult)
+    {
+        Exception? innerException = GetTaskException(dialingResult);
+
+        string message = innerException is null
+            ? $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}."
+            : $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}. {innerException.Message}";
+
+        return new PeerConnectionException(
+            message,
+            session.Id,
+            Identity.PeerId.ToString(),
+            remoteAddress.ToString(),
+            innerException);
+    }
+
+    private static Exception? GetTaskException(Task task)
+        => task switch
+        {
+            { IsFaulted: true } => UnwrapException(task.Exception),
+            { IsCanceled: true } => new TaskCanceledException(task),
+            _ => null,
+        };
+
+    private static Exception? UnwrapException(Exception? exception)
+        => exception switch
+        {
+            AggregateException { InnerExceptions.Count: 1 } aggregateException => aggregateException.InnerExceptions[0],
+            System.Reflection.TargetInvocationException { InnerException: not null } targetInvocationException => targetInvocationException.InnerException,
+            _ => exception,
+        };
+
     private static void MapToTaskCompletionSource(Task t, TaskCompletionSource<object?> tcs)
     {
         if (t.IsCompletedSuccessfully)
@@ -462,8 +517,20 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         if (t.Exception is not null)
         {
-            tcs.TrySetException(t.Exception);
+            SetTaskCompletionSourceException(tcs, t.Exception);
         }
+    }
+
+    private static void SetTaskCompletionSourceException(TaskCompletionSource<object?> tcs, Exception exception)
+    {
+        exception = UnwrapException(exception) ?? exception;
+        if (exception is AggregateException aggregateException)
+        {
+            tcs.TrySetException(aggregateException.InnerExceptions);
+            return;
+        }
+
+        tcs.TrySetException(exception);
     }
 
     internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
@@ -598,9 +665,13 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             return upgradeTask;
         }
-        catch
+        catch (Exception ex)
         {
             cancellationRegistration.Dispose();
+            if (options?.CompletionSource is not null)
+            {
+                SetTaskCompletionSourceException(options.CompletionSource, ex);
+            }
             upgradeActivity?.Dispose();
             throw;
         }

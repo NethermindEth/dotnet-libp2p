@@ -34,7 +34,7 @@ public class PeerScoringE2eTests
 
         foreach (var (routerId, router) in test.Routers)
         {
-            router.OnMessage += (topic, data) =>
+            router.OnMessage += (topic, _, data) =>
             {
                 if (topic == commonTopic)
                 {
@@ -95,7 +95,7 @@ public class PeerScoringE2eTests
 
         foreach (var (routerId, router) in test.Routers)
         {
-            router.OnMessage += (topic, data) =>
+            router.OnMessage += (topic, _, data) =>
             {
                 if (topic == commonTopic)
                 {
@@ -161,7 +161,7 @@ public class PeerScoringE2eTests
 
         foreach (var (routerId, router) in test.Routers)
         {
-            router.OnMessage += (topic, data) =>
+            router.OnMessage += (topic, _, data) =>
             {
                 if (topic == commonTopic)
                 {
@@ -229,7 +229,7 @@ public class PeerScoringE2eTests
 
         foreach (var (routerId, router) in test.Routers)
         {
-            router.OnMessage += (topic, data) =>
+            router.OnMessage += (topic, _, data) =>
             {
                 if (topic == topic1) receivedTopic1.Add(routerId);
                 if (topic == topic2) receivedTopic2.Add(routerId);
