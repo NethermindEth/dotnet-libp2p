@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Integration;
@@ -92,10 +92,10 @@ public static class MessageHelper
     /// <summary>
     /// Build a FIND_NODE request message.
     /// </summary>
-    public static Message CreateFindNodeRequest(byte[] targetPeerId) => new()
+    public static Message CreateFindNodeRequest(byte[] targetKey) => new()
     {
         Type = Message.Types.MessageType.FindNode,
-        Key = ByteString.CopyFrom(targetPeerId)
+        Key = ByteString.CopyFrom(targetKey)
     };
 
     /// <summary>

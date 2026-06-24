@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Kademlia;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht.Integration;
 
@@ -61,7 +62,7 @@ public static class KadDhtIntegrationExtensions
                 onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null);
         });
         services.AddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<LibP2pKademliaMessageSender>());
-        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
+        services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
             sp.GetRequiredService<LibP2pKademliaMessageSender>());
 
         // Shared state for routing table access from incoming request handlers
@@ -73,7 +74,7 @@ public static class KadDhtIntegrationExtensions
             {
                 var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
                 var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
-                var messageSender = serviceProvider.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
+                var messageSender = serviceProvider.GetRequiredService<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
                 var dhtMessageSender = serviceProvider.GetRequiredService<IDhtMessageSender>();
 
                 var protocol = new KadDhtProtocol(
@@ -83,7 +84,8 @@ public static class KadDhtIntegrationExtensions
                     options,
                     dhtValueStore,
                     dhtProviderStore,
-                    loggerFactory);
+                    loggerFactory,
+                    bootstrapNodes: bootstrapNodes);
 
                 if (protocol.RoutingTable != null)
                     sharedState.SetRoutingTable(protocol.RoutingTable);
@@ -128,7 +130,7 @@ public static class KadDhtIntegrationExtensions
         => new DhtNode
         {
             PeerId = peerId,
-            PublicKey = new Kademlia.PublicKey(peerId.Bytes.ToArray()),
+            PublicKey = new PublicKey(peerId.Bytes.ToArray()),
             Multiaddrs = multiaddrs?.ToArray() ?? Array.Empty<string>()
         };
 

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -46,13 +47,13 @@ public static class ServiceCollectionExtensions
                 onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null);
         });
         services.AddSingleton<Integration.IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
-        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
+        services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
             sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
 
         services.AddSingleton<KadDhtProtocol>(sp =>
         {
             var localPeer = sp.GetRequiredService<ILocalPeer>();
-            var messageSender = sp.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
+            var messageSender = sp.GetRequiredService<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
             var dhtMessageSender = sp.GetRequiredService<Integration.IDhtMessageSender>();
             var kadDhtOptions = sp.GetRequiredService<KadDhtOptions>();
             var valueStore = sp.GetRequiredService<IValueStore>();

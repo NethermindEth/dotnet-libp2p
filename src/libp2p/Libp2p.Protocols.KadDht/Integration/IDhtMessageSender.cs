@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Kademlia;
 using Nethermind.Libp2p.Core;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht.Integration;
 
@@ -30,7 +31,7 @@ public sealed record GetProvidersResult
 /// Extended message sender interface for full DHT operations beyond basic Kademlia routing.
 /// Adds PUT_VALUE, GET_VALUE, ADD_PROVIDER, and GET_PROVIDERS RPCs.
 /// </summary>
-public interface IDhtMessageSender : Kademlia.IKademliaMessageSender<PublicKey, DhtNode>
+public interface IDhtMessageSender : Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>
 {
     Task<bool> PutValueAsync(DhtNode receiver, byte[] key, byte[] value, CancellationToken token = default);
     Task<GetValueResult> GetValueAsync(DhtNode receiver, byte[] key, CancellationToken token = default);

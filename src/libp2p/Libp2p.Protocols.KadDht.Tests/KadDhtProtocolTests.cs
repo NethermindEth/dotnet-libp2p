@@ -16,7 +16,7 @@ using Multiformats.Address;
 using NSubstitute;
 using NUnit.Framework;
 using KademliaPublicKey = global::Libp2p.Protocols.KadDht.Kademlia.PublicKey;
-using KademliaMessageSender = global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
+using KademliaMessageSender = global::Nethermind.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
@@ -61,6 +61,7 @@ public class KadDhtProtocolTests
     [TearDown]
     public async Task TearDown()
     {
+        _protocol.Dispose();
         await _localPeer.DisposeAsync();
         (_loggerFactory as IDisposable)?.Dispose();
     }
@@ -243,6 +244,9 @@ public class KadDhtProtocolTests
         Assert.That(providers, Is.Not.Null);
         Assert.That(providers.Count(), Is.EqualTo(1));
         Assert.That(providers.First(), Is.EqualTo(_localPeer.Identity.PeerId));
+
+        var storedProviders = await _providerStore.GetProvidersAsync(key, 1, CancellationToken.None);
+        Assert.That(storedProviders.Single().Ttl, Is.EqualTo(_options.ProviderRecordTtl));
     }
 
     [Test]

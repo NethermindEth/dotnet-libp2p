@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using System.Threading;
@@ -197,6 +197,7 @@ public class LibP2pKademliaMessageSenderTests
         Assert.That(capturedRequest, Is.Not.Null, "Request should be sent");
         Assert.That(capturedRequest!.Type, Is.EqualTo(Message.Types.MessageType.FindNode), "Should send FIND_NODE message");
         Assert.That(capturedRequest.Key.IsEmpty, Is.False, "Key should be set");
+        Assert.That(capturedRequest.Key.ToByteArray(), Is.EqualTo(targetKey.Bytes.ToArray()), "FIND_NODE should send raw target key bytes");
     }
 
     [Test]
