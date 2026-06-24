@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -11,13 +11,13 @@ namespace Nethermind.Libp2p.Core;
 
 public partial class LocalPeer
 {
-    public class Session(LocalPeer peer) : ISession
+    public class Session(LocalPeer peer, Activity? activity = null) : ISession
     {
         private static int SessionIdCounter;
 
         public string Id { get; } = Interlocked.Increment(ref SessionIdCounter).ToString();
         public State State { get; } = new();
-        public Activity? Activity { get; }
+        public Activity? Activity { get; } = activity;
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
 
@@ -26,10 +26,7 @@ public partial class LocalPeer
         /// <inheritdoc />
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs!, SelectedProtocol = peer.GetProtocolInstance<TProtocol>() }, token);
-            await tcs.Task;
-            MarkAsConnected();
+            await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), null, token);
         }
 
         /// <summary>
@@ -40,20 +37,34 @@ public partial class LocalPeer
         /// <returns>A task that completes when the dial request has been handled.</returns>
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = protocol }, token);
-            await tcs.Task;
-            MarkAsConnected();
+            await DialAsyncCore(protocol, null, token);
         }
 
         /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
-            TaskCompletionSource<object?> tcs = new();
-            SubDialRequests.Add(new UpgradeOptions() { CompletionSource = tcs, SelectedProtocol = peer.GetProtocolInstance<TProtocol>(), Argument = request }, token);
-            await tcs.Task;
+            object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), request, token);
+            return (TResponse)result!;
+        }
+
+        private async Task<object?> DialAsyncCore(IProtocol? protocol, object? argument, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+
+            SubDialRequests.Add(new UpgradeOptions()
+            {
+                CompletionSource = tcs,
+                SelectedProtocol = protocol,
+                Argument = argument,
+                CancellationToken = token
+            }, token);
+
+            object? result = await tcs.Task;
             MarkAsConnected();
-            return (TResponse)tcs.Task.Result!;
+            return result;
         }
 
 

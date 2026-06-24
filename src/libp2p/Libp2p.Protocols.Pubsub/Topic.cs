@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
+
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 internal class Topic : ITopic
@@ -15,19 +17,22 @@ internal class Topic : ITopic
         router.OnMessage += OnRouterMessage;
     }
 
-    private void OnRouterMessage(string topicName, byte[] message)
+    private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
     {
-        if (OnMessage is not null && this.topicName == topicName)
+        if (this.topicName != topicName)
         {
-            OnMessage(message);
+            return;
         }
+
+        Action<PeerId, byte[]>? onMessage = OnMessage;
+        onMessage?.Invoke(peerId, message);
     }
 
     public DateTime LastPublished { get; set; }
 
     public bool IsSubscribed { get; internal set; }
 
-    public event Action<byte[]>? OnMessage;
+    public event Action<PeerId, byte[]>? OnMessage;
 
     public void Publish(byte[] value)
     {

@@ -29,6 +29,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 {
     private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
     private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
     private static Multiaddress ToQuicV1MultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/udp/0/quic-v1/p2p/{peerId}");
 
     private static readonly List<SslApplicationProtocol> protocols =
@@ -61,13 +63,14 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
             MaxInboundBidirectionalStreams = 1000,
             MaxInboundUnidirectionalStreams = 1000,
+            IdleTimeout = IdleTimeout,
+            KeepAliveInterval = KeepAliveInterval,
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
                 ClientCertificateRequired = true,
                 ApplicationProtocols = protocols,
                 RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                    cert is X509Certificate2 x509
-                    && CertificateHelper.ValidateCertificate(x509, peerId: null),
+                    ValidateClientCertificate(cert),
                 ServerCertificate = cert,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                 AllowRenegotiation = true,
@@ -126,27 +129,51 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
+        X509Certificate2 clientCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+
         QuicClientConnectionOptions clientConnectionOptions = new()
         {
             DefaultStreamErrorCode = 0, // Protocol-dependent error code.
             DefaultCloseErrorCode = 1, // Protocol-dependent error code.
             MaxInboundUnidirectionalStreams = 256,
             MaxInboundBidirectionalStreams = 256,
+            IdleTimeout = IdleTimeout,
+            KeepAliveInterval = KeepAliveInterval,
 
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
+                CertificateChainPolicy = new X509ChainPolicy
+                {
+                    RevocationMode = X509RevocationMode.NoCheck,
+                    VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority
+                        | X509VerificationFlags.IgnoreInvalidName
+                },
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
-                LocalCertificateSelectionCallback = (a, b, c, d, e) => c[0],
+                LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCertificate,
                 AllowTlsResume = true,
                 AllowRenegotiation = true,
+                TargetHost = remoteAddr.Has<P2P>() ? remoteAddr.Get<P2P>().ToString() : "libp2p",
                 ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert ?? throw new Libp2pException("Remote public key not found")),
-                ClientCertificates = [CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity)],
+                RemoteCertificateValidationCallback = (_, cert, _, _) => VerifyRemoteCertificate(remoteAddr, cert),
+                ClientCertificates = [clientCertificate],
             },
             RemoteEndPoint = remoteEndpoint,
         };
 
-        QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions, token);
+        QuicConnection connection;
+        try
+        {
+            connection = await QuicConnection.ConnectAsync(clientConnectionOptions, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            _logger?.LogWarning(e, "QUIC connection to {remoteAddress} failed.", remoteAddr);
+            throw;
+        }
 
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
         INewConnectionContext connectionContext = context.CreateConnection();
@@ -164,7 +191,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         if (IsSchannel())
         {
-            throw new NotSupportedException($"QUIC uses the Schannel backend, which is not supported. Check {typeof(QuicConnection).Assembly.Location}");
+            throw new NotSupportedException($"QUIC uses the Schannel backend, which is not supported. Check {AppContext.BaseDirectory}");
         }
 
         static bool IsSchannel()
@@ -175,8 +202,33 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         }
     }
 
-    private static bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate certificate) =>
-         CertificateHelper.ValidateCertificate(certificate as X509Certificate2 ?? throw new Libp2pException("Remote public key not found"), remoteAddr.Get<P2P>().ToString());
+    private bool ValidateClientCertificate(X509Certificate? certificate)
+    {
+        string? failureReason = null;
+        bool valid = certificate is X509Certificate2 x509
+            && CertificateHelper.ValidateCertificate(x509, peerId: null, out failureReason);
+
+        if (!valid)
+        {
+            _logger?.LogWarning("QUIC client certificate validation failed. Certificate type: {certificateType}; reason: {reason}", certificate?.GetType().FullName ?? "<null>", failureReason ?? "not an X509Certificate2");
+        }
+
+        return valid;
+    }
+
+    private bool VerifyRemoteCertificate(Multiaddress remoteAddr, X509Certificate? certificate)
+    {
+        string? failureReason = null;
+        bool valid = certificate is X509Certificate2 x509
+            && CertificateHelper.ValidateCertificate(x509, remoteAddr.Get<P2P>().ToString(), out failureReason);
+
+        if (!valid)
+        {
+            _logger?.LogWarning("QUIC remote certificate validation failed for {remoteAddress}. Certificate type: {certificateType}; reason: {reason}", remoteAddr, certificate?.GetType().FullName ?? "<null>", failureReason ?? "not an X509Certificate2");
+        }
+
+        return valid;
+    }
 
     private async Task ProcessStreams(INewConnectionContext context, QuicConnection connection, CancellationToken token = default)
     {

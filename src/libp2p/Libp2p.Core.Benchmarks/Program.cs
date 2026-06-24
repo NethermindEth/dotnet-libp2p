@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Threading.Tasks;
-using System;
 using Nethermind.Libp2p.Core;
 using System.Buffers;
 using System.Diagnostics;
@@ -42,7 +40,7 @@ await Task.Run(async () =>
     {
         try
         {
-            d = (await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow());
+            d = await revChan.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
             i += d.Length;
         }
         catch

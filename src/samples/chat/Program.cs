@@ -7,60 +7,115 @@ using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 
+var chatProtocol = new ChatProtocol
+{
+    OnServerMessage = msg => Console.WriteLine("AI: {0}", msg)
+};
+
 ServiceProvider serviceProvider = new ServiceCollection()
-    .AddLibp2p(builder => builder.WithQuic().AddProtocol<ChatProtocol>())
-    .AddLogging(builder =>
-        builder.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Trace)
-            .AddSimpleConsole(l =>
-            {
-                l.SingleLine = true;
-                l.TimestampFormat = "[HH:mm:ss.FFF]";
-            }))
+    .AddLogging(logging =>
+    {
+        logging.ClearProviders();
+        logging.AddSimpleConsole(options =>
+        {
+            options.SingleLine = true;
+            options.TimestampFormat = "[HH:mm:ss.FFF]";
+        });
+        logging.SetMinimumLevel(args.Contains("--trace") ? LogLevel.Trace : LogLevel.Information);
+    })
+    .AddLibp2p(builder => builder.WithQuic().AddProtocol(chatProtocol))
     .BuildServiceProvider();
 
-ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
-IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
+IPeerFactory peerFactory = serviceProvider.GetRequiredService<IPeerFactory>();
 
-CancellationTokenSource ts = new();
-
-if (args.Length > 0 && args[0] == "-d")
+using CancellationTokenSource cancellation = new();
+Console.CancelKeyPress += (_, e) =>
 {
-    Multiaddress remoteAddr = args[1];
+    e.Cancel = true;
+    cancellation.Cancel();
+};
 
+const string TcpRemoteAddr = "/ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+const string QuicRemoteAddr = "/ip4/139.177.181.61/udp/42000/quic-v1/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL";
+
+int messageIndex = Array.IndexOf(args, "--message");
+string? singleMessage = messageIndex >= 0 && messageIndex < args.Length - 1
+    ? string.Join(' ', args.Skip(messageIndex + 1))
+    : null;
+
+Multiaddress remoteAddr = args.FirstOrDefault(a => a.StartsWith('/')) ??
+    (args.Contains("--quic") ? QuicRemoteAddr : TcpRemoteAddr);
+
+try
+{
     await using ILocalPeer localPeer = peerFactory.Create();
+    ISession remotePeer = await localPeer.DialAsync(remoteAddr, cancellation.Token);
 
-    logger.LogInformation("Dialing {remote}", remoteAddr);
-    ISession remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
-
-    await remotePeer.DialAsync<ChatProtocol>(ts.Token);
-}
-else
-{
-    Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-    await using ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
-
-    string addrTemplate = args.Contains("-quic") ?
-        "/ip4/0.0.0.0/udp/{0}/quic-v1" :
-        "/ip4/0.0.0.0/tcp/{0}";
-
-    peer.ListenAddresses.CollectionChanged += (_, args) =>
+    Task chatTask = remotePeer.DialAsync<ChatProtocol>(cancellation.Token);
+    Task readyTask = chatProtocol.Ready.Task.WaitAsync(cancellation.Token);
+    Task completed = await Task.WhenAny(chatTask, readyTask);
+    if (completed == chatTask)
     {
-        if (args.NewItems is { Count: > 0 })
+        await chatTask;
+        throw new InvalidOperationException("Chat protocol closed before it became ready.");
+    }
+
+    await readyTask;
+    Func<string, Task<IOResult>> sendMessage = chatProtocol.OnClientMessage ??
+        throw new InvalidOperationException("Chat protocol became ready without a send delegate.");
+
+    Console.WriteLine("System: Connected via {0}", remotePeer.RemoteAddress);
+
+    if (singleMessage is not null)
+    {
+        // Capture the reply to the sent message. The server sends a greeting on
+        // connect, and it can race with this handler swap on stackless transports.
+        TaskCompletionSource<string> reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool messageSent = false;
+        chatProtocol.OnServerMessage = msg =>
         {
-            logger.LogInformation("Listen on {localAddr}", args.NewItems[0]);
+            Console.WriteLine("AI: {0}", msg);
+            if (messageSent && msg != "Hello from AI!")
+            {
+                reply.TrySetResult(msg);
+            }
+        };
+
+        messageSent = true;
+        await SendMessageAsync(sendMessage, singleMessage);
+        try
+        {
+            await reply.Task.WaitAsync(TimeSpan.FromSeconds(120), cancellation.Token);
         }
-    };
+        catch (TimeoutException)
+        {
+            Console.WriteLine("System: Timed out waiting for a reply.");
+        }
+        await remotePeer.DisconnectAsync();
+        return;
+    }
 
-    peer.OnConnected += async newSession => logger.LogInformation("A peer connected {remote}", newSession.RemoteAddress);
+    ConsoleReader reader = new();
+    while (!cancellation.IsCancellationRequested)
+    {
+        string msg = await reader.ReadLineAsync(cancellation.Token);
+        if (!string.IsNullOrWhiteSpace(msg))
+        {
+            await SendMessageAsync(sendMessage, msg);
+        }
+    }
 
-    int indexOfPort = Array.IndexOf(args, "-sp");
+    await chatTask;
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("System: Shutting down.");
+}
 
-    await peer.StartListenAsync(
-        [string.Format(addrTemplate, indexOfPort > -1 ? args[indexOfPort + 1] : "0")],
-        ts.Token);
-    logger.LogInformation("Listener started at {address}", string.Join(", ", peer.ListenAddresses));
-
-    Console.CancelKeyPress += delegate { ts.Cancel(); };
-
-    await Task.Delay(-1, ts.Token);
+static async Task SendMessageAsync(Func<string, Task<IOResult>> sendMessage, string message)
+{
+    if (await sendMessage(message) != IOResult.Ok)
+    {
+        throw new IOException("Failed to send chat message.");
+    }
 }

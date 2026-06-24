@@ -113,4 +113,3 @@ public static class VarInt
         throw new FormatException("Invalid 7-bit encoding");
     }
 }
-

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery;
@@ -69,7 +69,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
         }
     }
 
-    private void OnPeerMessage(byte[] msg)
+    private void OnPeerMessage(PeerId _, byte[] msg)
     {
         try
         {
@@ -88,4 +88,3 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
         }
     }
 }
-

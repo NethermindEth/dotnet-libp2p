@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using NUnit.Framework;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
-using NSubstitute;
 using Nethermind.Libp2p.Core;
+using NUnit.Framework;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Protocols.Tests;
 

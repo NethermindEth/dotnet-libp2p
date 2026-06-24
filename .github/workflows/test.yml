@@ -23,18 +23,32 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
 
+      - name: List CI projects
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          dotnet sln Libp2p.slnx list |
+            awk 'NR > 2 && NF' |
+            grep -Eiv 'samples[/\\]maui-chat[/\\]MauiChat\.csproj' > "$RUNNER_TEMP/ci-projects.txt"
+          cat "$RUNNER_TEMP/ci-projects.txt"
+
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet restore
+        run: |
+          while IFS= read -r project; do
+            dotnet restore "$project"
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore
+        run: |
+          while IFS= read -r project; do
+            dotnet build "$project" -c ${{ env.BUILD_CONFIG }} --no-restore
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-restore
+          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.TEST_OPTS }}

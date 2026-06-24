@@ -91,7 +91,6 @@ internal static class Program
                         : Array.Empty<string>()
                 });
             }
-            return Task.CompletedTask;
         };
 
         // Start listening — KadDhtProtocol will pick up ListenAddresses once they're populated
@@ -146,7 +145,7 @@ internal static class Program
             }
         }
 
-        // Connect to bootstrap peers 
+        // Connect to bootstrap peers
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
@@ -347,7 +346,7 @@ internal static class Program
         Console.ResetColor();
     }
 
-    // [4] Automated test 
+    // [4] Automated test
 
     private static async Task RunAutomatedTest(
         ILocalPeer localPeer,

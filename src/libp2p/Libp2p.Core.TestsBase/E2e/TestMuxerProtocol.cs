@@ -1,4 +1,3 @@
-
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;

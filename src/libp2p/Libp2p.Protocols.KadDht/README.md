@@ -207,7 +207,7 @@ This project follows the same licensing as the main .NET libp2p project.
 This package provides a complete implementation of the Kademlia DHT protocol as specified in the [libp2p specifications](https://github.com/libp2p/specs/tree/master/kad-dht). The implementation includes:
 
 - **Core Kademlia Algorithm**: Complete routing table management with K-buckets and XOR distance calculations
-- **DHT Value Storage**: Store and retrieve key-value pairs across the network  
+- **DHT Value Storage**: Store and retrieve key-value pairs across the network
 - **Provider Records**: Announce and discover content providers
 - **Network Protocol**: Full libp2p protocol integration with protobuf message definitions
 - **Multiple Operation Modes**: Client and server modes for different deployment scenarios
@@ -259,7 +259,7 @@ var bootstrapNodes = new[]
 var peer = new ServiceCollection()
     .AddLibp2p(builder => builder
         .WithQuic()
-        .AddKadDht(options => 
+        .AddKadDht(options =>
         {
             options.Mode = KadDhtMode.Server;
             options.KSize = 20;
@@ -326,7 +326,7 @@ public class KadDhtOptions
 - Responds to all DHT queries
 - Suitable for stable, long-running nodes
 
-#### Client Mode (`KadDhtMode.Client`)  
+#### Client Mode (`KadDhtMode.Client`)
 - Participates in routing but doesn't store records
 - Can query the DHT but doesn't serve data
 - Lighter resource usage
@@ -343,7 +343,7 @@ The implementation supports all standard Kademlia DHT messages:
 message PingRequest {}
 message PingResponse {}
 
-// Node discovery  
+// Node discovery
 message FindNeighboursRequest { PublicKeyBytes target = 1; }
 message FindNeighboursResponse { repeated Node neighbours = 1; }
 
@@ -372,7 +372,7 @@ All six message types (`PING`, `FIND_NODE`, `PUT_VALUE`, `GET_VALUE`, `ADD_PROVI
 KadDhtProtocol (Main API)
 ├── IValueStore (Value storage interface)
 │   └── InMemoryValueStore (Default implementation)
-├── IProviderStore (Provider records interface)  
+├── IProviderStore (Provider records interface)
 │   └── InMemoryProviderStore (Default implementation)
 └── KadDhtProtocolExtensions (Network protocol handlers)
 ```
@@ -445,7 +445,7 @@ dotnet test src/libp2p/Libp2p.Protocols.KadDht.Tests/
 ## Future Enhancements
 
 - **Persistent Storage**: Database-backed storage implementations
-- **Network Operations**: Full network traversal for distributed operations  
+- **Network Operations**: Full network traversal for distributed operations
 - **Advanced Routing**: Bucket refresh and network maintenance
 - **Security Features**: Value validation and signature verification
 - **Metrics Integration**: Prometheus/OpenTelemetry support

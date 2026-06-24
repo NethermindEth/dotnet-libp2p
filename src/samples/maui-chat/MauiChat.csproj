@@ -1,0 +1,112 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+		<!-- Uncomment to also build the tizen app. You will need to install tizen by following this: https://github.com/Samsung/Tizen.NET -->
+		<!-- <TargetFrameworks>$(TargetFrameworks);net10.0-tizen</TargetFrameworks> -->
+		<!-- Note for MacCatalyst:
+		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
+		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
+		The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
+		either BOTH runtimes must be indicated or ONLY maccatalyst-x64. -->
+		<!-- For example: <RuntimeIdentifiers>net10.0-android;maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
+    <RuntimeIdentifiers Condition="'$(TargetFramework)' == 'net10.0-android'">android-arm64;android-x64</RuntimeIdentifiers>
+		<OutputType>Exe</OutputType>
+		<RootNamespace>MauiChat</RootNamespace>
+		<UseMaui>true</UseMaui>
+    <MauiVersion>$(MauiWorkloadVersion)</MauiVersion>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Display name -->
+		<ApplicationTitle>MauiChat</ApplicationTitle>
+
+		<!-- App Identifier -->
+		<ApplicationId>com.companyname.MauiChat</ApplicationId>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+
+		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
+		<WindowsPackageType>None</WindowsPackageType>
+
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'tizen'">6.5</SupportedOSPlatformVersion>
+		
+		<!-- 
+			NativeAOT Configuration:
+			- iOS/Mac Catalyst: NativeAOT is officially supported
+			- Android: NativeAOT is experimental and NOT yet supported with MAUI (xamarin_app_init missing)
+			- Windows: NativeAOT is not applicable for MAUI
+			See: https://learn.microsoft.com/en-us/dotnet/maui/deployment/nativeaot
+		-->
+		<PublishAot Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">true</PublishAot>
+		<PublishAot Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">true</PublishAot>
+		
+		<!-- Enable trimming and AOT analyzers for all platforms for compatibility checking -->
+		<IsAotCompatible>true</IsAotCompatible>
+		<SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+		<TrimmerSingleWarn>false</TrimmerSingleWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- App Icon -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+
+		<!-- Splash Screen -->
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+
+		<!-- Images -->
+		<MauiImage Include="Resources\Images\*" />
+		<MauiImage Update="Resources\Images\dotnet_bot.png" Resize="True" BaseSize="300,185" />
+
+		<!-- Custom Fonts -->
+		<MauiFont Include="Resources\Fonts\*" />
+
+		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+  <ItemGroup>
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libmsquic.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libSystem.Security.Cryptography.Native.OpenSsl.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\arm64-v8a\libsodium.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libmsquic.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libSystem.Security.Cryptography.Native.OpenSsl.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libcrypto.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libsodium.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\jniLibs\x86_64\libssl.so" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Quic\Libp2p.Protocols.Quic.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
+    <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Yamux\Libp2p.Protocols.Yamux.csproj" />
+  </ItemGroup>
+
+  <Target Name="UseMauiAndroidSodiumNativeLibraries"
+          BeforeTargets="_IncludeNativeSystemLibraries"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.NuGetPackageId)' == 'libsodium' and '%(ResolvedFileToPublish.Extension)' == '.so'" />
+    </ItemGroup>
+  </Target>
+
+</Project>
