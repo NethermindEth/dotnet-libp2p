@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Integration;
 using Nethermind.Libp2p.Core;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
-public class PublicKeyKeyOperator : IKeyOperator<PublicKey, ValueHash256, global::Libp2p.Protocols.KadDht.TestNode>
+public class PublicKeyKeyOperator : IKeyOperator<PublicKey, global::Libp2p.Protocols.KadDht.TestNode, ValueHash256>
 {
     public PublicKey GetKey(global::Libp2p.Protocols.KadDht.TestNode node)
     {

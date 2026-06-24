@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System.Collections.Concurrent;
 using System.Text;
@@ -220,10 +220,9 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     {
         byte[] bytes => bytes,
         ReadOnlyMemory<byte> rom => rom.ToArray(),
-        // Send raw peer-ID bytes on the wire; the receiver hashes once to get the DHT key.
-        // Sending Hash.Bytes here would cause a double-hash: SHA-256(SHA-256(peerId)).
+        // Send raw key bytes on the wire; the receiver hashes once to get the DHT key.
         PublicKey kadPublicKey => kadPublicKey.Bytes.ToArray(),
-        ValueHash256 valueHash => valueHash.Bytes,
+        ValueHash256 valueHash => valueHash.Bytes.ToArray(),
         _ => Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty)
     };
 

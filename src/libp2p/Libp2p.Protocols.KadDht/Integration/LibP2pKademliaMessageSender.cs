@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Kademlia;
@@ -30,7 +30,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         _onPeerDiscovered = onPeerDiscovered;
     }
 
-    public async Task Ping(DhtNode receiver, CancellationToken token = default)
+    public async Task<bool> Ping(DhtNode receiver, CancellationToken token = default)
     {
         _logger?.LogDebug("Sending Ping to {NodeId}", receiver.PeerId);
 
@@ -44,18 +44,21 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
 
             _logger?.LogTrace("Ping response from {NodeId}", receiver.PeerId);
+            return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             _logger?.LogDebug("Ping to {NodeId} cancelled", receiver.PeerId);
+            throw;
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Ping to {NodeId} failed", receiver.PeerId);
+            return false;
         }
     }
 
-    public async Task<DhtNode[]> FindNeighbours(DhtNode receiver, PublicKey target, CancellationToken token = default)
+    public async Task<DhtNode[]?> FindNeighbours(DhtNode receiver, PublicKey target, CancellationToken token = default)
     {
         _logger?.LogDebug("Sending FindNeighbours to {NodeId}", receiver.PeerId);
 
@@ -75,12 +78,17 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             _logger?.LogDebug("FindNeighbours to {NodeId} cancelled", receiver.PeerId);
-            return Array.Empty<DhtNode>();
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger?.LogWarning(ex, "FindNeighbours to {NodeId} timed out", receiver.PeerId);
+            throw;
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "FindNeighbours to {NodeId} failed", receiver.PeerId);
-            return Array.Empty<DhtNode>();
+            throw;
         }
     }
 
@@ -112,6 +120,11 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             }
 
             return true;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("PutValue to {NodeId} cancelled", receiver.PeerId);
+            throw;
         }
         catch (Exception ex)
         {
@@ -147,10 +160,15 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
                 CloserPeers = ParseCloserPeers(response)
             };
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("GetValue from {NodeId} cancelled", receiver.PeerId);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "GetValue from {NodeId} failed", receiver.PeerId);
-            return new GetValueResult();
+            throw;
         }
     }
 
@@ -165,9 +183,15 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             var request = MessageHelper.CreateAddProviderRequest(key, new[] { provider });
             await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("AddProvider to {NodeId} cancelled", receiver.PeerId);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "AddProvider to {NodeId} failed", receiver.PeerId);
+            throw;
         }
     }
 
@@ -188,10 +212,15 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
                 CloserPeers = ParseCloserPeers(response)
             };
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("GetProviders from {NodeId} cancelled", receiver.PeerId);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "GetProviders from {NodeId} failed", receiver.PeerId);
-            return new GetProvidersResult();
+            throw;
         }
     }
 
@@ -228,6 +257,10 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
                 var address = Multiaddress.Decode(addrStr);
                 return await _localPeer.DialAsync(address, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger?.LogTrace(ex, "Failed to dial {Address} for {NodeId}", addrStr, targetNode.PeerId);
@@ -237,6 +270,10 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         try
         {
             return await _localPeer.DialAsync(targetNode.PeerId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

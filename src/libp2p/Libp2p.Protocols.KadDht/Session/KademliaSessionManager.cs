@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Libp2p.Protocols.KadDht.Kademlia;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -13,15 +15,15 @@ public sealed class KademliaSessionManager : ISessionManager
     private readonly ILoggerFactory _logFactory;
     private readonly ILogger<KademliaSessionManager> _log;
 
-    private readonly IKeyOperator<PublicKey, ValueHash256, TestNode> _keyOperator;
+    private readonly IKeyOperator<PublicKey, TestNode, ValueHash256> _keyOperator;
     private readonly IKademliaMessageSender<PublicKey, TestNode> _transportMessageSender;
-    private readonly Kademlia.IKademliaMessageSender<PublicKey, TestNode> _kademliaMessageSender;
+    private readonly Nethermind.Kademlia.IKademliaMessageSender<PublicKey, TestNode> _kademliaMessageSender;
     private readonly KademliaConfig<TestNode> _config;
-    private readonly INodeHashProvider<ValueHash256, TestNode> _nodeHashProvider;
-    private readonly IRoutingTable<ValueHash256, TestNode> _routingTable;
-    private readonly INodeHealthTracker<TestNode> _nodeHealthTracker;
-    private readonly ILookupAlgo<ValueHash256, TestNode> _lookupAlgo;
-    private readonly Kademlia<PublicKey, ValueHash256, TestNode> _kad;
+    private readonly INodeHashProvider<TestNode, ValueHash256> _nodeHashProvider;
+    private readonly IRoutingTable<TestNode, ValueHash256> _routingTable;
+    private readonly NodeHealthTracker<PublicKey, TestNode, ValueHash256> _nodeHealthTracker;
+    private readonly ILookupAlgo<TestNode, ValueHash256> _lookupAlgo;
+    private readonly Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256> _kad;
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -38,16 +40,20 @@ public sealed class KademliaSessionManager : ISessionManager
         _transportMessageSender = messageSender;
         _kademliaMessageSender = new MessageSenderAdapter(_transportMessageSender);
 
-        _config = new KademliaConfig<TestNode>();
+        _config = new KademliaConfig<TestNode>
+        {
+            CurrentNodeId = new TestNode(new Nethermind.Libp2p.Core.PeerId(RandomNumberGenerator.GetBytes(32)))
+        };
         if (options.KSize is int k) _config.KSize = k;
         if (options.RefreshInterval is TimeSpan r) _config.RefreshInterval = r;
 
-        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, ValueHash256, TestNode>(_keyOperator);
-        _routingTable = new KBucketTree<ValueHash256, TestNode>(_config, _nodeHashProvider, _logFactory);
-        _nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, TestNode>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender, _logFactory);
-        _lookupAlgo = new LookupKNearestNeighbour<ValueHash256, TestNode>(_routingTable, _nodeHashProvider, _nodeHealthTracker, _config, _logFactory);
+        var distance = new ValueHash256Distance();
+        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, TestNode, ValueHash256>(_keyOperator);
+        _routingTable = new KBucketTree<TestNode, ValueHash256>(_config, _nodeHashProvider, distance);
+        _nodeHealthTracker = new NodeHealthTracker<PublicKey, TestNode, ValueHash256>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender);
+        _lookupAlgo = new LookupKNearestNeighbour<PublicKey, TestNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, _config);
 
-        _kad = new Kademlia<PublicKey, ValueHash256, TestNode>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _logFactory, _nodeHealthTracker, _config);
+        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config);
     }
 
     public async Task BootstrapAsync(CancellationToken ct)
@@ -68,7 +74,7 @@ public sealed class KademliaSessionManager : ISessionManager
         if (targetKey is not PublicKey key)
             throw new ArgumentException("targetKey must be Kademlia.PublicKey for this session.", nameof(targetKey));
 
-        ValueHash256 currentNodeIdAsHash = default; // TODO: inject self node ID when available
+        ValueHash256 currentNodeIdAsHash = _keyOperator.GetNodeHash(_config.CurrentNodeId);
 
         var nodes = await _lookupAlgo.Lookup(
             _keyOperator.GetKeyHash(key),
@@ -94,6 +100,8 @@ public sealed class KademliaSessionManager : ISessionManager
     {
         _log.LogInformation("Kademlia stopping.");
         _cts.Cancel();
+        _nodeHealthTracker.Dispose();
+        _cts.Dispose();
         return Task.CompletedTask;
     }
 }
