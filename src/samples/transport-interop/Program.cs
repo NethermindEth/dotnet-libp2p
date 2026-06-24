@@ -18,43 +18,39 @@ using System.Net.Sockets;
 
 try
 {
-    string transport = Environment.GetEnvironmentVariable("TRANSPORT")!;
-    if (string.IsNullOrEmpty(transport))
-    {
-        throw new Exception("TRANSPORT environment variable is required");
-    }
+    string transport = GetRequiredEnvironmentVariable("transport", "TRANSPORT").ToLowerInvariant();
 
     // For QUIC, muxer and security are built-in and not required
-    bool isStacklessProtocol = transport == "quic-v1" || transport == "webtransport" || transport == "webrtc-direct";
+    bool isStacklessProtocol = transport is "quic" or "quic-v1" or "webtransport" or "webrtc-direct";
 
-    string muxer = Environment.GetEnvironmentVariable("MUXER") ?? "";
+    string muxer = GetOptionalEnvironmentVariable("muxer", "MUXER")?.ToLowerInvariant() ?? "";
     if (string.IsNullOrEmpty(muxer) && !isStacklessProtocol)
     {
-        throw new Exception("MUXER environment variable is required");
+        throw new Exception("muxer environment variable is required");
     }
-    string security = Environment.GetEnvironmentVariable("SECURE_CHANNEL") ?? "";
+    string security = GetOptionalEnvironmentVariable("security", "SECURE_CHANNEL")?.ToLowerInvariant() ?? "";
     if (string.IsNullOrEmpty(security) && !isStacklessProtocol)
     {
-        throw new Exception("SECURE_CHANNEL environment variable is required");
+        throw new Exception("security environment variable is required");
     }
 
-    bool isDialer = bool.Parse(Environment.GetEnvironmentVariable("IS_DIALER")!);
-    if (string.IsNullOrEmpty(isDialer.ToString()))
+    string isDialerValue = GetRequiredEnvironmentVariable("is_dialer", "IS_DIALER");
+    if (!bool.TryParse(isDialerValue, out bool isDialer))
     {
-        throw new Exception("IS_DIALER environment variable is required");
+        throw new Exception("is_dialer environment variable must be true or false");
     }
-    string ip = Environment.GetEnvironmentVariable("LISTENER_IP") ?? "0.0.0.0";
+    string ip = GetOptionalEnvironmentVariable("ip", "LISTENER_IP") ?? "0.0.0.0";
 
-    string redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "";
+    string redisAddr = GetOptionalEnvironmentVariable("redis_addr", "REDIS_ADDR") ?? "redis:6379";
 
-    int testTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("TEST_TIMEOUT_SECS") ?? "180");
-
-    string testKey = Environment.GetEnvironmentVariable("TEST_KEY") ?? "";
-    if (string.IsNullOrEmpty(testKey))
+    string testTimeoutValue = GetOptionalEnvironmentVariable("test_timeout_seconds", "TEST_TIMEOUT_SECS") ?? "180";
+    if (!int.TryParse(testTimeoutValue, out int testTimeoutSeconds))
     {
-        throw new Exception("TEST_KEY environment variable is required");
+        throw new Exception("test_timeout_seconds environment variable must be an integer");
     }
-    string redisKey = $"{testKey}_listener_multiaddr";
+
+    string? testKey = GetOptionalEnvironmentVariable("TEST_KEY");
+    string redisKey = string.IsNullOrWhiteSpace(testKey) ? "listenerAddr" : $"{testKey}_listener_multiaddr";
 
     TestPlansPeerFactoryBuilder builder = new(transport, muxer, security);
     IPeerFactory peerFactory = builder.Build();
@@ -69,9 +65,9 @@ try
 
         Log($"Picking an address to dial...");
 
-        CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+        CancellationTokenSource cts = new(TimeSpan.FromSeconds(testTimeoutSeconds));
         string? listenerAddr = null;
-        while ((listenerAddr = await db.ListRightPopAsync(redisKey)) is null)
+        while ((listenerAddr = await db.ListLeftPopAsync(redisKey)) is null)
         {
             await Task.Delay(10, cts.Token);
         }
@@ -86,10 +82,7 @@ try
 
         long handshakePlusOneRTT = handshakeStartInstant.ElapsedMilliseconds;
 
-        PrintResult("latency:");
-        PrintResult($"  handshake_plus_one_rtt: {handshakePlusOneRTT}");
-        PrintResult($"  ping_rtt: {pingRTT}");
-        PrintResult("  unit: ms");
+        PrintResult(FormattableString.Invariant($@"{{""handshakePlusOneRTTMillis"":{handshakePlusOneRTT},""pingRTTMilllis"":{pingRTT}}}"));
         Log("Done");
         return 0;
     }
@@ -144,7 +137,7 @@ try
         localPeer.OnConnected += session => Log($"Connected {session.RemoteAddress}");
         Log($"Listening on {string.Join(", ", localPeer.ListenAddresses)}");
         db.ListRightPush(new RedisKey(redisKey), new RedisValue(localPeer.ListenAddresses.First().ToString()));
-        await Task.Delay(testTimeoutSeconds * 1000);
+        await Task.Delay(TimeSpan.FromSeconds(testTimeoutSeconds));
         await listenTcs.CancelAsync();
         return -1;
     }
@@ -157,6 +150,31 @@ catch (Exception ex)
 
 static void Log(string info) => Console.Error.WriteLine(info);
 static void PrintResult(string info) => Console.WriteLine(info);
+
+static string GetRequiredEnvironmentVariable(params string[] names)
+{
+    string? value = GetOptionalEnvironmentVariable(names);
+    if (value is null)
+    {
+        throw new Exception($"{string.Join("/", names)} environment variable is required");
+    }
+
+    return value;
+}
+
+static string? GetOptionalEnvironmentVariable(params string[] names)
+{
+    foreach (string name in names)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+    }
+
+    return null;
+}
 
 static int GetInterfacePriority(NetworkInterface networkInterface)
 {
@@ -172,7 +190,7 @@ static int GetInterfacePriority(NetworkInterface networkInterface)
         NetworkInterfaceType.Ppp => 5,                 // PPP connection (low priority)
         NetworkInterfaceType.Tunnel => 4,              // Tunnel interface (medium-low)
         _ when networkInterface.Name.Contains("vEthernet") => 3, // Hyper-V virtual (medium)
-        _ when networkInterface.Name.Contains("VirtualBox") => 3, // VirtualBox (medium) 
+        _ when networkInterface.Name.Contains("VirtualBox") => 3, // VirtualBox (medium)
         _ when networkInterface.Name.Contains("VMware") => 3,     // VMware (medium)
         _ when networkInterface.Description.Contains("Virtual") => 3, // Other virtual (medium)
         _ => 6  // Unknown/other (lowest priority)
@@ -202,14 +220,14 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
         _encryption = encryption;
     }
 
-    private static readonly string[] stacklessProtocols = ["quic-v1", "webtransport", "webrtc-direct"];
+    private static readonly string[] stacklessProtocols = ["quic", "quic-v1", "webtransport", "webrtc-direct"];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         ProtocolRef transport = _transport switch
         {
             "tcp" => Get<IpTcpProtocol>(),
-            // TODO: Improve QUIC interoperability
+            "quic" => Get<QuicProtocol>(),
             "quic-v1" => Get<QuicProtocol>(),
             "webrtc-direct" => Get<WebRtcDirectProtocol>(),
             _ => throw new NotImplementedException(),
@@ -247,6 +265,7 @@ class TestPlansPeerFactoryBuilder : PeerFactoryBuilderBase<TestPlansPeerFactoryB
     public string MakeAddress(string ip = "0.0.0.0", string port = "0") => _transport switch
     {
         "tcp" => $"/ip4/{ip}/tcp/{port}",
+        "quic" => $"/ip4/{ip}/udp/{port}/quic-v1",
         "quic-v1" => $"/ip4/{ip}/udp/{port}/quic-v1",
         "webrtc-direct" => $"/ip4/{ip}/udp/{port}/webrtc-direct",
         _ => throw new NotImplementedException(),

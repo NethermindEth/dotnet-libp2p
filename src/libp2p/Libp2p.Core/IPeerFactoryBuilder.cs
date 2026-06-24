@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Nethermind.Libp2p.Core;
 
 public interface IPeerFactoryBuilder
@@ -12,7 +14,7 @@ public interface IPeerFactoryBuilder
     /// <param name="instance">Instance of the protocol can be passed if manual creation is preferred over automatic creation via dependency injection.</param>
     /// <param name="isExposed">Whether information about protocol support is shared during the handshake.</param>
     /// <returns>The same builder for chaining calls</returns>
-    IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol;
+    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol;
     IPeerFactory Build();
     IServiceProvider ServiceProvider { get; }
 }

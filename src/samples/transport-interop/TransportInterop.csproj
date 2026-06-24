@@ -17,6 +17,14 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.5.7" PrivateAssets="all" GeneratePathProperty="true" />
+    <RuntimeHostConfigurationOption Include="System.Net.Quic.AppLocalMsQuic" Value="true" />
+    <Content Include="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll"
+             Link="msquic.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup >
     <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />

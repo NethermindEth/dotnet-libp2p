@@ -233,7 +233,7 @@ class Program
 
         try
         {
-            // Parse listener multiaddr 
+            // Parse listener multiaddr
             var targetAddr = Multiaddress.Decode(listenerAddr);
 
             // Validate the multiaddr was parsed correctly

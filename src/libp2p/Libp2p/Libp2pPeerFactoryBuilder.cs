@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Tls;
@@ -12,11 +13,23 @@ namespace Nethermind.Libp2p;
 public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
     ILibp2pPeerFactoryBuilder
 {
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IpTcpProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(QuicProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(NoiseProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(YamuxProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(MultistreamProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(PingProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyPushProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyProtocol))]
+    private static void PreserveTransportProtocolMetadata() { }
+
     private bool enforcePlaintext;
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
+#if LIBP2P_WEBSOCKETS
     private bool addWebSockets;
+#endif
     private bool addWebRtcDirect;
 
     /// <summary>
@@ -51,8 +64,12 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithWebSockets()
     {
+#if LIBP2P_WEBSOCKETS
         addWebSockets = true;
         return this;
+#else
+        throw new PlatformNotSupportedException("WebSockets transport is not available on this target runtime.");
+#endif
     }
 
     public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
@@ -63,8 +80,15 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
+        // Ensure transport protocol static methods are preserved for AOT/trimming
+        PreserveTransportProtocolMetadata();
+
         ProtocolRef tcp = Get<IpTcpProtocol>();
+#if LIBP2P_WEBSOCKETS
         ProtocolRef[] streamTransports = addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
+#else
+        ProtocolRef[] streamTransports = [tcp];
+#endif
 
         ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 

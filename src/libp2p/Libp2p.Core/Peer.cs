@@ -28,7 +28,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
     protected readonly MultiaddrResolver _multiaddrResolver = new();
 
-    Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
+    private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     private readonly ConcurrentDictionary<PeerId, Task<ISession>> _pendingDials = new();
     public ObservableCollection<Session> Sessions { get; } = [];
 
@@ -126,7 +126,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             {
                 if (t.IsFaulted)
                 {
-                    _logger?.LogDebug($"Failed to start listener for address {addr}");
+                    _logger?.LogDebug($"Failed to start listener for address {addr}: {t.Exception?.Message}");
                     return null;
                 }
 
@@ -392,7 +392,6 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(innerException).Throw();
                 throw new UnreachableException();
             }
-
             PeerConnectionException exception = CreatePeerConnectionException(addr, session, dialingResult);
             dialActivity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             dialActivity?.Dispose();
@@ -477,8 +476,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         Exception? innerException = GetTaskException(dialingResult);
 
         string message = innerException is null
-            ? $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}."
-            : $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}: {innerException.Message}";
+            ? $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}."
+            : $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}. {innerException.Message}";
 
         return new PeerConnectionException(
             message,

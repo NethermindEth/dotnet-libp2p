@@ -1,7 +1,5 @@
-using System;
-using System.Buffers;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using System.Buffers;
 
 namespace Nethermind.Libp2p.Core.Benchmarks;
 

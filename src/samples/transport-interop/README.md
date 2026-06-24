@@ -34,7 +34,7 @@ docker build -f ./src/samples/transport-interop/Dockerfile .
 
 ## Development
 
-This sample uses local `libp2p` project references 
+This sample uses local `libp2p` project references
 
 Build and run:
 
@@ -48,4 +48,3 @@ dotnet run
 # build from repo root
 docker build -f src/samples/transport-interop/Dockerfile -t transport-interop:latest .
 # run from repository root
-

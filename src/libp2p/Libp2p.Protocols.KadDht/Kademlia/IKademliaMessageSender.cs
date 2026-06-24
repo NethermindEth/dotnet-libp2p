@@ -5,7 +5,7 @@ namespace Libp2p.Protocols.KadDht.Kademlia;
 
 /// <summary>
 /// Should be exposed by application to kademlia so that kademlia can send out message.
-/// </summary> 
+/// </summary>
 /// <typeparam name="THash"></typeparam>
 /// <typeparam name="TNode"></typeparam>
 public interface IKademliaMessageSender<TPublicKey, TNode>
@@ -13,4 +13,3 @@ public interface IKademliaMessageSender<TPublicKey, TNode>
     Task Ping(TNode receiver, CancellationToken token);
     Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token);
 }
-

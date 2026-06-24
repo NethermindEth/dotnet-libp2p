@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Threading.Tasks;
-using System;
 using Nethermind.Libp2p.Core;
 using System.Buffers;
 using System.Diagnostics;
