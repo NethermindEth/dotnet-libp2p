@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Extensions;
+using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.TestsBase;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -49,5 +51,26 @@ internal class TaskHelperTests
 
         Assert.That(result, Is.EqualTo(tcs3.Task));
         Assert.That((result as Task<bool>)!.Result, Is.EqualTo(true));
+    }
+
+    [Test]
+    public async Task Test_SessionExistsException_ReturnsFaultedTask()
+    {
+        TaskCompletionSource tcs1 = new();
+        TaskCompletionSource tcs2 = new();
+
+        Task<Task> t = TaskHelper.FirstSuccess(tcs1.Task, tcs2.Task);
+        SessionExistsException exception = new(TestPeers.Identity(1).PeerId);
+
+        tcs1.SetException(exception);
+        tcs2.SetException(new Exception());
+
+        Task result = await t;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.EqualTo(tcs1.Task));
+            Assert.That(result.Exception?.InnerException, Is.SameAs(exception));
+        });
     }
 }

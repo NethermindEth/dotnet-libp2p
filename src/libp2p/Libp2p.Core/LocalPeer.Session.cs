@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
@@ -11,13 +11,13 @@ namespace Nethermind.Libp2p.Core;
 
 public partial class LocalPeer
 {
-    public class Session(LocalPeer peer) : ISession
+    public class Session(LocalPeer peer, Activity? activity = null) : ISession
     {
         private static int SessionIdCounter;
 
         public string Id { get; } = Interlocked.Increment(ref SessionIdCounter).ToString();
         public State State { get; } = new();
-        public Activity? Activity { get; }
+        public Activity? Activity { get; } = activity;
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
 
