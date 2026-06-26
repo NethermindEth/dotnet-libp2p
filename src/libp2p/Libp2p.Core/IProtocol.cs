@@ -25,6 +25,11 @@ public interface ITransportProtocol : IProtocol
     Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token);
 }
 
+public interface IPeerScopedProtocol : IProtocol
+{
+    ValueTask ReleasePeerAsync(PeerId peerId);
+}
+
 public interface IConnectionProtocol : IProtocol
 {
     Task ListenAsync(IChannel downChannel, IConnectionContext context);

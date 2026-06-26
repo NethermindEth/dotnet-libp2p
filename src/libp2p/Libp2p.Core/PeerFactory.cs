@@ -22,4 +22,22 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
     {
         return new LocalPeer(identity ?? new Identity(), PeerStore, protocolStackSettings, activitySource, rootActivity, LoggerFactory);
     }
+
+    public virtual async ValueTask DisposeAsync()
+    {
+        foreach (IProtocol protocol in protocolStackSettings.GetDistinctProtocols())
+        {
+            switch (protocol)
+            {
+                case IAsyncDisposable asyncDisposable:
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                    break;
+                case IDisposable disposable:
+                    disposable.Dispose();
+                    break;
+            }
+        }
+
+        rootActivity?.Dispose();
+    }
 }

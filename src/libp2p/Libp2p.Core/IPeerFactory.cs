@@ -3,7 +3,9 @@
 
 namespace Nethermind.Libp2p.Core;
 
-public interface IPeerFactory
+public interface IPeerFactory : IAsyncDisposable
 {
     ILocalPeer Create(Identity? identity = default);
+
+    ValueTask IAsyncDisposable.DisposeAsync() => ValueTask.CompletedTask;
 }

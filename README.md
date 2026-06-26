@@ -45,6 +45,7 @@ The target is to provide a performant well-tested implementation of a wide range
 | Protocol           | Version            | Status          |
 |--------------------|--------------------|-----------------|
 | TCP                | tcp                | ✅             |
+| I2P                | garlic32/garlic64 via SAM STREAM + DATAGRAM | 🚧             |
 | QUIC               | quic-v1            | ✅             |
 | multistream-select | /multistream/1.0.0 | ✅             |
 | plaintext          | /plaintext/2.0.0   | ✅             |

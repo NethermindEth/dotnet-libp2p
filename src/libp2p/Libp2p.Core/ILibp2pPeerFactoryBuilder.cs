@@ -17,6 +17,8 @@ public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
     public ILibp2pPeerFactoryBuilder WithPubsub();
     public ILibp2pPeerFactoryBuilder WithRelay();
     public ILibp2pPeerFactoryBuilder WithQuic();
+    public ILibp2pPeerFactoryBuilder WithI2p(string? samHost = null, int? samPort = null, string? destinationKeyFile = null)
+        => throw new NotSupportedException("This peer factory builder does not support I2P.");
     public ILibp2pPeerFactoryBuilder WithWebSockets();
     public ILibp2pPeerFactoryBuilder WithWebRtcDirect();
 }

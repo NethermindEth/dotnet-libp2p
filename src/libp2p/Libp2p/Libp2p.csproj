@@ -28,6 +28,7 @@
     <ProjectReference Include="..\Libp2p.Protocols.MDns\Libp2p.Protocols.MDns.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.I2p\Libp2p.Protocols.I2p.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Noise\Libp2p.Protocols.Noise.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Ping\Libp2p.Protocols.Ping.csproj" />

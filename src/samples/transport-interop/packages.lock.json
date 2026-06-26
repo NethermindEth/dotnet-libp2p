@@ -587,6 +587,7 @@
           "Microsoft.Extensions.Logging": "[10.0.0, )",
           "Microsoft.Extensions.Logging.Console": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
+          "Nethermind.Libp2p.Protocols.I2p": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Identify": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.IpTcp": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.MDns": "[1.0.0, )",
@@ -626,6 +627,13 @@
           "Microsoft.Extensions.Http": "[10.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
           "Microsoft.Extensions.Options": "[10.0.0, )",
+          "Nethermind.Libp2p.Core": "[1.0.0, )"
+        }
+      },
+      "Nethermind.Libp2p.Protocols.I2p": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },

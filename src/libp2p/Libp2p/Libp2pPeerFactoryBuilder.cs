@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.I2p;
 using Nethermind.Libp2p.Protocols.Tls;
 using Nethermind.Libp2p.Protocols.WebRtc;
 
@@ -15,6 +16,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 {
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IpTcpProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(QuicProtocol))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(I2pProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(NoiseProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(YamuxProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(MultistreamProtocol))]
@@ -27,6 +29,8 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
+    private bool addI2p;
+    private I2pOptions? i2pOptions;
 #if LIBP2P_WEBSOCKETS
     private bool addWebSockets;
 #endif
@@ -62,6 +66,28 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    public ILibp2pPeerFactoryBuilder WithI2p(string? samHost = null, int? samPort = null, string? destinationKeyFile = null)
+    {
+        addI2p = true;
+        i2pOptions ??= new I2pOptions { UsePrimarySessionForStreams = false };
+
+        if (samHost is not null)
+        {
+            i2pOptions.SamHost = samHost;
+            i2pOptions.SamUdpHost = samHost;
+        }
+        if (samPort is not null)
+        {
+            i2pOptions.SamPort = samPort.Value;
+        }
+        if (destinationKeyFile is not null)
+        {
+            i2pOptions.DestinationKeyFile = destinationKeyFile;
+        }
+
+        return this;
+    }
+
     public ILibp2pPeerFactoryBuilder WithWebSockets()
     {
 #if LIBP2P_WEBSOCKETS
@@ -89,6 +115,11 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 #else
         ProtocolRef[] streamTransports = [tcp];
 #endif
+        if (addI2p)
+        {
+            ProtocolRef i2p = new(ActivatorUtilities.CreateInstance<I2pProtocol>(ServiceProvider, i2pOptions ?? new I2pOptions()));
+            streamTransports = [.. streamTransports, i2p];
+        }
 
         ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
 

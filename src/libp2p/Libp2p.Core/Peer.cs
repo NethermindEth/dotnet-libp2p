@@ -680,6 +680,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     public async ValueTask DisposeAsync()
     {
         await Task.WhenAll(Sessions.ToArray().Select(s => s?.DisconnectAsync() ?? Task.CompletedTask));
+        foreach (IPeerScopedProtocol protocol in _protocolStackSettings.GetDistinctProtocols().OfType<IPeerScopedProtocol>())
+        {
+            await protocol.ReleasePeerAsync(Identity.PeerId).ConfigureAwait(false);
+        }
         peerActivity?.Dispose();
     }
 }
