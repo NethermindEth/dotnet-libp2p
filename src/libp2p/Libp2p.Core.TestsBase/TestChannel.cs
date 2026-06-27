@@ -34,6 +34,16 @@ public class TestChannel : IChannel
         return _channel.WriteAsync(bytes, token);
     }
 
+    public ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+    {
+        return _channel.WriteAsync(buffer, length, offset, token);
+    }
+
+    public ValueTask<IOResult> WriteAsync(ReadOnlySpan<PooledBuffer.Slice> slices, CancellationToken token = default)
+    {
+        return _channel.WriteAsync(slices, token);
+    }
+
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
     {
         return _channel.WriteEofAsync(token);

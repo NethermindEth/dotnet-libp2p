@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using System.Net.Security;
 using Nethermind.Libp2p.Protocols.Quic;
 using System.Security.Cryptography.X509Certificates;
@@ -196,14 +195,21 @@ public class TlsProtocol : IConnectionProtocol
             try
             {
                 logger?.LogDebug("Starting to write to sslStream");
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (PooledBuffer.Slice data in upChannel.ReadAllAsync())
                 {
-                    logger?.LogDebug(
-                        $"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
-                    await sslStream.WriteAsync(data.ToArray());
-                    await sslStream.FlushAsync();
-                    logger?.LogDebug(
-                        $"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
+                    try
+                    {
+                        logger?.LogDebug(
+                            $"Got data to send to peer: {{{Encoding.UTF8.GetString(data.ReadOnlySpan).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
+                        await sslStream.WriteAsync(data.ReadOnlyMemory);
+                        await sslStream.FlushAsync();
+                        logger?.LogDebug(
+                            $"Data sent to sslStream {{{Encoding.UTF8.GetString(data.ReadOnlySpan).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
+                    }
+                    finally
+                    {
+                        data.Dispose();
+                    }
                 }
             }
             catch (Exception ex)
@@ -219,18 +225,18 @@ public class TlsProtocol : IConnectionProtocol
                 logger?.LogDebug("Starting to read from sslStream");
                 while (true)
                 {
-                    byte[] data = new byte[1024];
-                    int len = await sslStream.ReadAtLeastAsync(data, 1, false);
+                    using PooledBuffer data = PooledBuffer.Rent(1024);
+                    int len = await sslStream.ReadAtLeastAsync(data.Memory, 1, false);
                     if (len == 0)
                     {
                         break;
                     }
 
                     logger?.LogDebug(
-                        $"Received {len} bytes from sslStream: {{{Encoding.UTF8.GetString(data, 0, len).Replace("\r", "\\r").Replace("\n", "\\n")}}}");
+                        $"Received {len} bytes from sslStream: {{{Encoding.UTF8.GetString(data.ReadOnlySpan[..len]).Replace("\r", "\\r").Replace("\n", "\\n")}}}");
                     try
                     {
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(data.ToArray()[..len]));
+                        await upChannel.WriteAsync(data, len);
                     }
                     catch (Exception ex)
                     {

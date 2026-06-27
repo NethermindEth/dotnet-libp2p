@@ -29,4 +29,11 @@ public class YamuxWindowSettings
     /// by a fixed amount each time it drops below half of <see cref="InitialWindowSize"/>.
     /// </summary>
     public bool UseDynamicWindow { get; set; } = true;
+
+    /// <summary>
+    /// When true, non-empty data frames must be written from buffers that reserve enough
+    /// headroom for the Yamux header. Control frames and empty data frames still write
+    /// their header normally.
+    /// </summary>
+    public bool RequireDataFrameHeadroom { get; set; }
 }

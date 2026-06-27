@@ -70,7 +70,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 timer = new((s) =>
                 {
-                    _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
+                    Observe(WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) }));
                 }, null, PingDelay, PingDelay);
 
                 foreach (UpgradeOptions request in session.DialRequests)
@@ -86,12 +86,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             while (!downChannelAwaiter.IsCompleted)
             {
                 YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, channel.CancellationToken);
-                ReadOnlySequence<byte> data = default;
-
                 if (header.Type > YamuxHeaderType.GoAway)
                 {
                     _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? NoSession, header.Type);
-                    _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
+                    await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
                     return;
                 }
 
@@ -101,7 +99,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(session?.Id ?? NoSession, channel,
+                            await WriteHeaderAsync(session?.Id ?? NoSession, channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
@@ -161,7 +159,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 {
                     if (header.Type == YamuxHeaderType.Data && header.Length > 0)
                     {
-                        await channel.ReadAsync(header.Length);
+                        using ReadResult ignored = await channel.ReadAsync(header.Length).OrThrow();
                     }
                     _logger?.LogDebug("Ctx({ctx}): Stream {stream id}: Ignored for closed stream", session.Id, header.StreamID);
                     continue;
@@ -179,9 +177,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         return;
                     }
 
-                    data = await channel.ReadAsync(header.Length).OrThrow();
+                    using ReadResult data = await channel.ReadAsync(header.Length).OrThrow();
 
-                    bool spent = channels[header.StreamID].LocalWindow.TrySpend((int)data.Length);
+                    bool spent = channels[header.StreamID].LocalWindow.TrySpend(data.Length);
                     if (!spent)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local window spent out of budget", session.Id, header.StreamID);
@@ -189,26 +187,31 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         return;
                     }
 
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
-                               header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
-
-                    int dataLength = (int)data.Length;
-                    _ = channels[header.StreamID].Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
+                    if (_logger is { } logger && logger.IsEnabled(LogLevel.Debug))
                     {
-                        if (!t.IsCompletedSuccessfully)
-                        {
-                            _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
-                        }
+                        logger.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
+                            header.StreamID, available, channels[header.StreamID].LocalWindow.Available);
+                    }
 
-                        ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    });
+                    int dataLength = data.Length;
+                    using PooledBuffer.Slice dataSlice = data.ToSlice();
+                    IOResult result = await channels[header.StreamID].Channel!.WriteAsync(dataSlice);
+                    if (result != IOResult.Ok)
+                    {
+                        _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
+                    }
+
+                    await ExtendWindowAsync(channel, session.Id, header.StreamID, result, dataLength);
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
                 {
                     int oldSize = channels[header.StreamID].RemoteWindow.Available;
                     int newSize = channels[header.StreamID].RemoteWindow.Extend(header.Length);
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Window update received: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
+                    if (_logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+                    {
+                        logger.LogDebug("Ctx({ctx}), stream {stream id}: Window update received: {old} => {new}", session.Id, header.StreamID, oldSize, newSize);
+                    }
                 }
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
@@ -229,7 +232,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             }
 
-            _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
+            await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
             ChannelState CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
@@ -237,14 +240,18 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 _logger?.LogDebug("Stream {stream id}: Create up channel, {mode}", streamId, isListenerChannel ? "listen" : "dial");
                 IChannel upChannel;
+                UpgradeOptions channelOptions = upgradeOptions with
+                {
+                    BufferHints = new ChannelBufferHints(HeaderLength)
+                };
 
                 if (isListenerChannel)
                 {
-                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
+                    upChannel = session.Upgrade(channelOptions with { ModeOverride = UpgradeModeOverride.Listen });
                 }
                 else
                 {
-                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                    upChannel = session.Upgrade(channelOptions with { ModeOverride = UpgradeModeOverride.Dial });
                 }
 
                 ChannelState state = new(upChannel, _windowSettings);
@@ -276,24 +283,38 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: New stream request acknowledged", contextId, streamId);
                         }
 
-                        await foreach (ReadOnlySequence<byte> upData in upChannel.ReadAllAsync())
+                        await foreach (PooledBuffer.Slice upData in upChannel.ReadAllAsync())
                         {
-                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Receive from upchannel, length={length}", contextId, streamId, upData.Length);
-
-                            for (int i = 0; i < upData.Length;)
+                            try
                             {
-                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.Channel!.CancellationToken);
+                                if (_logger is { } readLogger && readLogger.IsEnabled(LogLevel.Debug))
+                                {
+                                    readLogger.LogDebug("Ctx({ctx}), stream {stream id}: Receive from upchannel, length={length}", contextId, streamId, upData.Length);
+                                }
 
-                                _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
+                                for (int i = 0; i < upData.Length;)
+                                {
+                                    int sendingSize = await state.RemoteWindow.SpendOrWait(upData.Length - i, state.Channel!.CancellationToken);
 
-                                await WriteHeaderAsync(contextId, channel,
-                                    new YamuxHeader
+                                    if (_logger is { } spendLogger && spendLogger.IsEnabled(LogLevel.Debug))
                                     {
-                                        Type = YamuxHeaderType.Data,
-                                        Length = sendingSize,
-                                        StreamID = streamId
-                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()));
-                                i += sendingSize;
+                                        spendLogger.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
+                                    }
+
+                                    using PooledBuffer.Slice frameData = upData.SliceRange(i, sendingSize);
+                                    await WriteHeaderAsync(contextId, channel,
+                                        new YamuxHeader
+                                        {
+                                            Type = YamuxHeaderType.Data,
+                                            Length = sendingSize,
+                                            StreamID = streamId
+                                        }, frameData);
+                                    i += sendingSize;
+                                }
+                            }
+                            finally
+                            {
+                                upData.Dispose();
                             }
                         }
 
@@ -354,7 +375,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             _ = channel.CloseAsync();
         }
 
-        void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result, int consumedBytes)
+        async ValueTask ExtendWindowAsync(IChannel channel, string sessionId, int streamId, IOResult result, int consumedBytes)
         {
             if (result == IOResult.Ok)
             {
@@ -364,7 +385,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
                     if (extendedBy is not 0)
                     {
-                        _ = WriteHeaderAsync(sessionId, channel,
+                        await WriteHeaderAsync(sessionId, channel,
                             new YamuxHeader
                             {
                                 Type = YamuxHeaderType.WindowUpdate,
@@ -377,32 +398,108 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
     }
 
-    private async Task<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
     {
-        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token).OrThrow()).ToArray();
-        YamuxHeader header = YamuxHeader.FromBytes(headerData);
-        _logger?.LogTrace("Ctx({ctx}), stream {stream id}: Receive type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
+        using ReadResult headerData = await reader.ReadAsync(HeaderLength, token: token).OrThrow();
+        YamuxHeader header = YamuxHeader.FromBytes(headerData.Data);
+        if (_logger is { } logger && logger.IsEnabled(LogLevel.Trace))
+        {
+            logger.LogTrace("Ctx({ctx}), stream {stream id}: Receive type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
+        }
         return header;
     }
 
-    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+    private async ValueTask WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header, PooledBuffer.Slice data = default)
     {
-        byte[] headerBuffer = new byte[HeaderLength];
         if (header.Type == YamuxHeaderType.Data)
         {
-            header.Length = (int)data.Length;
+            header.Length = data.Length;
         }
-        YamuxHeader.ToBytes(headerBuffer, ref header);
 
-        _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
-        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
+        if (_logger is { } logger && logger.IsEnabled(LogLevel.Trace))
+        {
+            logger.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
+        }
+
+        if (data.Length != 0 && data.TryPrepend(HeaderLength, out PooledBuffer.Slice frame))
+        {
+            using (frame)
+            {
+                YamuxHeader.ToBytes(frame.Span[..HeaderLength], ref header);
+                await writer.WriteAsync(frame).OrThrow();
+                return;
+            }
+        }
+
+        if (data.Length != 0 && header.Type == YamuxHeaderType.Data && _windowSettings.RequireDataFrameHeadroom)
+        {
+            throw new InvalidOperationException("Yamux data frames require payload buffers with reserved header headroom.");
+        }
+
+        using PooledBuffer headerBuffer = PooledBuffer.Rent(HeaderLength);
+        YamuxHeader.ToBytes(headerBuffer.Span, ref header);
+
+        if (data.Length == 0)
+        {
+            await writer.WriteAsync(headerBuffer, HeaderLength).OrThrow();
+            return;
+        }
+
+        using PooledBuffer.Slice headerSlice = headerBuffer[0..HeaderLength];
+        PooledBuffer.Slice[] slices = ArrayPool<PooledBuffer.Slice>.Shared.Rent(2);
+        slices[0] = headerSlice;
+        slices[1] = data;
+        ValueTask<IOResult> write;
+        try
+        {
+            write = writer.WriteAsync(slices.AsSpan(0, 2));
+        }
+        finally
+        {
+            ArrayPool<PooledBuffer.Slice>.Shared.Return(slices, clearArray: true);
+        }
+
+        await write.OrThrow();
     }
 
-    private Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code) =>
+    private ValueTask WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code) =>
         WriteHeaderAsync(contextId, channel, new YamuxHeader
         {
             Type = YamuxHeaderType.GoAway,
             Length = (int)code,
             StreamID = 0,
         });
+
+    private void Observe(ValueTask operation)
+    {
+        if (operation.IsCompleted)
+        {
+            try
+            {
+                operation.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Yamux background header write failed: {error}", ex.Message);
+            }
+
+            return;
+        }
+
+        _ = ObserveAsync(operation);
+    }
+
+    private async Task ObserveAsync(ValueTask operation)
+    {
+        try
+        {
+            await operation;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug("Yamux background header write failed: {error}", ex.Message);
+        }
+    }
 }

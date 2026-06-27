@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -189,9 +188,10 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
                 continue;
             }
 
-            byte[] payload = buffer.AsSpan(0, result.Count).ToArray();
-            logger?.LogTrace("WebSocket received {Length} bytes", payload.Length);
-            IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(payload), token);
+            using PooledBuffer payload = PooledBuffer.Rent(result.Count);
+            buffer.AsSpan(0, result.Count).CopyTo(payload.Span);
+            logger?.LogTrace("WebSocket received {Length} bytes", result.Count);
+            IOResult writeResult = await upChannel.WriteAsync(payload, result.Count, token: token);
             if (writeResult is not IOResult.Ok)
             {
                 break;
@@ -203,15 +203,22 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
     private static async Task WriteToWebSocketAsync(SocketWebSocket webSocket, IChannel upChannel, ILogger? logger, CancellationToken token)
     {
-        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+        await foreach (PooledBuffer.Slice data in upChannel.ReadAllAsync(token))
         {
-            if (webSocket.State is not WebSocketState.Open)
+            try
             {
-                break;
-            }
+                if (webSocket.State is not WebSocketState.Open)
+                {
+                    break;
+                }
 
-            logger?.LogTrace("WebSocket sending {Length} bytes", data.Length);
-            await webSocket.SendAsync(data.ToArray(), WebSocketMessageType.Binary, endOfMessage: true, cancellationToken: token);
+                logger?.LogTrace("WebSocket sending {Length} bytes", data.Length);
+                await webSocket.SendAsync(data.ReadOnlyMemory, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken: token);
+            }
+            finally
+            {
+                data.Dispose();
+            }
         }
     }
 

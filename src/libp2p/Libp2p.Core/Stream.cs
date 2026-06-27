@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
-
 namespace Nethermind.Libp2p.Core;
 
 public class ChannelStream : Stream
@@ -40,16 +38,24 @@ public class ChannelStream : Stream
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
+            result.Dispose();
             return 0;
         }
 
-        result.Data.CopyTo(buffer);
-        return (int)result.Data.Length;
+        try
+        {
+            result.Data.CopyTo(buffer);
+            return result.Length;
+        }
+        finally
+        {
+            result.Dispose();
+        }
     }
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        if (_channel.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count))).GetAwaiter().GetResult() != IOResult.Ok)
+        if (_channel.WriteAsync(buffer.AsMemory(offset, count)).GetAwaiter().GetResult() != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -57,32 +63,70 @@ public class ChannelStream : Stream
 
     public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if ((await _channel.WriteAsync(new ReadOnlySequence<byte>(buffer.AsMemory(offset, count)))) != IOResult.Ok)
+        if ((await _channel.WriteAsync(buffer.AsMemory(offset, count), cancellationToken)) != IOResult.Ok)
         {
             _canWrite = false;
         }
     }
 
-    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        => base.WriteAsync(buffer, cancellationToken);
+    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        if (await _channel.WriteAsync(buffer, cancellationToken) != IOResult.Ok)
+        {
+            _canWrite = false;
+        }
+    }
 
     public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        if (buffer is { Length: 0 } && _canRead) return 0;
+        if (count == 0 && _canRead) return 0;
 
-        ReadResult result = await _channel.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        ReadResult result = await _channel.ReadAsync(count, ReadBlockingMode.WaitAny, cancellationToken);
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
+            result.Dispose();
             return 0;
         }
 
-        result.Data.CopyTo(buffer);
-        return (int)result.Data.Length;
+        try
+        {
+            result.Data.CopyTo(buffer.AsSpan(offset, count));
+            return result.Length;
+        }
+        finally
+        {
+            result.Dispose();
+        }
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        => base.ReadAsync(buffer, cancellationToken);
+    {
+        return ReadAsyncCore(buffer, cancellationToken);
+    }
+
+    private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
+    {
+        if (buffer is { Length: 0 } && _canRead) return 0;
+
+        ReadResult result = await _channel.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken);
+        if (result.Result != IOResult.Ok)
+        {
+            _canRead = false;
+            result.Dispose();
+            return 0;
+        }
+
+        try
+        {
+            result.Data.CopyTo(buffer.Span);
+            return result.Length;
+        }
+        finally
+        {
+            result.Dispose();
+        }
+    }
 
     public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 

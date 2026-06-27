@@ -5,7 +5,6 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Relay.Dto;
-using System.Buffers;
 using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -109,13 +108,20 @@ public class RelayStopProtocol : ISessionProtocol<StopMessage, StopMessage>
     {
         try
         {
-            await foreach (ReadOnlySequence<byte> data in from.ReadAllAsync())
+            await foreach (PooledBuffer.Slice data in from.ReadAllAsync())
             {
-                IOResult result = await to.WriteAsync(data).ConfigureAwait(false);
-                if (result != IOResult.Ok)
+                try
                 {
-                    _logger?.LogDebug("Relay bridge {Direction}: WriteAsync returned {Result}, stopping pump", direction, result);
-                    break;
+                    IOResult result = await to.WriteAsync(data).ConfigureAwait(false);
+                    if (result != IOResult.Ok)
+                    {
+                        _logger?.LogDebug("Relay bridge {Direction}: WriteAsync returned {Result}, stopping pump", direction, result);
+                        break;
+                    }
+                }
+                finally
+                {
+                    data.Dispose();
                 }
             }
         }

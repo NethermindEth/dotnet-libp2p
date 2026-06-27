@@ -8,7 +8,6 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Utils;
 using Nethermind.Libp2p.Protocols.Quic;
-using System.Buffers;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
@@ -27,6 +26,8 @@ namespace Nethermind.Libp2p.Protocols;
 /// </summary>
 public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
+    private const int StreamReadBufferSize = 64 * 1024;
+
     private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
     private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
@@ -269,9 +270,16 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (PooledBuffer.Slice data in upChannel.ReadAllAsync())
                 {
-                    await stream.WriteAsync(data.ToArray());
+                    try
+                    {
+                        await stream.WriteAsync(data.ReadOnlyMemory);
+                    }
+                    finally
+                    {
+                        data.Dispose();
+                    }
                 }
                 stream.CompleteWrites();
             }
@@ -280,26 +288,38 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 _logger?.SocketException(ex, ex.Message);
                 await upChannel.CloseAsync();
             }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Stream {stream id}: Write loop closed with {exception}", stream.Id, ex.Message);
+                await upChannel.CloseAsync();
+            }
         });
 
         _ = Task.Run(async () =>
         {
             try
             {
-                while (stream.CanRead)
+                while (true)
                 {
-                    byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false);
-                    if (len != 0)
+                    using PooledBuffer buf = PooledBuffer.Rent(StreamReadBufferSize);
+                    int len = await stream.ReadAtLeastAsync(buf.Memory, 1, false);
+                    if (len == 0)
                     {
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                        await upChannel.WriteEofAsync();
+                        break;
                     }
+
+                    await upChannel.WriteAsync(buf, len);
                 }
-                await upChannel.WriteEofAsync();
             }
             catch (SocketException ex)
             {
                 _logger?.SocketException(ex, ex.Message);
+                await upChannel.CloseAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Stream {stream id}: Read loop closed with {exception}", stream.Id, ex.Message);
                 await upChannel.CloseAsync();
             }
         });

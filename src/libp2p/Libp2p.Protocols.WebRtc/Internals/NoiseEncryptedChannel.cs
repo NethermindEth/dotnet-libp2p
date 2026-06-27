@@ -3,7 +3,6 @@
 
 using Nethermind.Libp2p.Core;
 using Noise;
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
@@ -37,9 +36,10 @@ internal sealed class NoiseEncryptedChannel : IChannel
 
             int available = _plaintext!.Length - _plaintextOffset;
             int toRead = length == 0 ? available : Math.Min(length, available);
-            ReadOnlySequence<byte> data = new(_plaintext, _plaintextOffset, toRead);
+            PooledBuffer data = PooledBuffer.Rent(toRead);
+            _plaintext.AsSpan(_plaintextOffset, toRead).CopyTo(data.Span);
             _plaintextOffset += toRead;
-            return new ReadResult { Result = IOResult.Ok, Data = data };
+            return ReadResult.Ok(data, 0, toRead);
         }
         catch (OperationCanceledException)
         {
@@ -47,13 +47,45 @@ internal sealed class NoiseEncryptedChannel : IChannel
         }
     }
 
-    public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+    public async ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
     {
-        byte[] plaintext = bytes.ToArray();
-        byte[] frame = new byte[2 + plaintext.Length + 16];
-        int written = _transport.WriteMessage(plaintext, frame.AsSpan(2));
-        BinaryPrimitives.WriteUInt16BigEndian(frame, (ushort)written);
-        return await _inner.WriteAsync(new ReadOnlySequence<byte>(frame, 0, 2 + written), token);
+        using PooledBuffer frame = PooledBuffer.Rent(2 + length + 16);
+        int written = _transport.WriteMessage(buffer.ReadOnlySpan.Slice(offset, length), frame.Span[2..]);
+        BinaryPrimitives.WriteUInt16BigEndian(frame.Span, (ushort)written);
+        return await _inner.WriteAsync(frame, 2 + written, token: token);
+    }
+
+    public ValueTask<IOResult> WriteAsync(ReadOnlySpan<PooledBuffer.Slice> slices, CancellationToken token = default)
+    {
+        if (slices.Length == 0)
+        {
+            return ValueTask.FromResult(IOResult.Ok);
+        }
+
+        int length = 0;
+        for (int i = 0; i < slices.Length; i++)
+        {
+            length += slices[i].Length;
+        }
+
+        PooledBuffer plaintext = PooledBuffer.Rent(length);
+        int offset = 0;
+        for (int i = 0; i < slices.Length; i++)
+        {
+            PooledBuffer.Slice slice = slices[i];
+            slice.ReadOnlySpan.CopyTo(plaintext.Span[offset..]);
+            offset += slice.Length;
+        }
+
+        return WriteAndDisposeAsync(plaintext, length, token);
+    }
+
+    private async ValueTask<IOResult> WriteAndDisposeAsync(PooledBuffer plaintext, int length, CancellationToken token)
+    {
+        using (plaintext)
+        {
+            return await WriteAsync(plaintext, length, token: token);
+        }
     }
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => _inner.WriteEofAsync(token);
@@ -65,7 +97,8 @@ internal sealed class NoiseEncryptedChannel : IChannel
         if (lenResult.Result != IOResult.Ok)
             return lenResult;
 
-        int frameLen = BinaryPrimitives.ReadUInt16BigEndian(lenResult.Data.ToArray());
+        int frameLen = BinaryPrimitives.ReadUInt16BigEndian(lenResult.Data);
+        lenResult.Dispose();
         byte[]? ciphertext = await ReadExactBytesAsync(frameLen, token);
         if (ciphertext is null)
             return ReadResult.Ended;
@@ -85,10 +118,13 @@ internal sealed class NoiseEncryptedChannel : IChannel
         {
             ReadResult result = await _inner.ReadAsync(length - offset, ReadBlockingMode.WaitAll, token);
             if (result.Result != IOResult.Ok)
+            {
+                result.Dispose();
                 return null;
-            byte[] chunk = result.Data.ToArray();
-            chunk.CopyTo(buf, offset);
-            offset += chunk.Length;
+            }
+            result.Data.CopyTo(buf.AsSpan(offset));
+            offset += result.Length;
+            result.Dispose();
         }
         return buf;
     }

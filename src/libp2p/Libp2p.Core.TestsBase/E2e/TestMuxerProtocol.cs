@@ -7,7 +7,6 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase.Dto;
 using Nethermind.Libp2p.Core.TestsBase.E2e;
 using Org.BouncyCastle.Utilities.Encoders;
-using System.Buffers;
 
 class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
@@ -189,7 +188,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                             break;
                         }
                         logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Data to upChannel {packet.Data.Length} {Hex.ToHexString(packet.Data.ToByteArray())}");
-                        _ = chans.GetValueOrDefault(packet.ChannelId)?.UpChannel?.WriteAsync(new ReadOnlySequence<byte>(packet.Data.ToByteArray()));
+                        _ = chans.GetValueOrDefault(packet.ChannelId)?.UpChannel?.WriteAsync(packet.Data.ToByteArray());
                         break;
                     case MuxerPacketType.CloseWrite:
                         logger?.LogDebug($"{logPrefix}({packet.ChannelId}): Remote EOF");
@@ -226,21 +225,28 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> item in upChannel.ReadAllAsync())
+                await foreach (PooledBuffer.Slice item in upChannel.ReadAllAsync())
                 {
-                    byte[] data = item.ToArray();
-                    logger?.LogDebug($"{logPrefix}({channelId}): Upchannel data {data.Length} {Hex.ToHexString(data, false)}");
-
-                    MuxerPacket packet = new()
+                    try
                     {
-                        ChannelId = channelId,
-                        Type = MuxerPacketType.Data,
-                        Data = ByteString.CopyFrom(item.ToArray())
-                    };
+                        byte[] data = item.ToArray();
+                        logger?.LogDebug($"{logPrefix}({channelId}): Upchannel data {data.Length} {Hex.ToHexString(data, false)}");
 
-                    logger?.LogDebug($"{logPrefix}({packet.ChannelId}): > Packet {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
+                        MuxerPacket packet = new()
+                        {
+                            ChannelId = channelId,
+                            Type = MuxerPacketType.Data,
+                            Data = ByteString.CopyFrom(data)
+                        };
 
-                    _ = downChannel.WriteSizeAndProtobufAsync(packet);
+                        logger?.LogDebug($"{logPrefix}({packet.ChannelId}): > Packet {packet.Type} {string.Join(",", packet.Protocols)} {packet.Data?.Length ?? 0}");
+
+                        _ = downChannel.WriteSizeAndProtobufAsync(packet);
+                    }
+                    finally
+                    {
+                        item.Dispose();
+                    }
                 }
                 lock (chans[channelId])
                 {

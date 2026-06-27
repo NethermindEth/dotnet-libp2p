@@ -3,7 +3,6 @@
 
 using Nethermind.Libp2p.Core;
 using SIPSorcery.Net;
-using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 
@@ -71,9 +70,10 @@ internal class DataChannelOverIChannel : IChannel
                 return ReadResult.Empty;
             }
 
-            ReadOnlySequence<byte> result = new(new ReadOnlyMemory<byte>(_currentBuffer, _currentOffset, toRead));
+            PooledBuffer result = PooledBuffer.Rent(toRead);
+            _currentBuffer.AsSpan(_currentOffset, toRead).CopyTo(result.Span);
             _currentOffset += toRead;
-            return new ReadResult { Result = IOResult.Ok, Data = result };
+            return ReadResult.Ok(result, 0, toRead);
         }
         catch (ChannelClosedException)
         {
@@ -85,7 +85,7 @@ internal class DataChannelOverIChannel : IChannel
         }
     }
 
-    public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+    public ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
     {
         if (_completion.Task.IsCompleted)
         {
@@ -97,9 +97,9 @@ internal class DataChannelOverIChannel : IChannel
             return ValueTask.FromResult(IOResult.Cancelled);
         }
 
-        byte[] payload = bytes.ToArray();
         try
         {
+            byte[] payload = buffer.Memory.Slice(offset, length).ToArray();
             _dataChannel.send(payload);
             return ValueTask.FromResult(IOResult.Ok);
         }
@@ -108,6 +108,31 @@ internal class DataChannelOverIChannel : IChannel
             Complete(new InvalidOperationException("Failed to send data on RTC data channel.", ex));
             return ValueTask.FromResult(IOResult.InternalError);
         }
+    }
+
+    public ValueTask<IOResult> WriteAsync(ReadOnlySpan<PooledBuffer.Slice> slices, CancellationToken token = default)
+    {
+        if (slices.Length == 0)
+        {
+            return ValueTask.FromResult(IOResult.Ok);
+        }
+
+        int length = 0;
+        for (int i = 0; i < slices.Length; i++)
+        {
+            length += slices[i].Length;
+        }
+
+        using PooledBuffer payload = PooledBuffer.Rent(length);
+        int offset = 0;
+        for (int i = 0; i < slices.Length; i++)
+        {
+            PooledBuffer.Slice slice = slices[i];
+            slice.ReadOnlySpan.CopyTo(payload.Span[offset..]);
+            offset += slice.Length;
+        }
+
+        return WriteAsync(payload, length, token: token);
     }
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)

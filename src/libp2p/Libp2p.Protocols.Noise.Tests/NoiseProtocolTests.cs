@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 using Google.Protobuf;
@@ -329,11 +328,11 @@ public class NoiseProtocolTests
             KeyPair serverStatic = KeyPair.Generate();
             using HandshakeState handshakeState = _protocol.Create(false, s: serverStatic.PrivateKey);
 
-            byte[] lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
-            short len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
+            using ReadResult msg0Length = await downChannel.ReadAsync(2).OrThrow();
+            short len = BinaryPrimitives.ReadInt16BigEndian(msg0Length.Data);
             byte[] buffer = new byte[Protocol.MaxMessageLength];
-            ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
-            handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
+            using ReadResult msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
+            handshakeState.ReadMessage(msg0Bytes.Data, buffer);
 
             NoiseHandshakePayload payload;
 
@@ -386,12 +385,12 @@ public class NoiseProtocolTests
             (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg1 =
                 handshakeState.WriteMessage(payload.ToByteArray(), buffer.AsSpan(2));
             BinaryPrimitives.WriteInt16BigEndian(buffer.AsSpan(), (short)msg1.BytesWritten);
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg1.BytesWritten + 2));
+            await downChannel.WriteAsync(buffer.AsMemory(0, msg1.BytesWritten + 2));
 
-            lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
-            len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
-            ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len).OrThrow();
-            handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
+            using ReadResult hs2Length = await downChannel.ReadAsync(2).OrThrow();
+            len = BinaryPrimitives.ReadInt16BigEndian(hs2Length.Data);
+            using ReadResult hs2Bytes = await downChannel.ReadAsync(len).OrThrow();
+            handshakeState.ReadMessage(hs2Bytes.Data, buffer);
         }
     }
 
@@ -422,14 +421,14 @@ public class NoiseProtocolTests
 
             byte[] lenBytes = new byte[2];
             BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg0.BytesWritten);
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg0.BytesWritten));
+            await downChannel.WriteAsync(lenBytes);
+            await downChannel.WriteAsync(buffer.AsMemory(0, msg0.BytesWritten));
 
-            lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
-            int len = BinaryPrimitives.ReadInt16BigEndian(lenBytes.AsSpan());
-            ReadOnlySequence<byte> received = await downChannel.ReadAsync(len).OrThrow();
+            using ReadResult msg1Length = await downChannel.ReadAsync(2).OrThrow();
+            int len = BinaryPrimitives.ReadInt16BigEndian(msg1Length.Data);
+            using ReadResult received = await downChannel.ReadAsync(len).OrThrow();
             (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
-                handshakeState.ReadMessage(received.ToArray(), buffer);
+                handshakeState.ReadMessage(received.Data, buffer);
             NoiseHandshakePayload msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
 
             if (msg1Decoded is null)
@@ -488,8 +487,8 @@ public class NoiseProtocolTests
             (int BytesWritten2, byte[] HandshakeHash, Transport Transport) msg2 =
                 handshakeState.WriteMessage(payload.ToByteArray(), buffer);
             BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten2);
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
-            await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten2));
+            await downChannel.WriteAsync(lenBytes);
+            await downChannel.WriteAsync(buffer.AsMemory(0, msg2.BytesWritten2));
         }
     }
 }

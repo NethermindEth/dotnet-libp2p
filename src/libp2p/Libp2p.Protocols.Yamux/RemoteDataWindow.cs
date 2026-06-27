@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Runtime.CompilerServices;
+
 namespace Nethermind.Libp2p.Protocols.Yamux;
 
 /// <summary>
@@ -45,22 +47,28 @@ internal class RemoteDataWindow(int defaultWindowSize = YamuxProtocol.ProtocolIn
     /// </summary>
     /// <param name="requestedSize">Size requested for spending</param>
     /// <returns>Spent size in range of [<c>1</c>, <paramref name="requestedSize"/>]</returns>
-    public async Task<int> SpendOrWait(int requestedSize, CancellationToken token = default)
+    public ValueTask<int> SpendOrWait(int requestedSize, CancellationToken token = default)
     {
         int updatedAvailable = Interlocked.Add(ref _available, -requestedSize);
 
         if (updatedAvailable >= 0)
         {
-            return requestedSize;
+            return new ValueTask<int>(requestedSize);
         }
         else if (updatedAvailable > -requestedSize)
         {
             int spent = requestedSize + updatedAvailable;
             Interlocked.Add(ref _available, -updatedAvailable);
-            return spent;
+            return new ValueTask<int>(spent);
         }
 
         Interlocked.Add(ref _available, requestedSize);
+        return SpendOrWaitSlow(requestedSize, token);
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<int> SpendOrWaitSlow(int requestedSize, CancellationToken token)
+    {
         await tcs.Task.WaitAsync(token);
         Interlocked.CompareExchange(ref tcs, new TaskCompletionSource(), tcs);
 

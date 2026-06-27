@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
-using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -15,18 +14,30 @@ public interface IReader
         CancellationToken token = default);
 
     #region Read helpers
-    async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
+    async IAsyncEnumerable<PooledBuffer.Slice> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
         for (; ; )
         {
             token.ThrowIfCancellationRequested();
 
-            switch (await ReadAsync(0, ReadBlockingMode.WaitAny, token: token))
+            ReadResult result = await ReadAsync(0, ReadBlockingMode.WaitAny, token: token);
+            switch (result)
             {
-                case { Result: IOResult.Ok, Data: ReadOnlySequence<byte> data }: yield return data; break;
-                case { Result: IOResult.Ended }: yield break;
-                default: throw new Exception();
+                case { Result: IOResult.Ok, Length: > 0 }:
+                    PooledBuffer.Slice slice = result.ToSlice();
+                    result.Dispose();
+                    yield return slice;
+                    break;
+                case { Result: IOResult.Ok }:
+                    result.Dispose();
+                    break;
+                case { Result: IOResult.Ended }:
+                    result.Dispose();
+                    yield break;
+                default:
+                    result.Dispose();
+                    throw new Exception();
             }
         }
     }
@@ -34,7 +45,8 @@ public interface IReader
     async Task<string> ReadLineAsync()
     {
         int size = await ReadVarintAsync();
-        return Encoding.UTF8.GetString((await ReadAsync(size).OrThrow()).ToArray()).TrimEnd('\n');
+        using ReadResult result = await ReadAsync(size).OrThrow();
+        return Encoding.UTF8.GetString(result.Data).TrimEnd('\n');
     }
 
     Task<int> ReadVarintAsync(CancellationToken token = default)
@@ -50,9 +62,8 @@ public interface IReader
     async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
     {
         int messageLength = await ReadVarintAsync(token);
-        ReadOnlySequence<byte> serializedMessage = await ReadAsync(messageLength, token: token).OrThrow();
-
-        return parser.ParseFrom(serializedMessage);
+        using ReadResult serializedMessage = await ReadAsync(messageLength, token: token).OrThrow();
+        return parser.ParseFrom(serializedMessage.Data);
     }
     #endregion
 }

@@ -84,7 +84,8 @@ public static class VarInt
         byte mul = 0;
         for (int i = 0; i < 10; i++)
         {
-            byte @byte = (await buf.ReadAsync(1).OrThrow()).FirstSpan[0];
+            using ReadResult read = await buf.ReadAsync(1).OrThrow();
+            byte @byte = read.FirstSpan[0];
             res += ((ulong)@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)
@@ -102,7 +103,8 @@ public static class VarInt
         byte mul = 0;
         for (int i = 0; i < 5; i++)
         {
-            byte @byte = (await buf.ReadAsync(1, token: token).OrThrow()).FirstSpan[0];
+            using ReadResult read = await buf.ReadAsync(1, token: token).OrThrow();
+            byte @byte = read.FirstSpan[0];
             res += (@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)

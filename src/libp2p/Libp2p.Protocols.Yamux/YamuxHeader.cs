@@ -15,7 +15,7 @@ internal struct YamuxHeader
     [FieldOffset(4)] public int StreamID;
     [FieldOffset(8)] public int Length;
 
-    public static YamuxHeader FromBytes(Span<byte> data)
+    public static YamuxHeader FromBytes(ReadOnlySpan<byte> data)
     {
         short flags = BinaryPrimitives.ReadInt16BigEndian(data[2..]);
         int streamId = BinaryPrimitives.ReadInt32BigEndian(data[4..]);

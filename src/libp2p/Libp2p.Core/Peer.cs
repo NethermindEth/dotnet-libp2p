@@ -535,9 +535,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {
-        Channel downChannel = new();
+        (IChannel downChannel, IChannel reverseChannel) = Channel.CreatePair(reverseHints: options?.BufferHints ?? default);
 
-        _ = Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity);
+        _ = Upgrade(session, reverseChannel, parentProtocol, upgradeProtocol, options, isListener, activity);
 
         return downChannel;
     }

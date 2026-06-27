@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Nethermind.Libp2p.Core;
@@ -93,10 +92,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                                 await Task.Yield();
                             }
 
-                            byte[] buf = new byte[client.ReceiveBufferSize];
-                            int length = await client.ReceiveAsync(buf, SocketFlags.None);
+                            using PooledBuffer buf = PooledBuffer.Rent(client.ReceiveBufferSize);
+                            int length = await client.ReceiveAsync(buf.Memory, SocketFlags.None);
 
-                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..length])) != IOResult.Ok)
+                            if (length is 0 || await upChannel.WriteAsync(buf, length) != IOResult.Ok)
                             {
                                 break;
                             }
@@ -114,13 +113,20 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+                        await foreach (PooledBuffer.Slice data in upChannel.ReadAllAsync(token))
                         {
-                            int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
-                            if (sent is 0 || !client.Connected)
+                            try
                             {
-                                await upChannel.CloseAsync();
-                                break;
+                                int sent = await client.SendAsync(data.ReadOnlyMemory, SocketFlags.None);
+                                if (sent is 0 || !client.Connected)
+                                {
+                                    await upChannel.CloseAsync();
+                                    break;
+                                }
+                            }
+                            finally
+                            {
+                                data.Dispose();
                             }
                         }
                     }
@@ -193,11 +199,14 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             {
                 while (client.Connected)
                 {
-                    byte[] buf = new byte[client.ReceiveBufferSize];
-                    int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
+                    using PooledBuffer buf = PooledBuffer.Rent(client.ReceiveBufferSize);
+                    int dataLength = await client.ReceiveAsync(buf.Memory, SocketFlags.None);
+                    if (_logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+                    {
+                        logger.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
+                    }
 
-                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
+                    if (dataLength == 0 || await upChannel.WriteAsync(buf, dataLength) != IOResult.Ok)
                     {
                         break;
                     }
@@ -214,13 +223,23 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (PooledBuffer.Slice data in upChannel.ReadAllAsync())
                 {
-                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
-                    int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
-                    if (sent is 0 || !client.Connected)
+                    try
                     {
-                        break;
+                        if (_logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+                        {
+                            logger.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
+                        }
+                        int sent = await client.SendAsync(data.ReadOnlyMemory, SocketFlags.None);
+                        if (sent is 0 || !client.Connected)
+                        {
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        data.Dispose();
                     }
                 }
 

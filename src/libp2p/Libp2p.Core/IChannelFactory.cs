@@ -20,6 +20,7 @@ public record UpgradeOptions
     public UpgradeModeOverride ModeOverride { get; init; }
     public TaskCompletionSource<object?>? CompletionSource { get; init; }
     public CancellationToken CancellationToken { get; init; }
+    public ChannelBufferHints BufferHints { get; init; }
     public object? Argument { get; set; }
 }
 

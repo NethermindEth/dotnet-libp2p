@@ -9,53 +9,106 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {
-    ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
+    ChannelBufferHints BufferHints => default;
+
+    PooledBuffer.Slice RentWriteBuffer(int length)
+    {
+        ChannelBufferHints hints = BufferHints;
+        return PooledBuffer.RentSlice(length, hints.PreferredWriteHeadroom, hints.PreferredWriteTailroom);
+    }
+
+    async ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
     {
         int len = Encoding.UTF8.GetByteCount(str) + 1;
-        byte[] buf = new byte[VarInt.GetSizeInBytes(len) + len];
+        int total = VarInt.GetSizeInBytes(len) + len;
+        using PooledBuffer.Slice buf = RentWriteBuffer(total);
         int offset = 0;
-        VarInt.Encode(len, buf, ref offset);
-        Encoding.UTF8.GetBytes(str, 0, str.Length, buf, offset);
-        buf[^1] = 0x0a;
-        return WriteAsync(new ReadOnlySequence<byte>(buf));
+        VarInt.Encode(len, buf.Span, ref offset);
+        Encoding.UTF8.GetBytes(str, buf.Span[offset..]);
+        buf.Span[offset + len - 1] = 0x0a;
+        return await WriteAsync(buf);
     }
 
-    ValueTask<IOResult> WriteVarintAsync(int val)
+    async ValueTask<IOResult> WriteVarintAsync(int val)
     {
-        byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
+        int size = VarInt.GetSizeInBytes(val);
+        using PooledBuffer.Slice buf = RentWriteBuffer(size);
         int offset = 0;
-        VarInt.Encode(val, buf, ref offset);
-        return WriteAsync(new ReadOnlySequence<byte>(buf));
+        VarInt.Encode(val, buf.Span, ref offset);
+        return await WriteAsync(buf);
     }
 
-    ValueTask<IOResult> WriteVarintAsync(ulong val)
+    async ValueTask<IOResult> WriteVarintAsync(ulong val)
     {
-        byte[] buf = new byte[VarInt.GetSizeInBytes(val)];
+        int size = VarInt.GetSizeInBytes(val);
+        using PooledBuffer.Slice buf = RentWriteBuffer(size);
         int offset = 0;
-        VarInt.Encode(val, buf, ref offset);
-        return WriteAsync(new ReadOnlySequence<byte>(buf));
+        VarInt.Encode(val, buf.Span, ref offset);
+        return await WriteAsync(buf);
     }
 
-    ValueTask<IOResult> WriteSizeAndDataAsync(byte[] data)
+    async ValueTask<IOResult> WriteSizeAndDataAsync(ReadOnlyMemory<byte> data)
     {
-        byte[] buf = new byte[VarInt.GetSizeInBytes(data.Length) + data.Length];
+        int total = VarInt.GetSizeInBytes(data.Length) + data.Length;
+        using PooledBuffer.Slice buf = RentWriteBuffer(total);
         int offset = 0;
-        VarInt.Encode(data.Length, buf, ref offset);
-        Array.ConstrainedCopy(data, 0, buf, offset, data.Length);
-        return WriteAsync(new ReadOnlySequence<byte>(buf));
+        VarInt.Encode(data.Length, buf.Span, ref offset);
+        data.Span.CopyTo(buf.Span[offset..]);
+        return await WriteAsync(buf);
     }
 
     async ValueTask WriteSizeAndProtobufAsync<T>(T grpcMessage) where T : IMessage<T>
     {
         int length = grpcMessage.CalculateSize();
-        byte[] buf = new byte[VarInt.GetSizeInBytes(length) + length];
+        int total = VarInt.GetSizeInBytes(length) + length;
+        using PooledBuffer.Slice buf = RentWriteBuffer(total);
         int offset = 0;
-        VarInt.Encode(length, buf, ref offset);
-        grpcMessage.WriteTo(buf.AsSpan(offset));
-        await WriteAsync(new ReadOnlySequence<byte>(buf));
+        VarInt.Encode(length, buf.Span, ref offset);
+        grpcMessage.WriteTo(buf.Span[offset..]);
+        await WriteAsync(buf).OrThrow();
     }
 
-    ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default);
+    ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default);
+    ValueTask<IOResult> WriteAsync(ReadOnlySpan<PooledBuffer.Slice> slices, CancellationToken token = default);
+
+    ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
+        => slice.Length == 0
+            ? new ValueTask<IOResult>(IOResult.Ok)
+            : WriteAsync(slice.Owner, slice.Length, slice.Offset, token);
+
+    ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, int length, int offset = 0, CancellationToken token = default)
+    {
+        if ((uint)offset > (uint)slice.Length || (uint)length > (uint)(slice.Length - offset))
+        {
+            return new ValueTask<IOResult>(IOResult.InternalError);
+        }
+
+        return length == 0
+            ? new ValueTask<IOResult>(IOResult.Ok)
+            : WriteAsync(slice.Owner, length, slice.Offset + offset, token);
+    }
+
+    ValueTask<IOResult> WriteAsync(params PooledBuffer.Slice[] slices)
+        => WriteAsync((ReadOnlySpan<PooledBuffer.Slice>)slices, default);
+
+    async ValueTask<IOResult> WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken token = default)
+    {
+        using PooledBuffer buffer = PooledBuffer.Rent(bytes.Length);
+        bytes.Span.CopyTo(buffer.Span);
+        return await WriteAsync(buffer, bytes.Length, 0, token);
+    }
+
+    async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+    {
+        if (bytes.Length > int.MaxValue)
+        {
+            return IOResult.InternalError;
+        }
+
+        using PooledBuffer buffer = PooledBuffer.Rent((int)bytes.Length);
+        bytes.CopyTo(buffer.Span);
+        return await WriteAsync(buffer, (int)bytes.Length, 0, token);
+    }
+
     ValueTask<IOResult> WriteEofAsync(CancellationToken token = default);
 }
-

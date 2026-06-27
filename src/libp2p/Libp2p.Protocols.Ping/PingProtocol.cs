@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Ping;
@@ -28,20 +27,19 @@ public class PingProtocol : ISessionProtocol
     {
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
-        byte[] ping = new byte[PayloadLength];
-        _random.NextBytes(ping.AsSpan(0, PayloadLength));
-        ReadOnlySequence<byte> bytes = new(ping);
+        using PooledBuffer ping = PooledBuffer.Rent(PayloadLength);
+        _random.NextBytes(ping.Span);
 
         _logger?.LogPing(context.State.RemoteAddress);
-        await channel.WriteAsync(bytes);
-        _logger?.LogTrace("Sent ping: {ping}", Convert.ToHexString(ping));
+        await channel.WriteAsync(ping, PayloadLength);
+        _logger?.LogTrace("Sent ping: {ping}", Convert.ToHexString(ping.ReadOnlySpan));
 
         _logger?.ReadingPong(context.State.RemoteAddress);
-        ReadOnlySequence<byte> response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll).OrThrow();
-        _logger?.LogTrace("Received pong: {ping}", Convert.ToHexString(ping));
+        using ReadResult response = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll).OrThrow();
+        _logger?.LogTrace("Received pong: {ping}", Convert.ToHexString(response.Data));
 
         _logger?.VerifyingPong(context.State.RemoteAddress);
-        if (!ping[0..PayloadLength].SequenceEqual(response.ToArray()))
+        if (!ping.ReadOnlySpan.SequenceEqual(response.Data))
         {
             _logger?.PingFailed(context.State.RemoteAddress);
             throw new ApplicationException();
@@ -62,15 +60,17 @@ public class PingProtocol : ISessionProtocol
             ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAny);
             if (read.Result != IOResult.Ok)
             {
+                read.Dispose();
                 break;
             }
 
-            byte[] ping = read.Data.ToArray();
-            _logger?.LogTrace("Received ping: {ping}", Convert.ToHexString(ping));
+            _logger?.LogTrace("Received ping: {ping}", Convert.ToHexString(read.Data));
 
             _logger?.ReturningPong(context.State.RemoteAddress);
-            await channel.WriteAsync(new ReadOnlySequence<byte>(ping));
-            _logger?.LogTrace("Sent pong: {ping}", Convert.ToHexString(ping));
+            using PooledBuffer.Slice ping = read.ToSlice();
+            await channel.WriteAsync(ping);
+            _logger?.LogTrace("Sent pong: {ping}", Convert.ToHexString(read.Data));
+            read.Dispose();
         }
 
         _logger?.PingFinished(context.State.RemoteAddress);
