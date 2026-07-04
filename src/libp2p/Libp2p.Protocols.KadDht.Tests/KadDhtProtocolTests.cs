@@ -101,6 +101,15 @@ public class KadDhtProtocolTests
     }
 
     [Test]
+    public void Id_WithCustomProtocolId_ShouldReturnConfiguredProtocolId()
+    {
+        _options.ProtocolId = "/test/kad/1.0.0";
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
+
+        Assert.That(protocol.Id, Is.EqualTo("/test/kad/1.0.0"));
+    }
+
+    [Test]
     public async Task PutValueAsync_WithValidKeyAndValue_ReturnsTrue()
     {
         // Arrange
@@ -247,6 +256,23 @@ public class KadDhtProtocolTests
 
         var storedProviders = await _providerStore.GetProvidersAsync(key, 1, CancellationToken.None);
         Assert.That(storedProviders.Single().Ttl, Is.EqualTo(_options.ProviderRecordTtl));
+    }
+
+    [Test]
+    public async Task ProvideAsync_UsesCurrentListenAddresses()
+    {
+        var listenAddresses = new System.Collections.ObjectModel.ObservableCollection<Multiaddress>();
+        _localPeer.ListenAddresses.Returns(listenAddresses);
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
+        string listenAddress = $"/ip4/127.0.0.1/tcp/4001/p2p/{_localPeer.Identity.PeerId}";
+        listenAddresses.Add(Multiaddress.Decode(listenAddress));
+
+        byte[] key = Encoding.UTF8.GetBytes("test-key");
+        await protocol.ProvideAsync(key, CancellationToken.None);
+
+        var storedProviders = await _providerStore.GetProvidersAsync(key, 1, CancellationToken.None);
+        Assert.That(storedProviders.Single().Multiaddrs.Single(), Is.EqualTo(listenAddress));
     }
 
     [Test]

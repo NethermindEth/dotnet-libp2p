@@ -153,6 +153,20 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Test]
+    public void WithKadDht_WithCustomProtocolId_RegistersConfiguredProtocolHandler()
+    {
+        _services.AddKadDht(options => options.ProtocolId = "/test/kad/1.0.0");
+        using var serviceProvider = _services.BuildServiceProvider();
+        var builder = new TestPeerFactoryBuilder(serviceProvider);
+
+        builder.WithKadDht();
+
+        var registeredProtocolIds = builder.Protocols.Select(p => p.Id).ToArray();
+        Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
+        Assert.That(registeredProtocolIds[0], Is.EqualTo("/test/kad/1.0.0"));
+    }
+
+    [Test]
     public void AddKadDht_CanResolveAllDependenciesWithoutErrors()
     {
 

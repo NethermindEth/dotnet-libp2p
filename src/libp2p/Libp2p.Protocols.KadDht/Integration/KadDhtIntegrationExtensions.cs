@@ -112,6 +112,7 @@ public static class KadDhtIntegrationExtensions
                 // during bootstrap or future lookups).
                 sharedState.AddNodeCallback?.Invoke(node);
             },
+            baseId: options.ProtocolId,
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: dhtValueStore,

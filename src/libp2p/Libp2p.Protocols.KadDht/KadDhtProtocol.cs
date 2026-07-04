@@ -36,7 +36,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
     private readonly ConcurrentDictionary<string, byte[]> _locallyPublishedValues = new();
     private readonly ConcurrentDictionary<string, byte[]> _locallyProvidedKeys = new();
 
-    public string Id => "/ipfs/kad/1.0.0";
+    public string Id => _options.ProtocolId;
 
     public IRoutingTable<DhtNode, ValueHash256>? RoutingTable => _routingTable;
 
@@ -58,18 +58,14 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         _providerStore = providerStore ?? throw new ArgumentNullException(nameof(providerStore));
         _dhtMessageSender = dhtMessageSender ?? throw new ArgumentNullException(nameof(dhtMessageSender));
         _validator = validator ?? DefaultRecordValidator.Instance;
+        if (string.IsNullOrWhiteSpace(_options.ProtocolId))
+            throw new ArgumentException("Kad-DHT protocol ID cannot be empty.", nameof(options));
 
         _keyOperator = new DhtKeyOperator();
         _nodeHashProvider = new DhtNodeHashProvider();
         var distance = new ValueHash256Distance();
 
-        var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
-        _localDhtNode = new DhtNode
-        {
-            PeerId = _localPeer.Identity.PeerId,
-            PublicKey = localPublicKey,
-            Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
-        };
+        _localDhtNode = CreateLocalDhtNode();
 
         try
         {
@@ -99,7 +95,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
                 _routingTable,
                 _lookupAlgo,
                 _nodeHealthTracker,
-                kademliaConfig);
+                kademliaConfig,
+                effectiveLoggerFactory);
 
             _logger?.LogInformation("Kad-DHT initialized in {Mode} mode, K={KSize}, Alpha={Alpha}",
                 _options.Mode, _options.KSize, _options.Alpha);
@@ -267,6 +264,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         }
 
         int successCount = 0;
+        DhtNode localProviderNode = CreateLocalDhtNode();
 
         if (_options.Mode == KadDhtMode.Server)
         {
@@ -275,7 +273,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
                 PeerId = _localPeer.Identity.PeerId,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 Ttl = _options.ProviderRecordTtl,
-                Multiaddrs = _localPeer.ListenAddresses.Select(a => a.ToString()).ToArray()
+                Multiaddrs = localProviderNode.Multiaddrs
             };
             if (await _providerStore.AddProviderAsync(key, record, cancellationToken))
                 successCount++;
@@ -291,7 +289,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
             {
                 try
                 {
-                    await _dhtMessageSender.AddProviderAsync(node, key, _localDhtNode, cancellationToken);
+                    await _dhtMessageSender.AddProviderAsync(node, key, localProviderNode, cancellationToken);
                     Interlocked.Increment(ref successCount);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -514,6 +512,17 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     private static string KeyHashHex(byte[] key) =>
         Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2));
+
+    private DhtNode CreateLocalDhtNode()
+    {
+        var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
+        return new DhtNode
+        {
+            PeerId = _localPeer.Identity.PeerId,
+            PublicKey = localPublicKey,
+            Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
+        };
+    }
 
     public void Dispose()
     {

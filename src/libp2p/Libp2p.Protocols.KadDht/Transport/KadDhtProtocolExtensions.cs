@@ -16,7 +16,7 @@ public readonly record struct TestNode(PeerId Id);
 
 public static class KadDhtProtocolExtensions
 {
-    public const string DefaultBaseId = "/ipfs/kad/1.0.0";
+    public const string DefaultBaseId = KadDhtOptions.DefaultProtocolId;
 
     /// <summary>
     /// Registers the unified /ipfs/kad/1.0.0 protocol handler with Message-based request/response.

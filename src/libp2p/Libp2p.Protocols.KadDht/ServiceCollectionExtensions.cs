@@ -10,12 +10,14 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Kademlia;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 
 namespace Libp2p.Protocols.KadDht;
 
 public static class ServiceCollectionExtensions
 {
-    public const string ProtocolId = "/ipfs/kad/1.0.0";
+    public const string ProtocolId = KadDhtOptions.DefaultProtocolId;
 
     public static IServiceCollection AddKadDht(this IServiceCollection services,
         Action<KadDhtOptions>? configureOptions = null)
@@ -146,6 +148,7 @@ public static class ServiceCollectionExtensions
                 StorePeerAddresses(node, peerStore);
             },
             loggerFactory: loggerFactory,
+            baseId: options.ProtocolId,
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: valueStore,
@@ -206,11 +209,26 @@ public static class ServiceCollectionExtensions
             if (existingInfo.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
                 return;
 
-            peerStore.Discover(node.Multiaddrs
+            var addresses = node.Multiaddrs
                 .Where(a => !string.IsNullOrWhiteSpace(a))
-                .Select(a => Multiformats.Address.Multiaddress.Decode(a))
-                .ToArray());
+                .Select(a => NormalizePeerAddress(a, node.PeerId))
+                .OfType<Multiaddress>()
+                .ToArray();
+
+            if (addresses.Length > 0)
+                peerStore.Discover(addresses);
         }
         catch { }
+    }
+
+    private static Multiaddress? NormalizePeerAddress(string address, PeerId peerId)
+    {
+        var multiaddress = Multiaddress.Decode(address);
+        var addressPeerId = multiaddress.GetPeerId();
+
+        if (addressPeerId is null)
+            return multiaddress.Add<P2P>(peerId.ToString());
+
+        return addressPeerId.Equals(peerId) ? multiaddress : null;
     }
 }

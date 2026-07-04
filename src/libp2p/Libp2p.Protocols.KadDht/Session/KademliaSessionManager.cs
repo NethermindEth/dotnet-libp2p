@@ -53,7 +53,7 @@ public sealed class KademliaSessionManager : ISessionManager
         _nodeHealthTracker = new NodeHealthTracker<PublicKey, TestNode, ValueHash256>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender);
         _lookupAlgo = new LookupKNearestNeighbour<PublicKey, TestNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, _config);
 
-        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config);
+        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config, _logFactory);
     }
 
     public async Task BootstrapAsync(CancellationToken ct)
