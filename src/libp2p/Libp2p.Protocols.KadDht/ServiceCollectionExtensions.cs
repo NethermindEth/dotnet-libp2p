@@ -209,14 +209,18 @@ public static class ServiceCollectionExtensions
             if (existingInfo.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
                 return;
 
-            var addresses = node.Multiaddrs
-                .Where(a => !string.IsNullOrWhiteSpace(a))
-                .Select(a => NormalizePeerAddress(a, node.PeerId))
-                .OfType<Multiaddress>()
-                .ToArray();
+            var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
+            foreach (string address in node.Multiaddrs)
+            {
+                if (string.IsNullOrWhiteSpace(address))
+                    continue;
 
-            if (addresses.Length > 0)
-                peerStore.Discover(addresses);
+                if (NormalizePeerAddress(address, node.PeerId) is { } normalized)
+                    addresses.Add(normalized);
+            }
+
+            if (addresses.Count > 0)
+                peerStore.Discover(addresses.ToArray());
         }
         catch { }
     }

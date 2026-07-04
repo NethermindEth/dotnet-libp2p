@@ -219,7 +219,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "GetProviders from {NodeId} failed", receiver.PeerId);
+            _logger?.LogDebug(ex, "GetProviders from {NodeId} failed", receiver.PeerId);
             throw;
         }
     }

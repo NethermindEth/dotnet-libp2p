@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2P.Protocols.KadDht.Dto;
@@ -57,7 +58,13 @@ public static class MessageHelper
         {
             try
             {
-                addrs.Add(Multiaddress.Decode(addrBytes.ToByteArray()).ToString());
+                var multiaddress = Multiaddress.Decode(addrBytes.ToByteArray());
+                var addressPeerId = multiaddress.GetPeerId();
+
+                if (addressPeerId is null)
+                    addrs.Add(multiaddress.Add<P2P>(peerId.ToString()).ToString());
+                else if (addressPeerId.Equals(peerId))
+                    addrs.Add(multiaddress.ToString());
             }
             catch
             {
