@@ -19,13 +19,16 @@ internal class Topic : ITopic
 
     private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
     {
-        if (this.topicName != topicName)
+        lock (router)
         {
-            return;
-        }
+            if (!IsSubscribed || this.topicName != topicName)
+            {
+                return;
+            }
 
-        Action<PeerId, byte[]>? onMessage = OnMessage;
-        onMessage?.Invoke(peerId, message);
+            Action<PeerId, byte[]>? onMessage = OnMessage;
+            onMessage?.Invoke(peerId, message);
+        }
     }
 
     public DateTime LastPublished { get; set; }
@@ -41,7 +44,7 @@ internal class Topic : ITopic
 
     public void Unsubscribe()
     {
-        if (!IsSubscribed) router.Unsubscribe(topicName);
+        if (IsSubscribed) router.Unsubscribe(topicName);
     }
 
     public void Subscribe()
