@@ -55,4 +55,24 @@ public class TtlCacheTests
 
         Assert.That(cache.Get(id), Is.EqualTo("replacement"));
     }
+
+    [Test]
+    public void Add_EvictsTheOldestLiveEntryAtCapacity()
+    {
+        using TtlCache<MessageId, string> cache = new(ttl: 1_000, maxEntries: 2);
+        MessageId first = new([0x01]);
+        MessageId second = new([0x02]);
+        MessageId third = new([0x03]);
+
+        cache.Add(first, "first");
+        cache.Add(second, "second");
+        cache.Add(third, "third");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cache.Contains(first), Is.False);
+            Assert.That(cache.Get(second), Is.EqualTo("second"));
+            Assert.That(cache.Get(third), Is.EqualTo("third"));
+        });
+    }
 }
