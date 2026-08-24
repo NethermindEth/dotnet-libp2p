@@ -11,6 +11,7 @@ using NSubstitute;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -37,14 +38,14 @@ public class TlsProtocolTests
         IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
         dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
         dialerContext.Peer.ListenAddresses.Returns([(Multiaddress)$"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}"]);
-        dialerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(2)}" });
+        dialerContext.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/0" });
         dialerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
         dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(upChannel);
 
         // Listener context (identity 2 listens for identity 1)
         IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
         listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
-        listenerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(1)}" });
+        listenerContext.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/0" });
         listenerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
         listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
@@ -67,7 +68,52 @@ public class TlsProtocolTests
         await downChannel.CloseAsync();
 
         // Assert
-        Assert.That(received, Is.EqualTo(sent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.EqualTo(sent));
+            Assert.That(new Identity(dialerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(new Identity(listenerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(1)));
+            Assert.That(dialerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(listenerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(1)));
+        });
+    }
+
+    [Test]
+    public void Test_TlsIdentityConflictIsRejected()
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        State state = new()
+        {
+            RemoteAddress = "/ip4/127.0.0.1/tcp/0",
+            RemotePublicKey = TestPeers.Identity(3).PublicKey,
+        };
+        context.State.Returns(state);
+
+        MethodInfo setRemoteIdentity = typeof(TlsProtocol).GetMethod("SetRemoteIdentity", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        TargetInvocationException? exception = Assert.Throws<TargetInvocationException>(() =>
+            setRemoteIdentity.Invoke(null, [context, certificate]));
+
+        Assert.That(exception!.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(exception.InnerException!.Message, Does.Contain("does not match"));
+    }
+
+    [Test]
+    public void Test_TlsCertificateRejectsUnexpectedDialedPeer()
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+        Multiaddress requestedAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(3)}";
+
+        MethodInfo verifyRemoteCertificate = typeof(TlsProtocol).GetMethod("VerifyRemoteCertificate", BindingFlags.Static | BindingFlags.NonPublic)!;
+        bool isValid = (bool)verifyRemoteCertificate.Invoke(null, [requestedAddress, certificate])!;
+
+        Assert.That(isValid, Is.False);
     }
 
     [Test]

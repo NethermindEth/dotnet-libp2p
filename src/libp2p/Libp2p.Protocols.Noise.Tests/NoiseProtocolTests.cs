@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Reflection;
 using System.Text;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,20 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class NoiseProtocolTests
 {
+    [Test]
+    public void Test_RemoteIdentityRejectsUnexpectedDialedPeer()
+    {
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.State.Returns(new State { RemoteAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(3)}" });
+
+        MethodInfo setRemoteIdentity = typeof(NoiseProtocol).GetMethod("SetRemoteIdentity", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        TargetInvocationException? exception = Assert.Throws<TargetInvocationException>(() =>
+            setRemoteIdentity.Invoke(null, [context, TestPeers.Identity(2).PublicKey]));
+
+        Assert.That(exception!.InnerException, Is.TypeOf<Libp2pException>());
+    }
+
     [Test]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
