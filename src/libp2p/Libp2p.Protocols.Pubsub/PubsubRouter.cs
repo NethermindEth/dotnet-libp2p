@@ -285,8 +285,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         directPeers = CreateDirectPeers(_settings.DirectPeers);
         _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
-        _seenMessages = new(_settings.MessageCacheTtl);
-        _limboMessageCache = new(_settings.MessageCacheTtl);
+        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
         _idontwantMessages = new(_settings.MessageCacheTtl);
         partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }
