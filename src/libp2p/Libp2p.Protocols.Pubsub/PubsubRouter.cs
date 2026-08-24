@@ -463,13 +463,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private static void ValidateControlSettings(PubsubSettings settings)
     {
         if (settings.MaxIHaveMessages <= 0 || settings.MaxIHaveLength <= 0 ||
+            settings.MaxIwantMessages <= 0 || settings.MaxIwantLength <= 0 ||
             settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||
             settings.MaxIwantPromises <= 0 || settings.IWantFollowupTime <= 0 ||
-            settings.IdontwantTtlHeartbeats <= 0 || settings.MaxIdontwantMessages <= 0)
+            settings.IdontwantTtlHeartbeats <= 0 || settings.MaxIdontwantMessages <= 0 ||
+            settings.MaxIdontwantLength <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(settings), "Gossipsub control limits must be positive.");
         }
     }
+
+    internal int IwantPromiseCount => _iwantPromises.Count;
 
     public Task Heartbeat()
     {
