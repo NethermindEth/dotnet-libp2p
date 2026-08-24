@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -23,6 +24,50 @@ public class PartialMessagesTests
         Assert.That(
             () => enabledRouter.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions { RequestPartialMessages = true }),
             Throws.TypeOf<ArgumentException>());
+    }
+
+    [Test]
+    public void PartialMessageGossipCache_IsBoundedAndExpiresGroups()
+    {
+        PartialMessageGossipCache cache = new(maxGroupsPerTopic: 2, groupTtlHeartbeats: 2);
+
+        cache.Track("topic", [1]);
+        cache.Track("topic", [2]);
+        cache.Track("topic", [3]);
+
+        Assert.That(cache.GetGroupIds("topic"), Is.EqualTo(new[] { new byte[] { 2 }, new byte[] { 3 } }));
+
+        cache.Heartbeat();
+        Assert.That(cache.GetGroupIds("topic"), Has.Count.EqualTo(2));
+
+        cache.Heartbeat();
+        Assert.That(cache.GetGroupIds("topic"), Is.Empty);
+    }
+
+    [Test]
+    public async Task PartialMessages_ExtensionsAreAttachedToTheFirstConcurrentRpc()
+    {
+        PubsubRouter.PubsubPeer peer = new(
+            TestPeers.PeerId(1),
+            PubsubRouter.GossipsubProtocolVersionV13,
+            logger: null,
+            settings: new PubsubSettings { EnablePartialMessages = true });
+        ConcurrentQueue<Rpc> sentRpcs = [];
+        peer.SendRpc = sentRpcs.Enqueue;
+
+        using ManualResetEventSlim start = new(initialState: false);
+        Task[] sends = Enumerable.Range(0, 16)
+            .Select(_ => Task.Run(() =>
+            {
+                start.Wait();
+                peer.Send(new Rpc());
+            }))
+            .ToArray();
+        start.Set();
+        await Task.WhenAll(sends);
+
+        Assert.That(sentRpcs.TryPeek(out Rpc? first), Is.True);
+        Assert.That(first!.Control?.Extensions?.PartialMessages, Is.True);
     }
 
     [Test]
@@ -105,7 +150,7 @@ public class PartialMessagesTests
         {
             Partial = new PartialMessagesExtension
             {
-                TopicID = topicName,
+                TopicID = ByteString.CopyFromUtf8(topicName),
                 GroupID = ByteString.CopyFrom([1]),
                 PartialMessage = ByteString.CopyFrom([2]),
                 PartsMetadata = ByteString.CopyFrom([3]),
@@ -125,7 +170,7 @@ public class PartialMessagesTests
         {
             Partial = new PartialMessagesExtension
             {
-                TopicID = topicName,
+                TopicID = ByteString.CopyFromUtf8(topicName),
                 PartialMessage = ByteString.CopyFrom([2]),
             },
         });
@@ -133,7 +178,7 @@ public class PartialMessagesTests
         {
             Partial = new PartialMessagesExtension
             {
-                TopicID = topicName,
+                TopicID = ByteString.CopyFromUtf8(topicName),
                 GroupID = ByteString.CopyFrom([1]),
             },
         });
@@ -202,10 +247,11 @@ public class PartialMessagesTests
         {
             EnablePartialMessages = true,
             HeartbeatInterval = int.MaxValue,
-            LowestDegree = 0,
+            Degree = 1,
+            LowestDegree = 1,
             LazyDegree = 1,
         });
-        _ = router.GetPartialMessagesTopic(topicName, new PartialMessagesTopicOptions
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic(topicName, new PartialMessagesTopicOptions
         {
             RequestPartialMessages = true,
             SupportsSendingPartialMessages = true,
@@ -216,9 +262,11 @@ public class PartialMessagesTests
         TaskCompletionSource connection = new();
         Dictionary<PeerId, List<Rpc>> sentRpcs = [];
         List<PeerId>? partialGossipRecipients = null;
-        router.OnPartialGossip += (topic, peers) =>
+        byte[]? partialGossipGroupId = null;
+        router.OnPartialGossip += (topicId, groupId, peers) =>
         {
-            Assert.That(topic, Is.EqualTo(topicName));
+            Assert.That(topicId, Is.EqualTo(topicName));
+            partialGossipGroupId = groupId;
             partialGossipRecipients = peers.ToList();
         };
 
@@ -237,8 +285,13 @@ public class PartialMessagesTests
             peerRpcs.Clear();
         }
 
-        Identity author = TestPeers.Identity(4);
-        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithMessages(topicName, 1, author.PeerId.Bytes, [1, 2, 3], author));
+        await router.Heartbeat();
+        foreach (List<Rpc> peerRpcs in sentRpcs.Values)
+        {
+            peerRpcs.Clear();
+        }
+
+        topic.PublishPartial([7, 8], partialMessage: [1, 2, 3]);
         foreach (List<Rpc> peerRpcs in sentRpcs.Values)
         {
             peerRpcs.Clear();
@@ -247,8 +300,75 @@ public class PartialMessagesTests
         await router.Heartbeat();
 
         Assert.That(partialGossipRecipients, Is.Not.Null.And.Not.Empty);
+        Assert.That(partialGossipGroupId, Is.EqualTo(new byte[] { 7, 8 }));
         Assert.That(partialGossipRecipients!.All(sentRpcs.ContainsKey), Is.True);
         Assert.That(sentRpcs.Values.SelectMany(rpcs => rpcs).SelectMany(rpc => rpc.Control?.Ihave ?? []), Is.Empty);
+
+        cancellation.Cancel();
+        connection.SetResult();
+    }
+
+    [Test]
+    public async Task PartialMessages_RequestersDoNotReceiveFullPublishesOrRelays()
+    {
+        const string topicName = "topic";
+        PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            EnablePartialMessages = true,
+            HeartbeatInterval = int.MaxValue,
+            Degree = 3,
+            LowestDegree = 3,
+            HighestDegree = 3,
+        });
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic(topicName, new PartialMessagesTopicOptions
+        {
+            SupportsSendingPartialMessages = true,
+        });
+        using CancellationTokenSource cancellation = new();
+        await router.StartAsync(new LocalPeerStub(), cancellation.Token);
+
+        TaskCompletionSource connection = new();
+        Dictionary<PeerId, List<Rpc>> sentRpcs = [];
+        foreach (int peerNumber in Enumerable.Range(1, 3))
+        {
+            Multiaddress address = TestPeers.Multiaddr(peerNumber);
+            PeerId peerId = address.GetPeerId()!;
+            List<Rpc> peerRpcs = [];
+            sentRpcs.Add(peerId, peerRpcs);
+            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, connection.Task, peerRpcs.Add);
+            router.OnRpc(peerId, CreateSubscriptionRpc(
+                topicName,
+                requestsPartialMessages: peerNumber == 1,
+                supportsSendingPartialMessages: true));
+        }
+
+        await router.Heartbeat();
+        foreach (List<Rpc> peerRpcs in sentRpcs.Values)
+        {
+            peerRpcs.Clear();
+        }
+
+        topic.Publish([1]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentRpcs[TestPeers.PeerId(1)].SelectMany(rpc => rpc.Publish), Is.Empty);
+            Assert.That(sentRpcs[TestPeers.PeerId(2)].SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
+        });
+
+        foreach (List<Rpc> peerRpcs in sentRpcs.Values)
+        {
+            peerRpcs.Clear();
+        }
+
+        Identity author = TestPeers.Identity(4);
+        router.OnRpc(TestPeers.PeerId(3), new Rpc().WithMessages(topicName, 1, author.PeerId.Bytes, [2], author));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentRpcs[TestPeers.PeerId(1)].SelectMany(rpc => rpc.Publish), Is.Empty);
+            Assert.That(sentRpcs[TestPeers.PeerId(2)].SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
+        });
 
         cancellation.Cancel();
         connection.SetResult();

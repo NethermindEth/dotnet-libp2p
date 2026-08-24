@@ -230,10 +230,13 @@ public partial class PubsubRouter
                 rpc.WithMessages(topicId, seqNo++, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
             }
 
-            // Floodsub peers always get the message
+            // Floodsub peers always get the message.
             foreach (PeerId peerId in fPeers.GetValueOrDefault(topicId) ?? [])
             {
-                peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                if (ShouldSendFullMessage(peerId, topicId))
+                {
+                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                }
             }
 
             // Gossipsub v1.1: Flood publishing
@@ -242,7 +245,18 @@ public partial class PubsubRouter
                 // Send to all gossipsub peers above publish threshold
                 foreach (PeerId peerId in allGossipsubPeers)
                 {
-                    if (GetPeerScore(peerId) >= _settings.PublishThreshold)
+                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
+                    {
+                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    }
+                }
+            }
+            else if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers))
+            {
+                // Standard gossipsub v1.0 behavior: send to mesh or fanout
+                foreach (PeerId peerId in meshPeers)
+                {
+                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -250,42 +264,28 @@ public partial class PubsubRouter
             }
             else
             {
-                // Standard gossipsub v1.0 behavior: send to mesh or fanout
-                if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers))
+                fanoutLastPublished[topicId] = DateTime.Now;
+                HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
+
+                if (topicFanout.Count == 0)
                 {
-                    foreach (PeerId peerId in meshPeers)
+                    HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
+                    if (topicPeers is { Count: > 0 })
                     {
-                        if (GetPeerScore(peerId) >= _settings.PublishThreshold)
+                        // Select peers with non-negative scores
+                        var eligiblePeers = topicPeers.Where(p => GetPeerScore(p) >= 0).ToList();
+                        foreach (PeerId peer in eligiblePeers.Take(_settings.Degree))
                         {
-                            peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                            topicFanout.Add(peer);
                         }
                     }
                 }
-                else
+
+                foreach (PeerId peerId in topicFanout)
                 {
-                    fanoutLastPublished[topicId] = DateTime.Now;
-                    HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
-
-                    if (topicFanout.Count == 0)
+                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
                     {
-                        HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
-                        if (topicPeers is { Count: > 0 })
-                        {
-                            // Select peers with non-negative scores
-                            var eligiblePeers = topicPeers.Where(p => GetPeerScore(p) >= 0).ToList();
-                            foreach (PeerId peer in eligiblePeers.Take(_settings.Degree))
-                            {
-                                topicFanout.Add(peer);
-                            }
-                        }
-                    }
-
-                    foreach (PeerId peerId in topicFanout)
-                    {
-                        if (GetPeerScore(peerId) >= _settings.PublishThreshold)
-                        {
-                            peerState.GetValueOrDefault(peerId)?.Send(rpc);
-                        }
+                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
                 }
             }
@@ -303,6 +303,11 @@ public partial class PubsubRouter
         if (localPeer is null)
         {
             throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
+        }
+
+        lock (this)
+        {
+            partialMessageGossip.Track(topicId, groupId);
         }
 
         PeerId[] recipients;
@@ -353,7 +358,7 @@ public partial class PubsubRouter
 
         PartialMessagesExtension partial = new()
         {
-            TopicID = topicId,
+            TopicID = Google.Protobuf.ByteString.CopyFromUtf8(topicId),
             GroupID = Google.Protobuf.ByteString.CopyFrom(groupId),
         };
         if (sendPartialData && partialMessage is not null)
@@ -381,6 +386,16 @@ public partial class PubsubRouter
         {
             throw new InvalidOperationException($"Partial messages are not enabled for topic '{topicId}'.");
         }
+    }
+
+    private bool ShouldSendFullMessage(PeerId peerId, string topicId)
+    {
+        return !_settings.EnablePartialMessages ||
+            !topicState.TryGetValue(topicId, out Topic? topic) ||
+            !topic.SupportsSendingPartialMessages ||
+            !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
+            !peer.SupportsPartialMessagesExtension ||
+            !peer.RequestsPartialMessages(topicId);
     }
 
     private static void ValidatePartialMessage(byte[] groupId, byte[]? partialMessage, byte[]? partsMetadata)

@@ -6,11 +6,14 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
+using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
@@ -132,11 +135,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
+        if (!TryDecodeTopicId(partialMessage.TopicID, out string topicId))
+        {
+            logger?.LogDebug("Ignoring a Partial Messages extension payload with a non-UTF-8 topic from {peerId}", peerId);
+            return;
+        }
+
         receivedPartialMessages.Add((
-            partialMessage.TopicID,
+            topicId,
             peerId,
             new PartialMessage(
-                partialMessage.TopicID,
+                topicId,
                 partialMessage.GroupID.ToByteArray(),
                 partialMessage.HasPartialMessage ? partialMessage.PartialMessage.ToByteArray() : null,
                 partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
@@ -208,7 +217,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         continue;
                     }
-                    peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    if (ShouldSendFullMessage(peer, message.Topic))
+                    {
+                        peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    }
                 }
             }
             if (mesh.TryGetValue(message.Topic, out topicPeers))
@@ -221,12 +233,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
 
                     // Only forward to peers above publish threshold (Gossipsub v1.1)
-                    if (GetPeerScore(peer) >= _settings.PublishThreshold)
+                    if (GetPeerScore(peer) >= _settings.PublishThreshold && ShouldSendFullMessage(peer, message.Topic))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
                     }
                 }
             }
+        }
+    }
+
+    private static bool TryDecodeTopicId(ByteString topicIdBytes, out string topicId)
+    {
+        try
+        {
+            topicId = StrictUtf8.GetString(topicIdBytes.Span);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            topicId = string.Empty;
+            return false;
         }
     }
 
