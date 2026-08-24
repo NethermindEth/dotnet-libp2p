@@ -132,17 +132,20 @@ internal sealed class MessageCache
     {
         lock (sync)
         {
-            foreach (Entry entry in history[^1])
+            List<Entry> expiredWindow = history[^1];
+            foreach (Entry entry in expiredWindow)
             {
                 Remove(entry);
             }
+
+            expiredWindow.Clear();
 
             for (int window = history.Length - 1; window > 0; window--)
             {
                 history[window] = history[window - 1];
             }
 
-            history[0] = [];
+            history[0] = expiredWindow;
         }
     }
 
