@@ -210,10 +210,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (ControlGraft? graft in grafts)
         {
-            if (!topicState.ContainsKey(graft.TopicID))
+            if (topicState.GetValueOrDefault(graft.TopicID)?.IsSubscribed is not true ||
+                !mesh.TryGetValue(graft.TopicID, out HashSet<PeerId>? topicMesh))
             {
-                // Ignore GRAFT for unknown topics (spam protection)
-                logger?.LogDebug("Ignoring GRAFT from {peerId} for unknown topic {topic}", peerId, graft.TopicID);
+                logger?.LogDebug("Ignoring GRAFT from {peerId} for inactive topic {topic}", peerId, graft.TopicID);
                 continue;
             }
 
@@ -232,8 +232,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     continue;
                 }
             }
-
-            HashSet<PeerId> topicMesh = mesh[graft.TopicID];
 
             if (topicMesh.Count >= _settings.HighestDegree)
             {
@@ -278,14 +276,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (ControlPrune? prune in prunes)
         {
-            if (topicState.ContainsKey(prune.TopicID) && mesh[prune.TopicID].Contains(peerId))
+            if (topicState.GetValueOrDefault(prune.TopicID)?.IsSubscribed is true &&
+                mesh.TryGetValue(prune.TopicID, out HashSet<PeerId>? topicMesh) &&
+                topicMesh.Contains(peerId))
             {
                 if (peerState.TryGetValue(peerId, out PubsubPeer? state))
                 {
                     ulong backoffSeconds = prune.Backoff == 0 ? (ulong)(_settings.PruneBackoff / 1000) : prune.Backoff;
                     state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(backoffSeconds);
                 }
-                mesh[prune.TopicID].Remove(peerId);
+                topicMesh.Remove(peerId);
                 RecordPeerLeaveMesh(peerId, prune.TopicID);  // Track for scoring (P1 and P3b)
 
                 // Handle PX (Peer Exchange) only if peer score is above threshold
@@ -306,7 +306,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         List<MessageId> messageIds = [];
 
-        foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.ContainsKey(iw.TopicID)))
+        foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
         {
             messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
                 .Where(mid => !_messageCache.Contains(mid)));
