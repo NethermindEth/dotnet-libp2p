@@ -44,6 +44,9 @@ public class PubsubSettings
 
     /// <summary>Maximum total serialized message bytes retained for gossip and IWANT responses.</summary>
     public long MaxMessageCacheBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>Maximum valid or rejected message IDs retained by each TTL deduplication cache.</summary>
+    public int MaxSeenMessageIds { get; set; } = 10_000;
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
     // Maximum incoming RPC frame size 1 MiB
     public int MaxRpcBytes

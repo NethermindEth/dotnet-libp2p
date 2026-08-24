@@ -20,12 +20,13 @@ internal sealed class MessageCache
         public Message Message { get; } = message;
         public int Size { get; } = size;
         public LinkedListNode<Entry>? InsertionNode { get; set; }
+        public LinkedListNode<Entry>? HistoryNode { get; set; }
     }
 
     private readonly object sync = new();
     private readonly Dictionary<MessageId, Entry> messages = [];
     private readonly LinkedList<Entry> insertionOrder = [];
-    private readonly List<Entry>[] history;
+    private readonly LinkedList<Entry>[] history;
     private readonly int gossipWindows;
     private readonly int maxEntries;
     private readonly long maxBytes;
@@ -38,7 +39,7 @@ internal sealed class MessageCache
             throw new ArgumentOutOfRangeException(nameof(historyWindows));
         }
 
-        if (gossipWindows <= 0 || gossipWindows > historyWindows)
+        if (gossipWindows <= 0 || gossipWindows >= historyWindows)
         {
             throw new ArgumentOutOfRangeException(nameof(gossipWindows));
         }
@@ -56,7 +57,7 @@ internal sealed class MessageCache
         this.gossipWindows = gossipWindows;
         this.maxEntries = maxEntries;
         this.maxBytes = maxBytes;
-        history = Enumerable.Range(0, historyWindows).Select(_ => new List<Entry>()).ToArray();
+        history = Enumerable.Range(0, historyWindows).Select(_ => new LinkedList<Entry>()).ToArray();
     }
 
     public void Put(MessageId id, Message message)
@@ -87,8 +88,8 @@ internal sealed class MessageCache
 
             Entry entry = new(id, message, size);
             entry.InsertionNode = insertionOrder.AddLast(entry);
+            entry.HistoryNode = history[0].AddLast(entry);
             messages.Add(id, entry);
-            history[0].Add(entry);
             cachedBytes += size;
         }
     }
@@ -132,13 +133,11 @@ internal sealed class MessageCache
     {
         lock (sync)
         {
-            List<Entry> expiredWindow = history[^1];
-            foreach (Entry entry in expiredWindow)
+            LinkedList<Entry> expiredWindow = history[^1];
+            while (expiredWindow.First is LinkedListNode<Entry> node)
             {
-                Remove(entry);
+                Remove(node.Value);
             }
-
-            expiredWindow.Clear();
 
             for (int window = history.Length - 1; window > 0; window--)
             {
@@ -171,6 +170,17 @@ internal sealed class MessageCache
         }
     }
 
+    internal int HistoryEntryCount
+    {
+        get
+        {
+            lock (sync)
+            {
+                return history.Sum(window => window.Count);
+            }
+        }
+    }
+
     private void Remove(Entry entry)
     {
         if (!messages.Remove(entry.Id))
@@ -181,5 +191,10 @@ internal sealed class MessageCache
         cachedBytes -= entry.Size;
         insertionOrder.Remove(entry.InsertionNode!);
         entry.InsertionNode = null;
+        if (entry.HistoryNode is LinkedListNode<Entry> historyNode)
+        {
+            historyNode.List?.Remove(historyNode);
+            entry.HistoryNode = null;
+        }
     }
 }

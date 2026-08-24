@@ -67,6 +67,7 @@ public class MessageCacheTests
         Assert.Multiple(() =>
         {
             Assert.That(cache.Count, Is.EqualTo(2));
+            Assert.That(cache.HistoryEntryCount, Is.EqualTo(2));
             Assert.That(cache.TryGet(firstId, out _), Is.False);
             Assert.That(cache.GetGossipIds("topic"), Does.Not.Contain(firstId));
         });
@@ -129,6 +130,7 @@ public class MessageCacheTests
 
     [TestCase(0, 1, 1, 1)]
     [TestCase(2, 1, 1, 1)]
+    [TestCase(1, 1, 1, 1)]
     [TestCase(1, 1, 0, 1)]
     [TestCase(1, 1, 1, 0)]
     public void Constructor_RejectsInvalidLimits(int gossipWindows, int historyWindows, int maxEntries, int maxBytes)
