@@ -67,7 +67,12 @@ public class TlsProtocolTests
         await downChannel.CloseAsync();
 
         // Assert
-        Assert.That(received, Is.EqualTo(sent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.EqualTo(sent));
+            Assert.That(new Identity(dialerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(new Identity(listenerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(1)));
+        });
     }
 
     [Test]
