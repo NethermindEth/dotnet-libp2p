@@ -103,6 +103,20 @@ public class TlsProtocolTests
     }
 
     [Test]
+    public void Test_TlsCertificateRejectsUnexpectedDialedPeer()
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+        Multiaddress requestedAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(3)}";
+
+        MethodInfo verifyRemoteCertificate = typeof(TlsProtocol).GetMethod("VerifyRemoteCertificate", BindingFlags.Static | BindingFlags.NonPublic)!;
+        bool isValid = (bool)verifyRemoteCertificate.Invoke(null, [requestedAddress, certificate])!;
+
+        Assert.That(isValid, Is.False);
+    }
+
+    [Test]
     public void Test_CertificateFromIdentity_CreatesValidCertificate()
     {
         // Arrange

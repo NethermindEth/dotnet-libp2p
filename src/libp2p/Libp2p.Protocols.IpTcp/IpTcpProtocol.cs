@@ -180,6 +180,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         INewConnectionContext connectionCtx = context.CreateConnection();
         connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+        if (remoteAddr.Get<P2P>() is { } requestedPeerId)
+        {
+            connectionCtx.State.RemoteAddress.Add(requestedPeerId);
+        }
         connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
 
         connectionCtx.Token.Register(client.Close);
