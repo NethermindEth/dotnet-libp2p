@@ -74,11 +74,19 @@ public partial class PubsubRouter
 
     private void AnnounceSubscription(string topicId)
     {
-        Rpc topicUpdate = new();
-        topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
-        foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
+        lock (this)
         {
-            peer.Value.Send(topicUpdate);
+            if (topicState.GetValueOrDefault(topicId)?.IsSubscribed is not true)
+            {
+                return;
+            }
+
+            Rpc topicUpdate = new();
+            topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
+            foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
+            {
+                peer.Value.Send(topicUpdate);
+            }
         }
     }
 
