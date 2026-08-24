@@ -194,6 +194,24 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public void IwantPromises_RefreshExistingDeadlines()
+    {
+        IwantPromiseTracker tracker = new(maxPromises: 1);
+        PeerId peer = TestPeers.PeerId(1);
+        MessageId message = new([1]);
+        DateTime now = DateTime.UtcNow;
+
+        tracker.Add(peer, [message], now.AddSeconds(-1));
+        tracker.Add(peer, [message], now.AddSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(tracker.Count, Is.EqualTo(1));
+            Assert.That(tracker.TakeExpired(now), Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task ThrottledMessages_ClearOutstandingIwantPromises()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
