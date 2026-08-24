@@ -529,7 +529,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             }
 
             int messageSize = message.CalculateSize();
-            if (responseBytes + messageSize > _settings.MaxIwantResponseBytes)
+            int serializedMessageSize = CodedOutputStream.ComputeTagSize(Rpc.PublishFieldNumber)
+                + CodedOutputStream.ComputeLengthSize(messageSize)
+                + messageSize;
+            if (responseBytes + serializedMessageSize > _settings.MaxIwantResponseBytes)
             {
                 continue;
             }
@@ -537,7 +540,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (peer.Control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIHaveLength))
             {
                 messages.Add(message);
-                responseBytes += messageSize;
+                responseBytes += serializedMessageSize;
             }
         }
         if (messages.Any())
