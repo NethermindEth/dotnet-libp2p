@@ -63,7 +63,7 @@ public class DirectPeersTests
         Multiaddress secondMeshAddress = TestPeers.Multiaddr(3);
         PubsubRouter router = new(
             new PeerStore(),
-            new PubsubSettings { DirectPeers = [directAddress], PruneBackoff = 2_000 });
+            new PubsubSettings { DirectPeers = [directAddress] });
         IRoutingStateContainer state = router;
         _ = router.GetTopic(topic);
         TaskCompletionSource connection = new();
@@ -94,7 +94,7 @@ public class DirectPeersTests
         PeerId directPeerId = directAddress.GetPeerId()!;
         PubsubRouter router = new(
             new PeerStore(),
-            new PubsubSettings { DirectPeers = [directAddress] });
+            new PubsubSettings { DirectPeers = [directAddress], PruneBackoff = 2_000 });
         _ = router.GetTopic(topic);
         List<Rpc> sentRpcs = [];
         TaskCompletionSource connection = new();
