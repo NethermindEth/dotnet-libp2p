@@ -46,15 +46,19 @@ internal sealed class IwantPromiseTracker
                 promises.Add(id, byPeer);
             }
 
-            if (!byPeer.ContainsKey(peerId) && promiseCount >= maxPromises)
+            if (byPeer.ContainsKey(peerId))
+            {
+                byPeer[peerId] = deadline;
+                return;
+            }
+
+            if (promiseCount >= maxPromises)
             {
                 return;
             }
 
-            if (byPeer.TryAdd(peerId, deadline))
-            {
-                promiseCount++;
-            }
+            byPeer.Add(peerId, deadline);
+            promiseCount++;
         }
     }
 
