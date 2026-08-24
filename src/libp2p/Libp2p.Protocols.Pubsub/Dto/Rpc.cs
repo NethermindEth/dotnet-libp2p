@@ -45,7 +45,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             "GAoQc2lnbmVkUGVlclJlY29yZBgCIAEoDCImChBDb250cm9sSURvbnRXYW50",
             "EhIKCm1lc3NhZ2VJRHMYASADKAwiLAoRQ29udHJvbEV4dGVuc2lvbnMSFwoP",
             "cGFydGlhbE1lc3NhZ2VzGAogASgIImsKGFBhcnRpYWxNZXNzYWdlc0V4dGVu",
-            "c2lvbhIPCgd0b3BpY0lEGAEgASgJEg8KB2dyb3VwSUQYAiABKAwSFgoOcGFy",
+            "c2lvbhIPCgd0b3BpY0lEGAEgASgMEg8KB2dyb3VwSUQYAiABKAwSFgoOcGFy",
             "dGlhbE1lc3NhZ2UYAyABKAwSFQoNcGFydHNNZXRhZGF0YRgEIAEoDEIpqgIm",
             "TmV0aGVybWluZC5MaWJwMnAuUHJvdG9jb2xzLlB1YnN1Yi5EdG8="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
@@ -3166,9 +3166,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
   }
 
   /// <summary>
-  /// The Partial Messages extension uses an application-defined encoding for
-  /// message parts and metadata. topicID is a string to match the Go reference;
-  /// both it and the registry's bytes form use the same protobuf wire type.
+  /// The Partial Messages registry identifies topics as opaque bytes. Go's
+  /// current string declaration is wire compatible with this canonical form.
   /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class PartialMessagesExtension : pb::IMessage<PartialMessagesExtension>
@@ -3220,12 +3219,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
 
     /// <summary>Field number for the "topicID" field.</summary>
     public const int TopicIDFieldNumber = 1;
-    private readonly static string TopicIDDefaultValue = "";
+    private readonly static pb::ByteString TopicIDDefaultValue = pb::ByteString.Empty;
 
-    private string topicID_;
+    private pb::ByteString topicID_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public string TopicID {
+    public pb::ByteString TopicID {
       get { return topicID_ ?? TopicIDDefaultValue; }
       set {
         topicID_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
@@ -3372,7 +3371,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     #else
       if (HasTopicID) {
         output.WriteRawTag(10);
-        output.WriteString(TopicID);
+        output.WriteBytes(TopicID);
       }
       if (HasGroupID) {
         output.WriteRawTag(18);
@@ -3398,7 +3397,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
       if (HasTopicID) {
         output.WriteRawTag(10);
-        output.WriteString(TopicID);
+        output.WriteBytes(TopicID);
       }
       if (HasGroupID) {
         output.WriteRawTag(18);
@@ -3423,7 +3422,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     public int CalculateSize() {
       int size = 0;
       if (HasTopicID) {
-        size += 1 + pb::CodedOutputStream.ComputeStringSize(TopicID);
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(TopicID);
       }
       if (HasGroupID) {
         size += 1 + pb::CodedOutputStream.ComputeBytesSize(GroupID);
@@ -3478,7 +3477,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 10: {
-            TopicID = input.ReadString();
+            TopicID = input.ReadBytes();
             break;
           }
           case 18: {
@@ -3513,7 +3512,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 10: {
-            TopicID = input.ReadString();
+            TopicID = input.ReadBytes();
             break;
           }
           case 18: {

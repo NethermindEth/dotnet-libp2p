@@ -34,7 +34,7 @@ public class GossipsubV13ProtocolTests
             },
             Partial = new PartialMessagesExtension
             {
-                TopicID = "topic",
+                TopicID = ByteString.CopyFromUtf8("topic"),
                 GroupID = ByteString.CopyFrom([1, 2]),
                 PartialMessage = ByteString.CopyFrom([3]),
                 PartsMetadata = ByteString.CopyFrom([4]),
@@ -53,11 +53,29 @@ public class GossipsubV13ProtocolTests
         Assert.Multiple(() =>
         {
             Assert.That(decoded.Control.Extensions.PartialMessages, Is.True);
-            Assert.That(decoded.Partial.TopicID, Is.EqualTo("topic"));
+            Assert.That(decoded.Partial.TopicID.ToStringUtf8(), Is.EqualTo("topic"));
             Assert.That(decoded.Partial.GroupID.ToByteArray(), Is.EqualTo(new byte[] { 1, 2 }));
             Assert.That(decoded.Subscriptions.Single().RequestsPartial, Is.True);
             Assert.That(decoded.Subscriptions.Single().SupportsSendingPartial, Is.True);
         });
+    }
+
+    [Test]
+    public void ExtensionRegistry_PreservesOpaquePartialMessageTopicBytes()
+    {
+        Rpc rpc = new()
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = ByteString.CopyFrom([0xff, 0x00, 0x80]),
+                GroupID = ByteString.CopyFrom([1]),
+                PartialMessage = ByteString.CopyFrom([2]),
+            },
+        };
+
+        Rpc decoded = Rpc.Parser.ParseFrom(rpc.ToByteArray());
+
+        Assert.That(decoded.Partial.TopicID.ToByteArray(), Is.EqualTo(new byte[] { 0xff, 0x00, 0x80 }));
     }
 
     [Test]
