@@ -39,5 +39,5 @@ public sealed class PartialMessagesTopicOptions
     /// <summary>
     /// Signals that this topic can send partial data and receive parts metadata.
     /// </summary>
-    public bool SupportSendingPartialMessages { get; init; }
+    public bool SupportsSendingPartialMessages { get; init; }
 }

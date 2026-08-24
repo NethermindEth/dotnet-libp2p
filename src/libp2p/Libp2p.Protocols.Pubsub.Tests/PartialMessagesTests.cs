@@ -16,7 +16,7 @@ public class PartialMessagesTests
     {
         PubsubRouter disabledRouter = new(new PeerStore());
         Assert.That(
-            () => disabledRouter.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions { SupportSendingPartialMessages = true }),
+            () => disabledRouter.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }),
             Throws.TypeOf<InvalidOperationException>());
 
         PubsubRouter enabledRouter = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
@@ -35,7 +35,7 @@ public class PartialMessagesTests
             new PartialMessagesTopicOptions
             {
                 RequestPartialMessages = true,
-                SupportSendingPartialMessages = true,
+                SupportsSendingPartialMessages = true,
             });
         await router.StartAsync(new LocalPeerStub());
 
@@ -88,7 +88,7 @@ public class PartialMessagesTests
         PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
         IPartialMessagesTopic topic = router.GetPartialMessagesTopic(
             topicName,
-            new PartialMessagesTopicOptions { SupportSendingPartialMessages = true });
+            new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true });
         Multiaddress remoteAddress = TestPeers.Multiaddr(1);
         PeerId remotePeerId = remoteAddress.GetPeerId()!;
         TaskCompletionSource connection = new();
@@ -120,6 +120,26 @@ public class PartialMessagesTests
             Assert.That(received.PartsMetadata, Is.EqualTo(new byte[] { 3 }));
         });
 
+        received = null;
+        router.OnRpc(remotePeerId, new Rpc
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = topicName,
+                PartialMessage = ByteString.CopyFrom([2]),
+            },
+        });
+        router.OnRpc(remotePeerId, new Rpc
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = topicName,
+                GroupID = ByteString.CopyFrom([1]),
+            },
+        });
+
+        Assert.That(received, Is.Null);
+
         connection.SetResult();
     }
 
@@ -127,13 +147,83 @@ public class PartialMessagesTests
     public void PartialMessages_AreNeverAdvertisedOnOlderProtocols()
     {
         PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
-        _ = router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions { SupportSendingPartialMessages = true });
+        _ = router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
         List<Rpc> sentRpcs = [];
         TaskCompletionSource connection = new();
 
         router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV12, connection.Task, sentRpcs.Add);
 
-        Assert.That(sentRpcs.Single().Control, Is.Null);
+        Rpc.Types.SubOpts subscription = sentRpcs.Single().Subscriptions.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentRpcs.Single().Control, Is.Null);
+            Assert.That(subscription.HasRequestsPartial, Is.False);
+            Assert.That(subscription.HasSupportsSendingPartial, Is.False);
+        });
+        connection.SetResult();
+    }
+
+    [Test]
+    public async Task PartialMessages_GossipUsesTheApplicationCallbackInsteadOfIhave()
+    {
+        const string topicName = "topic";
+        PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            EnablePartialMessages = true,
+            HeartbeatInterval = int.MaxValue,
+            LowestDegree = 0,
+            LazyDegree = 1,
+        });
+        _ = router.GetPartialMessagesTopic(topicName, new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
+        using CancellationTokenSource cancellation = new();
+        await router.StartAsync(new LocalPeerStub(), cancellation.Token);
+
+        TaskCompletionSource connection = new();
+        Dictionary<PeerId, List<Rpc>> sentRpcs = [];
+        List<PeerId>? partialGossipRecipients = null;
+        router.OnPartialGossip += (topic, peers) =>
+        {
+            Assert.That(topic, Is.EqualTo(topicName));
+            partialGossipRecipients = peers.ToList();
+        };
+
+        foreach (int peerNumber in Enumerable.Range(1, 3))
+        {
+            Multiaddress address = TestPeers.Multiaddr(peerNumber);
+            PeerId peerId = address.GetPeerId()!;
+            List<Rpc> peerRpcs = [];
+            sentRpcs.Add(peerId, peerRpcs);
+            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, connection.Task, peerRpcs.Add);
+            router.OnRpc(peerId, CreateSubscriptionRpc(topicName, requestsPartialMessages: true, supportsSendingPartialMessages: true));
+        }
+
+        foreach (List<Rpc> peerRpcs in sentRpcs.Values)
+        {
+            peerRpcs.Clear();
+        }
+
+        Identity author = TestPeers.Identity(4);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithMessages(topicName, 1, author.PeerId.Bytes, [1, 2, 3], author));
+        foreach (List<Rpc> peerRpcs in sentRpcs.Values)
+        {
+            peerRpcs.Clear();
+        }
+
+        await router.Heartbeat();
+
+        Assert.That(partialGossipRecipients, Is.Not.Null.And.Not.Empty);
+        Assert.That(partialGossipRecipients!.All(sentRpcs.ContainsKey), Is.True);
+        Assert.That(sentRpcs.Values.SelectMany(rpcs => rpcs).SelectMany(rpc => rpc.Control?.Ihave ?? []), Is.Empty);
+
+        cancellation.Cancel();
         connection.SetResult();
     }
 

@@ -58,8 +58,15 @@ public partial class PubsubRouter
         Rpc.Types.SubOpts subscription = new() { Subscribe = subscribe, Topicid = topicId };
         if (subscribe && _settings.EnablePartialMessages && topicState.TryGetValue(topicId, out Topic? topic))
         {
-            subscription.RequestsPartial = topic.RequestsPartialMessages;
-            subscription.SupportsSendingPartial = topic.SupportsSendingPartialMessages;
+            if (topic.RequestsPartialMessages)
+            {
+                subscription.RequestsPartial = true;
+            }
+
+            if (topic.SupportsSendingPartialMessages)
+            {
+                subscription.SupportsSendingPartial = true;
+            }
         }
 
         return subscription;
