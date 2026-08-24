@@ -418,7 +418,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private static IReadOnlyDictionary<PeerId, Multiaddress[]> CreateDirectPeers(IEnumerable<Multiaddress>? configuredPeers)
     {
         return (configuredPeers ?? [])
-            .Select(address => (PeerId: address.GetPeerId() ?? throw new ArgumentException("A direct peer address must include a peer ID.", nameof(configuredPeers)), Address: address))
+            .Select(address => (PeerId: address.GetPeerId() ?? throw new ArgumentException("A direct peer address must include a peer ID.", nameof(PubsubSettings.DirectPeers)), Address: address))
             .GroupBy(entry => entry.PeerId)
             .ToDictionary(group => group.Key, group => group.Select(entry => entry.Address).ToArray());
     }
