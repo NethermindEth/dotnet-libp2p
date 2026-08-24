@@ -191,6 +191,10 @@ public partial class PubsubRouter
 
             ulong seqNo = this.seqNo++;
             Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+            Message publishedMessage = rpc.Publish[0];
+            MessageId messageId = _settings.GetMessageId(publishedMessage);
+            _seenMessages.Add(messageId);
+            _messageCache.Put(messageId, publishedMessage);
 
             HashSet<PeerId> directRecipients = GetDirectPeersForTopic(topicId).ToHashSet();
             foreach (PeerId peerId in directRecipients)
