@@ -31,6 +31,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     public const string GossipsubProtocolVersionV10 = "/meshsub/1.0.0";
     public const string GossipsubProtocolVersionV11 = "/meshsub/1.1.0";
     public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
+    public const string GossipsubProtocolVersionV13 = "/meshsub/1.3.0";
 
     class PubsubPeer
     {
@@ -43,6 +44,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 GossipsubProtocolVersionV10 => PubsubProtocol.GossipsubV10,
                 GossipsubProtocolVersionV11 => PubsubProtocol.GossipsubV11,
                 GossipsubProtocolVersionV12 => PubsubProtocol.GossipsubV12,
+                GossipsubProtocolVersionV13 => PubsubProtocol.GossipsubV13,
                 _ => PubsubProtocol.Floodsub,
             };
             TokenSource = new CancellationTokenSource();
@@ -58,7 +60,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             GossipsubV10 = 2,
             GossipsubV11 = 4,
             GossipsubV12 = 8,
-            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12,
+            GossipsubV13 = 16,
+            AnyGossipsub = GossipsubV10 | GossipsubV11 | GossipsubV12 | GossipsubV13,
         }
 
         public void Send(Rpc rpc)
@@ -79,6 +82,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
         private readonly ILogger? _logger;
+        public bool ReceivedFirstRpc { get; set; }
 
         public Action<Rpc>? SendRpc
         {
@@ -102,6 +106,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public PubsubProtocol Protocol { get; set; }
         public bool IsGossipSub => (Protocol & PubsubProtocol.AnyGossipsub) != PubsubProtocol.None;
         public bool IsFloodSub => Protocol == PubsubProtocol.Floodsub;
+        public bool SupportsPeerExchange => Protocol is PubsubProtocol.GossipsubV11 or PubsubProtocol.GossipsubV12 or PubsubProtocol.GossipsubV13;
+        public bool SupportsExtensions => Protocol == PubsubProtocol.GossipsubV13;
 
         public ConnectionInitiation InitiatedBy { get; internal set; }
         public Multiaddress Address { get; internal set; } = null!;
@@ -237,7 +243,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
                 string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
-                if (protocols.Contains(GossipsubProtocolVersionV12))
+                if (protocols.Contains(GossipsubProtocolVersionV13))
+                {
+                    await session.DialAsync<GossipsubProtocolV13>(token);
+                }
+                else if (protocols.Contains(GossipsubProtocolVersionV12))
                 {
                     await session.DialAsync<GossipsubProtocolV12>(token);
                 }

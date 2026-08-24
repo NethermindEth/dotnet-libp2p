@@ -24,36 +24,44 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
     static RpcReflection() {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
-            "CglScGMucHJvdG8ilgEKA1JwYxIjCg1zdWJzY3JpcHRpb25zGAEgAygLMgwu",
+            "CglScGMucHJvdG8i+wEKA1JwYxIjCg1zdWJzY3JpcHRpb25zGAEgAygLMgwu",
             "UnBjLlN1Yk9wdHMSGQoHcHVibGlzaBgCIAMoCzIILk1lc3NhZ2USIAoHY29u",
-            "dHJvbBgDIAEoCzIPLkNvbnRyb2xNZXNzYWdlGi0KB1N1Yk9wdHMSEQoJc3Vi",
-            "c2NyaWJlGAEgASgIEg8KB3RvcGljaWQYAiABKAkiYwoHTWVzc2FnZRIMCgRm",
-            "cm9tGAEgASgMEgwKBGRhdGEYAiABKAwSDQoFc2Vxbm8YAyABKAwSDQoFdG9w",
-            "aWMYBCACKAkSEQoJc2lnbmF0dXJlGAUgASgMEgsKA2tleRgGIAEoDCKuAQoO",
-            "Q29udHJvbE1lc3NhZ2USHAoFaWhhdmUYASADKAsyDS5Db250cm9sSUhhdmUS",
-            "HAoFaXdhbnQYAiADKAsyDS5Db250cm9sSVdhbnQSHAoFZ3JhZnQYAyADKAsy",
-            "DS5Db250cm9sR3JhZnQSHAoFcHJ1bmUYBCADKAsyDS5Db250cm9sUHJ1bmUS",
-            "JAoJaWRvbnR3YW50GAUgAygLMhEuQ29udHJvbElEb250V2FudCIzCgxDb250",
-            "cm9sSUhhdmUSDwoHdG9waWNJRBgBIAEoCRISCgptZXNzYWdlSURzGAIgAygM",
-            "IiIKDENvbnRyb2xJV2FudBISCgptZXNzYWdlSURzGAEgAygMIh8KDENvbnRy",
-            "b2xHcmFmdBIPCgd0b3BpY0lEGAEgASgJIkoKDENvbnRyb2xQcnVuZRIPCgd0",
-            "b3BpY0lEGAEgASgJEhgKBXBlZXJzGAIgAygLMgkuUGVlckluZm8SDwoHYmFj",
-            "a29mZhgDIAEoBCI0CghQZWVySW5mbxIOCgZwZWVySUQYASABKAwSGAoQc2ln",
-            "bmVkUGVlclJlY29yZBgCIAEoDCImChBDb250cm9sSURvbnRXYW50EhIKCm1l",
-            "c3NhZ2VJRHMYASADKAxCKaoCJk5ldGhlcm1pbmQuTGlicDJwLlByb3RvY29s",
-            "cy5QdWJzdWIuRHRv"));
+            "dHJvbBgDIAEoCzIPLkNvbnRyb2xNZXNzYWdlEioKB3BhcnRpYWwYCiABKAsy",
+            "GS5QYXJ0aWFsTWVzc2FnZXNFeHRlbnNpb24aZgoHU3ViT3B0cxIRCglzdWJz",
+            "Y3JpYmUYASABKAgSDwoHdG9waWNpZBgCIAEoCRIXCg9yZXF1ZXN0c1BhcnRp",
+            "YWwYAyABKAgSHgoWc3VwcG9ydHNTZW5kaW5nUGFydGlhbBgEIAEoCCJjCgdN",
+            "ZXNzYWdlEgwKBGZyb20YASABKAwSDAoEZGF0YRgCIAEoDBINCgVzZXFubxgD",
+            "IAEoDBINCgV0b3BpYxgEIAIoCRIRCglzaWduYXR1cmUYBSABKAwSCwoDa2V5",
+            "GAYgASgMItYBCg5Db250cm9sTWVzc2FnZRIcCgVpaGF2ZRgBIAMoCzINLkNv",
+            "bnRyb2xJSGF2ZRIcCgVpd2FudBgCIAMoCzINLkNvbnRyb2xJV2FudBIcCgVn",
+            "cmFmdBgDIAMoCzINLkNvbnRyb2xHcmFmdBIcCgVwcnVuZRgEIAMoCzINLkNv",
+            "bnRyb2xQcnVuZRIkCglpZG9udHdhbnQYBSADKAsyES5Db250cm9sSURvbnRX",
+            "YW50EiYKCmV4dGVuc2lvbnMYBiABKAsyEi5Db250cm9sRXh0ZW5zaW9ucyIz",
+            "CgxDb250cm9sSUhhdmUSDwoHdG9waWNJRBgBIAEoCRISCgptZXNzYWdlSURz",
+            "GAIgAygMIiIKDENvbnRyb2xJV2FudBISCgptZXNzYWdlSURzGAEgAygMIh8K",
+            "DENvbnRyb2xHcmFmdBIPCgd0b3BpY0lEGAEgASgJIkoKDENvbnRyb2xQcnVu",
+            "ZRIPCgd0b3BpY0lEGAEgASgJEhgKBXBlZXJzGAIgAygLMgkuUGVlckluZm8S",
+            "DwoHYmFja29mZhgDIAEoBCI0CghQZWVySW5mbxIOCgZwZWVySUQYASABKAwS",
+            "GAoQc2lnbmVkUGVlclJlY29yZBgCIAEoDCImChBDb250cm9sSURvbnRXYW50",
+            "EhIKCm1lc3NhZ2VJRHMYASADKAwiLAoRQ29udHJvbEV4dGVuc2lvbnMSFwoP",
+            "cGFydGlhbE1lc3NhZ2VzGAogASgIImsKGFBhcnRpYWxNZXNzYWdlc0V4dGVu",
+            "c2lvbhIPCgd0b3BpY0lEGAEgASgMEg8KB2dyb3VwSUQYAiABKAwSFgoOcGFy",
+            "dGlhbE1lc3NhZ2UYAyABKAwSFQoNcGFydHNNZXRhZGF0YRgEIAEoDEIpqgIm",
+            "TmV0aGVybWluZC5MaWJwMnAuUHJvdG9jb2xzLlB1YnN1Yi5EdG8="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Parser, new[]{ "Subscriptions", "Publish", "Control" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts.Parser, new[]{ "Subscribe", "Topicid" }, null, null, null, null)}),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Parser, new[]{ "Subscriptions", "Publish", "Control", "Partial" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Rpc.Types.SubOpts.Parser, new[]{ "Subscribe", "Topicid", "RequestsPartial", "SupportsSendingPartial" }, null, null, null, null)}),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.Message.Parser, new[]{ "From", "Data", "Seqno", "Topic", "Signature", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune", "Idontwant" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage.Parser, new[]{ "Ihave", "Iwant", "Graft", "Prune", "Idontwant", "Extensions" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIHave.Parser, new[]{ "TopicID", "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlGraft.Parser, new[]{ "TopicID" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlPrune.Parser, new[]{ "TopicID", "Peers", "Backoff" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PeerInfo.Parser, new[]{ "PeerID", "SignedPeerRecord" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant.Parser, new[]{ "MessageIDs" }, null, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlIDontWant.Parser, new[]{ "MessageIDs" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions.Parser, new[]{ "PartialMessages" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension), global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension.Parser, new[]{ "TopicID", "GroupID", "PartialMessage", "PartsMetadata" }, null, null, null, null)
           }));
     }
     #endregion
@@ -98,6 +106,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       subscriptions_ = other.subscriptions_.Clone();
       publish_ = other.publish_.Clone();
       control_ = other.control_ != null ? other.control_.Clone() : null;
+      partial_ = other.partial_ != null ? other.partial_.Clone() : null;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -141,6 +150,21 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       }
     }
 
+    /// <summary>Field number for the "partial" field.</summary>
+    public const int PartialFieldNumber = 10;
+    private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension partial_;
+    /// <summary>
+    /// Canonical Gossipsub v1.3 extensions are registered here.
+    /// </summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension Partial {
+      get { return partial_; }
+      set {
+        partial_ = value;
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -159,6 +183,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       if(!subscriptions_.Equals(other.subscriptions_)) return false;
       if(!publish_.Equals(other.publish_)) return false;
       if (!object.Equals(Control, other.Control)) return false;
+      if (!object.Equals(Partial, other.Partial)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -169,6 +194,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       hash ^= subscriptions_.GetHashCode();
       hash ^= publish_.GetHashCode();
       if (control_ != null) hash ^= Control.GetHashCode();
+      if (partial_ != null) hash ^= Partial.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -193,6 +219,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
         output.WriteRawTag(26);
         output.WriteMessage(Control);
       }
+      if (partial_ != null) {
+        output.WriteRawTag(82);
+        output.WriteMessage(Partial);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -209,6 +239,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
         output.WriteRawTag(26);
         output.WriteMessage(Control);
       }
+      if (partial_ != null) {
+        output.WriteRawTag(82);
+        output.WriteMessage(Partial);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -223,6 +257,9 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       size += publish_.CalculateSize(_repeated_publish_codec);
       if (control_ != null) {
         size += 1 + pb::CodedOutputStream.ComputeMessageSize(Control);
+      }
+      if (partial_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Partial);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -243,6 +280,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           Control = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage();
         }
         Control.MergeFrom(other.Control);
+      }
+      if (other.partial_ != null) {
+        if (partial_ == null) {
+          Partial = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension();
+        }
+        Partial.MergeFrom(other.Partial);
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -278,6 +321,13 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             input.ReadMessage(Control);
             break;
           }
+          case 82: {
+            if (partial_ == null) {
+              Partial = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension();
+            }
+            input.ReadMessage(Partial);
+            break;
+          }
         }
       }
     #endif
@@ -310,6 +360,13 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
               Control = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlMessage();
             }
             input.ReadMessage(Control);
+            break;
+          }
+          case 82: {
+            if (partial_ == null) {
+              Partial = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.PartialMessagesExtension();
+            }
+            input.ReadMessage(Partial);
             break;
           }
         }
@@ -361,6 +418,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           _hasBits0 = other._hasBits0;
           subscribe_ = other.subscribe_;
           topicid_ = other.topicid_;
+          requestsPartial_ = other.requestsPartial_;
+          supportsSendingPartial_ = other.supportsSendingPartial_;
           _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
         }
 
@@ -423,6 +482,63 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           topicid_ = null;
         }
 
+        /// <summary>Field number for the "requestsPartial" field.</summary>
+        public const int RequestsPartialFieldNumber = 3;
+        private readonly static bool RequestsPartialDefaultValue = false;
+
+        private bool requestsPartial_;
+        /// <summary>
+        /// Used with the Gossipsub v1.3 Partial Messages extension.
+        /// </summary>
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public bool RequestsPartial {
+          get { if ((_hasBits0 & 2) != 0) { return requestsPartial_; } else { return RequestsPartialDefaultValue; } }
+          set {
+            _hasBits0 |= 2;
+            requestsPartial_ = value;
+          }
+        }
+        /// <summary>Gets whether the "requestsPartial" field is set</summary>
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public bool HasRequestsPartial {
+          get { return (_hasBits0 & 2) != 0; }
+        }
+        /// <summary>Clears the value of the "requestsPartial" field</summary>
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public void ClearRequestsPartial() {
+          _hasBits0 &= ~2;
+        }
+
+        /// <summary>Field number for the "supportsSendingPartial" field.</summary>
+        public const int SupportsSendingPartialFieldNumber = 4;
+        private readonly static bool SupportsSendingPartialDefaultValue = false;
+
+        private bool supportsSendingPartial_;
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public bool SupportsSendingPartial {
+          get { if ((_hasBits0 & 4) != 0) { return supportsSendingPartial_; } else { return SupportsSendingPartialDefaultValue; } }
+          set {
+            _hasBits0 |= 4;
+            supportsSendingPartial_ = value;
+          }
+        }
+        /// <summary>Gets whether the "supportsSendingPartial" field is set</summary>
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public bool HasSupportsSendingPartial {
+          get { return (_hasBits0 & 4) != 0; }
+        }
+        /// <summary>Clears the value of the "supportsSendingPartial" field</summary>
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+        [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+        public void ClearSupportsSendingPartial() {
+          _hasBits0 &= ~4;
+        }
+
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
         public override bool Equals(object other) {
@@ -440,6 +556,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           if (Subscribe != other.Subscribe) return false;
           if (Topicid != other.Topicid) return false;
+          if (RequestsPartial != other.RequestsPartial) return false;
+          if (SupportsSendingPartial != other.SupportsSendingPartial) return false;
           return Equals(_unknownFields, other._unknownFields);
         }
 
@@ -449,6 +567,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           int hash = 1;
           if (HasSubscribe) hash ^= Subscribe.GetHashCode();
           if (HasTopicid) hash ^= Topicid.GetHashCode();
+          if (HasRequestsPartial) hash ^= RequestsPartial.GetHashCode();
+          if (HasSupportsSendingPartial) hash ^= SupportsSendingPartial.GetHashCode();
           if (_unknownFields != null) {
             hash ^= _unknownFields.GetHashCode();
           }
@@ -475,6 +595,14 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             output.WriteRawTag(18);
             output.WriteString(Topicid);
           }
+          if (HasRequestsPartial) {
+            output.WriteRawTag(24);
+            output.WriteBool(RequestsPartial);
+          }
+          if (HasSupportsSendingPartial) {
+            output.WriteRawTag(32);
+            output.WriteBool(SupportsSendingPartial);
+          }
           if (_unknownFields != null) {
             _unknownFields.WriteTo(output);
           }
@@ -493,6 +621,14 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             output.WriteRawTag(18);
             output.WriteString(Topicid);
           }
+          if (HasRequestsPartial) {
+            output.WriteRawTag(24);
+            output.WriteBool(RequestsPartial);
+          }
+          if (HasSupportsSendingPartial) {
+            output.WriteRawTag(32);
+            output.WriteBool(SupportsSendingPartial);
+          }
           if (_unknownFields != null) {
             _unknownFields.WriteTo(ref output);
           }
@@ -508,6 +644,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           if (HasTopicid) {
             size += 1 + pb::CodedOutputStream.ComputeStringSize(Topicid);
+          }
+          if (HasRequestsPartial) {
+            size += 1 + 1;
+          }
+          if (HasSupportsSendingPartial) {
+            size += 1 + 1;
           }
           if (_unknownFields != null) {
             size += _unknownFields.CalculateSize();
@@ -526,6 +668,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           if (other.HasTopicid) {
             Topicid = other.Topicid;
+          }
+          if (other.HasRequestsPartial) {
+            RequestsPartial = other.RequestsPartial;
+          }
+          if (other.HasSupportsSendingPartial) {
+            SupportsSendingPartial = other.SupportsSendingPartial;
           }
           _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
         }
@@ -554,6 +702,14 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
                 Topicid = input.ReadString();
                 break;
               }
+              case 24: {
+                RequestsPartial = input.ReadBool();
+                break;
+              }
+              case 32: {
+                SupportsSendingPartial = input.ReadBool();
+                break;
+              }
             }
           }
         #endif
@@ -579,6 +735,14 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
               }
               case 18: {
                 Topicid = input.ReadString();
+                break;
+              }
+              case 24: {
+                RequestsPartial = input.ReadBool();
+                break;
+              }
+              case 32: {
+                SupportsSendingPartial = input.ReadBool();
                 break;
               }
             }
@@ -1100,6 +1264,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       graft_ = other.graft_.Clone();
       prune_ = other.prune_.Clone();
       idontwant_ = other.idontwant_.Clone();
+      extensions_ = other.extensions_ != null ? other.extensions_.Clone() : null;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -1164,6 +1329,18 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       get { return idontwant_; }
     }
 
+    /// <summary>Field number for the "extensions" field.</summary>
+    public const int ExtensionsFieldNumber = 6;
+    private global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions extensions_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions Extensions {
+      get { return extensions_; }
+      set {
+        extensions_ = value;
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -1184,6 +1361,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       if(!graft_.Equals(other.graft_)) return false;
       if(!prune_.Equals(other.prune_)) return false;
       if(!idontwant_.Equals(other.idontwant_)) return false;
+      if (!object.Equals(Extensions, other.Extensions)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -1196,6 +1374,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       hash ^= graft_.GetHashCode();
       hash ^= prune_.GetHashCode();
       hash ^= idontwant_.GetHashCode();
+      if (extensions_ != null) hash ^= Extensions.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -1219,6 +1398,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       graft_.WriteTo(output, _repeated_graft_codec);
       prune_.WriteTo(output, _repeated_prune_codec);
       idontwant_.WriteTo(output, _repeated_idontwant_codec);
+      if (extensions_ != null) {
+        output.WriteRawTag(50);
+        output.WriteMessage(Extensions);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -1234,6 +1417,10 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       graft_.WriteTo(ref output, _repeated_graft_codec);
       prune_.WriteTo(ref output, _repeated_prune_codec);
       idontwant_.WriteTo(ref output, _repeated_idontwant_codec);
+      if (extensions_ != null) {
+        output.WriteRawTag(50);
+        output.WriteMessage(Extensions);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -1249,6 +1436,9 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       size += graft_.CalculateSize(_repeated_graft_codec);
       size += prune_.CalculateSize(_repeated_prune_codec);
       size += idontwant_.CalculateSize(_repeated_idontwant_codec);
+      if (extensions_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Extensions);
+      }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
       }
@@ -1266,6 +1456,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
       graft_.Add(other.graft_);
       prune_.Add(other.prune_);
       idontwant_.Add(other.idontwant_);
+      if (other.extensions_ != null) {
+        if (extensions_ == null) {
+          Extensions = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions();
+        }
+        Extensions.MergeFrom(other.Extensions);
+      }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
 
@@ -1305,6 +1501,13 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             idontwant_.AddEntriesFrom(input, _repeated_idontwant_codec);
             break;
           }
+          case 50: {
+            if (extensions_ == null) {
+              Extensions = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions();
+            }
+            input.ReadMessage(Extensions);
+            break;
+          }
         }
       }
     #endif
@@ -1342,6 +1545,13 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
           }
           case 42: {
             idontwant_.AddEntriesFrom(ref input, _repeated_idontwant_codec);
+            break;
+          }
+          case 50: {
+            if (extensions_ == null) {
+              Extensions = new global::Nethermind.Libp2p.Protocols.Pubsub.Dto.ControlExtensions();
+            }
+            input.ReadMessage(Extensions);
             break;
           }
         }
@@ -2727,6 +2937,594 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
             break;
           case 10: {
             messageIDs_.AddEntriesFrom(ref input, _repeated_messageIDs_codec);
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  /// <summary>
+  /// Gossipsub v1.3 extension capabilities. Unknown fields are intentionally
+  /// ignored so future extensions remain wire compatible.
+  /// </summary>
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
+  public sealed partial class ControlExtensions : pb::IMessage<ControlExtensions>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<ControlExtensions> _parser = new pb::MessageParser<ControlExtensions>(() => new ControlExtensions());
+    private pb::UnknownFieldSet _unknownFields;
+    private int _hasBits0;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<ControlExtensions> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[9]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlExtensions() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlExtensions(ControlExtensions other) : this() {
+      _hasBits0 = other._hasBits0;
+      partialMessages_ = other.partialMessages_;
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ControlExtensions Clone() {
+      return new ControlExtensions(this);
+    }
+
+    /// <summary>Field number for the "partialMessages" field.</summary>
+    public const int PartialMessagesFieldNumber = 10;
+    private readonly static bool PartialMessagesDefaultValue = false;
+
+    private bool partialMessages_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool PartialMessages {
+      get { if ((_hasBits0 & 1) != 0) { return partialMessages_; } else { return PartialMessagesDefaultValue; } }
+      set {
+        _hasBits0 |= 1;
+        partialMessages_ = value;
+      }
+    }
+    /// <summary>Gets whether the "partialMessages" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasPartialMessages {
+      get { return (_hasBits0 & 1) != 0; }
+    }
+    /// <summary>Clears the value of the "partialMessages" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearPartialMessages() {
+      _hasBits0 &= ~1;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as ControlExtensions);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(ControlExtensions other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if (PartialMessages != other.PartialMessages) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      if (HasPartialMessages) hash ^= PartialMessages.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      if (HasPartialMessages) {
+        output.WriteRawTag(80);
+        output.WriteBool(PartialMessages);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      if (HasPartialMessages) {
+        output.WriteRawTag(80);
+        output.WriteBool(PartialMessages);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      if (HasPartialMessages) {
+        size += 1 + 1;
+      }
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(ControlExtensions other) {
+      if (other == null) {
+        return;
+      }
+      if (other.HasPartialMessages) {
+        PartialMessages = other.PartialMessages;
+      }
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 80: {
+            PartialMessages = input.ReadBool();
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 80: {
+            PartialMessages = input.ReadBool();
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  /// <summary>
+  /// The Partial Messages registry identifies topics as opaque bytes. Go's
+  /// current string declaration is wire compatible with this canonical form.
+  /// </summary>
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
+  public sealed partial class PartialMessagesExtension : pb::IMessage<PartialMessagesExtension>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<PartialMessagesExtension> _parser = new pb::MessageParser<PartialMessagesExtension>(() => new PartialMessagesExtension());
+    private pb::UnknownFieldSet _unknownFields;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<PartialMessagesExtension> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Nethermind.Libp2p.Protocols.Pubsub.Dto.RpcReflection.Descriptor.MessageTypes[10]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PartialMessagesExtension() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PartialMessagesExtension(PartialMessagesExtension other) : this() {
+      topicID_ = other.topicID_;
+      groupID_ = other.groupID_;
+      partialMessage_ = other.partialMessage_;
+      partsMetadata_ = other.partsMetadata_;
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public PartialMessagesExtension Clone() {
+      return new PartialMessagesExtension(this);
+    }
+
+    /// <summary>Field number for the "topicID" field.</summary>
+    public const int TopicIDFieldNumber = 1;
+    private readonly static pb::ByteString TopicIDDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString topicID_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString TopicID {
+      get { return topicID_ ?? TopicIDDefaultValue; }
+      set {
+        topicID_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "topicID" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasTopicID {
+      get { return topicID_ != null; }
+    }
+    /// <summary>Clears the value of the "topicID" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearTopicID() {
+      topicID_ = null;
+    }
+
+    /// <summary>Field number for the "groupID" field.</summary>
+    public const int GroupIDFieldNumber = 2;
+    private readonly static pb::ByteString GroupIDDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString groupID_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString GroupID {
+      get { return groupID_ ?? GroupIDDefaultValue; }
+      set {
+        groupID_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "groupID" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasGroupID {
+      get { return groupID_ != null; }
+    }
+    /// <summary>Clears the value of the "groupID" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearGroupID() {
+      groupID_ = null;
+    }
+
+    /// <summary>Field number for the "partialMessage" field.</summary>
+    public const int PartialMessageFieldNumber = 3;
+    private readonly static pb::ByteString PartialMessageDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString partialMessage_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString PartialMessage {
+      get { return partialMessage_ ?? PartialMessageDefaultValue; }
+      set {
+        partialMessage_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "partialMessage" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasPartialMessage {
+      get { return partialMessage_ != null; }
+    }
+    /// <summary>Clears the value of the "partialMessage" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearPartialMessage() {
+      partialMessage_ = null;
+    }
+
+    /// <summary>Field number for the "partsMetadata" field.</summary>
+    public const int PartsMetadataFieldNumber = 4;
+    private readonly static pb::ByteString PartsMetadataDefaultValue = pb::ByteString.Empty;
+
+    private pb::ByteString partsMetadata_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pb::ByteString PartsMetadata {
+      get { return partsMetadata_ ?? PartsMetadataDefaultValue; }
+      set {
+        partsMetadata_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+    /// <summary>Gets whether the "partsMetadata" field is set</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasPartsMetadata {
+      get { return partsMetadata_ != null; }
+    }
+    /// <summary>Clears the value of the "partsMetadata" field</summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void ClearPartsMetadata() {
+      partsMetadata_ = null;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as PartialMessagesExtension);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(PartialMessagesExtension other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if (TopicID != other.TopicID) return false;
+      if (GroupID != other.GroupID) return false;
+      if (PartialMessage != other.PartialMessage) return false;
+      if (PartsMetadata != other.PartsMetadata) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      if (HasTopicID) hash ^= TopicID.GetHashCode();
+      if (HasGroupID) hash ^= GroupID.GetHashCode();
+      if (HasPartialMessage) hash ^= PartialMessage.GetHashCode();
+      if (HasPartsMetadata) hash ^= PartsMetadata.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      if (HasTopicID) {
+        output.WriteRawTag(10);
+        output.WriteBytes(TopicID);
+      }
+      if (HasGroupID) {
+        output.WriteRawTag(18);
+        output.WriteBytes(GroupID);
+      }
+      if (HasPartialMessage) {
+        output.WriteRawTag(26);
+        output.WriteBytes(PartialMessage);
+      }
+      if (HasPartsMetadata) {
+        output.WriteRawTag(34);
+        output.WriteBytes(PartsMetadata);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      if (HasTopicID) {
+        output.WriteRawTag(10);
+        output.WriteBytes(TopicID);
+      }
+      if (HasGroupID) {
+        output.WriteRawTag(18);
+        output.WriteBytes(GroupID);
+      }
+      if (HasPartialMessage) {
+        output.WriteRawTag(26);
+        output.WriteBytes(PartialMessage);
+      }
+      if (HasPartsMetadata) {
+        output.WriteRawTag(34);
+        output.WriteBytes(PartsMetadata);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      if (HasTopicID) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(TopicID);
+      }
+      if (HasGroupID) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(GroupID);
+      }
+      if (HasPartialMessage) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(PartialMessage);
+      }
+      if (HasPartsMetadata) {
+        size += 1 + pb::CodedOutputStream.ComputeBytesSize(PartsMetadata);
+      }
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(PartialMessagesExtension other) {
+      if (other == null) {
+        return;
+      }
+      if (other.HasTopicID) {
+        TopicID = other.TopicID;
+      }
+      if (other.HasGroupID) {
+        GroupID = other.GroupID;
+      }
+      if (other.HasPartialMessage) {
+        PartialMessage = other.PartialMessage;
+      }
+      if (other.HasPartsMetadata) {
+        PartsMetadata = other.PartsMetadata;
+      }
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 10: {
+            TopicID = input.ReadBytes();
+            break;
+          }
+          case 18: {
+            GroupID = input.ReadBytes();
+            break;
+          }
+          case 26: {
+            PartialMessage = input.ReadBytes();
+            break;
+          }
+          case 34: {
+            PartsMetadata = input.ReadBytes();
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 10: {
+            TopicID = input.ReadBytes();
+            break;
+          }
+          case 18: {
+            GroupID = input.ReadBytes();
+            break;
+          }
+          case 26: {
+            PartialMessage = input.ReadBytes();
+            break;
+          }
+          case 34: {
+            PartsMetadata = input.ReadBytes();
             break;
           }
         }
