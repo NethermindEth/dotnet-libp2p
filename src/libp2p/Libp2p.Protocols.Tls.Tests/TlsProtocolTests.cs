@@ -11,6 +11,7 @@ using NSubstitute;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -75,6 +76,30 @@ public class TlsProtocolTests
             Assert.That(dialerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(2)));
             Assert.That(listenerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(1)));
         });
+    }
+
+    [Test]
+    public void Test_TlsIdentityConflictIsRejected()
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        State state = new()
+        {
+            RemoteAddress = "/ip4/127.0.0.1/tcp/0",
+            RemotePublicKey = TestPeers.Identity(3).PublicKey,
+        };
+        context.State.Returns(state);
+
+        MethodInfo setRemoteIdentity = typeof(TlsProtocol).GetMethod("SetRemoteIdentity", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        TargetInvocationException? exception = Assert.Throws<TargetInvocationException>(() =>
+            setRemoteIdentity.Invoke(null, [context, certificate]));
+
+        Assert.That(exception!.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(exception.InnerException!.Message, Does.Contain("does not match"));
     }
 
     [Test]
