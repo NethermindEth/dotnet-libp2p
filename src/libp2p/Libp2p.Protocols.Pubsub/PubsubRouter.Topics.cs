@@ -38,7 +38,7 @@ public partial class PubsubRouter
 
         Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
         bool wasSubscribed = topic.IsSubscribed;
-        topic.ConfigurePartialMessages(options);
+        IPartialMessagesTopic partialMessagesTopic = topic.ConfigurePartialMessages(options);
 
         if (subscribe)
         {
@@ -50,7 +50,7 @@ public partial class PubsubRouter
             AnnounceSubscription(topicId);
         }
 
-        return topic;
+        return partialMessagesTopic;
     }
 
     private Rpc.Types.SubOpts CreateSubscription(string topicId, bool subscribe)
