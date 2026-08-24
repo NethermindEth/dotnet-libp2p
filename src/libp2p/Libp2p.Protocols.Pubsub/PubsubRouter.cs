@@ -171,6 +171,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
+        if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign && _settings.GetMessageId == PubsubSettings.ConcatFromAndSeqno)
+        {
+            throw new InvalidOperationException("StrictNoSign requires a custom GetMessageId function.");
+        }
+
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
         _idontwantMessages = new(_settings.MessageCacheTtl);
