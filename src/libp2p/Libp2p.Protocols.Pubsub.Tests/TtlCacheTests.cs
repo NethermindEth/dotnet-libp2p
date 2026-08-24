@@ -23,6 +23,7 @@ public class TtlCacheTests
         Assert.Multiple(() =>
         {
             Assert.That(cache.Count, Is.EqualTo(1));
+            Assert.That(cache.EntryOrderCount, Is.EqualTo(1));
             Assert.That(cache.Contains(expiredHigh), Is.False);
             Assert.That(cache.Contains(liveLow), Is.True);
         });
