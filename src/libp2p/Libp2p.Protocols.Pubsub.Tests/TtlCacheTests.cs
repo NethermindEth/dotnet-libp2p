@@ -9,12 +9,12 @@ public class TtlCacheTests
     [Test]
     public void RemoveExpired_RemovesEntriesRegardlessOfKeyOrder()
     {
-        using TtlCache<MessageId> cache = new(50);
+        using TtlCache<MessageId> cache = new(500);
         MessageId expiredHigh = new([0xFF]);
         MessageId liveLow = new([0x01]);
 
         cache.Add(expiredHigh);
-        Thread.Sleep(80);
+        Thread.Sleep(750);
         cache.Add(liveLow);
 
         cache.RemoveExpired(DateTimeOffset.UtcNow);
@@ -29,11 +29,11 @@ public class TtlCacheTests
     [Test]
     public void ExpiredEntries_AreNotReturned()
     {
-        using TtlCache<MessageId, string> cache = new(25);
+        using TtlCache<MessageId, string> cache = new(500);
         MessageId id = new([0x01]);
         cache.Add(id, "value");
 
-        Thread.Sleep(60);
+        Thread.Sleep(750);
 
         Assert.Multiple(() =>
         {
@@ -46,11 +46,11 @@ public class TtlCacheTests
     [Test]
     public void Add_ReplacesAnExpiredEntry()
     {
-        using TtlCache<MessageId, string> cache = new(25);
+        using TtlCache<MessageId, string> cache = new(500);
         MessageId id = new([0x01]);
         cache.Add(id, "expired");
 
-        Thread.Sleep(60);
+        Thread.Sleep(750);
         cache.Add(id, "replacement");
 
         Assert.That(cache.Get(id), Is.EqualTo("replacement"));
