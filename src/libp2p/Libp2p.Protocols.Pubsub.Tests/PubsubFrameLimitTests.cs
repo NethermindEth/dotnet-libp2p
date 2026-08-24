@@ -11,6 +11,17 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 public class PubsubFrameLimitTests
 {
     [Test]
+    public async Task ReadVarintUlongAsync_WithoutCancellationTokenRemainsAvailable()
+    {
+        TestChannel channel = new();
+        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>(EncodeVarint(42))).AsTask();
+        IChannel reader = channel;
+
+        Assert.That(await reader.ReadVarintUlongAsync(), Is.EqualTo(42));
+        await write;
+    }
+
+    [Test]
     public void MaxRpcBytes_RejectsNegativeValues()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubSettings { MaxRpcBytes = -1 });
