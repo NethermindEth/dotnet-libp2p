@@ -55,13 +55,13 @@ internal class Topic : IPartialMessagesTopic
     internal void ConfigurePartialMessages(PartialMessagesTopicOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (options.RequestPartialMessages && !options.SupportSendingPartialMessages)
+        if (options.RequestPartialMessages && !options.SupportsSendingPartialMessages)
         {
             throw new ArgumentException("Requesting partial messages requires support for sending partial messages.", nameof(options));
         }
 
         RequestsPartialMessages = options.RequestPartialMessages;
-        SupportsSendingPartialMessages = options.SupportSendingPartialMessages;
+        SupportsSendingPartialMessages = options.SupportsSendingPartialMessages;
     }
 
     public void Publish(byte[] value)

@@ -67,6 +67,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         public void Send(Rpc rpc)
         {
+            rpc = RemoveUnsupportedPartialSubscriptionOptions(rpc);
             rpc = AddExtensionsIfNeeded(rpc);
             SendRpcQueue.Enqueue(rpc);
             if (SendRpc is not null)
@@ -80,6 +81,24 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
+
+        private Rpc RemoveUnsupportedPartialSubscriptionOptions(Rpc rpc)
+        {
+            if (SupportsExtensions || !rpc.Subscriptions.Any(subscription => subscription.HasRequestsPartial || subscription.HasSupportsSendingPartial))
+            {
+                return rpc;
+            }
+
+            Rpc filteredRpc = rpc.Clone();
+            foreach (Rpc.Types.SubOpts subscription in filteredRpc.Subscriptions)
+            {
+                subscription.ClearRequestsPartial();
+                subscription.ClearSupportsSendingPartial();
+            }
+
+            return filteredRpc;
+        }
+
         public Dictionary<string, DateTime> Backoff { get; internal set; }
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;

@@ -129,9 +129,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
-        if (!partialMessage.HasTopicID)
+        if (!partialMessage.HasTopicID ||
+            !partialMessage.HasGroupID ||
+            (!partialMessage.HasPartialMessage && !partialMessage.HasPartsMetadata))
         {
-            logger?.LogDebug("Ignoring a Partial Messages extension payload without a topic from {peerId}", peerId);
+            logger?.LogDebug("Ignoring an incomplete Partial Messages extension payload from {peerId}", peerId);
             return;
         }
 
