@@ -144,6 +144,33 @@ public class PartialMessagesTests
     }
 
     [Test]
+    public void PartialMessages_HonorIndependentRemoteSubscriptionFlags()
+    {
+        const string topicName = "topic";
+        PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic(
+            topicName,
+            new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true });
+        Multiaddress remoteAddress = TestPeers.Multiaddr(1);
+        PeerId remotePeerId = remoteAddress.GetPeerId()!;
+        TaskCompletionSource connection = new();
+        List<Rpc> sentRpcs = [];
+        router.OutboundConnection(remoteAddress, PubsubRouter.GossipsubProtocolVersionV13, connection.Task, sentRpcs.Add);
+        router.OnRpc(remotePeerId, CreateSubscriptionRpc(topicName, requestsPartialMessages: true, supportsSendingPartialMessages: false));
+        sentRpcs.Clear();
+
+        topic.SendPartial(remotePeerId, [1], partialMessage: [2], partsMetadata: [3]);
+
+        PartialMessagesExtension sentPartial = sentRpcs.Single().Partial;
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentPartial.PartialMessage.ToByteArray(), Is.EqualTo(new byte[] { 2 }));
+            Assert.That(sentPartial.HasPartsMetadata, Is.False);
+        });
+        connection.SetResult();
+    }
+
+    [Test]
     public void PartialMessages_AreNeverAdvertisedOnOlderProtocols()
     {
         PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
