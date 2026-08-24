@@ -42,7 +42,12 @@ public interface IReader
         return VarInt.Decode(this, token);
     }
 
-    Task<ulong> ReadVarintUlongAsync(CancellationToken token = default)
+    Task<ulong> ReadVarintUlongAsync()
+    {
+        return VarInt.DecodeUlong(this);
+    }
+
+    Task<ulong> ReadVarintUlongAsync(CancellationToken token)
     {
         return VarInt.DecodeUlong(this, token);
     }
