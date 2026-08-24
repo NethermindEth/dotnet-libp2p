@@ -46,6 +46,12 @@ public class PubsubSettings
     /// </summary>
     public bool EnablePartialMessages { get; set; }
 
+    /// <summary>Number of heartbeats to retain a locally published partial-message group for gossip.</summary>
+    public int PartialMessageGossipTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum locally published partial-message groups retained for one topic.</summary>
+    public int MaxPartialMessageGroupsPerTopic { get; set; } = 255;
+
     public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 
     public enum SignaturePolicy
