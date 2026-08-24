@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using System.Buffers;
 using System.Net.Security;
 using Nethermind.Libp2p.Protocols.Quic;
@@ -168,7 +169,12 @@ public class TlsProtocol : IConnectionProtocol
         Core.Dto.PublicKey remotePublicKey = CertificateHelper.ExtractPublicKey(certificate, out _)
             ?? throw new InvalidOperationException("Remote public key not found");
 
-        context.State.RemotePublicKey ??= remotePublicKey;
+        if (context.State.RemotePublicKey is { } existingRemotePublicKey && existingRemotePublicKey.ToByteString() != remotePublicKey.ToByteString())
+        {
+            throw new InvalidOperationException("TLS certificate public key does not match the previously authenticated remote public key.");
+        }
+
+        context.State.RemotePublicKey = remotePublicKey;
 
         if (context.State.RemoteAddress is { } remoteAddress && !remoteAddress.Has<P2P>())
         {

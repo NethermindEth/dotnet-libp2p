@@ -37,14 +37,14 @@ public class TlsProtocolTests
         IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
         dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
         dialerContext.Peer.ListenAddresses.Returns([(Multiaddress)$"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}"]);
-        dialerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(2)}" });
+        dialerContext.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/0" });
         dialerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
         dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(upChannel);
 
         // Listener context (identity 2 listens for identity 1)
         IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
         listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
-        listenerContext.State.Returns(new State { RemoteAddress = $"/p2p/{TestPeers.PeerId(1)}" });
+        listenerContext.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/0" });
         listenerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
         listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
 
@@ -72,6 +72,8 @@ public class TlsProtocolTests
             Assert.That(received, Is.EqualTo(sent));
             Assert.That(new Identity(dialerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(2)));
             Assert.That(new Identity(listenerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(1)));
+            Assert.That(dialerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(listenerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(1)));
         });
     }
 
