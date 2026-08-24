@@ -43,14 +43,14 @@ public partial class PubsubRouter
 
             HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
 
-            if (fanout.TryGetValue(topicId, out HashSet<PeerId>? fanoutPeers))
+            if (fanout.TryRemove(topicId, out HashSet<PeerId>? fanoutPeers))
             {
                 foreach (PeerId peerId in fanoutPeers.ToList())
                 {
                     meshPeers.Add(peerId);
                 }
 
-                fanoutPeers.Clear();
+                fanoutLastPublished.TryRemove(topicId, out _);
             }
 
             peers = peerState.Values.ToArray();
