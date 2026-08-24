@@ -59,6 +59,29 @@ public class PubsubSettings
         }
     }
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
+
+    /// <summary>Maximum IHAVE envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIHaveMessages { get; set; } = 10;
+
+    /// <summary>Maximum message IDs accepted from, or requested from, one peer during a heartbeat.</summary>
+    public int MaxIHaveLength { get; set; } = 5_000;
+
+    /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>
+    public int GossipRetransmission { get; set; } = 3;
+
+    /// <summary>Maximum serialized bytes returned in response to a single IWANT RPC.</summary>
+    public int MaxIwantResponseBytes { get; set; } = 512 * 1024;
+
+    /// <summary>Maximum outstanding sampled promises from IHAVE advertisements.</summary>
+    public int MaxIwantPromises { get; set; } = 10_000;
+
+    /// <summary>Time after which a sampled IHAVE promise is penalized when its message never arrives.</summary>
+    public int IWantFollowupTime { get; set; } = 3_000;
+
+    /// <summary>Number of heartbeats for which accepted IDONTWANT IDs suppress IWANT responses.</summary>
+    public int IdontwantTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum IDONTWANT message IDs accepted from one peer during a heartbeat.</summary>
     public int MaxIdontwantMessages { get; set; } = 50;
 
     /// <summary>
