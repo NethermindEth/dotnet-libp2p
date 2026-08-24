@@ -261,7 +261,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     state.UpdatePartialMessagesSubscription(
                         sub.Topicid,
                         requestsPartialMessages,
-                        requestsPartialMessages || sub.SupportsSendingPartial);
+                        sub.SupportsSendingPartial);
                 }
             }
             else
