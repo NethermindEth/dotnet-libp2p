@@ -57,6 +57,7 @@ public class TopicLifecycleTests
 
         router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
         router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
+        router.OnRpc(peerId, CreateMessage(topicName, TestPeers.Identity(2), 1));
         sent.Clear();
 
         topic.Unsubscribe();
@@ -68,6 +69,9 @@ public class TopicLifecycleTests
         });
 
         sent.Clear();
+        await state.Heartbeat();
+        Assert.That(sent, Is.Empty);
+
         topic.Subscribe();
         await state.Heartbeat();
 
@@ -79,6 +83,42 @@ public class TopicLifecycleTests
         });
 
         connectionClosed.SetResult();
+    }
+
+    [Test]
+    public void Topic_UnsubscribeNotifiesAllConnectedPeersAndIsNotReadvertised()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubRouter router = new(new PeerStore());
+        ITopic topic = router.GetTopic(topicName);
+        TaskCompletionSource firstConnectionClosed = new();
+        TaskCompletionSource secondConnectionClosed = new();
+        TaskCompletionSource thirdConnectionClosed = new();
+        List<Rpc> firstSent = [];
+        List<Rpc> secondSent = [];
+        List<Rpc> thirdSent = [];
+        Multiaddress firstPeerAddress = TestPeers.Multiaddr(3);
+
+        router.OutboundConnection(firstPeerAddress, PubsubRouter.GossipsubProtocolVersionV11, firstConnectionClosed.Task, firstSent.Add);
+        router.OutboundConnection(TestPeers.Multiaddr(4), PubsubRouter.GossipsubProtocolVersionV11, secondConnectionClosed.Task, secondSent.Add);
+        router.OnRpc(firstPeerAddress.GetPeerId()!, new Rpc().WithTopics([topicName], []));
+        firstSent.Clear();
+        secondSent.Clear();
+
+        topic.Unsubscribe();
+
+        router.OutboundConnection(TestPeers.Multiaddr(5), PubsubRouter.GossipsubProtocolVersionV11, thirdConnectionClosed.Task, thirdSent.Add);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstSent.Any(rpc => rpc.Subscriptions.Any(subscription => !subscription.Subscribe && subscription.Topicid == topicName)), Is.True);
+            Assert.That(secondSent.Any(rpc => rpc.Subscriptions.Any(subscription => !subscription.Subscribe && subscription.Topicid == topicName)), Is.True);
+            Assert.That(thirdSent.Any(rpc => rpc.Subscriptions.Any(subscription => subscription.Subscribe && subscription.Topicid == topicName)), Is.False);
+        });
+
+        firstConnectionClosed.SetResult();
+        secondConnectionClosed.SetResult();
+        thirdConnectionClosed.SetResult();
     }
 
     private static Rpc CreateMessage(string topicName, Identity author, ulong sequenceNumber)
