@@ -6,18 +6,23 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 {
     private readonly int ttl;
+    private readonly int maxEntries;
     private readonly object sync = new();
     private readonly Dictionary<TKey, CachedItem> items = [];
+    private readonly Queue<(TKey Key, long Sequence)> insertionOrder = [];
     private readonly CancellationTokenSource sweeperCancellation = new();
     private readonly Task sweeperTask;
     private int disposed;
+    private long sequence;
 
-    private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill);
+    private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill, long Sequence);
 
-    public TtlCache(int ttl)
+    public TtlCache(int ttl, int maxEntries = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ttl);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
         this.ttl = ttl;
+        this.maxEntries = maxEntries;
         sweeperTask = Task.Run(async () =>
         {
             try
@@ -42,10 +47,15 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         lock (sync)
         {
-            if (items.TryGetValue(key, out CachedItem cachedItem) && cachedItem.ValidTill > DateTimeOffset.UtcNow)
+            if (items.TryGetValue(key, out CachedItem cachedItem))
             {
-                item = cachedItem.Item;
-                return true;
+                if (cachedItem.ValidTill > DateTimeOffset.UtcNow)
+                {
+                    item = cachedItem.Item;
+                    return true;
+                }
+
+                items.Remove(key);
             }
         }
 
@@ -57,27 +67,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         lock (sync)
         {
-            if (items.Count == 0)
-            {
-                return;
-            }
-
-            List<TKey>? expired = null;
-            foreach ((TKey key, CachedItem item) in items)
-            {
-                if (item.ValidTill <= now)
-                {
-                    (expired ??= []).Add(key);
-                }
-            }
-
-            if (expired is not null)
-            {
-                foreach (TKey key in expired)
-                {
-                    items.Remove(key);
-                }
-            }
+            RemoveExpiredLocked(now);
         }
     }
 
@@ -85,13 +75,60 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         lock (sync)
         {
-            if (items.TryGetValue(key, out CachedItem cachedItem) && cachedItem.ValidTill <= DateTimeOffset.UtcNow)
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            if (items.TryGetValue(key, out CachedItem cachedItem))
             {
+                if (cachedItem.ValidTill > now)
+                {
+                    return;
+                }
+
                 items.Remove(key);
             }
 
-            items.TryAdd(key, new CachedItem(item, DateTimeOffset.UtcNow.AddMilliseconds(ttl)));
+            while (items.Count >= maxEntries)
+            {
+                EvictOldest();
+            }
+
+            long itemSequence = ++sequence;
+            items.Add(key, new CachedItem(item, now.AddMilliseconds(ttl), itemSequence));
+            insertionOrder.Enqueue((key, itemSequence));
         }
+    }
+
+    private void RemoveExpiredLocked(DateTimeOffset now)
+    {
+        List<TKey>? expired = null;
+        foreach ((TKey key, CachedItem item) in items)
+        {
+            if (item.ValidTill <= now)
+            {
+                (expired ??= []).Add(key);
+            }
+        }
+
+        if (expired is not null)
+        {
+            foreach (TKey key in expired)
+            {
+                items.Remove(key);
+            }
+        }
+    }
+
+    private void EvictOldest()
+    {
+        while (insertionOrder.TryDequeue(out (TKey Key, long Sequence) oldest))
+        {
+            if (items.TryGetValue(oldest.Key, out CachedItem item) && item.Sequence == oldest.Sequence)
+            {
+                items.Remove(oldest.Key);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("TTL cache insertion order was unexpectedly empty.");
     }
 
     public void Dispose()
@@ -108,6 +145,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         lock (sync)
         {
             items.Clear();
+            insertionOrder.Clear();
         }
     }
 
@@ -124,7 +162,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     }
 }
 
-internal class TtlCache<TKey>(int ttl) : TtlCache<TKey, bool>(ttl) where TKey : notnull
+internal class TtlCache<TKey>(int ttl, int maxEntries = int.MaxValue) : TtlCache<TKey, bool>(ttl, maxEntries) where TKey : notnull
 {
     public void Add(TKey key) => Add(key, true);
 }
