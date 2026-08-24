@@ -90,9 +90,9 @@ public class GossipsubControlLimitsTests
         MessageId messageId = setup.Publish([1, 2, 3]);
         setup.SentRpcs.Clear();
 
-        Rpc dontWant = new() { Control = new ControlMessage() };
-        dontWant.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
-        setup.Router.OnRpc(setup.RemotePeerId, dontWant);
+        Rpc unwanted = new() { Control = new ControlMessage() };
+        unwanted.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, unwanted);
         setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
         Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
 
