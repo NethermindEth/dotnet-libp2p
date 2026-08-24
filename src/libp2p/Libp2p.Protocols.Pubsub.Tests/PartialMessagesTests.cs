@@ -27,6 +27,24 @@ public class PartialMessagesTests
     }
 
     [Test]
+    public void GetTopic_DoesNotExposePartialMessagesWithoutTheExplicitApi()
+    {
+        PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
+        ITopic topic = router.GetTopic("topic");
+
+        IPartialMessagesTopic partialTopic = router.GetPartialMessagesTopic(
+            "topic",
+            new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(topic, Is.Not.InstanceOf<IPartialMessagesTopic>());
+            Assert.That(partialTopic, Is.Not.SameAs(topic));
+            Assert.That(partialTopic.IsSubscribed, Is.True);
+        });
+    }
+
+    [Test]
     public void PartialMessageGossipCache_IsBoundedAndExpiresGroups()
     {
         PartialMessageGossipCache cache = new(maxGroupsPerTopic: 2, groupTtlHeartbeats: 2);
