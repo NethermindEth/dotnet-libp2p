@@ -157,6 +157,28 @@ public class TopicLifecycleTests
     }
 
     [Test]
+    public async Task PublishWithoutSubscriptionUsesGossipsubFanout()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubRouter router = new(new PeerStore());
+        await router.StartAsync(new LocalPeerStub());
+        _ = router.GetTopic(topicName, subscribe: false);
+        Multiaddress peerAddress = TestPeers.Multiaddr(3);
+        PeerId peerId = peerAddress.GetPeerId()!;
+        TaskCompletionSource connectionClosed = new();
+        List<Rpc> sent = [];
+
+        router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
+        router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
+        sent.Clear();
+
+        router.Publish(topicName, [1, 2, 3]);
+
+        Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
+        connectionClosed.SetResult();
+    }
+
+    [Test]
     public void UnsubscribedTopic_DoesNotRequestAdvertisedMessages()
     {
         const string topicName = "topic-lifecycle";
