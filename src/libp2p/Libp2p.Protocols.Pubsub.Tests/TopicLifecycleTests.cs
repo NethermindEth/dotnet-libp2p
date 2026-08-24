@@ -86,7 +86,7 @@ public class TopicLifecycleTests
     }
 
     [Test]
-    public void Topic_UnsubscribeNotifiesAllConnectedPeersAndIsNotReadvertised()
+    public void Topic_UnsubscribeNotifiesAllConnectedPeersAndDoesNotAnnounceItToNewPeers()
     {
         const string topicName = "topic-lifecycle";
         PubsubRouter router = new(new PeerStore());
