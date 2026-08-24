@@ -24,11 +24,11 @@
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "Direct",
-        "requested": "[10.0.0, )",
-        "resolved": "10.0.0",
-        "contentHash": "FU/IfjDfwaMuKr414SSQNTIti/69bHEMb+QKrskRb26oVqpx3lNFXMjs/RC9ZUuhBhcwDM2BwOgoMw+PZ+beqQ==",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "zkFxGYUvdxAvIKTyXHrmW+Sux53D4SezD9dMyZ6hrwwzPQJNuwCRy1f5W7AvYTqacEGhWF2XderRQG1OvbV8og==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10"
         }
       },
       "Microsoft.Extensions.Logging.Console": {
@@ -221,8 +221,8 @@
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
-        "resolved": "10.0.0",
-        "contentHash": "L3AdmZ1WOK4XXT5YFPEwyt0ep6l8lGIPs7F5OOBZc77Zqeo01Of7XXICy47628sdVl0v/owxYJTe86DTgFwKCA=="
+        "resolved": "10.0.10",
+        "contentHash": "z/2xXlFw2aLGjHyEm6E0tQ+In6VfzQzTrtArbQ2c0TQE16ZbyDCMGPvaUT9I0s8rgy9sRWlU2P9waW37qV04qA=="
       },
       "Microsoft.Extensions.Diagnostics": {
         "type": "Transitive",
@@ -471,14 +471,16 @@
       },
       "SIPSorcery": {
         "type": "Transitive",
-        "resolved": "10.0.3",
-        "contentHash": "+VnD/wvg5myZY2Gj3CXWKdTnfoigv1WyU0uh55pmksT28MBMXBSULLSQt6csNV8VYTJ2aT1CYr9LvBEZrbX6aw==",
+        "resolved": "10.0.14",
+        "contentHash": "NvJUoEOpY4NORy1uWdKA70YN8Et3q2IfFtc0JjzhmnVTmFmjOuiqd4LlPMrJ8920+Txm7A5SrhNXwXrOSHO9dQ==",
         "dependencies": {
           "BouncyCastle.Cryptography": "2.6.2",
           "Concentus": "2.2.2",
           "DnsClient": "1.8.0",
+          "Makaretu.Dns.Multicast": "0.27.0",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.10",
           "SIPSorcery.WebSocketSharp": "0.0.1",
-          "SIPSorceryMedia.Abstractions": "8.0.12"
+          "SIPSorceryMedia.Abstractions": "10.0.14"
         }
       },
       "SIPSorcery.WebSocketSharp": {
@@ -488,10 +490,10 @@
       },
       "SIPSorceryMedia.Abstractions": {
         "type": "Transitive",
-        "resolved": "8.0.12",
-        "contentHash": "70bYl3RFc0lkL6Z2M2GD/vymnWvmnvTSJfEpFHE4Uh+bp5Rz9DWsEvuF8EZEhaW3foPGvpNIfP5nGj52cCXjgw==",
+        "resolved": "10.0.14",
+        "contentHash": "sgqwzWcqCS3gQlKLuku4knEoJQX8ySL+awW5+aLqmVpT5fDFi4bkvdCjDF7fQ9y0sh/wM8YYZpueuJ6i+nkJXA==",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "9.0.0"
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.10"
         }
       },
       "StackExchange.Redis": {
@@ -572,7 +574,7 @@
           "Google.Protobuf": "[3.33.1, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.0, )",
           "Microsoft.Extensions.Hosting": "[9.0.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.RequestResponse": "[1.0.0, )",
           "Nethermind.Multiformats.Address": "[1.1.10, )",
@@ -611,8 +613,8 @@
           "DnsClient": "[1.8.0, )",
           "Google.Protobuf": "[3.33.1, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.0, )",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.10, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Multiformats.Address": "[1.1.10, )",
           "SimpleBase": "[4.0.2, )"
         }
@@ -621,10 +623,10 @@
         "type": "Project",
         "dependencies": {
           "Certes": "[3.0.4, )",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.10, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.0, )",
           "Microsoft.Extensions.Http": "[10.0.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Microsoft.Extensions.Options": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
@@ -633,7 +635,7 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.33.1, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.IpTcp": "[1.0.0, )"
         }
@@ -641,7 +643,7 @@
       "Nethermind.Libp2p.Protocols.IpTcp": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -649,7 +651,7 @@
         "type": "Project",
         "dependencies": {
           "Makaretu.Dns.Multicast": "[0.27.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -695,7 +697,7 @@
         "type": "Project",
         "dependencies": {
           "Makaretu.Dns.Multicast": "[0.27.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Pubsub": "[1.0.0, )"
         }
@@ -704,7 +706,7 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.6.2, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -712,7 +714,7 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.33.1, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -720,7 +722,7 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.33.1, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
@@ -735,12 +737,12 @@
       "Nethermind.Libp2p.Protocols.WebRtc": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.0, )",
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.10, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Noise": "[1.0.0, )",
           "Noise.NET": "[1.0.0, )",
-          "SIPSorcery": "[10.0.3, )"
+          "SIPSorcery": "[10.0.14, )"
         }
       },
       "Nethermind.Libp2p.Protocols.WebSockets": {
@@ -753,7 +755,7 @@
       "Nethermind.Libp2p.Protocols.Yamux": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       }
