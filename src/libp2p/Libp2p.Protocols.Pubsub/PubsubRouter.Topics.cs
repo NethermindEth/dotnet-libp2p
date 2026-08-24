@@ -192,10 +192,19 @@ public partial class PubsubRouter
             ulong seqNo = this.seqNo++;
             Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
 
+            HashSet<PeerId> directRecipients = GetDirectPeersForTopic(topicId).ToHashSet();
+            foreach (PeerId peerId in directRecipients)
+            {
+                if (ShouldSendFullMessage(peerId, topicId))
+                {
+                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                }
+            }
+
             // Floodsub peers always get the message.
             foreach (PeerId peerId in fPeers.GetValueOrDefault(topicId) ?? [])
             {
-                if (ShouldSendFullMessage(peerId, topicId))
+                if (!directRecipients.Contains(peerId) && ShouldSendFullMessage(peerId, topicId))
                 {
                     peerState.GetValueOrDefault(peerId)?.Send(rpc);
                 }
@@ -207,7 +216,9 @@ public partial class PubsubRouter
                 // Send to all gossipsub peers above publish threshold
                 foreach (PeerId peerId in allGossipsubPeers)
                 {
-                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
+                    if (!directRecipients.Contains(peerId) &&
+                        GetPeerScore(peerId) >= _settings.PublishThreshold &&
+                        ShouldSendFullMessage(peerId, topicId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -218,7 +229,9 @@ public partial class PubsubRouter
                 // Standard gossipsub v1.0 behavior: send to mesh or fanout
                 foreach (PeerId peerId in meshPeers)
                 {
-                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
+                    if (!directRecipients.Contains(peerId) &&
+                        GetPeerScore(peerId) >= _settings.PublishThreshold &&
+                        ShouldSendFullMessage(peerId, topicId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -235,7 +248,7 @@ public partial class PubsubRouter
                     if (topicPeers is { Count: > 0 })
                     {
                         // Select peers with non-negative scores
-                        var eligiblePeers = topicPeers.Where(p => GetPeerScore(p) >= 0).ToList();
+                        var eligiblePeers = topicPeers.Where(p => !IsDirectPeer(p) && GetPeerScore(p) >= 0).ToList();
                         foreach (PeerId peer in eligiblePeers.Take(_settings.Degree))
                         {
                             topicFanout.Add(peer);
@@ -245,7 +258,9 @@ public partial class PubsubRouter
 
                 foreach (PeerId peerId in topicFanout)
                 {
-                    if (GetPeerScore(peerId) >= _settings.PublishThreshold && ShouldSendFullMessage(peerId, topicId))
+                    if (!directRecipients.Contains(peerId) &&
+                        GetPeerScore(peerId) >= _settings.PublishThreshold &&
+                        ShouldSendFullMessage(peerId, topicId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
