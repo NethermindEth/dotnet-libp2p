@@ -10,6 +10,12 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [TestFixture]
 public class PubsubFrameLimitTests
 {
+    [Test]
+    public void MaxRpcBytes_RejectsNegativeValues()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubSettings { MaxRpcBytes = -1 });
+    }
+
     [TestCase(1_025UL)]
     [TestCase(2_147_483_648UL)]
     [TestCase(4_294_967_295UL)]
