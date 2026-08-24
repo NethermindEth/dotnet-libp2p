@@ -77,12 +77,23 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleExtensions(PeerId peerId, Rpc rpc)
     {
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer) || !peer.SupportsExtensions)
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }
 
         ControlExtensions? extensions = rpc.Control?.Extensions;
+        if (!peer.SupportsExtensions)
+        {
+            if (extensions is not null)
+            {
+                ApplyBehaviorPenalty(peerId, 1.0);
+                logger?.LogDebug("Ignoring Gossipsub v1.3 extensions from {peerId} on {protocol}", peerId, peer.Protocol);
+            }
+
+            return;
+        }
+
         if (peer.ReceivedFirstRpc)
         {
             if (extensions is not null)
