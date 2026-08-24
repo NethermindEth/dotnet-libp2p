@@ -437,7 +437,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
         {
             messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
-                .Where(mid => !_seenMessages.Contains(mid)));
+                .Where(mid => !_seenMessages.Contains(mid) && !_limboMessageCache.Contains(mid)));
         }
 
         if (messageIds.Any())

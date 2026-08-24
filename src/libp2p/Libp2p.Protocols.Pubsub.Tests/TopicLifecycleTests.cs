@@ -202,6 +202,36 @@ public class TopicLifecycleTests
     }
 
     [Test]
+    public void RejectedMessageIsNotRequestedAgainFromIhave()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubRouter router = new(new PeerStore())
+        {
+            VerifyMessage = _ => MessageValidity.Rejected,
+        };
+        _ = router.GetTopic(topicName);
+        Multiaddress peerAddress = TestPeers.Multiaddr(3);
+        PeerId peerId = peerAddress.GetPeerId()!;
+        TaskCompletionSource connectionClosed = new();
+        List<Rpc> sent = [];
+        Rpc rejectedMessage = CreateMessage(topicName, TestPeers.Identity(2), 1);
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(rejectedMessage.Publish.Single());
+
+        router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
+        sent.Clear();
+        router.OnRpc(peerId, rejectedMessage);
+        sent.Clear();
+
+        Rpc ihave = new() { Control = new ControlMessage() };
+        ihave.Control.Ihave.Add(new ControlIHave { TopicID = topicName, MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
+        router.OnRpc(peerId, ihave);
+
+        Assert.That(sent, Is.Empty);
+
+        connectionClosed.SetResult();
+    }
+
+    [Test]
     public void Topic_SubscribeMovesFanoutPeersIntoTheMesh()
     {
         const string topicName = "topic-lifecycle";
