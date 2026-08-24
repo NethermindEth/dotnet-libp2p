@@ -27,14 +27,15 @@ public partial class PubsubRouter
 
     public void Subscribe(string topicId)
     {
-        topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId)).IsSubscribed = true;
-
-        if (!fPeers.TryAdd(topicId, []))
+        Topic topic = topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
+        if (topic.IsSubscribed)
         {
-            // Already exists
             return;
         }
 
+        topic.IsSubscribed = true;
+
+        fPeers.TryAdd(topicId, []);
         gPeers.TryAdd(topicId, []);
 
         HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
@@ -58,9 +59,14 @@ public partial class PubsubRouter
 
     public void Unsubscribe(string topicId)
     {
-        topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId)).IsSubscribed = false;
+        if (!topicState.TryGetValue(topicId, out Topic? topic) || !topic.IsSubscribed)
+        {
+            return;
+        }
 
-        foreach (PeerId peerId in fPeers[topicId])
+        topic.IsSubscribed = false;
+
+        foreach (PeerId peerId in fPeers.GetValueOrDefault(topicId) ?? [])
         {
             Rpc msg = new Rpc()
                 .WithTopics([], [topicId]);
@@ -68,7 +74,7 @@ public partial class PubsubRouter
             peerState.GetValueOrDefault(peerId)?.Send(msg);
         }
 
-        foreach (PeerId peerId in gPeers[topicId])
+        foreach (PeerId peerId in gPeers.GetValueOrDefault(topicId) ?? [])
         {
             Rpc msg = new Rpc()
                 .WithTopics([], [topicId]);
@@ -79,45 +85,27 @@ public partial class PubsubRouter
             }
             peerState.GetValueOrDefault(peerId)?.Send(msg);
         }
+
+        if (mesh.TryRemove(topicId, out HashSet<PeerId>? removedMesh))
+        {
+            foreach (PeerId peerId in removedMesh)
+            {
+                RecordPeerLeaveMesh(peerId, topicId);
+            }
+        }
+
+        fanout.TryRemove(topicId, out _);
+        fanoutLastPublished.TryRemove(topicId, out _);
     }
 
     public void UnsubscribeAll()
     {
-        try
+        foreach (string topicId in topicState
+            .Where(pair => pair.Value.IsSubscribed)
+            .Select(pair => pair.Key)
+            .ToArray())
         {
-            foreach (PeerId? peerId in fPeers.SelectMany(kv => kv.Value))
-            {
-                Rpc msg = new Rpc().WithTopics([], topicState.Keys);
-
-                peerState.GetValueOrDefault(peerId)?.Send(msg);
-            }
-
-            Dictionary<PeerId, Rpc> peerMessages = [];
-
-            foreach (PeerId? peerId in gPeers.SelectMany(kv => kv.Value))
-            {
-                (peerMessages[peerId] ??= new Rpc())
-                    .WithTopics([], topicState.Keys);
-            }
-
-            foreach (KeyValuePair<string, HashSet<PeerId>> topicMesh in mesh.ToDictionary())
-            {
-                foreach (PeerId peerId in topicMesh.Value)
-                {
-                    (peerMessages[peerId] ??= new Rpc())
-                       .Ensure(r => r.Control.Prune)
-                       .Add(new ControlPrune { TopicID = topicMesh.Key });
-                }
-            }
-
-            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-            {
-                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
-            }
-        }
-        catch (Exception e)
-        {
-            logger?.LogError(e, $"Error during {nameof(UnsubscribeAll)}");
+            Unsubscribe(topicId);
         }
     }
 
