@@ -19,13 +19,16 @@ internal class Topic : ITopic
 
     private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
     {
-        if (!IsSubscribed || this.topicName != topicName)
+        lock (router)
         {
-            return;
-        }
+            if (!IsSubscribed || this.topicName != topicName)
+            {
+                return;
+            }
 
-        Action<PeerId, byte[]>? onMessage = OnMessage;
-        onMessage?.Invoke(peerId, message);
+            Action<PeerId, byte[]>? onMessage = OnMessage;
+            onMessage?.Invoke(peerId, message);
+        }
     }
 
     public DateTime LastPublished { get; set; }

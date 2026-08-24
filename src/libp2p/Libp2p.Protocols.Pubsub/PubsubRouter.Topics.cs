@@ -27,7 +27,6 @@ public partial class PubsubRouter
 
     public void Subscribe(string topicId)
     {
-        PubsubPeer[] peers;
         lock (this)
         {
             Topic topic = topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
@@ -47,25 +46,25 @@ public partial class PubsubRouter
             {
                 foreach (PeerId peerId in fanoutPeers.ToList())
                 {
-                    meshPeers.Add(peerId);
+                    if (meshPeers.Add(peerId))
+                    {
+                        RecordPeerJoinMesh(peerId, topicId);
+                    }
                 }
 
                 fanoutLastPublished.TryRemove(topicId, out _);
             }
 
-            peers = peerState.Values.ToArray();
-        }
-
-        Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
-        foreach (PubsubPeer peer in peers)
-        {
-            peer.Send(topicUpdate);
+            Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
+            foreach (PubsubPeer peer in peerState.Values)
+            {
+                peer.Send(topicUpdate);
+            }
         }
     }
 
     public void Unsubscribe(string topicId)
     {
-        KeyValuePair<PeerId, PubsubPeer>[] peers;
         HashSet<PeerId>? removedMesh;
         lock (this)
         {
@@ -86,18 +85,16 @@ public partial class PubsubRouter
 
             fanout.TryRemove(topicId, out _);
             fanoutLastPublished.TryRemove(topicId, out _);
-            peers = peerState.ToArray();
-        }
-
-        foreach ((PeerId peerId, PubsubPeer peer) in peers)
-        {
-            Rpc msg = new Rpc().WithTopics([], [topicId]);
-            if (removedMesh?.Contains(peerId) is true)
+            foreach ((PeerId peerId, PubsubPeer peer) in peerState)
             {
-                msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
-            }
+                Rpc msg = new Rpc().WithTopics([], [topicId]);
+                if (removedMesh?.Contains(peerId) is true)
+                {
+                    msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
+                }
 
-            peer.Send(msg);
+                peer.Send(msg);
+            }
         }
     }
 
