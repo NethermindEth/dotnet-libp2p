@@ -39,6 +39,8 @@ public class PubsubSettings
     public int FanoutTtl { get; set; } = 60 * 1000; // Time-to-live for each topic's fanout state 	60 seconds
     public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
+    public int MaxMessageCacheEntries { get; set; } = 10_000;
+    public int MaxMessageCacheBytes { get; set; } = 64 * 1024 * 1024;
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
     // Maximum incoming RPC frame size 1 MiB
     public int MaxRpcBytes
