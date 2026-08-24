@@ -93,7 +93,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         catch (Exception e) when (e is InvalidDataException or FormatException)
         {
             _logger?.LogDebug(e, "Invalid RPC from {remotePeerId}: {message}", remotePeerId, e.Message);
-            context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}"));
+            context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}: {e.Message}"));
             context.Activity?.SetStatus(ActivityStatusCode.Error);
             await context.DisconnectAsync();
         }

@@ -33,7 +33,7 @@ public class PubsubSettings
         get => maxRpcBytes;
         set
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
             maxRpcBytes = value;
         }
     }

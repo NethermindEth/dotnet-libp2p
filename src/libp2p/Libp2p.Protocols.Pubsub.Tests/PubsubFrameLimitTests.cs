@@ -22,9 +22,13 @@ public class PubsubFrameLimitTests
     }
 
     [Test]
-    public void MaxRpcBytes_RejectsNegativeValues()
+    public void MaxRpcBytes_RejectsNonPositiveValues()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubSettings { MaxRpcBytes = -1 });
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubSettings { MaxRpcBytes = -1 });
+            Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubSettings { MaxRpcBytes = 0 });
+        });
     }
 
     [TestCase(1_025UL)]
