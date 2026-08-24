@@ -190,12 +190,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 case MessageValidity.Rejected:
                     _limboMessageCache.Add(messageId);
+                    _iwantPromises.Fulfill(messageId);
                     RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                     continue;
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId);
+                    _iwantPromises.Fulfill(messageId);
                     continue;
                 case MessageValidity.Throttled:
+                    _iwantPromises.Clear(peerId);
                     continue;
             }
 
@@ -208,6 +211,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             _seenMessages.Add(messageId);
             _messageCache.Put(messageId, message);
+            _iwantPromises.Fulfill(messageId);
 
             // Record valid message delivery for scoring
             RecordMessageDelivery(peerId, message, message.Topic, true);
@@ -432,36 +436,118 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleIhave(PeerId peerId, IEnumerable<ControlIHave> ihaves, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
-        List<MessageId> messageIds = [];
-
-        foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
+        if (GetPeerScore(peerId) < _settings.GossipThreshold || !peerState.TryGetValue(peerId, out PubsubPeer? peer) || !peer.IsGossipSub)
         {
-            messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
-                .Where(mid => !_seenMessages.Contains(mid) && !_limboMessageCache.Contains(mid)));
+            return;
         }
 
-        if (messageIds.Any())
+        PeerControlState control = peer.Control;
+        if (control.IHaveRequested >= _settings.MaxIHaveLength)
         {
-            ControlIWant ciw = new();
-            foreach (MessageId mId in messageIds)
+            return;
+        }
+
+        HashSet<MessageId> messageIds = [];
+        foreach (ControlIHave ihave in ihaves)
+        {
+            if (!control.TryAcceptIHave(_settings.MaxIHaveMessages))
             {
-                ciw.MessageIDs.Add(ByteString.CopyFrom(mId.Bytes));
+                break;
             }
-            peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                .Ensure(r => r.Control.Iwant)
-                .Add(ciw);
+
+            if (!mesh.ContainsKey(ihave.TopicID))
+            {
+                continue;
+            }
+
+            foreach (ByteString idBytes in ihave.MessageIDs.Take(_settings.MaxIHaveLength))
+            {
+                MessageId messageId = new(idBytes.ToByteArray());
+                if (!_seenMessages.Contains(messageId) && !_limboMessageCache.Contains(messageId))
+                {
+                    messageIds.Add(messageId);
+                    if (messageIds.Count == _settings.MaxIHaveLength)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (messageIds.Count == _settings.MaxIHaveLength)
+            {
+                break;
+            }
         }
+
+        int requested = control.ReserveIHaveRequests(messageIds.Count, _settings.MaxIHaveLength);
+        if (requested == 0)
+        {
+            return;
+        }
+
+        MessageId[] selected = SampleMessageIds(messageIds, requested);
+        ControlIWant iwant = new();
+        iwant.MessageIDs.AddRange(selected.Select(messageId => ByteString.CopyFrom(messageId.Bytes)));
+        peerMessages.GetOrAdd(peerId, _ => new Rpc())
+            .Ensure(r => r.Control.Iwant)
+            .Add(iwant);
+        _iwantPromises.Add(peerId, selected, DateTime.UtcNow.AddMilliseconds(_settings.IWantFollowupTime));
     }
 
     private void HandleIwant(PeerId peerId, IEnumerable<ControlIWant> iwants, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
-        IEnumerable<MessageId> messageIds = iwants.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray()));
-        List<Message> messages = [];
-        foreach (MessageId mId in messageIds)
+        if (GetPeerScore(peerId) < _settings.GossipThreshold || !peerState.TryGetValue(peerId, out PubsubPeer? peer) || !peer.IsGossipSub)
         {
-            if (_messageCache.TryGet(mId, out Message message))
+            return;
+        }
+
+        PeerControlState control = peer.Control;
+        HashSet<MessageId> requested = [];
+        foreach (ControlIWant iwant in iwants)
+        {
+            if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
+            {
+                break;
+            }
+
+            foreach (ByteString idBytes in iwant.MessageIDs)
+            {
+                if (requested.Count >= _settings.MaxIwantLength)
+                {
+                    break;
+                }
+
+                requested.Add(new MessageId(idBytes.ToByteArray()));
+            }
+
+            if (requested.Count >= _settings.MaxIwantLength)
+            {
+                break;
+            }
+        }
+
+        List<Message> messages = [];
+        long responseBytes = 0;
+        foreach (MessageId messageId in requested)
+        {
+            if (peer.Control.IsUnwanted(messageId) || !_messageCache.TryGet(messageId, out Message message))
+            {
+                continue;
+            }
+
+            int messageSize = message.CalculateSize();
+            int serializedMessageSize = CodedOutputStream.ComputeTagSize(Rpc.PublishFieldNumber)
+                + CodedOutputStream.ComputeLengthSize(messageSize)
+                + messageSize;
+            if (responseBytes + serializedMessageSize > _settings.MaxIwantResponseBytes)
+            {
+                continue;
+            }
+
+            if (control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
             {
                 messages.Add(message);
+                responseBytes += serializedMessageSize;
             }
         }
         if (messages.Any())
@@ -473,9 +559,49 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleIdontwant(PeerId peerId, IEnumerable<ControlIDontWant> idontwants)
     {
-        foreach (MessageId messageId in idontwants.SelectMany(iw => iw.MessageIDs).Select(m => new MessageId(m.ToByteArray())).Take(_settings.MaxIdontwantMessages))
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer) || peer.Protocol < PubsubPeer.PubsubProtocol.GossipsubV12)
         {
-            _idontwantMessages.Add((peerId, messageId));
+            return;
         }
+
+        PeerControlState control = peer.Control;
+        int maxUnwanted = (int)Math.Min(
+            (long)_settings.MaxIdontwantMessages * _settings.MaxIdontwantLength * _settings.IdontwantTtlHeartbeats,
+            int.MaxValue);
+        foreach (ControlIDontWant idontwant in idontwants)
+        {
+            if (!control.TryAcceptIdontwant(_settings.MaxIdontwantMessages))
+            {
+                break;
+            }
+
+            foreach (ByteString idBytes in idontwant.MessageIDs.Take(_settings.MaxIdontwantLength))
+            {
+                control.AddUnwanted(new MessageId(idBytes.ToByteArray()), heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
+            }
+        }
+    }
+
+    private static MessageId[] SampleMessageIds(IEnumerable<MessageId> messageIds, int count)
+    {
+        List<MessageId> sample = new(count);
+        int candidates = 0;
+        foreach (MessageId messageId in messageIds)
+        {
+            candidates++;
+            if (sample.Count < count)
+            {
+                sample.Add(messageId);
+                continue;
+            }
+
+            int replacementIndex = Random.Shared.Next(candidates);
+            if (replacementIndex < count)
+            {
+                sample[replacementIndex] = messageId;
+            }
+        }
+
+        return sample.ToArray();
     }
 }
