@@ -126,6 +126,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     public event Action<string, PeerId, byte[]>? OnMessage;
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
+    internal int MaxRpcBytes => _settings.MaxRpcBytes;
+
     private readonly PubsubSettings _settings;
     private readonly TtlCache<MessageId, MessageWithId> _messageCache;
     private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;

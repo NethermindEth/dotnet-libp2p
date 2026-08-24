@@ -34,7 +34,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        PeerId? remotePeerId = context.State.RemotePeerId;
+        PeerId remotePeerId = context.State.RemotePeerId!;
 
         _logger?.LogDebug("Dialed({contextId}) {remoteAddress}", context.Id, context.State.RemoteAddress);
 
@@ -61,7 +61,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        PeerId? remotePeerId = context.State.RemotePeerId;
+        PeerId remotePeerId = context.State.RemotePeerId!;
 
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
@@ -75,7 +75,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         {
             while (!token.IsCancellationRequested)
             {
-                Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
+                Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, router.MaxRpcBytes, token);
                 if (rpc is null)
                 {
                     _logger?.LogDebug("Received a broken message or EOF from {remotePeerId}", remotePeerId);
@@ -89,6 +89,13 @@ public abstract class PubsubProtocol : ISessionProtocol
                     router.OnRpc(remotePeerId, rpc);
                 }
             }
+        }
+        catch (Exception e) when (e is InvalidDataException or FormatException)
+        {
+            _logger?.LogDebug("Invalid RPC from {remotePeerId}: {message}", remotePeerId, e.Message);
+            context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}"));
+            context.Activity?.SetStatus(ActivityStatusCode.Error);
+            await context.DisconnectAsync();
         }
         catch (Exception e)
         {

@@ -25,6 +25,7 @@ public class PubsubSettings
     public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
+    public int MaxRpcBytes { get; set; } = 1 * 1024 * 1024; // Maximum incoming RPC frame size 1 MiB
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
