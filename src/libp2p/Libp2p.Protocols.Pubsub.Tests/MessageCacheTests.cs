@@ -94,6 +94,25 @@ public class MessageCacheTests
     }
 
     [Test]
+    public void Clear_ReleasesMessagesAndHistory()
+    {
+        MessageCache cache = new(gossipWindows: 2, historyWindows: 3, maxEntries: 10, maxBytes: 1024);
+        MessageId id = new([1]);
+
+        cache.Put(id, CreateMessage("topic", [1, 2, 3]));
+        cache.Clear();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cache.Count, Is.Zero);
+            Assert.That(cache.CachedBytes, Is.Zero);
+            Assert.That(cache.HistoryEntryCount, Is.Zero);
+            Assert.That(cache.TryGet(id, out _), Is.False);
+            Assert.That(cache.GetGossipIds("topic"), Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task PublishedMessages_AreAvailableForIwantResponses()
     {
         const string topic = "topic";
