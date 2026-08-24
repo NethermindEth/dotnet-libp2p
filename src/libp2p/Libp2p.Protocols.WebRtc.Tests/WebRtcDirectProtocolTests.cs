@@ -9,8 +9,6 @@ public class WebRtcDirectProtocolTests
     [Test]
     public void Constructor_CreatesLocalDtlsCertificate()
     {
-        WebRtcDirectProtocol protocol = new();
-
-        Assert.That(protocol, Is.Not.Null);
+        Assert.That(() => new WebRtcDirectProtocol(), Throws.Nothing);
     }
 }
