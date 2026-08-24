@@ -148,6 +148,21 @@ internal sealed class MessageCache
         }
     }
 
+    internal void Clear()
+    {
+        lock (sync)
+        {
+            messages.Clear();
+            insertionOrder.Clear();
+            foreach (LinkedList<Entry> window in history)
+            {
+                window.Clear();
+            }
+
+            cachedBytes = 0;
+        }
+    }
+
     internal int Count
     {
         get

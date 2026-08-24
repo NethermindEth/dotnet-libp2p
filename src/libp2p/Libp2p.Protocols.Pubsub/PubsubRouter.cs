@@ -394,6 +394,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     public void Dispose()
     {
+        _messageCache.Clear();
         _seenMessages.Dispose();
         _limboMessageCache.Dispose();
         _idontwantMessages.Dispose();
