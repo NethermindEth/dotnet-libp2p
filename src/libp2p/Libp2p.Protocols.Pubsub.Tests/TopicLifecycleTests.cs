@@ -179,6 +179,25 @@ public class TopicLifecycleTests
         connectionClosed.SetResult();
     }
 
+    [Test]
+    public void Topic_SubscribeMovesFanoutPeersIntoTheMesh()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubRouter router = new(new PeerStore());
+        IRoutingStateContainer state = router;
+        ITopic topic = router.GetTopic(topicName, subscribe: false);
+        PeerId fanoutPeer = TestPeers.PeerId(3);
+        state.Fanout.GetOrAdd(topicName, []).Add(fanoutPeer);
+
+        topic.Subscribe();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.Mesh[topicName], Has.Member(fanoutPeer));
+            Assert.That(state.Fanout, Does.Not.ContainKey(topicName));
+        });
+    }
+
     private static Rpc CreateMessage(string topicName, Identity author, ulong sequenceNumber)
     {
         return new Rpc().WithMessages(topicName, sequenceNumber, author.PeerId.Bytes, [1, 2, 3], author);
