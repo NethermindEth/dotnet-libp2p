@@ -227,8 +227,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     internal int MaxRpcBytes => _settings.MaxRpcBytes;
 
     private readonly PubsubSettings _settings;
-    private readonly TtlCache<MessageId, MessageWithId> _messageCache;
-    private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
+    private readonly MessageCache _messageCache;
+    private readonly TtlCache<MessageId> _seenMessages;
+    private readonly TtlCache<MessageId> _limboMessageCache;
     private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
     private readonly PartialMessageGossipCache partialMessageGossip;
 
@@ -283,8 +284,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         directPeers = CreateDirectPeers(_settings.DirectPeers);
-        _messageCache = new(_settings.MessageCacheTtl);
-        _limboMessageCache = new(_settings.MessageCacheTtl);
+        _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
+        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
         _idontwantMessages = new(_settings.MessageCacheTtl);
         partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }
@@ -392,8 +394,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     public void Dispose()
     {
-        _messageCache.Dispose();
+        _messageCache.Clear();
+        _seenMessages.Dispose();
         _limboMessageCache.Dispose();
+        _idontwantMessages.Dispose();
     }
 
     private void Reconnect(CancellationToken token)
@@ -585,13 +589,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
 
-            IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
-
             foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
                 .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true || fanout.ContainsKey(topic))
                 .ToArray())
             {
-                IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
+                IReadOnlyList<MessageId> messageIds = _messageCache.GetGossipIds(topic);
                 bool canGossipPartialMessages =
                     onPartialGossip is not null &&
                     _settings.EnablePartialMessages &&
@@ -600,7 +602,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 IReadOnlyList<byte[]> partialMessageGroupIds = canGossipPartialMessages
                     ? partialMessageGossip.GetGroupIds(topic)
                     : [];
-                if (msgsInTopic is null && partialMessageGroupIds.Count == 0)
+                if (messageIds.Count == 0 && partialMessageGroupIds.Count == 0)
                 {
                     continue;
                 }
@@ -639,10 +641,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 }
 
-                if (msgsInTopic is not null)
+                if (messageIds.Count != 0)
                 {
                     ControlIHave ihave = new() { TopicID = topic };
-                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
+                    ihave.MessageIDs.AddRange(messageIds.Select(id => ByteString.CopyFrom(id.Bytes)));
                     foreach (PeerId peer in gossipPeers)
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc())
@@ -652,6 +654,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             }
 
             partialMessageGossip.Heartbeat();
+            _messageCache.Shift();
         }
 
         foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
@@ -797,10 +800,4 @@ internal enum ConnectionInitiation
 {
     Local,
     Remote,
-}
-
-internal readonly struct MessageWithId(MessageId id, Message message)
-{
-    public MessageId Id { get; } = id;
-    public Message Message { get; } = message;
 }
