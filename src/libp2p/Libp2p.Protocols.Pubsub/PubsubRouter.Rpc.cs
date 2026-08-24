@@ -333,7 +333,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 logger?.LogWarning("Rejecting GRAFT from direct peer {peerId} for topic {topic}", peerId, graft.TopicID);
                 peerMessages.GetOrAdd(peerId, _ => new Rpc())
                     .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = graft.TopicID });
+                    .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)Math.Max(1, _settings.PruneBackoff / 1_000) });
                 continue;
             }
 

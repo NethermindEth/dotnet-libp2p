@@ -279,7 +279,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         if (_settings.DirectConnectPeriod <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(settings), "DirectConnectPeriod must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.DirectConnectPeriod), "DirectConnectPeriod must be positive.");
         }
 
         directPeers = CreateDirectPeers(_settings.DirectPeers);
