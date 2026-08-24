@@ -49,7 +49,7 @@ internal static class RpcExtensions
     {
         if (signaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
         {
-            return message.Signature.IsEmpty;
+            return !message.HasSignature && !message.HasFrom && !message.HasSeqno && !message.HasKey;
         }
 
         PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
