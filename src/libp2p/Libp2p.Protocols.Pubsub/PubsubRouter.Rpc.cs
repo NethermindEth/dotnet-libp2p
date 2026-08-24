@@ -159,7 +159,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
     {
         // Check if peer is graylisted (Gossipsub v1.1)
-        if (ShouldGraylistPeer(peerId))
+        if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
         {
             logger?.LogDebug("Ignoring messages from graylisted peer {peerId}", peerId);
             return;
@@ -214,11 +214,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             PeerId author = new(message.From.ToArray());
             receivedMessages.Add((message.Topic, peerId, message.Data.ToByteArray()));
 
+            foreach (PeerId directPeerId in GetDirectPeersForTopic(message.Topic))
+            {
+                if (directPeerId != author && directPeerId != peerId && ShouldSendFullMessage(directPeerId, message.Topic))
+                {
+                    peerMessages.GetOrAdd(directPeerId, _ => new Rpc()).Publish.Add(message);
+                }
+            }
+
             if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
             {
                 foreach (PeerId peer in topicPeers)
                 {
-                    if (peer == author || peer == peerId)
+                    if (peer == author || peer == peerId || IsDirectPeer(peer))
                     {
                         continue;
                     }
@@ -232,7 +240,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 foreach (PeerId peer in topicPeers)
                 {
-                    if (peer == author || peer == peerId)
+                    if (peer == author || peer == peerId || IsDirectPeer(peer))
                     {
                         continue;
                     }
@@ -320,6 +328,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (ControlGraft? graft in grafts)
         {
+            if (IsDirectPeer(peerId))
+            {
+                logger?.LogWarning("Rejecting GRAFT from direct peer {peerId} for topic {topic}", peerId, graft.TopicID);
+                peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                    .Ensure(r => r.Control.Prune)
+                    .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)Math.Max(1, _settings.PruneBackoff / 1_000) });
+                continue;
+            }
+
             if (topicState.GetValueOrDefault(graft.TopicID)?.IsSubscribed is not true ||
                 !mesh.TryGetValue(graft.TopicID, out HashSet<PeerId>? topicMesh))
             {
