@@ -155,6 +155,7 @@ public class DirectPeersTests
             DirectPeers = new[] { Multiaddress.Decode("/ip4/127.0.0.1/tcp/4001") },
         };
 
-        Assert.That(() => new PubsubRouter(new PeerStore(), settings), Throws.TypeOf<ArgumentException>());
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => new PubsubRouter(new PeerStore(), settings))!;
+        Assert.That(exception.ParamName, Is.EqualTo(nameof(PubsubSettings.DirectPeers)));
     }
 }
