@@ -421,7 +421,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
 
-            foreach (string? topic in gPeers.Keys.Concat(fanout.Keys).Distinct().ToArray())
+            foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
+                .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true)
+                .ToArray())
             {
                 IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
                 if (msgsInTopic is not null)
@@ -430,9 +432,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
 
                     // Only send gossip to peers above gossip threshold
+                    HashSet<PeerId>? topicMesh = mesh.GetValueOrDefault(topic);
+                    HashSet<PeerId>? topicFanout = fanout.GetValueOrDefault(topic);
                     var eligiblePeers = gPeers[topic]
-                        .Where(p => !mesh[topic].Contains(p)
-                            && !fanout[topic].Contains(p)
+                        .Where(p => !(topicMesh?.Contains(p) ?? false)
+                            && !(topicFanout?.Contains(p) ?? false)
                             && GetPeerScore(p) >= _settings.GossipThreshold);
 
                     // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy)
@@ -507,7 +511,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
             });
 
-            string[] topics = topicState.Keys.ToArray();
+            string[] topics;
+            lock (this)
+            {
+                topics = topicState
+                    .Where(pair => pair.Value.IsSubscribed)
+                    .Select(pair => pair.Key)
+                    .ToArray();
+            }
 
             if (topics.Any())
             {
