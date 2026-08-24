@@ -14,13 +14,15 @@ public class TtlCacheTests
         MessageId liveLow = new([0x01]);
 
         cache.Add(expiredHigh);
-        Thread.Sleep(750);
+        DateTimeOffset expiredAfter = DateTimeOffset.UtcNow.AddMilliseconds(500);
+        Assert.That(() => DateTimeOffset.UtcNow >= expiredAfter, Is.True.After(2_000, 25));
         cache.Add(liveLow);
 
         cache.RemoveExpired(DateTimeOffset.UtcNow);
 
         Assert.Multiple(() =>
         {
+            Assert.That(cache.Count, Is.EqualTo(1));
             Assert.That(cache.Contains(expiredHigh), Is.False);
             Assert.That(cache.Contains(liveLow), Is.True);
         });
@@ -33,7 +35,7 @@ public class TtlCacheTests
         MessageId id = new([0x01]);
         cache.Add(id, "value");
 
-        Thread.Sleep(750);
+        Assert.That(() => cache.Contains(id), Is.False.After(2_000, 25));
 
         Assert.Multiple(() =>
         {
@@ -50,7 +52,7 @@ public class TtlCacheTests
         MessageId id = new([0x01]);
         cache.Add(id, "expired");
 
-        Thread.Sleep(750);
+        Assert.That(() => cache.Contains(id), Is.False.After(2_000, 25));
         cache.Add(id, "replacement");
 
         Assert.That(cache.Get(id), Is.EqualTo("replacement"));

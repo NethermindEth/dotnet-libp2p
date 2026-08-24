@@ -43,6 +43,17 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 
     public TItem Get(TKey key) => TryGet(key, out TItem item) ? item : default!;
 
+    internal int Count
+    {
+        get
+        {
+            lock (sync)
+            {
+                return items.Count;
+            }
+        }
+    }
+
     public bool TryGet(TKey key, out TItem item)
     {
         lock (sync)
