@@ -42,4 +42,17 @@ public class TtlCacheTests
             Assert.That(cache.ToList(), Is.Empty);
         });
     }
+
+    [Test]
+    public void Add_ReplacesAnExpiredEntry()
+    {
+        using TtlCache<MessageId, string> cache = new(25);
+        MessageId id = new([0x01]);
+        cache.Add(id, "expired");
+
+        Thread.Sleep(60);
+        cache.Add(id, "replacement");
+
+        Assert.That(cache.Get(id), Is.EqualTo("replacement"));
+    }
 }

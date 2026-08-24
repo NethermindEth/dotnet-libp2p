@@ -9,6 +9,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     private readonly object sync = new();
     private readonly Dictionary<TKey, CachedItem> items = [];
     private readonly CancellationTokenSource sweeperCancellation = new();
+    private readonly Task sweeperTask;
     private int disposed;
 
     private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill);
@@ -17,7 +18,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ttl);
         this.ttl = ttl;
-        _ = Task.Run(async () =>
+        sweeperTask = Task.Run(async () =>
         {
             try
             {
@@ -84,6 +85,11 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
         lock (sync)
         {
+            if (items.TryGetValue(key, out CachedItem cachedItem) && cachedItem.ValidTill <= DateTimeOffset.UtcNow)
+            {
+                items.Remove(key);
+            }
+
             items.TryAdd(key, new CachedItem(item, DateTimeOffset.UtcNow.AddMilliseconds(ttl)));
         }
     }
@@ -96,6 +102,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         }
 
         sweeperCancellation.Cancel();
+        sweeperTask.GetAwaiter().GetResult();
         sweeperCancellation.Dispose();
 
         lock (sync)
