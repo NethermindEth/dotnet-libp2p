@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub;
@@ -153,6 +154,29 @@ public class TopicLifecycleTests
 
         fanoutConnectionClosed.SetResult();
         gossipConnectionClosed.SetResult();
+    }
+
+    [Test]
+    public void UnsubscribedTopic_DoesNotRequestAdvertisedMessages()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubRouter router = new(new PeerStore());
+        ITopic topic = router.GetTopic(topicName);
+        Multiaddress peerAddress = TestPeers.Multiaddr(3);
+        TaskCompletionSource connectionClosed = new();
+        List<Rpc> sent = [];
+
+        router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
+        topic.Unsubscribe();
+        sent.Clear();
+
+        Rpc rpc = new() { Control = new ControlMessage() };
+        rpc.Control.Ihave.Add(new ControlIHave { TopicID = topicName, MessageIDs = { ByteString.CopyFrom([1]) } });
+        router.OnRpc(peerAddress.GetPeerId()!, rpc);
+
+        Assert.That(sent, Is.Empty);
+
+        connectionClosed.SetResult();
     }
 
     private static Rpc CreateMessage(string topicName, Identity author, ulong sequenceNumber)
