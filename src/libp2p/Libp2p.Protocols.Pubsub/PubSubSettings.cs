@@ -66,6 +66,12 @@ public class PubsubSettings
     /// <summary>Maximum message IDs accepted from, or requested from, one peer during a heartbeat.</summary>
     public int MaxIHaveLength { get; set; } = 5_000;
 
+    /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIwantMessages { get; set; } = 10;
+
+    /// <summary>Maximum message IDs accepted from one peer through IWANT during a heartbeat.</summary>
+    public int MaxIwantLength { get; set; } = 5_000;
+
     /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>
     public int GossipRetransmission { get; set; } = 3;
 
@@ -81,8 +87,11 @@ public class PubsubSettings
     /// <summary>Number of heartbeats for which accepted IDONTWANT IDs suppress IWANT responses.</summary>
     public int IdontwantTtlHeartbeats { get; set; } = 3;
 
-    /// <summary>Maximum IDONTWANT message IDs accepted from one peer during a heartbeat.</summary>
-    public int MaxIdontwantMessages { get; set; } = 50;
+    /// <summary>Maximum IDONTWANT envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIdontwantMessages { get; set; } = 1_000;
+
+    /// <summary>Maximum message IDs accepted from one IDONTWANT envelope.</summary>
+    public int MaxIdontwantLength { get; set; } = 10;
 
     /// <summary>
     /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router

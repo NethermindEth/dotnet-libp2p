@@ -198,6 +198,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     _iwantPromises.Fulfill(messageId);
                     continue;
                 case MessageValidity.Throttled:
+                    _iwantPromises.Clear(peerId);
                     continue;
             }
 
@@ -484,7 +485,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
-        MessageId[] selected = messageIds.OrderBy(_ => Random.Shared.Next()).Take(requested).ToArray();
+        MessageId[] selected = SampleMessageIds(messageIds, requested);
         ControlIWant iwant = new();
         iwant.MessageIDs.AddRange(selected.Select(messageId => ByteString.CopyFrom(messageId.Bytes)));
         peerMessages.GetOrAdd(peerId, _ => new Rpc())
@@ -500,12 +501,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
+        PeerControlState control = peer.Control;
         HashSet<MessageId> requested = [];
         foreach (ControlIWant iwant in iwants)
         {
+            if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
+            {
+                break;
+            }
+
             foreach (ByteString idBytes in iwant.MessageIDs)
             {
-                if (requested.Count >= _settings.MaxIHaveLength)
+                if (requested.Count >= _settings.MaxIwantLength)
                 {
                     break;
                 }
@@ -513,7 +520,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 requested.Add(new MessageId(idBytes.ToByteArray()));
             }
 
-            if (requested.Count >= _settings.MaxIHaveLength)
+            if (requested.Count >= _settings.MaxIwantLength)
             {
                 break;
             }
@@ -537,7 +544,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (peer.Control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIHaveLength))
+            if (control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
             {
                 messages.Add(message);
                 responseBytes += serializedMessageSize;
@@ -558,18 +565,43 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        int maxUnwanted = (int)Math.Min((long)_settings.MaxIdontwantMessages * _settings.IdontwantTtlHeartbeats, int.MaxValue);
+        int maxUnwanted = (int)Math.Min(
+            (long)_settings.MaxIdontwantMessages * _settings.MaxIdontwantLength * _settings.IdontwantTtlHeartbeats,
+            int.MaxValue);
         foreach (ControlIDontWant idontwant in idontwants)
         {
-            foreach (ByteString idBytes in idontwant.MessageIDs)
+            if (!control.TryAcceptIdontwant(_settings.MaxIdontwantMessages))
             {
-                if (!control.TryAcceptIdontwant(_settings.MaxIdontwantMessages))
-                {
-                    return;
-                }
+                break;
+            }
 
+            foreach (ByteString idBytes in idontwant.MessageIDs.Take(_settings.MaxIdontwantLength))
+            {
                 control.AddUnwanted(new MessageId(idBytes.ToByteArray()), heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
             }
         }
+    }
+
+    private static MessageId[] SampleMessageIds(IEnumerable<MessageId> messageIds, int count)
+    {
+        List<MessageId> sample = new(count);
+        int candidates = 0;
+        foreach (MessageId messageId in messageIds)
+        {
+            candidates++;
+            if (sample.Count < count)
+            {
+                sample.Add(messageId);
+                continue;
+            }
+
+            int replacementIndex = Random.Shared.Next(candidates);
+            if (replacementIndex < count)
+            {
+                sample[replacementIndex] = messageId;
+            }
+        }
+
+        return sample.ToArray();
     }
 }

@@ -104,6 +104,72 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task IDontWant_SeparatesEnvelopeAndMessageIdLimits()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIdontwantMessages = 1,
+            MaxIdontwantLength = 1,
+        });
+        MessageId first = setup.Publish([1]);
+        MessageId second = setup.Publish([2]);
+        MessageId third = setup.Publish([3]);
+        setup.SentRpcs.Clear();
+
+        Rpc unwanted = new() { Control = new ControlMessage() };
+        unwanted.Control.Idontwant.Add(new ControlIDontWant
+        {
+            MessageIDs = { ByteString.CopyFrom(first.Bytes), ByteString.CopyFrom(second.Bytes) },
+        });
+        unwanted.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(third.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, unwanted);
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(first));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(second));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(1));
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(third));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task EmptyIwantAndIdontwantEnvelopesDoNotBypassTheEnvelopeLimits()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIwantMessages = 2,
+            MaxIdontwantMessages = 2,
+        });
+        MessageId iwantMessageId = setup.Publish([1]);
+        MessageId idontwantMessageId = setup.Publish([2]);
+        setup.SentRpcs.Clear();
+
+        Rpc iwant = new() { Control = new ControlMessage() };
+        iwant.Control.Iwant.Add(new ControlIWant());
+        iwant.Control.Iwant.Add(new ControlIWant());
+        iwant.Control.Iwant.Add(new ControlIWant { MessageIDs = { ByteString.CopyFrom(iwantMessageId.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, iwant);
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+
+        Rpc idontwant = new() { Control = new ControlMessage() };
+        idontwant.Control.Idontwant.Add(new ControlIDontWant());
+        idontwant.Control.Idontwant.Add(new ControlIDontWant());
+        idontwant.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(idontwantMessageId.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, idontwant);
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(idontwantMessageId));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(1));
+    }
+
+    [Test]
     public void IwantPromises_AreBoundedAndFulfilledByTheMessageId()
     {
         IwantPromiseTracker tracker = new(maxPromises: 1);
@@ -125,6 +191,23 @@ public class GossipsubControlLimitsTests
         tracker.Add(firstPeer, [firstMessage], DateTime.UtcNow.AddSeconds(1));
         tracker.Fulfill(firstMessage);
         Assert.That(tracker.Count, Is.Zero);
+    }
+
+    [Test]
+    public async Task ThrottledMessages_ClearOutstandingIwantPromises()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        Identity author = TestPeers.Identity(3);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author).Publish.Single();
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(message);
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, messageId.Bytes));
+        Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
+
+        setup.Router.VerifyMessage = _ => MessageValidity.Throttled;
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
+
+        Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
     }
 
     [TestCase(0, 1, 1, 1, 1, 1, 1, 1)]
@@ -155,6 +238,21 @@ public class GossipsubControlLimitsTests
             IWantFollowupTime = followupTime,
             IdontwantTtlHeartbeats = idontwantTtl,
             MaxIdontwantMessages = maxIdontwantMessages,
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubRouter(new PeerStore(), settings));
+    }
+
+    [TestCase(0, 1, 1)]
+    [TestCase(1, 0, 1)]
+    [TestCase(1, 1, 0)]
+    public void Router_RejectsInvalidControlEnvelopeLimits(int maxIwantMessages, int maxIwantLength, int maxIdontwantLength)
+    {
+        PubsubSettings settings = new()
+        {
+            MaxIwantMessages = maxIwantMessages,
+            MaxIwantLength = maxIwantLength,
+            MaxIdontwantLength = maxIdontwantLength,
         };
 
         Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubRouter(new PeerStore(), settings));
