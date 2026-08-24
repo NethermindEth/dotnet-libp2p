@@ -17,6 +17,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
+            List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages = [];
             lock (this)
             {
                 HandleExtensions(peerId, rpc);
@@ -29,6 +30,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 if (rpc.Subscriptions.Count != 0)
                 {
                     HandleSubscriptions(peerId, rpc.Subscriptions);
+                }
+
+                if (rpc.Partial is not null)
+                {
+                    HandlePartialMessage(peerId, rpc.Partial, receivedPartialMessages);
                 }
 
                 if (rpc.Control is not null)
@@ -62,6 +68,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
             {
                 OnMessage?.Invoke(topic, receivedFrom, data);
+            }
+
+            foreach ((string topic, PeerId receivedFrom, PartialMessage message) in receivedPartialMessages)
+            {
+                OnPartialMessage?.Invoke(topic, receivedFrom, message);
             }
 
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
@@ -106,6 +117,32 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         peer.ReceivedFirstRpc = true;
+        peer.SupportsPartialMessagesExtension = extensions?.PartialMessages ?? false;
+    }
+
+    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
+    {
+        if (!_settings.EnablePartialMessages ||
+            !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
+            !peer.SupportsPartialMessagesExtension)
+        {
+            return;
+        }
+
+        if (!partialMessage.HasTopicID)
+        {
+            logger?.LogDebug("Ignoring a Partial Messages extension payload without a topic from {peerId}", peerId);
+            return;
+        }
+
+        receivedPartialMessages.Add((
+            partialMessage.TopicID,
+            peerId,
+            new PartialMessage(
+                partialMessage.TopicID,
+                partialMessage.GroupID.ToByteArray(),
+                partialMessage.HasPartialMessage ? partialMessage.PartialMessage.ToByteArray() : null,
+                partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
     }
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
@@ -215,9 +252,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 {
                     fPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
                 }
+
+                if (_settings.EnablePartialMessages && state.SupportsPartialMessagesExtension)
+                {
+                    bool requestsPartialMessages = sub.RequestsPartial;
+                    state.UpdatePartialMessagesSubscription(
+                        sub.Topicid,
+                        requestsPartialMessages,
+                        requestsPartialMessages || sub.SupportsSendingPartial);
+                }
             }
             else
             {
+                state.RemovePartialMessagesSubscription(sub.Topicid);
                 if (state.IsGossipSub)
                 {
                     gPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);

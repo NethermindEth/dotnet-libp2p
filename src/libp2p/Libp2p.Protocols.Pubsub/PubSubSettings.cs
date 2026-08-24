@@ -40,6 +40,12 @@ public class PubsubSettings
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
+    /// <summary>
+    /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router
+    /// advertises it only to v1.3 peers.
+    /// </summary>
+    public bool EnablePartialMessages { get; set; }
+
     public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 
     public enum SignaturePolicy

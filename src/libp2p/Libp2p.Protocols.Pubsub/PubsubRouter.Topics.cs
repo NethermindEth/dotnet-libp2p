@@ -24,6 +24,57 @@ public partial class PubsubRouter
         return topic;
     }
 
+    /// <summary>
+    /// Gets a topic configured for the opt-in Gossipsub v1.3 Partial Messages extension.
+    /// </summary>
+    public IPartialMessagesTopic GetPartialMessagesTopic(string topicId, PartialMessagesTopicOptions options, bool subscribe = true)
+    {
+        ArgumentNullException.ThrowIfNull(topicId);
+        ArgumentNullException.ThrowIfNull(options);
+        if (!_settings.EnablePartialMessages)
+        {
+            throw new InvalidOperationException("Partial messages are not enabled. Set EnablePartialMessages before creating a partial messages topic.");
+        }
+
+        Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
+        bool wasSubscribed = topic.IsSubscribed;
+        topic.ConfigurePartialMessages(options);
+
+        if (subscribe)
+        {
+            Subscribe(topicId);
+        }
+
+        if (wasSubscribed)
+        {
+            AnnounceSubscription(topicId);
+        }
+
+        return topic;
+    }
+
+    private Rpc.Types.SubOpts CreateSubscription(string topicId, bool subscribe)
+    {
+        Rpc.Types.SubOpts subscription = new() { Subscribe = subscribe, Topicid = topicId };
+        if (subscribe && _settings.EnablePartialMessages && topicState.TryGetValue(topicId, out Topic? topic))
+        {
+            subscription.RequestsPartial = topic.RequestsPartialMessages;
+            subscription.SupportsSendingPartial = topic.SupportsSendingPartialMessages;
+        }
+
+        return subscription;
+    }
+
+    private void AnnounceSubscription(string topicId)
+    {
+        Rpc topicUpdate = new();
+        topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
+        foreach (KeyValuePair<PeerId, PubsubPeer> peer in peerState)
+        {
+            peer.Value.Send(topicUpdate);
+        }
+    }
+
     public void Subscribe(string topicId)
     {
         lock (this)
@@ -54,7 +105,8 @@ public partial class PubsubRouter
                 fanoutLastPublished.TryRemove(topicId, out _);
             }
 
-            Rpc topicUpdate = new Rpc().WithTopics([topicId], []);
+            Rpc topicUpdate = new();
+            topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
             foreach (PubsubPeer peer in peerState.Values)
             {
                 peer.Send(topicUpdate);
@@ -184,6 +236,106 @@ public partial class PubsubRouter
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Sends application-defined partial data to partial-message-capable mesh or fanout peers.
+    /// </summary>
+    public void PublishPartial(string topicId, byte[] groupId, byte[]? partialMessage = null, byte[]? partsMetadata = null)
+    {
+        EnsurePartialMessagesEnabled(topicId);
+        ValidatePartialMessage(groupId, partialMessage, partsMetadata);
+
+        if (localPeer is null)
+        {
+            throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
+        }
+
+        PeerId[] recipients;
+        if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers) && meshPeers.Count > 0)
+        {
+            recipients = meshPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
+        }
+        else
+        {
+            fanoutLastPublished[topicId] = DateTime.Now;
+            HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
+            if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
+            {
+                foreach (PeerId peerId in topicPeers.Where(peerId => GetPeerScore(peerId) >= 0).Take(_settings.Degree))
+                {
+                    fanoutPeers.Add(peerId);
+                }
+            }
+
+            recipients = fanoutPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
+        }
+
+        foreach (PeerId peerId in recipients)
+        {
+            SendPartial(peerId, topicId, groupId, partialMessage, partsMetadata);
+        }
+    }
+
+    /// <summary>
+    /// Sends application-defined partial data to a connected peer selected by the application.
+    /// </summary>
+    public void SendPartial(PeerId peerId, string topicId, byte[] groupId, byte[]? partialMessage = null, byte[]? partsMetadata = null)
+    {
+        EnsurePartialMessagesEnabled(topicId);
+        ValidatePartialMessage(groupId, partialMessage, partsMetadata);
+
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer) || !peer.SupportsPartialMessagesExtension)
+        {
+            return;
+        }
+
+        bool sendPartialData = peer.RequestsPartialMessages(topicId);
+        bool sendPartsMetadata = peer.SupportsSendingPartialMessages(topicId);
+        if (!sendPartialData && !sendPartsMetadata)
+        {
+            return;
+        }
+
+        PartialMessagesExtension partial = new()
+        {
+            TopicID = topicId,
+            GroupID = Google.Protobuf.ByteString.CopyFrom(groupId),
+        };
+        if (sendPartialData && partialMessage is not null)
+        {
+            partial.PartialMessage = Google.Protobuf.ByteString.CopyFrom(partialMessage);
+        }
+
+        if (sendPartsMetadata && partsMetadata is not null)
+        {
+            partial.PartsMetadata = Google.Protobuf.ByteString.CopyFrom(partsMetadata);
+        }
+
+        if (partial.HasPartialMessage || partial.HasPartsMetadata)
+        {
+            peer.Send(new Rpc { Partial = partial });
+        }
+    }
+
+    private void EnsurePartialMessagesEnabled(string topicId)
+    {
+        ArgumentNullException.ThrowIfNull(topicId);
+        if (!_settings.EnablePartialMessages ||
+            !topicState.TryGetValue(topicId, out Topic? topic) ||
+            !topic.SupportsSendingPartialMessages)
+        {
+            throw new InvalidOperationException($"Partial messages are not enabled for topic '{topicId}'.");
+        }
+    }
+
+    private static void ValidatePartialMessage(byte[] groupId, byte[]? partialMessage, byte[]? partsMetadata)
+    {
+        ArgumentNullException.ThrowIfNull(groupId);
+        if (partialMessage is null && partsMetadata is null)
+        {
+            throw new ArgumentException("A partial message or parts metadata must be supplied.");
         }
     }
 
