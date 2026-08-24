@@ -19,10 +19,12 @@ public class GossipsubControlLimitsTests
         {
             HeartbeatInterval = int.MaxValue,
             MaxIHaveMessages = 1,
-            MaxIHaveLength = 2,
+            MaxIHaveLength = 3,
         });
 
-        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [1], [2], [3]));
+        Rpc ihaves = CreateIhave(setup.Topic, [1], [2]);
+        ihaves.Control.Ihave.Add(new ControlIHave { TopicID = setup.Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
+        setup.Router.OnRpc(setup.RemotePeerId, ihaves);
 
         Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(2));
         setup.SentRpcs.Clear();
@@ -64,7 +66,21 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
-    public async Task Idontwant_SuppressesResponsesUntilItsHeartbeatTtlExpires()
+    public async Task Iwant_ResponseLimitIncludesProtobufEnvelopeOverhead()
+    {
+        PubsubSettings settings = new() { HeartbeatInterval = int.MaxValue };
+        await using RouterSetup setup = await RouterSetup.Create(settings);
+        MessageId messageId = setup.Publish([1, 2, 3]);
+        settings.MaxIwantResponseBytes = setup.SentRpcs.Last().Publish.Single().CalculateSize();
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
+
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+    }
+
+    [Test]
+    public async Task IDontWant_SuppressesResponsesUntilItsHeartbeatTtlExpires()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
         {
