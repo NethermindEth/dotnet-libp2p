@@ -42,15 +42,27 @@ public interface IReader
         return VarInt.Decode(this, token);
     }
 
-    Task<ulong> ReadVarintUlongAsync()
+    Task<ulong> ReadVarintUlongAsync(CancellationToken token = default)
     {
-        return VarInt.DecodeUlong(this);
+        return VarInt.DecodeUlong(this, token);
     }
 
-    async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
+    ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, CancellationToken token = default) where T : IMessage<T>
     {
-        int messageLength = await ReadVarintAsync(token);
-        ReadOnlySequence<byte> serializedMessage = await ReadAsync(messageLength, token: token).OrThrow();
+        return ReadPrefixedProtobufAsync(parser, int.MaxValue, token);
+    }
+
+    async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, int maxMessageLength, CancellationToken token = default) where T : IMessage<T>
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageLength);
+
+        ulong messageLength = await ReadVarintUlongAsync(token);
+        if (messageLength > (ulong)maxMessageLength)
+        {
+            throw new InvalidDataException($"Incoming protobuf message size {messageLength} exceeds the limit of {maxMessageLength}");
+        }
+
+        ReadOnlySequence<byte> serializedMessage = await ReadAsync((int)messageLength, token: token).OrThrow();
 
         return parser.ParseFrom(serializedMessage);
     }
