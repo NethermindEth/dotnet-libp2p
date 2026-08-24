@@ -19,7 +19,7 @@ internal class Topic : ITopic
 
     private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
     {
-        if (this.topicName != topicName)
+        if (!IsSubscribed || this.topicName != topicName)
         {
             return;
         }
@@ -41,7 +41,7 @@ internal class Topic : ITopic
 
     public void Unsubscribe()
     {
-        if (!IsSubscribed) router.Unsubscribe(topicName);
+        if (IsSubscribed) router.Unsubscribe(topicName);
     }
 
     public void Subscribe()
