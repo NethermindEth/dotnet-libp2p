@@ -8,6 +8,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public class PubsubSettings
 {
+    private int maxRpcBytes = 1 * 1024 * 1024;
+
     public static PubsubSettings Default { get; } = new();
 
     public int ReconnectionAttempts { get; set; } = 10;
@@ -25,7 +27,16 @@ public class PubsubSettings
     public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
-    public int MaxRpcBytes { get; set; } = 1 * 1024 * 1024; // Maximum incoming RPC frame size 1 MiB
+    // Maximum incoming RPC frame size 1 MiB
+    public int MaxRpcBytes
+    {
+        get => maxRpcBytes;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            maxRpcBytes = value;
+        }
+    }
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
