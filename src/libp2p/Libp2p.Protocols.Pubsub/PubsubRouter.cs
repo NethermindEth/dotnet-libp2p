@@ -422,11 +422,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
 
             foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
-                .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true)
+                .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true || fanout.ContainsKey(topic))
                 .ToArray())
             {
                 IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
-                if (msgsInTopic is not null)
+                if (msgsInTopic is not null && gPeers.TryGetValue(topic, out HashSet<PeerId>? topicGossipsubPeers))
                 {
                     ControlIHave ihave = new() { TopicID = topic };
                     ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
@@ -434,7 +434,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     // Only send gossip to peers above gossip threshold
                     HashSet<PeerId>? topicMesh = mesh.GetValueOrDefault(topic);
                     HashSet<PeerId>? topicFanout = fanout.GetValueOrDefault(topic);
-                    var eligiblePeers = gPeers[topic]
+                    var eligiblePeers = topicGossipsubPeers
                         .Where(p => !(topicMesh?.Contains(p) ?? false)
                             && !(topicFanout?.Contains(p) ?? false)
                             && GetPeerScore(p) >= _settings.GossipThreshold);

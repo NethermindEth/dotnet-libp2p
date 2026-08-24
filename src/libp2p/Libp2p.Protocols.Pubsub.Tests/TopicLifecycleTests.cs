@@ -121,6 +121,40 @@ public class TopicLifecycleTests
         thirdConnectionClosed.SetResult();
     }
 
+    [Test]
+    public async Task PublishOnlyTopic_ContinuesGossiping()
+    {
+        const string topicName = "topic-lifecycle";
+        PubsubSettings settings = new() { Degree = 1, LazyDegree = 1, GossipFactor = 1 };
+        PubsubRouter router = new(new PeerStore(), settings);
+        IRoutingStateContainer state = router;
+        _ = router.GetTopic(topicName, subscribe: false);
+        Multiaddress fanoutPeerAddress = TestPeers.Multiaddr(3);
+        Multiaddress gossipPeerAddress = TestPeers.Multiaddr(4);
+        PeerId fanoutPeerId = fanoutPeerAddress.GetPeerId()!;
+        PeerId gossipPeerId = gossipPeerAddress.GetPeerId()!;
+        TaskCompletionSource fanoutConnectionClosed = new();
+        TaskCompletionSource gossipConnectionClosed = new();
+        List<Rpc> fanoutSent = [];
+        List<Rpc> gossipSent = [];
+
+        router.OutboundConnection(fanoutPeerAddress, PubsubRouter.GossipsubProtocolVersionV11, fanoutConnectionClosed.Task, fanoutSent.Add);
+        router.OutboundConnection(gossipPeerAddress, PubsubRouter.GossipsubProtocolVersionV11, gossipConnectionClosed.Task, gossipSent.Add);
+        router.OnRpc(fanoutPeerId, new Rpc().WithTopics([topicName], []));
+        router.OnRpc(gossipPeerId, new Rpc().WithTopics([topicName], []));
+        state.Fanout.GetOrAdd(topicName, []).Add(fanoutPeerId);
+        router.OnRpc(fanoutPeerId, CreateMessage(topicName, TestPeers.Identity(5), 1));
+        fanoutSent.Clear();
+        gossipSent.Clear();
+
+        await state.Heartbeat();
+
+        Assert.That(gossipSent.Any(rpc => rpc.Control?.Ihave.Any(ihave => ihave.TopicID == topicName) is true), Is.True);
+
+        fanoutConnectionClosed.SetResult();
+        gossipConnectionClosed.SetResult();
+    }
+
     private static Rpc CreateMessage(string topicName, Identity author, ulong sequenceNumber)
     {
         return new Rpc().WithMessages(topicName, sequenceNumber, author.PeerId.Bytes, [1, 2, 3], author);
