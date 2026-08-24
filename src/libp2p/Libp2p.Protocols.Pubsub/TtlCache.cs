@@ -24,7 +24,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
             {
                 while (true)
                 {
-                    await Task.Delay(Math.Min(5_000, ttl), sweeperCancellation.Token);
+                    await Task.Delay(5_000, sweeperCancellation.Token);
                     RemoveExpired(DateTimeOffset.UtcNow);
                 }
             }

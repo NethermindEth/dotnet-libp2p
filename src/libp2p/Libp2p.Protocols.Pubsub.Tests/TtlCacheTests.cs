@@ -27,7 +27,7 @@ public class TtlCacheTests
     }
 
     [Test]
-    public void ExpiredEntries_AreNotReturnedBeforeTheSweeperRuns()
+    public void ExpiredEntries_AreNotReturned()
     {
         using TtlCache<MessageId, string> cache = new(25);
         MessageId id = new([0x01]);
