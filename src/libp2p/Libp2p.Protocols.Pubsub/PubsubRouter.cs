@@ -253,6 +253,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
+    private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
+    private DateTime nextDirectConnectionAttempt;
     private ulong seqNo = 1;
 
     private record Reconnection(Multiaddress[] Addresses, int Attempts);
@@ -275,6 +277,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             throw new InvalidOperationException("StrictNoSign requires a custom GetMessageId function.");
         }
 
+        if (_settings.DirectConnectPeriod <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), "DirectConnectPeriod must be positive.");
+        }
+
+        directPeers = CreateDirectPeers(_settings.DirectPeers);
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
         _idontwantMessages = new(_settings.MessageCacheTtl);
@@ -300,6 +308,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             }
             _ = Connect(addrs, token, true);
         };
+
+        foreach (Multiaddress[] directPeerAddresses in directPeers.Values)
+        {
+            _peerStore.Discover(directPeerAddresses);
+        }
+        nextDirectConnectionAttempt = DateTime.UtcNow.AddMilliseconds(_settings.DirectConnectPeriod);
 
         _ = Task.Run(LoopHeartbeat, token);
         _ = Task.Run(LoopReconnect, token);
@@ -397,6 +411,46 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }, token);
         }
+
+        ReconnectDirectPeers(token);
+    }
+
+    private static IReadOnlyDictionary<PeerId, Multiaddress[]> CreateDirectPeers(IEnumerable<Multiaddress>? configuredPeers)
+    {
+        return (configuredPeers ?? [])
+            .Select(address => (PeerId: address.GetPeerId() ?? throw new ArgumentException("A direct peer address must include a peer ID.", nameof(configuredPeers)), Address: address))
+            .GroupBy(entry => entry.PeerId)
+            .ToDictionary(group => group.Key, group => group.Select(entry => entry.Address).ToArray());
+    }
+
+    private void ReconnectDirectPeers(CancellationToken token)
+    {
+        if (directPeers.Count == 0 || DateTime.UtcNow < nextDirectConnectionAttempt)
+        {
+            return;
+        }
+
+        nextDirectConnectionAttempt = DateTime.UtcNow.AddMilliseconds(_settings.DirectConnectPeriod);
+        foreach ((PeerId peerId, Multiaddress[] addresses) in directPeers)
+        {
+            if (!peerState.ContainsKey(peerId))
+            {
+                _ = Connect(addresses, token, reconnect: true);
+            }
+        }
+    }
+
+    private bool IsDirectPeer(PeerId peerId) => directPeers.ContainsKey(peerId);
+
+    private bool IsDirectPeerSubscribedTo(PeerId peerId, string topic)
+    {
+        return (fPeers.TryGetValue(topic, out HashSet<PeerId>? floodsubPeers) && floodsubPeers.Contains(peerId)) ||
+               (gPeers.TryGetValue(topic, out HashSet<PeerId>? gossipsubPeers) && gossipsubPeers.Contains(peerId));
+    }
+
+    private IEnumerable<PeerId> GetDirectPeersForTopic(string topic)
+    {
+        return directPeers.Keys.Where(peerId => IsDirectPeerSubscribedTo(peerId, topic));
     }
 
     public Task Heartbeat()
@@ -437,6 +491,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = gPeers[topic]
                         .Where(p => !meshPeers.Contains(p)
+                            && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
                             && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff < DateTime.Now))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
@@ -522,7 +577,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in gPeers[fanoutTopic].Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
+                        foreach (PeerId? peerId in gPeers[fanoutTopic].Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p)).Take(peerCountToAdd))
                         {
                             fanout[fanoutTopic].Add(peerId);
                         }
@@ -557,6 +612,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 PeerId[] eligiblePeers = topicGossipsubPeers
                     .Where(p => !topicMesh.Contains(p)
                         && !fanoutPeers.Contains(p)
+                        && !IsDirectPeer(p)
                         && GetPeerScore(p) >= _settings.GossipThreshold)
                     .ToArray();
 

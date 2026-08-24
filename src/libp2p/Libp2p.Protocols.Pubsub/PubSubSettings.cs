@@ -3,6 +3,7 @@
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -21,6 +22,18 @@ public class PubsubSettings
     public int LazyDegree { get; set; } = 6; // (Optional) the outbound degree for gossip emission D
 
     public int MaxConnections { get; set; }
+
+    /// <summary>
+    /// Peers with reciprocal explicit peering agreements. Each address must
+    /// contain a peer ID and is configured before the router starts.
+    /// </summary>
+    public Multiaddress[] DirectPeers { get; set; } = [];
+
+    /// <summary>
+    /// Interval for reconnecting disconnected direct peers. Gossipsub recommends
+    /// five minutes.
+    /// </summary>
+    public int DirectConnectPeriod { get; set; } = 5 * 60 * 1000;
 
     public int HeartbeatInterval { get; set; } = 1_000; // Time between heartbeats 	1 second
     public int FanoutTtl { get; set; } = 60 * 1000; // Time-to-live for each topic's fanout state 	60 seconds
