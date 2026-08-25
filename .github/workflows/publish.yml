@@ -21,18 +21,22 @@ jobs:
   publish:
     name: Test and publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     env:
       BUILD_CONFIG: Release
+      NUGET_HOST: ${{ inputs.feed == 'Staging' && 'https://int.nugettest.org' || 'https://www.nuget.org' }}
       WORKING_DIR: src/libp2p
     steps:
 
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: true
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -40,25 +44,31 @@ jobs:
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: |
-          dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore \
-            -p:Version=${{ github.event.inputs.version }}
+        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.PACK_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.PACK_OPTS }}
+          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
+
+      - name: NuGet login
+        uses: nuget/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+          audience: ${{ env.NUGET_HOST }}
+          token-service-url: ${{ env.NUGET_HOST }}/api/v2/token
 
       - name: Publish
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ github.event.inputs.version }}
+          PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ inputs.version }}
           NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
           dotnet pack Libp2p ${{ env.PACK_OPTS }}
@@ -79,8 +89,6 @@ jobs:
           dotnet pack Libp2p.Protocols.Relay ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
-          
-          dotnet nuget push **/*.nupkg \
-            -k ${{ github.event.inputs.feed == 'Production' && secrets.NUGET_API_KEY || secrets.NUGETTEST_API_KEY }} \
-            -s ${{ github.event.inputs.feed == 'Production' && 'https://api.nuget.org/v3/index.json' || 'https://apiint.nugettest.org/v3/index.json' }} \
-            --skip-duplicate
+
+          dotnet nuget push **/*.nupkg --skip-duplicate \
+            -k "${{ steps.login.outputs.NUGET_API_KEY }}" -s ${{ env.NUGET_HOST }}/api/v2/package
