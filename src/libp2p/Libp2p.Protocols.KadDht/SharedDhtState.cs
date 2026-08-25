@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -16,7 +17,7 @@ namespace Libp2p.Protocols.KadDht;
 public class SharedDhtState
 {
     private readonly ILogger<SharedDhtState> _logger;
-    private IRoutingTable<ValueHash256, DhtNode>? _routingTable;
+    private IRoutingTable<DhtNode, ValueHash256>? _routingTable;
 
     /// <summary>
     /// Gets the local peer's public key.
@@ -47,7 +48,7 @@ public class SharedDhtState
     /// <param name="routingTable">Optional routing table for efficient peer lookups. If null, GetKNearestPeers returns empty array.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
     /// <param name="maintenanceInterval">Optional cleanup interval for value store. Defaults to 1 hour.</param>
-    public SharedDhtState(IRoutingTable<ValueHash256, DhtNode>? routingTable = null, ILoggerFactory? loggerFactory = null, TimeSpan? maintenanceInterval = null)
+    public SharedDhtState(IRoutingTable<DhtNode, ValueHash256>? routingTable = null, ILoggerFactory? loggerFactory = null, TimeSpan? maintenanceInterval = null)
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
         _routingTable = routingTable;
@@ -59,7 +60,7 @@ public class SharedDhtState
     /// after SharedDhtState has been created and registered in DI container.
     /// </summary>
     /// <param name="routingTable">The routing table to use for peer lookups.</param>
-    public void SetRoutingTable(IRoutingTable<ValueHash256, DhtNode> routingTable)
+    public void SetRoutingTable(IRoutingTable<DhtNode, ValueHash256> routingTable)
     {
         _routingTable = routingTable;
         _logger.LogInformation("Routing table updated with {PeerCount} peers", routingTable.Size);
@@ -86,7 +87,7 @@ public class SharedDhtState
         var seen = new HashSet<string>();
         var closestPeers = new List<DhtNode>(k);
 
-        foreach (var peer in _routingTable.GetKNearestNeighbour(targetKey.Hash))
+        foreach (var peer in _routingTable.GetKNearestNeighbour(targetKey.Hash, excludeSelf: true))
         {
             var peerIdStr = peer.PeerId?.ToString();
             if (peerIdStr != null && !seen.Add(peerIdStr))

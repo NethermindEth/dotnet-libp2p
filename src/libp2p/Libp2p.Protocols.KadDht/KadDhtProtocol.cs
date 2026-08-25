@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System.Collections.Concurrent;
 using Google.Protobuf;
@@ -9,12 +9,13 @@ using Libp2p.Protocols.KadDht.Integration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nethermind.Libp2p.Core;
+using Nethermind.Kademlia;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
-public class KadDhtProtocol : ISessionProtocol
+public class KadDhtProtocol : ISessionProtocol, IDisposable
 {
     private readonly ILocalPeer _localPeer;
     private readonly ILogger<KadDhtProtocol>? _logger;
@@ -25,28 +26,30 @@ public class KadDhtProtocol : ISessionProtocol
     private readonly IRecordValidator _validator;
 
     private readonly IKademlia<PublicKey, DhtNode>? _kademlia;
-    private readonly IRoutingTable<ValueHash256, DhtNode>? _routingTable;
-    private readonly ILookupAlgo<ValueHash256, DhtNode>? _lookupAlgo;
+    private readonly IRoutingTable<DhtNode, ValueHash256>? _routingTable;
+    private readonly ILookupAlgo<DhtNode, ValueHash256>? _lookupAlgo;
     private readonly DhtNode _localDhtNode;
     private readonly DhtKeyOperator _keyOperator;
     private readonly DhtNodeHashProvider _nodeHashProvider;
+    private readonly NodeHealthTracker<PublicKey, DhtNode, ValueHash256> _nodeHealthTracker;
 
     private readonly ConcurrentDictionary<string, byte[]> _locallyPublishedValues = new();
     private readonly ConcurrentDictionary<string, byte[]> _locallyProvidedKeys = new();
 
-    public string Id => "/ipfs/kad/1.0.0";
+    public string Id => _options.ProtocolId;
 
-    public IRoutingTable<ValueHash256, DhtNode>? RoutingTable => _routingTable;
+    public IRoutingTable<DhtNode, ValueHash256>? RoutingTable => _routingTable;
 
     public KadDhtProtocol(
         ILocalPeer localPeer,
-        Kademlia.IKademliaMessageSender<PublicKey, DhtNode> messageSender,
+        Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode> messageSender,
         IDhtMessageSender dhtMessageSender,
         KadDhtOptions options,
         IValueStore valueStore,
         IProviderStore providerStore,
         ILoggerFactory? loggerFactory = null,
-        IRecordValidator? validator = null)
+        IRecordValidator? validator = null,
+        IEnumerable<DhtNode>? bootstrapNodes = null)
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<KadDhtProtocol>();
@@ -55,17 +58,14 @@ public class KadDhtProtocol : ISessionProtocol
         _providerStore = providerStore ?? throw new ArgumentNullException(nameof(providerStore));
         _dhtMessageSender = dhtMessageSender ?? throw new ArgumentNullException(nameof(dhtMessageSender));
         _validator = validator ?? DefaultRecordValidator.Instance;
+        if (string.IsNullOrWhiteSpace(_options.ProtocolId))
+            throw new ArgumentException("Kad-DHT protocol ID cannot be empty.", nameof(options));
 
         _keyOperator = new DhtKeyOperator();
         _nodeHashProvider = new DhtNodeHashProvider();
+        var distance = new ValueHash256Distance();
 
-        var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
-        _localDhtNode = new DhtNode
-        {
-            PeerId = _localPeer.Identity.PeerId,
-            PublicKey = localPublicKey,
-            Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
-        };
+        _localDhtNode = CreateLocalDhtNode();
 
         try
         {
@@ -75,28 +75,28 @@ public class KadDhtProtocol : ISessionProtocol
                 KSize = _options.KSize,
                 Alpha = _options.Alpha,
                 RefreshInterval = _options.RefreshInterval,
-                BootNodes = Array.Empty<DhtNode>()
+                BootNodes = bootstrapNodes?.ToArray() ?? Array.Empty<DhtNode>()
             };
 
             var effectiveLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-            _routingTable = new KBucketTree<ValueHash256, DhtNode>(kademliaConfig, _nodeHashProvider, effectiveLoggerFactory);
+            _routingTable = new KBucketTree<DhtNode, ValueHash256>(kademliaConfig, _nodeHashProvider, distance);
 
-            var nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, DhtNode>(kademliaConfig, _routingTable, _nodeHashProvider, messageSender, effectiveLoggerFactory);
-            ILookupAlgo<ValueHash256, DhtNode> baseLookup = new LookupKNearestNeighbour<ValueHash256, DhtNode>(_routingTable, _nodeHashProvider, nodeHealthTracker, kademliaConfig, effectiveLoggerFactory);
+            _nodeHealthTracker = new NodeHealthTracker<PublicKey, DhtNode, ValueHash256>(kademliaConfig, _routingTable, _nodeHashProvider, messageSender);
+            ILookupAlgo<DhtNode, ValueHash256> baseLookup = new LookupKNearestNeighbour<PublicKey, DhtNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, kademliaConfig);
 
             // Wrap with disjoint path lookup for Sybil resistance when configured
             _lookupAlgo = _options.DisjointPaths >= 2
-                ? new DisjointPathLookup<ValueHash256, DhtNode>(baseLookup, _nodeHashProvider, _options.DisjointPaths, effectiveLoggerFactory)
+                ? new DisjointPathLookup<ValueHash256, DhtNode>(baseLookup, _nodeHashProvider, distance, _options.DisjointPaths, effectiveLoggerFactory)
                 : baseLookup;
 
-            _kademlia = new Kademlia.Kademlia<PublicKey, ValueHash256, DhtNode>(
+            _kademlia = new Nethermind.Kademlia.Kademlia<PublicKey, DhtNode, ValueHash256>(
                 _keyOperator,
                 messageSender,
                 _routingTable,
                 _lookupAlgo,
-                effectiveLoggerFactory,
-                nodeHealthTracker,
-                kademliaConfig);
+                _nodeHealthTracker,
+                kademliaConfig,
+                effectiveLoggerFactory);
 
             _logger?.LogInformation("Kad-DHT initialized in {Mode} mode, K={KSize}, Alpha={Alpha}",
                 _options.Mode, _options.KSize, _options.Alpha);
@@ -161,6 +161,10 @@ public class KadDhtProtocol : ISessionProtocol
                     if (await _dhtMessageSender.PutValueAsync(node, key, value, cancellationToken))
                         Interlocked.Increment(ref successCount);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger?.LogTrace("PutValue to {NodeId} failed: {Error}", node.PeerId, ex.Message);
@@ -203,7 +207,7 @@ public class KadDhtProtocol : ISessionProtocol
             async (node, token) =>
             {
                 if (node.Equals(_localDhtNode))
-                    return _routingTable!.GetKNearestNeighbour(targetHash);
+                    return _routingTable!.GetKNearestNeighbour(targetHash, excludeSelf: true);
 
                 var result = await _dhtMessageSender.GetValueAsync(node, key, token);
                 if (result.HasValue)
@@ -260,6 +264,7 @@ public class KadDhtProtocol : ISessionProtocol
         }
 
         int successCount = 0;
+        DhtNode localProviderNode = CreateLocalDhtNode();
 
         if (_options.Mode == KadDhtMode.Server)
         {
@@ -267,8 +272,8 @@ public class KadDhtProtocol : ISessionProtocol
             {
                 PeerId = _localPeer.Identity.PeerId,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Ttl = _options.RecordTtl,
-                Multiaddrs = _localPeer.ListenAddresses.Select(a => a.ToString()).ToArray()
+                Ttl = _options.ProviderRecordTtl,
+                Multiaddrs = localProviderNode.Multiaddrs
             };
             if (await _providerStore.AddProviderAsync(key, record, cancellationToken))
                 successCount++;
@@ -284,8 +289,12 @@ public class KadDhtProtocol : ISessionProtocol
             {
                 try
                 {
-                    await _dhtMessageSender.AddProviderAsync(node, key, _localDhtNode, cancellationToken);
+                    await _dhtMessageSender.AddProviderAsync(node, key, localProviderNode, cancellationToken);
                     Interlocked.Increment(ref successCount);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -335,7 +344,7 @@ public class KadDhtProtocol : ISessionProtocol
                 async (node, token) =>
                 {
                     if (node.Equals(_localDhtNode))
-                        return _routingTable!.GetKNearestNeighbour(targetHash);
+                        return _routingTable!.GetKNearestNeighbour(targetHash, excludeSelf: true);
 
                     var result = await _dhtMessageSender.GetProvidersAsync(node, key, token);
                     foreach (var provider in result.Providers)
@@ -503,4 +512,21 @@ public class KadDhtProtocol : ISessionProtocol
 
     private static string KeyHashHex(byte[] key) =>
         Convert.ToHexString(key).Substring(0, Math.Min(16, key.Length * 2));
+
+    private DhtNode CreateLocalDhtNode()
+    {
+        var localPublicKey = new PublicKey(_localPeer.Identity.PeerId.Bytes.ToArray());
+        return new DhtNode
+        {
+            PeerId = _localPeer.Identity.PeerId,
+            PublicKey = localPublicKey,
+            Multiaddrs = _localPeer.ListenAddresses.Select(addr => addr.ToString()).ToArray()
+        };
+    }
+
+    public void Dispose()
+    {
+        _nodeHealthTracker?.Dispose();
+        GC.SuppressFinalize(this);
+    }
 }

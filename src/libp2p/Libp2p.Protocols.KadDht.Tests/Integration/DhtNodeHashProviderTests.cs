@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using NUnit.Framework;
@@ -63,11 +63,11 @@ public class DhtNodeHashProviderTests
     public void GetHash_WithDifferentNodes_ShouldReturnDifferentHashes()
     {
         // Arrange
-        var peerId1 = new PeerId(new byte[32]);
+        var peerId1 = new PeerId(Enumerable.Repeat((byte)1, 32).ToArray());
         var publicKey1 = new PublicKey(new byte[32] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32 });
         var node1 = new DhtNode { PeerId = peerId1, PublicKey = publicKey1 };
 
-        var peerId2 = new PeerId(new byte[32]);
+        var peerId2 = new PeerId(Enumerable.Repeat((byte)2, 32).ToArray());
         var publicKey2 = new PublicKey(new byte[32] { 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 });
         var node2 = new DhtNode { PeerId = peerId2, PublicKey = publicKey2 };
 
@@ -80,18 +80,18 @@ public class DhtNodeHashProviderTests
     }
 
     [Test]
-    public void GetHash_ShouldMatchPublicKeyHash()
+    public void GetHash_ShouldMatchPeerIdHash()
     {
         // Act
         ValueHash256 nodeHash = _hashProvider.GetHash(_node);
-        ValueHash256 publicKeyHash = _publicKey.Hash;
+        ValueHash256 peerIdHash = new PublicKey(_node.PeerId.Bytes).Hash;
 
         // Assert
-        Assert.That(nodeHash.Bytes.ToArray(), Is.EqualTo(publicKeyHash.Bytes.ToArray()));
+        Assert.That(nodeHash.Bytes.ToArray(), Is.EqualTo(peerIdHash.Bytes.ToArray()));
     }
 
     [Test]
-    public void GetHash_WithSamePublicKeyDifferentPeerId_ShouldReturnSameHash()
+    public void GetHash_WithSamePublicKeyDifferentPeerId_ShouldReturnDifferentHash()
     {
         // Arrange
         var peerId1 = new PeerId(new byte[32] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
@@ -104,7 +104,7 @@ public class DhtNodeHashProviderTests
         ValueHash256 hash1 = _hashProvider.GetHash(node1);
         ValueHash256 hash2 = _hashProvider.GetHash(node2);
 
-        // Assert - Hash is based on public key, not peer ID
-        Assert.That(hash1.Bytes.ToArray(), Is.EqualTo(hash2.Bytes.ToArray()));
+        // Assert - Hash is based on the peer id advertised on the wire.
+        Assert.That(hash1.Bytes.ToArray(), Is.Not.EqualTo(hash2.Bytes.ToArray()));
     }
 }

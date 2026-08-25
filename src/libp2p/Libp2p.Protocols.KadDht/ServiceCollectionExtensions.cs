@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
@@ -9,12 +9,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Kademlia;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
 
 namespace Libp2p.Protocols.KadDht;
 
 public static class ServiceCollectionExtensions
 {
-    public const string ProtocolId = "/ipfs/kad/1.0.0";
+    public const string ProtocolId = KadDhtOptions.DefaultProtocolId;
 
     public static IServiceCollection AddKadDht(this IServiceCollection services,
         Action<KadDhtOptions>? configureOptions = null)
@@ -46,13 +49,13 @@ public static class ServiceCollectionExtensions
                 onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null);
         });
         services.AddSingleton<Integration.IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
-        services.AddSingleton<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
+        services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
             sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
 
         services.AddSingleton<KadDhtProtocol>(sp =>
         {
             var localPeer = sp.GetRequiredService<ILocalPeer>();
-            var messageSender = sp.GetRequiredService<Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
+            var messageSender = sp.GetRequiredService<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
             var dhtMessageSender = sp.GetRequiredService<Integration.IDhtMessageSender>();
             var kadDhtOptions = sp.GetRequiredService<KadDhtOptions>();
             var valueStore = sp.GetRequiredService<IValueStore>();
@@ -145,6 +148,7 @@ public static class ServiceCollectionExtensions
                 StorePeerAddresses(node, peerStore);
             },
             loggerFactory: loggerFactory,
+            baseId: options.ProtocolId,
             isExposed: options.Mode == KadDhtMode.Server,
             options: options,
             valueStore: valueStore,
@@ -205,11 +209,30 @@ public static class ServiceCollectionExtensions
             if (existingInfo.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
                 return;
 
-            peerStore.Discover(node.Multiaddrs
-                .Where(a => !string.IsNullOrWhiteSpace(a))
-                .Select(a => Multiformats.Address.Multiaddress.Decode(a))
-                .ToArray());
+            var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
+            foreach (string address in node.Multiaddrs)
+            {
+                if (string.IsNullOrWhiteSpace(address))
+                    continue;
+
+                if (NormalizePeerAddress(address, node.PeerId) is { } normalized)
+                    addresses.Add(normalized);
+            }
+
+            if (addresses.Count > 0)
+                peerStore.Discover(addresses.ToArray());
         }
         catch { }
+    }
+
+    private static Multiaddress? NormalizePeerAddress(string address, PeerId peerId)
+    {
+        var multiaddress = Multiaddress.Decode(address);
+        var addressPeerId = multiaddress.GetPeerId();
+
+        if (addressPeerId is null)
+            return multiaddress.Add<P2P>(peerId.ToString());
+
+        return addressPeerId.Equals(peerId) ? multiaddress : null;
     }
 }

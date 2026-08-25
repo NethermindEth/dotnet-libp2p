@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,7 @@ using Nethermind.Libp2p.Protocols;
 using NSubstitute;
 using NUnit.Framework;
 using KademliaPublicKey = global::Libp2p.Protocols.KadDht.Kademlia.PublicKey;
-using KademliaMessageSender = global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
+using KademliaMessageSender = global::Nethermind.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
@@ -150,6 +150,20 @@ public class ServiceCollectionExtensionsTests
         // Single unified protocol per spec — all message types dispatched via Message.Type
         Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
         Assert.That(registeredProtocolIds[0], Is.EqualTo("/ipfs/kad/1.0.0"));
+    }
+
+    [Test]
+    public void WithKadDht_WithCustomProtocolId_RegistersConfiguredProtocolHandler()
+    {
+        _services.AddKadDht(options => options.ProtocolId = "/test/kad/1.0.0");
+        using var serviceProvider = _services.BuildServiceProvider();
+        var builder = new TestPeerFactoryBuilder(serviceProvider);
+
+        builder.WithKadDht();
+
+        var registeredProtocolIds = builder.Protocols.Select(p => p.Id).ToArray();
+        Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
+        Assert.That(registeredProtocolIds[0], Is.EqualTo("/test/kad/1.0.0"));
     }
 
     [Test]

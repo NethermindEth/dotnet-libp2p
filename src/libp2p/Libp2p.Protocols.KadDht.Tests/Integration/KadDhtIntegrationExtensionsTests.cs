@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using System.Linq;
@@ -82,7 +82,7 @@ public class KadDhtIntegrationExtensionsTests
         var options = new KadDhtOptions();
         var valueStore = new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
-        var messageSender = Substitute.For<global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, DhtNode>>();
+        var messageSender = Substitute.For<global::Nethermind.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, DhtNode>>();
         var dhtMessageSender = Substitute.For<IDhtMessageSender>();
         var dhtProtocol = new KadDhtProtocol(_localPeer, messageSender, dhtMessageSender, options, valueStore, providerStore, loggerFactory);
         _localPeer.GetProtocol<KadDhtProtocol>().Returns(dhtProtocol);

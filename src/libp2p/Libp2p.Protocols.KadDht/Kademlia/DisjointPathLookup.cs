@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Nethermind.Kademlia;
+using System.Runtime.CompilerServices;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
@@ -14,12 +16,13 @@ namespace Libp2p.Protocols.KadDht.Kademlia;
 /// they would need to control nodes on every independent path simultaneously.
 /// </para>
 /// </summary>
-public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
+public class DisjointPathLookup<THash, TNode> : ILookupAlgo<TNode, THash>
     where TNode : notnull
-    where THash : struct, IKademliaHash<THash>
+    where THash : notnull
 {
-    private readonly ILookupAlgo<THash, TNode> _innerLookup;
-    private readonly INodeHashProvider<THash, TNode> _nodeHashProvider;
+    private readonly ILookupAlgo<TNode, THash> _innerLookup;
+    private readonly INodeHashProvider<TNode, THash> _nodeHashProvider;
+    private readonly IKademliaDistance<THash> _distance;
     private readonly int _disjointPaths;
     private readonly ILogger _logger;
 
@@ -31,13 +34,15 @@ public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
     /// <param name="disjointPaths">Number of independent paths to run (S parameter, typically 2-10).</param>
     /// <param name="loggerFactory">Logger factory.</param>
     public DisjointPathLookup(
-        ILookupAlgo<THash, TNode> innerLookup,
-        INodeHashProvider<THash, TNode> nodeHashProvider,
+        ILookupAlgo<TNode, THash> innerLookup,
+        INodeHashProvider<TNode, THash> nodeHashProvider,
+        IKademliaDistance<THash> distance,
         int disjointPaths,
         ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(innerLookup);
         ArgumentNullException.ThrowIfNull(nodeHashProvider);
+        ArgumentNullException.ThrowIfNull(distance);
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         if (disjointPaths < 2)
@@ -45,6 +50,7 @@ public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
 
         _innerLookup = innerLookup;
         _nodeHashProvider = nodeHashProvider;
+        _distance = distance;
         _disjointPaths = disjointPaths;
         _logger = loggerFactory.CreateLogger<DisjointPathLookup<THash, TNode>>();
     }
@@ -90,7 +96,7 @@ public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
-                    return Array.Empty<TNode>();
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -113,8 +119,7 @@ public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
             }
         }
 
-        var comparer = Comparer<THash>.Create((h1, h2) =>
-            THash.Compare(h1, h2, targetHash));
+        var comparer = Comparer<THash>.Create((h1, h2) => _distance.Compare(h1, h2, targetHash));
 
         var result = mergedNodes
             .OrderBy(kv => kv.Key, comparer)
@@ -126,5 +131,22 @@ public class DisjointPathLookup<THash, TNode> : ILookupAlgo<THash, TNode>
             mergedNodes.Count, _disjointPaths, result.Length);
 
         return result;
+    }
+
+    public async IAsyncEnumerable<TNode> LookupNodes(
+        THash targetHash,
+        int maxResults,
+        Func<TNode, CancellationToken, Task<TNode[]?>> findNeighbourOp,
+        [EnumeratorCancellation] CancellationToken token)
+    {
+        if (maxResults <= 0)
+            yield break;
+
+        TNode[] nodes = await Lookup(targetHash, maxResults, findNeighbourOp, token);
+        foreach (TNode node in nodes)
+        {
+            token.ThrowIfCancellationRequested();
+            yield return node;
+        }
     }
 }
