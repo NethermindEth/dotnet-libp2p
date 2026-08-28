@@ -31,6 +31,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     private readonly ConcurrentDictionary<PeerId, Task<ISession>> _pendingDials = new();
     public ObservableCollection<Session> Sessions { get; } = [];
+    IReadOnlyCollection<ISession> ILocalPeer.Sessions => Sessions;
 
     public override string ToString()
     {

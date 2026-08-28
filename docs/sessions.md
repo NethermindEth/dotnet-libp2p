@@ -24,6 +24,21 @@ ISession session = await peer.DialAsync(remoteAddress);
 
 `ILocalPeer.DialAsync` establishes the lower stack first: transport connection, protocol negotiation, encryption or authentication, and stream multiplexing. Once the session exists, application protocols can be opened over it.
 
+## Inspecting current sessions
+
+`ILocalPeer.Sessions` is a peer-owned, live read-only view of the current sessions:
+
+```csharp
+IReadOnlyCollection<ISession> sessions = peer.Sessions;
+
+foreach (ISession currentSession in sessions.ToArray())
+{
+    Console.WriteLine($"Connected to {currentSession.RemoteAddress}");
+}
+```
+
+Sessions enter the view during session upgrade and leave it when disconnected. The view is not independently thread-safe, so snapshot it before enumeration when connections can change, particularly if the enumeration spans `await` calls. A session can be visible while its initialization is still in progress; use the session returned by `DialAsync` or delivered through `OnConnected` when fully initialized sessions are required.
+
 ## Dialing application protocols
 
 Use `DialAsync<TProtocol>()` for protocols that do not need a request object:

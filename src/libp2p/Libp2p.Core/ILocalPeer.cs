@@ -10,6 +10,12 @@ public interface ILocalPeer : IAsyncDisposable
 {
     Identity Identity { get; }
 
+    /// <summary>
+    /// Gets the peer-owned live view of current sessions.
+    /// Sessions are registered during session upgrade and removed when disconnected.
+    /// </summary>
+    IReadOnlyCollection<ISession> Sessions { get; }
+
     Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default);
     Task<ISession> DialAsync(Multiaddress[] samePeerAddrs, CancellationToken token = default);
 

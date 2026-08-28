@@ -17,6 +17,7 @@ public class LocalPeerStub : ILocalPeer
 
     public Identity Identity { get; set; }
     public Multiaddress Address { get; set; }
+    public IReadOnlyCollection<ISession> Sessions { get; } = [];
 
     public ObservableCollection<Multiaddress> ListenAddresses => throw new NotImplementedException();
 
