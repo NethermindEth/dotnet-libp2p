@@ -11,8 +11,9 @@ public interface ILocalPeer : IAsyncDisposable
     Identity Identity { get; }
 
     /// <summary>
-    /// Gets the peer-owned live view of current sessions.
+    /// Gets the stable, peer-owned live view of current sessions.
     /// Sessions are registered during session upgrade and removed when disconnected.
+    /// Each enumeration is a point-in-time snapshot synchronized with those lifecycle updates.
     /// </summary>
     IReadOnlyCollection<ISession> Sessions { get; }
 

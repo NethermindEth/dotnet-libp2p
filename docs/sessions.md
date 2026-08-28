@@ -26,7 +26,7 @@ ISession session = await peer.DialAsync(remoteAddress);
 
 ## Inspecting current sessions
 
-`ILocalPeer.Sessions` is a peer-owned, live read-only view of the current sessions:
+`ILocalPeer.Sessions` is a stable, peer-owned live view of the current sessions. It exposes no collection mutation APIs:
 
 ```csharp
 IReadOnlyCollection<ISession> sessions = peer.Sessions;
@@ -37,7 +37,9 @@ foreach (ISession currentSession in sessions.ToArray())
 }
 ```
 
-Sessions enter the view during session upgrade and leave it when disconnected. The view is not independently thread-safe, so snapshot it before enumeration when connections can change, particularly if the enumeration spans `await` calls. A session can be visible while its initialization is still in progress; use the session returned by `DialAsync` or delivered through `OnConnected` when fully initialized sessions are required.
+Sessions enter the view during session upgrade and leave it when disconnected. `Count` and each enumeration are synchronized with those lifecycle changes; each enumeration uses a point-in-time snapshot. Calling `ToArray()` makes that snapshot explicit when subsequent work spans `await` calls. Later `Count` calls and enumerations reflect the latest sessions, while an existing enumeration or array remains unchanged.
+
+A session can be visible while its initialization is still in progress; use the session returned by `DialAsync` or delivered through `OnConnected` when fully initialized sessions are required.
 
 ## Dialing application protocols
 

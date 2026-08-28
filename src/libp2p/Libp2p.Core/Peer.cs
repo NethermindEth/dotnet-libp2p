@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
 using Nethermind.Libp2p.Core.Metrics;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -30,8 +31,48 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     private readonly ConcurrentDictionary<PeerId, Task<ISession>> _pendingDials = new();
+    private IReadOnlyCollection<ISession>? _sessionsView;
     public ObservableCollection<Session> Sessions { get; } = [];
-    IReadOnlyCollection<ISession> ILocalPeer.Sessions => Sessions;
+    IReadOnlyCollection<ISession> ILocalPeer.Sessions => GetSessionsView();
+
+    private IReadOnlyCollection<ISession> GetSessionsView()
+    {
+        IReadOnlyCollection<ISession>? view = Volatile.Read(ref _sessionsView);
+        if (view is not null)
+        {
+            return view;
+        }
+
+        view = new SessionCollectionView(Sessions);
+        return Interlocked.CompareExchange(ref _sessionsView, view, null) ?? view;
+    }
+
+    private sealed class SessionCollectionView(ObservableCollection<Session> sessions) : IReadOnlyCollection<ISession>
+    {
+        public int Count
+        {
+            get
+            {
+                lock (sessions)
+                {
+                    return sessions.Count;
+                }
+            }
+        }
+
+        public IEnumerator<ISession> GetEnumerator()
+        {
+            ISession[] snapshot;
+            lock (sessions)
+            {
+                snapshot = [.. sessions];
+            }
+
+            return ((IEnumerable<ISession>)snapshot).GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 
     public override string ToString()
     {
