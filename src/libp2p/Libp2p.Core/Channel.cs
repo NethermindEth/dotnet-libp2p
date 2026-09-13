@@ -63,10 +63,10 @@ public class Channel : IChannel
     public async ValueTask CloseAsync()
     {
         ValueTask<IOResult> stopReader = _reader.WriteEofAsync().Preserve();
-        await _writer.WriteEofAsync();
+        await _writer.WriteEofAsync().ConfigureAwait(false);
         if (!stopReader.IsCompleted)
         {
-            await stopReader;
+            await stopReader.ConfigureAwait(false);
         }
         Completion.TrySetResult();
     }
@@ -103,19 +103,19 @@ public class Channel : IChannel
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
             CancellationToken token = default)
         {
+            bool readLockTaken = false;
             try
             {
-                await _readLock.WaitAsync(token);
+                await _readLock.WaitAsync(token).ConfigureAwait(false);
+                readLockTaken = true;
 
                 if (_eow)
                 {
-                    _readLock.Release();
                     return ReadResult.Ended;
                 }
 
                 if (blockingMode == ReadBlockingMode.DoNotWait && _bytes.Length == 0)
                 {
-                    _readLock.Release();
                     return ReadResult.Empty;
                 }
 
@@ -125,16 +125,14 @@ public class Channel : IChannel
                 // For WaitAny mode (ReadAllAsync), we need to wait for actual data
                 if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
                 {
-                    _readLock.Release();
                     return ReadResult.Ok(default);
                 }
 
-                await _canRead.WaitAsync(token);
+                await _canRead.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
                     _canRead.Release();
-                    _readLock.Release();
                     _read.Release();
                     return ReadResult.Ended;
                 }
@@ -147,12 +145,11 @@ public class Channel : IChannel
                 ReadOnlySequence<byte> chunk = default;
                 do
                 {
-                    if (lockAgain) await _canRead.WaitAsync(token);
+                    if (lockAgain) await _canRead.WaitAsync(token).ConfigureAwait(false);
 
                     if (_eow)
                     {
                         _canRead.Release();
-                        _readLock.Release();
                         _read.Release();
                         return ReadResult.Ended;
                     }
@@ -179,26 +176,35 @@ public class Channel : IChannel
                     lockAgain = true;
                 } while (bytesToRead != 0);
 
-                _readLock.Release();
                 Libp2pMetrics.DataReceivedBytes.Add(chunk.Length);
                 Libp2pMetrics.DataReceivedPackets.Add(1);
                 return ReadResult.Ok(chunk);
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 return ReadResult.Cancelled;
+            }
+            finally
+            {
+                // Release the read lock on every path, including cancellation, so a cancelled
+                // read can never leave it held and deadlock every subsequent read.
+                if (readLockTaken)
+                {
+                    _readLock.Release();
+                }
             }
         }
 
         public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
         {
+            bool canWriteTaken = false;
             try
             {
-                await _canWrite.WaitAsync(token);
+                await _canWrite.WaitAsync(token).ConfigureAwait(false);
+                canWriteTaken = true;
 
                 if (_eow)
                 {
-                    _canWrite.Release();
                     return IOResult.Ended;
                 }
 
@@ -209,20 +215,54 @@ public class Channel : IChannel
 
                 if (bytes.Length == 0)
                 {
-                    _canWrite.Release();
                     return IOResult.Ok;
                 }
 
                 _bytes = bytes;
                 _canRead.Release();
-                await _read.WaitAsync(token);
+
+                try
+                {
+                    await _read.WaitAsync(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancelled after publishing the chunk. If no reader has taken the
+                    // data-available signal yet, reclaim it and roll the publish back so the
+                    // cancelled bytes are never delivered to a later read. Otherwise a reader
+                    // is already committed to consuming, so wait without cancellation for it to
+                    // finish and hand back _read/_canWrite, keeping the channel consistent.
+                    if (_canRead.Wait(0))
+                    {
+                        _bytes = default;
+                    }
+                    else
+                    {
+                        await _read.WaitAsync().ConfigureAwait(false);
+                        canWriteTaken = false;
+                    }
+
+                    throw;
+                }
+
+                // The reader consumed the chunk and released _read/_canWrite on our behalf.
+                canWriteTaken = false;
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);
                 Libp2pMetrics.DataSentPackets.Add(1);
                 return IOResult.Ok;
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 return IOResult.Cancelled;
+            }
+            finally
+            {
+                // Release the write lock on every path we still own it (early exits and a
+                // rolled-back cancellation); on the success path the reader releases it for us.
+                if (canWriteTaken)
+                {
+                    _canWrite.Release();
+                }
             }
         }
 
@@ -230,7 +270,7 @@ public class Channel : IChannel
         {
             try
             {
-                await _canWrite.WaitAsync(token);
+                await _canWrite.WaitAsync(token).ConfigureAwait(false);
 
                 if (_eow)
                 {
@@ -257,7 +297,7 @@ public class Channel : IChannel
                 {
                     return IOResult.Ended;
                 }
-                await _readLock.WaitAsync(token);
+                await _readLock.WaitAsync(token).ConfigureAwait(false);
                 _readLock.Release();
                 return !_eow ? IOResult.Ok : IOResult.Ended;
             }
