@@ -88,3 +88,13 @@ router.UnsubscribeAll();
 ```
 
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
+
+## Stopping the router
+
+The router stops when the token passed to `StartAsync` is cancelled or when the router is disposed. Disposal cancels its heartbeat and reconnect loops and the dials it started, stops reading inbound pubsub streams and stops reacting to new `PeerStore` peers. It does not dispose the `PeerStore` or the local peer.
+
+```csharp
+await router.DisposeAsync(); // waits for the owned background work to finish
+```
+
+A router resolved from the service provider is disposed together with the provider, so dispose it yourself only when you created it with `new`. `Dispose()` stops the same work without waiting for it. A disposed router cannot be started again.

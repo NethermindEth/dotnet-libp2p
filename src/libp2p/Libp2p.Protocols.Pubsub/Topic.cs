@@ -41,7 +41,7 @@ internal class Topic : ITopic
 
     public void Unsubscribe()
     {
-        if (!IsSubscribed) router.Unsubscribe(topicName);
+        if (IsSubscribed) router.Unsubscribe(topicName);
     }
 
     public void Subscribe()
