@@ -19,9 +19,9 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.5.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.5.7" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
@@ -38,7 +38,7 @@
     <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.15.3" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
     <PackageVersion Include="SimpleBase" Version="4.0.2" />
-    <PackageVersion Include="SIPSorcery" Version="10.0.3" />
+    <PackageVersion Include="SIPSorcery" Version="10.0.14" />
     <PackageVersion Include="System.Formats.Cbor" Version="10.0.0" />
     <PackageVersion Include="System.Runtime.Caching" Version="7.0.0" />
     <PackageVersion Include="Libp2p.Generators.Protobuf" Version="$(ProtobufVersion)" />
