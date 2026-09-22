@@ -111,7 +111,7 @@ public partial class PubsubRouter
             {
                 foreach (PeerId peerId in fanoutPeers.ToList())
                 {
-                    if (meshPeers.Add(peerId))
+                    if (!IsDirectPeer(peerId) && meshPeers.Add(peerId))
                     {
                         RecordPeerJoinMesh(peerId, topicId);
                     }
@@ -297,7 +297,7 @@ public partial class PubsubRouter
                 HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
                 if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
                 {
-                    foreach (PeerId peerId in topicPeers.Where(peerId => GetPeerScore(peerId) >= 0).Take(_settings.Degree))
+                    foreach (PeerId peerId in topicPeers.Where(peerId => !IsDirectPeer(peerId) && GetPeerScore(peerId) >= 0).Take(_settings.Degree))
                     {
                         fanoutPeers.Add(peerId);
                     }
