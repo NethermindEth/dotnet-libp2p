@@ -60,10 +60,10 @@ public class PubsubSettings
     }
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
 
-    /// <summary>Maximum IHAVE envelopes accepted from one peer during a heartbeat.</summary>
+    /// <summary>Maximum RPCs containing IHAVE accepted from one peer during a heartbeat.</summary>
     public int MaxIHaveMessages { get; set; } = 10;
 
-    /// <summary>Maximum message IDs accepted from, or requested from, one peer during a heartbeat.</summary>
+    /// <summary>Maximum IDs inspected per IHAVE envelope and total IDs requested from one peer during a heartbeat.</summary>
     public int MaxIHaveLength { get; set; } = 5_000;
 
     /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>

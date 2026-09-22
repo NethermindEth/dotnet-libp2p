@@ -205,6 +205,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
                 _limboMessageCache.Add(messageId);
+                _iwantPromises.Fulfill(messageId);
                 RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                 continue;
             }
@@ -442,7 +443,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        if (control.IHaveRequested >= _settings.MaxIHaveLength)
+        // A single RPC can batch one IHAVE envelope per topic.
+        if (!control.TryAcceptIHave(_settings.MaxIHaveMessages) || control.IHaveRequested >= _settings.MaxIHaveLength)
         {
             return;
         }
@@ -450,11 +452,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         HashSet<MessageId> messageIds = [];
         foreach (ControlIHave ihave in ihaves)
         {
-            if (!control.TryAcceptIHave(_settings.MaxIHaveMessages))
-            {
-                break;
-            }
-
             if (!mesh.ContainsKey(ihave.TopicID))
             {
                 continue;

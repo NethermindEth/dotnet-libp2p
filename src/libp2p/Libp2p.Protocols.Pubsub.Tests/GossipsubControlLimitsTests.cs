@@ -13,20 +13,27 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 public class GossipsubControlLimitsTests
 {
     [Test]
-    public async Task Ihave_RespectsTheHeartbeatAndMessageIdLimits()
+    public async Task Ihave_CountsRpcsRatherThanTopicEnvelopes()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
         {
             HeartbeatInterval = int.MaxValue,
             MaxIHaveMessages = 1,
-            MaxIHaveLength = 3,
+            MaxIHaveLength = 20,
         });
 
-        Rpc ihaves = CreateIhave(setup.Topic, [1], [2]);
-        ihaves.Control.Ihave.Add(new ControlIHave { TopicID = setup.Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
+        Rpc ihaves = CreateIhave("unsubscribed", [0]);
+        for (byte i = 1; i <= 12; i++)
+        {
+            string topic = $"topic-{i}";
+            _ = setup.Router.GetTopic(topic);
+            ihaves.Control.Ihave.Add(new ControlIHave { TopicID = topic, MessageIDs = { ByteString.CopyFrom([i]) } });
+        }
+        setup.SentRpcs.Clear();
         setup.Router.OnRpc(setup.RemotePeerId, ihaves);
 
-        Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(2));
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.EquivalentTo(
+            Enumerable.Range(1, 12).Select(i => ByteString.CopyFrom([(byte)i]))));
         setup.SentRpcs.Clear();
 
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [4]));
@@ -37,6 +44,46 @@ public class GossipsubControlLimitsTests
 
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [5]));
         Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Ihave_BoundsRequestsAcrossRpcsAndResetsOnHeartbeat()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIHaveLength = 3,
+        });
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [1], [2]));
+        Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(2));
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [3], [4], [5], [6]));
+        Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(1));
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [7]));
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.Empty);
+
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [8], [9], [10], [11]));
+        Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task Ihave_BoundsInspectedIdsEvenWhenTheyAreDuplicates()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIHaveLength = 3,
+        });
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [1], [1], [1], [2]));
+
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom([1]) }));
     }
 
     [Test]
@@ -212,6 +259,80 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task UnfulfilledIwantPromises_ReducePeerScoreOnHeartbeatOnlyOnce()
+    {
+        PubsubSettings settings = new()
+        {
+            HeartbeatInterval = int.MaxValue,
+            DecayInterval = int.MaxValue,
+            IWantFollowupTime = 20,
+        };
+        await using RouterSetup setup = await RouterSetup.Create(settings);
+        double initialScore = setup.RemotePeerScore;
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [1]));
+        Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
+        await Task.Delay(settings.IWantFollowupTime + 20);
+        await setup.Router.Heartbeat();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
+            Assert.That(setup.RemotePeerScore, Is.EqualTo(initialScore + settings.BehaviorPenaltyWeight));
+        });
+
+        await setup.Router.Heartbeat();
+        Assert.That(setup.RemotePeerScore, Is.EqualTo(initialScore + settings.BehaviorPenaltyWeight));
+    }
+
+    [TestCase(MessageValidity.Accepted)]
+    [TestCase(MessageValidity.Rejected)]
+    [TestCase(MessageValidity.Ignored)]
+    public async Task ReceivedMessages_FulfillIwantPromises(MessageValidity validity)
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        Identity author = TestPeers.Identity(3);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author).Publish.Single();
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(message);
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, messageId.Bytes));
+        Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
+
+        setup.Router.VerifyMessage = _ => validity;
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
+
+        Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
+    }
+
+    [Test]
+    public async Task InvalidSignature_FulfillsIwantPromiseWithoutAcceptingMessage()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        Identity author = TestPeers.Identity(3);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author).Publish.Single();
+        message.Data = ByteString.CopyFrom([2]);
+        Assert.That(message.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.False);
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(message);
+        int deliveries = 0;
+        setup.Router.OnMessage += (_, _, _) => deliveries++;
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, messageId.Bytes));
+        Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
+            Assert.That(deliveries, Is.Zero);
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+            Assert.That(setup.RemotePeerScore, Is.LessThan(0), "Invalid delivery must still be penalized.");
+        });
+    }
+
+    [Test]
     public async Task ThrottledMessages_ClearOutstandingIwantPromises()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
@@ -319,6 +440,9 @@ public class GossipsubControlLimitsTests
         public string Topic { get; }
         public PeerId RemotePeerId { get; }
         public List<Rpc> SentRpcs { get; }
+        public double RemotePeerScore => (double)typeof(PubsubRouter)
+            .GetMethod("GetPeerScore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(Router, [RemotePeerId])!;
 
         public static async Task<RouterSetup> Create(PubsubSettings settings)
         {
