@@ -87,7 +87,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             if (extensions is not null)
             {
-                ApplyBehaviorPenalty(peerId, 1.0);
                 logger?.LogDebug("Ignoring Gossipsub v1.3 extensions from {peerId} on {protocol}", peerId, peer.Protocol);
             }
 
