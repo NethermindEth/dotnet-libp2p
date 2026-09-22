@@ -7,12 +7,90 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.ObjectModel;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
 public class GossipsubV13ProtocolTests
 {
+    [TestCase(false, TestName = "Router_PenalizesExtensionsInSecondRpc")]
+    [TestCase(true, TestName = "Router_PenalizesRepeatedExtensions")]
+    public void Router_PenalizesExtensionsAfterFirstRpc(bool firstRpcHasExtensions)
+    {
+        using PubsubRouter router = CreateConnectedRouter(PubsubRouter.GossipsubProtocolVersionV13);
+        PeerId peerId = TestPeers.PeerId(1);
+        double initialScore = GetPeerScore(router, peerId);
+
+        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc());
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+
+        router.OnRpc(peerId, CreateExtensionsRpc());
+        double penalizedScore = GetPeerScore(router, peerId);
+        Assert.That(penalizedScore, Is.LessThan(initialScore));
+
+        router.OnRpc(peerId, new Rpc());
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(penalizedScore),
+            "Subsequent RPCs without extensions must not incur a penalty.");
+
+        router.OnRpc(peerId, CreateExtensionsRpc());
+        Assert.That(GetPeerScore(router, peerId), Is.LessThan(penalizedScore),
+            "Each additional extensions advertisement must incur a penalty.");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Router_AllowsFirstRpcWithOrWithoutExtensions(bool firstRpcHasExtensions)
+    {
+        using PubsubRouter router = CreateConnectedRouter(PubsubRouter.GossipsubProtocolVersionV13);
+        PeerId peerId = TestPeers.PeerId(1);
+        double initialScore = GetPeerScore(router, peerId);
+
+        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc());
+        router.OnRpc(peerId, new Rpc { Control = new ControlMessage() });
+
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+    }
+
+    [TestCase(PubsubRouter.FloodsubProtocolVersion)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV10)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV11)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV12)]
+    public void Router_IgnoresExtensionsOnOlderProtocols(string protocolId)
+    {
+        using PubsubRouter router = CreateConnectedRouter(protocolId);
+        PeerId peerId = TestPeers.PeerId(1);
+        double initialScore = GetPeerScore(router, peerId);
+
+        router.OnRpc(peerId, CreateExtensionsRpc());
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+
+        router.OnRpc(peerId, CreateExtensionsRpc());
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+    }
+
+    private static PubsubRouter CreateConnectedRouter(string protocolId)
+    {
+        PubsubRouter router = new(new PeerStore());
+        TaskCompletionSource connectionLifetime = new();
+        router.OutboundConnection(TestPeers.Multiaddr(1), protocolId, connectionLifetime.Task, _ => { });
+        Assert.That(((IRoutingStateContainer)router).ConnectedPeers, Does.Contain(TestPeers.PeerId(1)));
+        return router;
+    }
+
+    private static Rpc CreateExtensionsRpc() => new()
+    {
+        Control = new ControlMessage
+        {
+            Extensions = new ControlExtensions { PartialMessages = true },
+        },
+    };
+
+    private static double GetPeerScore(PubsubRouter router, PeerId peerId) =>
+        (double)typeof(PubsubRouter)
+            .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(router, [peerId])!;
+
     [Test]
     public void Protocol_UsesTheV13ProtocolId()
     {
