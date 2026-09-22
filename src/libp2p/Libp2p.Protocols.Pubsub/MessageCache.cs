@@ -39,7 +39,7 @@ internal sealed class MessageCache
             throw new ArgumentOutOfRangeException(nameof(historyWindows));
         }
 
-        if (gossipWindows <= 0 || gossipWindows >= historyWindows)
+        if (gossipWindows <= 0 || gossipWindows > historyWindows)
         {
             throw new ArgumentOutOfRangeException(nameof(gossipWindows));
         }

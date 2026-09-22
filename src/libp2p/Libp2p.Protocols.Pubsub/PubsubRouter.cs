@@ -126,7 +126,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         public void UpdatePartialMessagesSubscription(string topicId, bool requestsPartialMessages, bool supportsSendingPartialMessages)
         {
-            _partialMessagesSubscriptions[topicId] = new(requestsPartialMessages, supportsSendingPartialMessages);
+            // The extension registry makes sending support implicit for requesters.
+            _partialMessagesSubscriptions[topicId] = new(requestsPartialMessages, requestsPartialMessages || supportsSendingPartialMessages);
         }
 
         public void RemovePartialMessagesSubscription(string topicId)
@@ -257,7 +258,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
-    private DateTime nextDirectConnectionAttempt;
     private long heartbeatTick;
     private ulong seqNo = 1;
 
@@ -319,10 +319,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             _peerStore.Discover(directPeerAddresses);
         }
-        nextDirectConnectionAttempt = DateTime.UtcNow.AddMilliseconds(_settings.DirectConnectPeriod);
 
         _ = Task.Run(LoopHeartbeat, token);
         _ = Task.Run(LoopReconnect, token);
+        if (directPeers.Count > 0)
+        {
+            _ = Task.Run(LoopReconnectDirectPeers, token);
+        }
 
         logger?.LogInformation("Started");
         return Task.CompletedTask;
@@ -343,6 +346,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 await Task.Delay(_settings.ReconnectionPeriod, token);
                 Reconnect(token);
+            }
+        }
+
+        async Task LoopReconnectDirectPeers()
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(_settings.DirectConnectPeriod, token);
+                ReconnectDirectPeers(token);
             }
         }
     }
@@ -418,8 +430,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }, token);
         }
-
-        ReconnectDirectPeers(token);
     }
 
     private static IReadOnlyDictionary<PeerId, Multiaddress[]> CreateDirectPeers(IEnumerable<Multiaddress>? configuredPeers)
@@ -432,12 +442,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void ReconnectDirectPeers(CancellationToken token)
     {
-        if (directPeers.Count == 0 || DateTime.UtcNow < nextDirectConnectionAttempt)
-        {
-            return;
-        }
-
-        nextDirectConnectionAttempt = DateTime.UtcNow.AddMilliseconds(_settings.DirectConnectPeriod);
         foreach ((PeerId peerId, Multiaddress[] addresses) in directPeers)
         {
             if (!peerState.ContainsKey(peerId))
@@ -692,7 +696,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         foreach ((string topic, byte[] groupId, PeerId[] peers) in partialGossipNotifications)
         {
-            onPartialGossip?.Invoke(topic, groupId, peers);
+            foreach (Action<string, byte[], IReadOnlyList<PeerId>> handler in onPartialGossip!.GetInvocationList())
+            {
+                try
+                {
+                    handler(topic, groupId, peers);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogError(ex, "Exception in partial gossip handler for topic {topic}", topic);
+                }
+            }
         }
 
         return Task.CompletedTask;

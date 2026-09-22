@@ -112,12 +112,20 @@ public class MessageCacheTests
         });
     }
 
-    [Test]
-    public async Task PublishedMessages_AreAvailableForIwantResponses()
+    [TestCase(3, 5)]
+    [TestCase(3, 3)]
+    [TestCase(1, 1)]
+    public async Task PublishedMessages_AreAvailableForIwantUntilHistoryExpires(int gossipWindows, int historyWindows)
     {
         const string topic = "topic";
         PeerStore peerStore = new();
-        PubsubRouter router = new(peerStore, new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        using PubsubRouter router = new(peerStore, new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            mcache_gossip = gossipWindows,
+            mcache_len = historyWindows,
+            GossipRetransmission = historyWindows + 1,
+        });
         ILocalPeer localPeer = Substitute.For<ILocalPeer>();
         localPeer.Identity.Returns(TestPeers.Identity(1));
         localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
@@ -140,16 +148,52 @@ public class MessageCacheTests
 
         Rpc request = new() { Control = new ControlMessage() };
         request.Control.Iwant.Add(new ControlIWant { MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
-        router.OnRpc(remotePeerId, request);
+        try
+        {
+            for (int heartbeat = 0; heartbeat < historyWindows; heartbeat++)
+            {
+                sentRpcs.Clear();
+                router.OnRpc(remotePeerId, request);
+                Assert.That(sentRpcs.Single().Publish.Single(), Is.EqualTo(published),
+                    $"Message should remain available after {heartbeat} heartbeats.");
+                await router.Heartbeat();
+            }
 
-        Assert.That(sentRpcs.Single().Publish.Single().Data.ToByteArray(), Is.EqualTo(new byte[] { 1, 2, 3 }));
-        connection.SetResult();
-        cancellation.Cancel();
+            sentRpcs.Clear();
+            router.OnRpc(remotePeerId, request);
+            Assert.That(sentRpcs.SelectMany(rpc => rpc.Publish), Is.Empty,
+                "Message should expire after mcache_len heartbeats.");
+        }
+        finally
+        {
+            connection.SetResult();
+            cancellation.Cancel();
+        }
+    }
+
+    [TestCase(1)]
+    [TestCase(3)]
+    public void EqualWindowCounts_GossipAndRetainMessagesUntilExpiry(int windows)
+    {
+        MessageCache cache = new(gossipWindows: windows, historyWindows: windows, maxEntries: 10, maxBytes: 1024);
+        MessageId id = new([1]);
+        cache.Put(id, CreateMessage("topic", [1]));
+
+        for (int window = 0; window < windows; window++)
+        {
+            Assert.That(cache.GetGossipIds("topic"), Is.EqualTo(new[] { id }));
+            Assert.That(cache.TryGet(id, out _), Is.True);
+            cache.Shift();
+        }
+
+        Assert.That(cache.GetGossipIds("topic"), Is.Empty);
+        Assert.That(cache.TryGet(id, out _), Is.False);
     }
 
     [TestCase(0, 1, 1, 1)]
+    [TestCase(-1, 1, 1, 1)]
+    [TestCase(1, 0, 1, 1)]
     [TestCase(2, 1, 1, 1)]
-    [TestCase(1, 1, 1, 1)]
     [TestCase(1, 1, 0, 1)]
     [TestCase(1, 1, 1, 0)]
     public void Constructor_RejectsInvalidLimits(int gossipWindows, int historyWindows, int maxEntries, int maxBytes)

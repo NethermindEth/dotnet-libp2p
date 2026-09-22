@@ -30,7 +30,7 @@ public class PubsubSettings
     public Multiaddress[] DirectPeers { get; set; } = [];
 
     /// <summary>
-    /// Interval for reconnecting disconnected direct peers. Gossipsub recommends
+    /// Interval in milliseconds for reconnecting disconnected direct peers. Gossipsub recommends
     /// five minutes.
     /// </summary>
     public int DirectConnectPeriod { get; set; } = 5 * 60 * 1000;
@@ -46,8 +46,19 @@ public class PubsubSettings
     public long MaxMessageCacheBytes { get; set; } = 64L * 1024 * 1024;
 
     /// <summary>Maximum valid or rejected message IDs retained by each TTL deduplication cache.</summary>
+    /// <remarks>
+    /// At capacity, the oldest IDs are evicted even before <see cref="MessageCacheTtl"/> expires,
+    /// shortening the deduplication window and allowing those messages to be processed again.
+    /// Size this limit for the expected number of unique messages during the TTL; the defaults
+    /// retain two minutes of IDs only up to roughly 83 unique messages per second per cache.
+    /// </remarks>
     public int MaxSeenMessageIds { get; set; } = 10_000;
-    public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
+
+    /// <summary>
+    /// Maximum retention time in milliseconds for seen message IDs. Capacity eviction via
+    /// <see cref="MaxSeenMessageIds"/> can remove IDs sooner. Defaults to two minutes.
+    /// </summary>
+    public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;
     // Maximum incoming RPC frame size 1 MiB
     public int MaxRpcBytes
     {
