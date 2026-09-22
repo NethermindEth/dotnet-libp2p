@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using Microsoft.Extensions.Logging;
+using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
@@ -106,24 +106,35 @@ public partial class PubsubRouter
             gPeers.TryAdd(topicId, []);
 
             HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
+            HashSet<PeerId> promotedPeers = [];
 
             if (fanout.TryRemove(topicId, out HashSet<PeerId>? fanoutPeers))
             {
-                foreach (PeerId peerId in fanoutPeers.ToList())
+                foreach (PeerId peerId in fanoutPeers)
                 {
-                    if (!IsDirectPeer(peerId) && meshPeers.Add(peerId))
+                    if (!IsDirectPeer(peerId) &&
+                        gPeers[topicId].Contains(peerId) &&
+                        peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
+                        GetPeerScore(peerId) >= 0 &&
+                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= DateTime.Now) &&
+                        meshPeers.Add(peerId))
                     {
                         RecordPeerJoinMesh(peerId, topicId);
+                        promotedPeers.Add(peerId);
                     }
                 }
 
                 fanoutLastPublished.TryRemove(topicId, out _);
             }
 
-            Rpc topicUpdate = new();
-            topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
             foreach (PubsubPeer peer in peerState.Values)
             {
+                Rpc topicUpdate = new();
+                topicUpdate.Subscriptions.Add(CreateSubscription(topicId, subscribe: true));
+                if (promotedPeers.Contains(peer.PeerId))
+                {
+                    topicUpdate.Ensure(r => r.Control.Graft).Add(new ControlGraft { TopicID = topicId });
+                }
                 peer.Send(topicUpdate);
             }
         }
@@ -131,47 +142,72 @@ public partial class PubsubRouter
 
     public void Unsubscribe(string topicId)
     {
-        HashSet<PeerId>? removedMesh;
         lock (this)
+        {
+            UnsubscribeTopics([topicId]);
+        }
+    }
+
+    // Called under the router lock so state changes and notifications stay ordered.
+    private void UnsubscribeTopics(IEnumerable<string> topicIds)
+    {
+        Dictionary<PeerId, Rpc> peerMessages = [];
+        foreach (string topicId in topicIds)
         {
             if (!topicState.TryGetValue(topicId, out Topic? topic) || !topic.IsSubscribed)
             {
-                return;
+                continue;
             }
 
             topic.IsSubscribed = false;
 
-            if (mesh.TryRemove(topicId, out removedMesh))
+            if (mesh.TryRemove(topicId, out HashSet<PeerId>? removedMesh))
             {
                 foreach (PeerId peerId in removedMesh)
                 {
                     RecordPeerLeaveMesh(peerId, topicId);
+                    if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
+                    {
+                        DateTime backoffUntil = DateTime.Now.AddMilliseconds(_settings.UnsubscribeBackoff);
+                        if (!peer.Backoff.TryGetValue(topicId, out DateTime existingBackoff) || existingBackoff < backoffUntil)
+                        {
+                            peer.Backoff[topicId] = backoffUntil;
+                        }
+                    }
                 }
             }
 
             fanout.TryRemove(topicId, out _);
             fanoutLastPublished.TryRemove(topicId, out _);
-            foreach ((PeerId peerId, PubsubPeer peer) in peerState)
+            foreach (PeerId peerId in peerState.Keys)
             {
-                Rpc msg = new Rpc().WithTopics([], [topicId]);
+                if (!peerMessages.TryGetValue(peerId, out Rpc? msg))
+                {
+                    peerMessages[peerId] = msg = new Rpc();
+                }
+                msg.WithTopics([], [topicId]);
                 if (removedMesh?.Contains(peerId) is true)
                 {
-                    msg.Ensure(r => r.Control.Prune).Add(new ControlPrune { TopicID = topicId });
+                    msg.Ensure(r => r.Control.Prune).Add(new ControlPrune
+                    {
+                        TopicID = topicId,
+                        Backoff = (ulong)Math.Ceiling(_settings.UnsubscribeBackoff / 1000.0),
+                    });
                 }
-
-                peer.Send(msg);
             }
+        }
+
+        foreach ((PeerId peerId, Rpc msg) in peerMessages)
+        {
+            peerState.GetValueOrDefault(peerId)?.Send(msg);
         }
     }
 
     public void UnsubscribeAll()
     {
-        foreach (string topicId in topicState
-            .Where(pair => pair.Value.IsSubscribed)
-            .Select(pair => pair.Key)
-            .ToArray())
+        lock (this)
         {
-            Unsubscribe(topicId);
+            UnsubscribeTopics(topicState.Keys);
         }
     }
 
@@ -189,8 +225,20 @@ public partial class PubsubRouter
         {
             topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
-            ulong seqNo = this.seqNo++;
-            Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+            Rpc rpc = new();
+            if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
+            {
+                rpc.Publish.Add(new Message
+                {
+                    Topic = topicId,
+                    Data = ByteString.CopyFrom(message),
+                });
+            }
+            else
+            {
+                rpc.WithMessages(topicId, seqNo++, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+            }
+
             Message publishedMessage = rpc.Publish[0];
             MessageId messageId = _settings.GetMessageId(publishedMessage);
             _seenMessages.Add(messageId);
