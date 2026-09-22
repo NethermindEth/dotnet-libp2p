@@ -59,7 +59,7 @@ public class PubsubSettings
     /// <see cref="MaxSeenMessageIds"/> can remove IDs sooner. Defaults to two minutes.
     /// </summary>
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;
-    // Maximum incoming RPC frame size 1 MiB
+    // Maximum incoming RPC frame size in bytes (default: 1 MiB).
     public int MaxRpcBytes
     {
         get => maxRpcBytes;

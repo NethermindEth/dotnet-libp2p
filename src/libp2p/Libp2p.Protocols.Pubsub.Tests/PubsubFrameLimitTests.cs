@@ -8,6 +8,7 @@ using System.Buffers;
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
+[CancelAfter(5_000)]
 public class PubsubFrameLimitTests
 {
     [Test]
@@ -37,11 +38,12 @@ public class PubsubFrameLimitTests
     public async Task ReadPrefixedProtobufAsync_RejectsFramesLargerThanLimit(ulong messageLength)
     {
         TestChannel channel = new();
-        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>(EncodeVarint(messageLength))).AsTask();
+        CancellationToken token = TestContext.CurrentContext.CancellationToken;
+        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>(EncodeVarint(messageLength)), token).AsTask();
         IChannel reader = channel;
 
         InvalidDataException? exception = Assert.ThrowsAsync<InvalidDataException>(async () =>
-            await reader.ReadPrefixedProtobufAsync(Rpc.Parser, 1_024));
+            await reader.ReadPrefixedProtobufAsync(Rpc.Parser, 1_024, token));
 
         Assert.That(exception!.Message, Does.Contain(messageLength.ToString()));
         await write;
@@ -52,10 +54,11 @@ public class PubsubFrameLimitTests
     {
         byte[] overflowedLength = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02];
         TestChannel channel = new();
-        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>(overflowedLength)).AsTask();
+        CancellationToken token = TestContext.CurrentContext.CancellationToken;
+        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>(overflowedLength), token).AsTask();
         IChannel reader = channel;
 
-        Assert.ThrowsAsync<FormatException>(async () => await reader.ReadPrefixedProtobufAsync(Rpc.Parser, 1_024));
+        Assert.ThrowsAsync<FormatException>(async () => await reader.ReadPrefixedProtobufAsync(Rpc.Parser, 1_024, token));
         await write;
     }
 

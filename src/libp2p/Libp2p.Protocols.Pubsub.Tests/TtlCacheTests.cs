@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using NSubstitute;
+
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
@@ -9,60 +11,106 @@ public class TtlCacheTests
     [Test]
     public void RemoveExpired_RemovesEntriesRegardlessOfKeyOrder()
     {
-        using TtlCache<MessageId> cache = new(500);
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId> cache = new(500, clock);
         MessageId expiredHigh = new([0xFF]);
         MessageId liveLow = new([0x01]);
 
         cache.Add(expiredHigh);
-        DateTimeOffset expiredAfter = DateTimeOffset.UtcNow.AddMilliseconds(500);
-        Assert.That(() => DateTimeOffset.UtcNow >= expiredAfter, Is.True.After(2_000, 25));
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
         cache.Add(liveLow);
 
-        cache.RemoveExpired(DateTimeOffset.UtcNow);
+        cache.RemoveExpired(clock.UtcNow);
 
         Assert.Multiple(() =>
         {
             Assert.That(cache.Count, Is.EqualTo(1));
-            Assert.That(cache.EntryOrderCount, Is.EqualTo(1));
             Assert.That(cache.Contains(expiredHigh), Is.False);
             Assert.That(cache.Contains(liveLow), Is.True);
         });
     }
 
-    [Test]
-    public void ExpiredEntries_AreNotReturned()
+    [TestCase("Contains")]
+    [TestCase("TryGet")]
+    [TestCase("Get")]
+    [TestCase("ToList")]
+    public void ExpiredEntries_AreNotReturnedBeforeSweeping(string operation)
     {
-        using TtlCache<MessageId, string> cache = new(500);
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId, string> cache = new(500, clock);
         MessageId id = new([0x01]);
         cache.Add(id, "value");
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
 
-        Assert.That(() => cache.Contains(id), Is.False.After(2_000, 25));
-
-        Assert.Multiple(() =>
+        // No cache read or sweep may remove the expired entry before the operation under test.
+        Assert.That(cache.Count, Is.EqualTo(1));
+        switch (operation)
         {
-            Assert.That(cache.Contains(id), Is.False);
-            Assert.That(cache.TryGet(id, out _), Is.False);
-            Assert.That(cache.ToList(), Is.Empty);
-        });
+            case "Contains":
+                Assert.That(cache.Contains(id), Is.False);
+                break;
+            case "TryGet":
+                Assert.That(cache.TryGet(id, out string value), Is.False);
+                Assert.That(value, Is.Null);
+                break;
+            case "Get":
+                Assert.That(cache.Get(id), Is.Null);
+                break;
+            case "ToList":
+                Assert.That(cache.ToList(), Is.Empty);
+                break;
+        }
+    }
+
+    [Test]
+    public void ToList_ReturnsOnlyLiveEntries()
+    {
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId, string> cache = new(500, clock);
+        cache.Add(new([0x01]), "expired");
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
+        cache.Add(new([0x02]), "live");
+
+        Assert.That(cache.Count, Is.EqualTo(2));
+        Assert.That(cache.ToList(), Is.EqualTo(new[] { "live" }));
     }
 
     [Test]
     public void Add_ReplacesAnExpiredEntry()
     {
-        using TtlCache<MessageId, string> cache = new(500);
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId, string> cache = new(500, clock);
         MessageId id = new([0x01]);
         cache.Add(id, "expired");
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
 
-        Assert.That(() => cache.Contains(id), Is.False.After(2_000, 25));
+        Assert.That(cache.Count, Is.EqualTo(1));
         cache.Add(id, "replacement");
 
+        Assert.That(cache.Count, Is.EqualTo(1));
         Assert.That(cache.Get(id), Is.EqualTo("replacement"));
+    }
+
+    [Test]
+    public void Add_DoesNotReplaceOrRefreshALiveEntry()
+    {
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId, string> cache = new(500, clock);
+        MessageId id = new([0x01]);
+        cache.Add(id, "original");
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(250);
+        cache.Add(id, "replacement");
+
+        Assert.That(cache.Get(id), Is.EqualTo("original"));
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(250);
+        Assert.That(cache.Contains(id), Is.False);
     }
 
     [Test]
     public void Add_EvictsTheOldestLiveEntryAtCapacity()
     {
-        using TtlCache<MessageId, string> cache = new(ttl: 1_000, maxEntries: 2);
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId, string> cache = new(ttl: 500, maxEntries: 2, timeProvider: clock);
         MessageId first = new([0x01]);
         MessageId second = new([0x02]);
         MessageId third = new([0x03]);
@@ -77,5 +125,35 @@ public class TtlCacheTests
             Assert.That(cache.Get(second), Is.EqualTo("second"));
             Assert.That(cache.Get(third), Is.EqualTo("third"));
         });
+    }
+
+    [Test]
+    public void RemoveExpired_RemovesLaterEntriesAfterClockMovesBackward()
+    {
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId> cache = new(500, clock);
+        MessageId first = new([0x01]);
+        MessageId second = new([0x02]);
+        cache.Add(first);
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(-250);
+        cache.Add(second);
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
+
+        cache.RemoveExpired(clock.UtcNow);
+
+        Assert.That(cache.Count, Is.EqualTo(1));
+        Assert.That(cache.Contains(first), Is.True);
+        Assert.That(cache.Contains(second), Is.False);
+    }
+
+    private sealed class TestTimeProvider : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+
+        // Keep the background sweeper dormant so each test controls expiry explicitly.
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            => Substitute.For<ITimer>();
     }
 }

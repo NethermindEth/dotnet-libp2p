@@ -198,15 +198,26 @@ public class DirectPeersTests
     {
         const string topic = "topic";
         Multiaddress directAddress = TestPeers.Multiaddr(1);
-        PeerId otherPeerId = TestPeers.Multiaddr(2).GetPeerId()!;
+        Multiaddress otherAddress = TestPeers.Multiaddr(2);
+        PeerId otherPeerId = otherAddress.GetPeerId()!;
         using PubsubRouter router = new(new PeerStore(), new PubsubSettings { DirectPeers = [directAddress] });
         IRoutingStateContainer state = router;
-        state.Fanout[topic] = [directAddress.GetPeerId()!, otherPeerId];
+        TaskCompletionSource connection = new();
+        try
+        {
+            router.OutboundConnection(otherAddress, PubsubRouter.GossipsubProtocolVersionV12, connection.Task, _ => { });
+            router.OnRpc(otherPeerId, new Rpc().WithTopics([topic], []));
+            state.Fanout[topic] = [directAddress.GetPeerId()!, otherPeerId];
 
-        router.Subscribe(topic);
+            router.Subscribe(topic);
 
-        Assert.That(state.Mesh[topic], Is.EquivalentTo(new[] { otherPeerId }));
-        Assert.That(state.Fanout.ContainsKey(topic), Is.False);
+            Assert.That(state.Mesh[topic], Is.EquivalentTo(new[] { otherPeerId }));
+            Assert.That(state.Fanout.ContainsKey(topic), Is.False);
+        }
+        finally
+        {
+            connection.SetResult();
+        }
     }
 
     [Test]
