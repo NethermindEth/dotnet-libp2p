@@ -117,6 +117,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public ConnectionInitiation InitiatedBy { get; internal set; }
         public Multiaddress Address { get; internal set; } = null!;
 
+        // Shared by both streams; set before disconnecting a peer for a protocol violation.
+        public volatile bool SuppressReconnection;
+
         // Peer scoring (Gossipsub v1.1)
         public PeerScore Score { get; internal set; }
     }
@@ -491,9 +494,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     topicPeers.Remove(peerId);
                 }
             }
-            reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+            if (removedPeer is { SuppressReconnection: false })
+            {
+                reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+            }
         }
         removedPeer?.TokenSource.Cancel();
+    }
+
+    internal void SuppressReconnection(PeerId peerId)
+    {
+        if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        {
+            peer.SuppressReconnection = true;
+        }
     }
 
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
