@@ -26,13 +26,13 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 public class ServiceCollectionExtensionsTests
 {
     [Test]
-    public async Task Bootstrap_ReadmitsBootnodeAfterFailedLookups()
+    public async Task Bootstrap_ReadmitsBootstrapNodeAfterFailedLookups()
     {
         var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
-        var bootnode = peerId.ToDhtNode();
+        var bootstrapNode = peerId.ToDhtNode();
         using var builderServices = _services.BuildServiceProvider();
         var builder = new TestPeerFactoryBuilder(builderServices, _services);
-        builder.AddKadDht(bootstrapNodes: [bootnode]);
+        builder.AddKadDht(bootstrapNodes: [bootstrapNode]);
         using var serviceProvider = _services.BuildServiceProvider();
         var protocol = serviceProvider.GetRequiredService<KadDhtProtocol>();
         var state = serviceProvider.GetRequiredService<SharedDhtState>();
@@ -46,12 +46,12 @@ public class ServiceCollectionExtensionsTests
 
         for (int i = 0; i < 10; i++)
             await protocol.GetValueAsync([1, 2, 3]);
-        Assert.That(state.GetKNearestPeers(bootnode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.False);
+        Assert.That(state.GetKNearestPeers(bootstrapNode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.False);
 
         online = true;
         await protocol.BootstrapAsync();
 
-        Assert.That(state.GetKNearestPeers(bootnode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.True);
+        Assert.That(state.GetKNearestPeers(bootstrapNode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.True);
         await session.Received().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
             Arg.Is<Message>(m => m.Type == Message.Types.MessageType.Ping), Arg.Any<CancellationToken>());
     }

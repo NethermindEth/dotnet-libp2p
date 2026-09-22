@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+// cspell:ignore Rsassa
+
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Org.BouncyCastle.Asn1;
