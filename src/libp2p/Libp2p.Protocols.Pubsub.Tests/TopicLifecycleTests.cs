@@ -48,7 +48,7 @@ public class TopicLifecycleTests
     {
         const string topicName = "topic-lifecycle";
         PeerStore peerStore = new();
-        PubsubRouter router = new(peerStore);
+        PubsubRouter router = new(peerStore, new PubsubSettings { UnsubscribeBackoff = 0 });
         IRoutingStateContainer state = router;
         ITopic topic = router.GetTopic(topicName);
         Multiaddress peerAddress = TestPeers.Multiaddr(3);
@@ -59,6 +59,8 @@ public class TopicLifecycleTests
         router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
         router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
         router.OnRpc(peerId, CreateMessage(topicName, TestPeers.Identity(2), 1));
+        await state.Heartbeat();
+        Assert.That(state.Mesh[topicName], Has.Member(peerId), "Exercise removal of an established mesh.");
         sent.Clear();
 
         topic.Unsubscribe();
@@ -202,14 +204,23 @@ public class TopicLifecycleTests
     }
 
     [Test]
-    public void Topic_SubscribeMovesFanoutPeersIntoTheMesh()
+    public async Task Topic_SubscribeMovesFanoutPeersIntoTheMesh()
     {
         const string topicName = "topic-lifecycle";
-        PubsubRouter router = new(new PeerStore());
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { FloodPublish = false });
+        using CancellationTokenSource stopped = new();
+        stopped.Cancel();
+        await router.StartAsync(new LocalPeerStub(), stopped.Token);
         IRoutingStateContainer state = router;
         ITopic topic = router.GetTopic(topicName, subscribe: false);
-        PeerId fanoutPeer = TestPeers.PeerId(3);
-        state.Fanout.GetOrAdd(topicName, []).Add(fanoutPeer);
+        Multiaddress address = TestPeers.Multiaddr(3);
+        PeerId fanoutPeer = address.GetPeerId()!;
+        List<Rpc> sent = [];
+        router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
+        router.OnRpc(fanoutPeer, new Rpc().WithTopics([topicName], []));
+        router.Publish(topicName, [1]);
+        Assert.That(state.Fanout[topicName], Has.Member(fanoutPeer));
+        sent.Clear();
 
         topic.Subscribe();
 
@@ -217,6 +228,211 @@ public class TopicLifecycleTests
         {
             Assert.That(state.Mesh[topicName], Has.Member(fanoutPeer));
             Assert.That(state.Fanout, Does.Not.ContainKey(topicName));
+            Assert.That(state.FanoutLastPublished, Does.Not.ContainKey(topicName));
+            Assert.That(sent, Has.Count.EqualTo(1));
+            Assert.That(sent[0].Subscriptions.Single().Subscribe, Is.True);
+            Assert.That(sent[0].Control.Graft.Single().TopicID, Is.EqualTo(topicName));
+        });
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task PublishToFreshTopic_HeartbeatSurvivesAndFindsLaterSubscribers(bool floodPublish)
+    {
+        const string topicName = "fresh-topic";
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { FloodPublish = floodPublish });
+        using CancellationTokenSource stopped = new();
+        stopped.Cancel();
+        await router.StartAsync(new LocalPeerStub(), stopped.Token);
+        IRoutingStateContainer state = router;
+
+        router.Publish(topicName, [1]);
+        Assert.That(state.GossipsubPeers, Does.Not.ContainKey(topicName));
+        Assert.That(state.Fanout, Contains.Key(topicName));
+        await state.Heartbeat();
+        await state.Heartbeat();
+
+        Multiaddress address = TestPeers.Multiaddr(3);
+        List<Rpc> sent = [];
+        router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
+        router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topicName], []));
+        await state.Heartbeat();
+        router.Publish(topicName, [2]);
+
+        Assert.That(state.Fanout[topicName], Has.Member(address.GetPeerId()!));
+        Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void Topic_MessageHandlerCanWaitForRouterWorkOnAnotherThread()
+    {
+        const string topicName = "callback-topic";
+        using PubsubRouter router = new(new PeerStore());
+        ITopic topic = router.GetTopic(topicName);
+        bool? heldRouterLock = null;
+        bool heartbeatCompleted = false;
+        Task? heartbeat = null;
+        topic.OnMessage += (_, _) =>
+        {
+            heldRouterLock = Monitor.IsEntered(router);
+            heartbeat = Task.Run(((IRoutingStateContainer)router).Heartbeat);
+            heartbeatCompleted = heartbeat.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        router.OnRpc(TestPeers.PeerId(3), CreateMessage(topicName, TestPeers.Identity(2), 1));
+        heartbeat?.GetAwaiter().GetResult();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(heldRouterLock, Is.False);
+            Assert.That(heartbeatCompleted, Is.True, "A message handler must not block the heartbeat's routing lock.");
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Unsubscribe_AdvertisesAndEnforcesBackoff(bool publishBeforeResubscribe)
+    {
+        const string topicName = "backoff-topic";
+        PubsubSettings settings = new() { UnsubscribeBackoff = 60_500, FloodPublish = false };
+        using PubsubRouter router = new(new PeerStore(), settings);
+        using CancellationTokenSource stopped = new();
+        stopped.Cancel();
+        await router.StartAsync(new LocalPeerStub(), stopped.Token);
+        IRoutingStateContainer state = router;
+        ITopic topic = router.GetTopic(topicName);
+        Multiaddress address = TestPeers.Multiaddr(3);
+        PeerId peerId = address.GetPeerId()!;
+        List<Rpc> sent = [];
+        router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
+        router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
+        await state.Heartbeat();
+        Assert.That(state.Mesh[topicName], Has.Member(peerId));
+        sent.Clear();
+
+        topic.Unsubscribe();
+        Assert.That(sent.Single().Control.Prune.Single().Backoff, Is.EqualTo(61));
+        if (publishBeforeResubscribe)
+        {
+            router.Publish(topicName, [1]);
+            Assert.That(state.Fanout[topicName], Has.Member(peerId));
+        }
+        sent.Clear();
+        topic.Subscribe();
+        await state.Heartbeat();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.GossipsubPeers[topicName], Has.Member(peerId));
+            Assert.That(state.Mesh[topicName], Is.Empty);
+            Assert.That(sent.Any(rpc => rpc.Control?.Graft.Count > 0), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task UnsubscribeAll_BatchesTopicsAndContinuesAfterSendFailure()
+    {
+        using PubsubRouter router = new(new PeerStore());
+        IRoutingStateContainer state = router;
+        ITopic first = router.GetTopic("first");
+        ITopic second = router.GetTopic("second");
+        List<Rpc> sent = [];
+        int failedSends = 0;
+        bool fail = false;
+        Multiaddress brokenAddress = TestPeers.Multiaddr(3);
+        Multiaddress healthyAddress = TestPeers.Multiaddr(4);
+        router.OutboundConnection(brokenAddress, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, _ =>
+        {
+            if (fail)
+            {
+                failedSends++;
+                throw new IOException("Connection closed");
+            }
+        });
+        router.OutboundConnection(healthyAddress, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
+        foreach (Multiaddress address in new[] { brokenAddress, healthyAddress })
+        {
+            router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics(["first", "second"], []));
+        }
+        await state.Heartbeat();
+        sent.Clear();
+        fail = true;
+
+        Assert.DoesNotThrow(router.UnsubscribeAll);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.IsSubscribed || second.IsSubscribed, Is.False);
+            Assert.That(state.Mesh, Is.Empty);
+            Assert.That(failedSends, Is.EqualTo(1));
+            Assert.That(sent, Has.Count.EqualTo(1));
+            Assert.That(sent[0].Subscriptions.Select(sub => sub.Topicid), Is.EquivalentTo(new[] { "first", "second" }));
+            Assert.That(sent[0].Subscriptions.All(sub => !sub.Subscribe), Is.True);
+            Assert.That(sent[0].Control.Prune.Select(prune => prune.TopicID), Is.EquivalentTo(new[] { "first", "second" }));
+        });
+    }
+
+    [Test]
+    public async Task HelloAndHeartbeat_AreSentUnderTheLifecycleLock()
+    {
+        const string topicName = "ordered-topic";
+        using PubsubRouter router = new(new PeerStore());
+        IRoutingStateContainer state = router;
+        ITopic topic = router.GetTopic(topicName);
+        Multiaddress address = TestPeers.Multiaddr(3);
+        List<(Rpc Rpc, bool Ordered)> sent = [];
+        router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task,
+            rpc => sent.Add((rpc, Monitor.IsEntered(router))));
+        Assert.That(sent.Single().Rpc.Subscriptions.Single().Subscribe, Is.True);
+        router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topicName], []));
+        await state.Heartbeat();
+        Assert.That(sent.Any(entry => entry.Rpc.Control?.Graft.Count > 0), Is.True);
+        topic.Unsubscribe();
+
+        Assert.That(sent.All(entry => entry.Ordered), Is.True);
+        Assert.That(sent.Last().Rpc.Subscriptions.Single().Subscribe, Is.False);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Disconnect_SerializesMembershipCleanupWithLifecycle(bool inbound)
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { FloodPublish = false });
+        using CancellationTokenSource stopped = new();
+        stopped.Cancel();
+        await router.StartAsync(new LocalPeerStub(), stopped.Token);
+        IRoutingStateContainer state = router;
+        router.GetTopic("mesh-topic");
+        Multiaddress address = TestPeers.Multiaddr(3);
+        PeerId peerId = address.GetPeerId()!;
+        TaskCompletionSource connectionClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken disconnected = inbound
+            ? router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, () => { })
+            : router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, _ => { });
+        TaskCompletionSource cleanupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration registration = disconnected.Register(() => cleanupFinished.TrySetResult());
+        router.OnRpc(peerId, new Rpc().WithTopics(["mesh-topic", "fanout-topic"], []));
+        await state.Heartbeat();
+        router.Publish("fanout-topic", [1]);
+        Assert.That(state.Mesh["mesh-topic"], Has.Member(peerId));
+        Assert.That(state.Fanout["fanout-topic"], Has.Member(peerId));
+
+        lock (router)
+        {
+            connectionClosed.SetResult();
+            Assert.That(cleanupFinished.Task.Wait(TimeSpan.FromMilliseconds(100)), Is.False,
+                "Disconnect cleanup must wait while a lifecycle transition holds the router lock.");
+            Assert.That(state.Mesh["mesh-topic"], Has.Member(peerId));
+            Assert.That(state.Fanout["fanout-topic"], Has.Member(peerId));
+        }
+        await cleanupFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.ConnectedPeers, Does.Not.Contain(peerId));
+            Assert.That(state.Mesh["mesh-topic"], Is.Empty);
+            Assert.That(state.Fanout["fanout-topic"], Is.Empty);
+            Assert.That(state.GossipsubPeers.Values.All(peers => !peers.Contains(peerId)), Is.True);
         });
     }
 
