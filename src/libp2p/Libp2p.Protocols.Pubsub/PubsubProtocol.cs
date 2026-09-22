@@ -51,7 +51,10 @@ public abstract class PubsubProtocol : ISessionProtocol
             context.Activity?.AddEvent(new ActivityEvent($"Sent message to {remotePeerId}: {rpc}"));
         });
 
-        await channel;
+        using (router.Stopped.Register(() => _ = channel.CloseAsync()))
+        {
+            await channel;
+        }
         dialTcs.SetResult();
         context.Activity?.AddEvent(new ActivityEvent($"Finished dial({context.Id}) {context.State.RemoteAddress}"));
     }
@@ -66,10 +69,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () =>
-        {
-            _ = context.DialAsync(this);
-        });
+        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
 
         try
         {
