@@ -64,13 +64,25 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         public void Send(Rpc rpc)
         {
             SendRpcQueue.Enqueue(rpc);
+            FlushSendQueue();
+        }
+
+        private void FlushSendQueue()
+        {
             if (SendRpc is not null)
             {
                 lock (SendRpcQueue)
                 {
                     while (SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
                     {
-                        SendRpc.Invoke(rpcToSend);
+                        try
+                        {
+                            SendRpc.Invoke(rpcToSend);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogWarning(ex, "Failed to send pubsub RPC to {peerId}", PeerId);
+                        }
                     }
                 }
             }
@@ -86,14 +98,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
                 _sendRpc = value;
-                if (_sendRpc is not null)
-                    lock (SendRpcQueue)
-                    {
-                        while (SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
-                        {
-                            _sendRpc.Invoke(rpcToSend);
-                        }
-                    }
+                FlushSendQueue();
             }
         }
         public CancellationTokenSource TokenSource { get; init; }
@@ -324,7 +329,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 if (meshPeers.Count < _settings.LowestDegree)
                 {
                     // Need to graft more peers - exclude peers with negative scores
-                    PeerId[] peersToGraft = gPeers[topic]
+                    PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
                             && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff < DateTime.Now))
@@ -411,7 +416,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in gPeers[fanoutTopic].Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
+                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? []).Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
                         {
                             fanout[fanoutTopic].Add(peerId);
                         }
@@ -449,14 +454,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 }
             }
-        }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+            {
+                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            }
         }
 
         return Task.CompletedTask;
+    }
+
+    private void RemovePeer(PeerId peerId, Multiaddress addr)
+    {
+        PubsubPeer? removedPeer;
+        lock (this)
+        {
+            peerState.TryRemove(peerId, out removedPeer);
+            foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
+            {
+                foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
+                {
+                    topicPeers.Remove(peerId);
+                }
+            }
+            reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+        }
+        removedPeer?.TokenSource.Cancel();
     }
 
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
@@ -490,42 +512,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             dialTask.ContinueWith(t =>
             {
-                peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-                peerState.TryRemove(peerId, out _);
-                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
-                {
-                    topicPeers.Value.Remove(peerId);
-                }
-                reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                RemovePeer(peerId, addr);
             });
 
-            string[] topics;
             lock (this)
             {
-                topics = topicState
+                string[] topics = topicState
                     .Where(pair => pair.Value.IsSubscribed)
                     .Select(pair => pair.Key)
                     .ToArray();
-            }
+                if (topics.Any())
+                {
+                    logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
 
-            if (topics.Any())
-            {
-                logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
-
-                Rpc helloMessage = new Rpc().WithTopics(topics, []);
-                peer.Send(helloMessage);
+                    Rpc helloMessage = new Rpc().WithTopics(topics, []);
+                    peer.Send(helloMessage);
+                }
             }
 
             logger?.LogDebug("Outbound {peerId}", peerId);
@@ -552,25 +554,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
                 listTask.ContinueWith(t =>
                 {
-                    peerState.GetValueOrDefault(peerId)?.TokenSource.Cancel();
-                    peerState.TryRemove(peerId, out _);
-                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fPeers)
-                    {
-                        topicPeers.Value.Remove(peerId);
-                    }
-                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in gPeers)
-                    {
-                        topicPeers.Value.Remove(peerId);
-                    }
-                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in fanout)
-                    {
-                        topicPeers.Value.Remove(peerId);
-                    }
-                    foreach (KeyValuePair<string, HashSet<PeerId>> topicPeers in mesh)
-                    {
-                        topicPeers.Value.Remove(peerId);
-                    }
-                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                    RemovePeer(peerId, addr);
                 });
 
                 subDial();
