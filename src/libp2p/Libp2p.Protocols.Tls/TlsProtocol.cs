@@ -9,6 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using System.Text;
@@ -167,11 +168,11 @@ public class TlsProtocol : IConnectionProtocol
     private static void SetRemoteIdentity(IConnectionContext context, X509Certificate2 certificate)
     {
         Core.Dto.PublicKey remotePublicKey = CertificateHelper.ExtractPublicKey(certificate, out _)
-            ?? throw new InvalidOperationException("Remote public key not found");
+            ?? throw new Libp2pException("Remote public key not found");
 
         if (context.State.RemotePublicKey is { } existingRemotePublicKey && existingRemotePublicKey.ToByteString() != remotePublicKey.ToByteString())
         {
-            throw new InvalidOperationException("TLS certificate public key does not match the previously authenticated remote public key.");
+            throw new Libp2pException("TLS certificate public key does not match the previously authenticated remote public key.");
         }
 
         context.State.RemotePublicKey = remotePublicKey;
