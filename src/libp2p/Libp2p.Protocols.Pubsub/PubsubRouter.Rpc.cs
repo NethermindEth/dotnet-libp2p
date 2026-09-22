@@ -146,6 +146,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
+        topicState.TryGetValue(topicId, out Topic? topic);
+        if (partialMessage.HasPartialMessage &&
+            (topic?.IsSubscribed is not true || !topic.RequestsPartialMessages))
+        {
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
+            return;
+        }
+
+        if (topic?.SupportsSendingPartialMessages is not true)
+        {
+            return;
+        }
+
         receivedPartialMessages.Add((
             topicId,
             peerId,

@@ -267,29 +267,29 @@ public partial class PubsubRouter
             throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
         }
 
+        PeerId[] recipients;
         lock (this)
         {
             partialMessageGossip.Track(topicId, groupId);
-        }
 
-        PeerId[] recipients;
-        if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers) && meshPeers.Count > 0)
-        {
-            recipients = meshPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
-        }
-        else
-        {
-            fanoutLastPublished[topicId] = DateTime.Now;
-            HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
-            if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
+            if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers))
             {
-                foreach (PeerId peerId in topicPeers.Where(peerId => GetPeerScore(peerId) >= 0).Take(_settings.Degree))
-                {
-                    fanoutPeers.Add(peerId);
-                }
+                recipients = meshPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
             }
+            else
+            {
+                fanoutLastPublished[topicId] = DateTime.Now;
+                HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
+                if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
+                {
+                    foreach (PeerId peerId in topicPeers.Where(peerId => GetPeerScore(peerId) >= 0).Take(_settings.Degree))
+                    {
+                        fanoutPeers.Add(peerId);
+                    }
+                }
 
-            recipients = fanoutPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
+                recipients = fanoutPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
+            }
         }
 
         foreach (PeerId peerId in recipients)

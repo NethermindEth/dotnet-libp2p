@@ -111,11 +111,14 @@ internal sealed class PartialMessagesTopic : IPartialMessagesTopic
 
     private void OnRouterPartialMessage(string topicName, PeerId peerId, PartialMessage message)
     {
-        if (topic.Name != topicName)
+        lock (topic.Router)
         {
-            return;
-        }
+            if (!IsSubscribed || !SupportsSendingPartialMessages || topic.Name != topicName)
+            {
+                return;
+            }
 
-        OnPartialMessage?.Invoke(peerId, message);
+            OnPartialMessage?.Invoke(peerId, message);
+        }
     }
 }
