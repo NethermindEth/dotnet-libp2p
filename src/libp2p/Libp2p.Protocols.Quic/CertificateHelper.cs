@@ -3,7 +3,8 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
-using Org.BouncyCastle.X509;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Security;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.Security.Cryptography;
@@ -173,16 +174,58 @@ public class CertificateHelper
     {
         try
         {
-            X509CertificateParser parser = new();
-            Org.BouncyCastle.X509.X509Certificate parsedCertificate = parser.ReadCertificate(certificate.RawData);
-            parsedCertificate.Verify(parsedCertificate.GetPublicKey());
-            return true;
+            AsnReader certificateReader = new(certificate.RawData, AsnEncodingRules.DER);
+            AsnReader certificateSequence = certificateReader.ReadSequence();
+
+            ReadOnlyMemory<byte> tbsCertificate = certificateSequence.ReadEncodedValue();
+            string signatureAlgorithmOid = ReadSignatureAlgorithmOid(certificateSequence);
+            byte[] signature = certificateSequence.ReadBitString(out int unusedBitCount);
+
+            if (unusedBitCount != 0 || certificateSequence.HasData || certificateReader.HasData)
+            {
+                return false;
+            }
+
+            byte[]? subjectPublicKeyInfo = ReadSubjectPublicKeyInfo(certificate);
+            if (subjectPublicKeyInfo is null)
+            {
+                return false;
+            }
+
+            AsymmetricKeyParameter publicKey = PublicKeyFactory.CreateKey(subjectPublicKeyInfo);
+            ISigner signer = SignerUtilities.GetSigner(SignatureAlgorithmName(signatureAlgorithmOid));
+            byte[] tbsBytes = tbsCertificate.ToArray();
+
+            signer.Init(false, publicKey);
+            signer.BlockUpdate(tbsBytes, 0, tbsBytes.Length);
+            return signer.VerifySignature(signature);
         }
         catch
         {
             return false;
         }
     }
+
+    private static string ReadSignatureAlgorithmOid(AsnReader certificateSequence)
+    {
+        AsnReader algorithmIdentifier = certificateSequence.ReadSequence();
+        return algorithmIdentifier.ReadObjectIdentifier();
+    }
+
+    private static string SignatureAlgorithmName(string oid) => oid switch
+    {
+        "1.2.840.10045.4.3.1" => "SHA-224withECDSA",
+        "1.2.840.10045.4.3.2" => "SHA-256withECDSA",
+        "1.2.840.10045.4.3.3" => "SHA-384withECDSA",
+        "1.2.840.10045.4.3.4" => "SHA-512withECDSA",
+        "1.2.840.113549.1.1.5" => "SHA-1withRSA",
+        "1.2.840.113549.1.1.11" => "SHA-256withRSA",
+        "1.2.840.113549.1.1.12" => "SHA-384withRSA",
+        "1.2.840.113549.1.1.13" => "SHA-512withRSA",
+        "1.3.101.112" => "Ed25519",
+        "1.3.101.113" => "Ed448",
+        _ => throw new CryptographicException($"Unsupported certificate signature algorithm '{oid}'."),
+    };
 
     private static byte[]? ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
     {

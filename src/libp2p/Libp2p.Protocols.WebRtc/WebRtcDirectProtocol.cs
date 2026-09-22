@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Tls.Crypto.Impl.BC;
 using Org.BouncyCastle.X509;
 using SIPSorcery.Net;
 using System.Net;
@@ -237,14 +238,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
     private static (RTCCertificate2 Certificate, DtlsFingerprint Fingerprint) CreateLocalCertificate()
     {
-        (X509Certificate certificate, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedEcdsaCert();
+        (Org.BouncyCastle.Tls.Certificate certificateChain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto(), useRsa: false);
+        X509Certificate certificate = new X509CertificateParser().ReadCertificate(certificateChain.GetCertificateAt(0).GetEncoded());
         RTCCertificate2 rtcCertificate = new()
         {
             Certificate = certificate,
             PrivateKey = privateKey,
         };
 
-        return (rtcCertificate, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificate)));
+        return (rtcCertificate, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificateChain)));
     }
 
     private async Task<RTCSessionDescriptionInit> ReceiveAnswerAsync(

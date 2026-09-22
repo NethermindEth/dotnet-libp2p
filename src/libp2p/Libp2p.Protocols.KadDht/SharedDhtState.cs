@@ -63,7 +63,7 @@ public class SharedDhtState
     public void SetRoutingTable(IRoutingTable<DhtNode, ValueHash256> routingTable)
     {
         _routingTable = routingTable;
-        _logger.LogInformation("Routing table updated with {PeerCount} peers", routingTable.Size);
+        _logger.LogInformation("Routing table updated with {PeerCount} peers", routingTable.GetOccupancy().NodeCount);
     }
 
     /// <summary>
@@ -108,5 +108,5 @@ public class SharedDhtState
     /// <summary>
     /// Get count of peers in routing table.
     /// </summary>
-    public int PeerCount => _routingTable?.Size ?? 0;
+    public int PeerCount => _routingTable?.GetOccupancy().NodeCount ?? 0;
 }

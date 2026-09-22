@@ -453,4 +453,5 @@ dotnet test src/libp2p/Libp2p.Protocols.KadDht.Tests/
 ## License
 
 This project is licensed under MIT. The generic Kademlia implementation is consumed through the separate
-`Nethermind.Kademlia` NuGet package, which declares its own LGPL-3.0-only license metadata.
+`Nethermind.Kademlia` NuGet package rather than vendored into this repository; the package carries its own
+license metadata on NuGet.
