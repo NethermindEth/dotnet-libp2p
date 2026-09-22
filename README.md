@@ -23,7 +23,7 @@ As a libp2p protocol implementer, you may be interested in [more advanced tutori
 ## Adding libp2p to your project
 
 ```sh
-dotnet add package Nethermind.Libp2p --prerelease
+dotnet add package Nethermind.Libp2p
 ```
 
 ## Building the solution
@@ -37,7 +37,7 @@ dotnet test
 
 ## Roadmap
 
-🚧 The library is not stable and under heavy development. Consider the [beta](https://github.com/NethermindEth/dotnet-libp2p/milestone/5) milestone as a reflection of readiness for production 🚧
+The stable 1.0.0 release supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 

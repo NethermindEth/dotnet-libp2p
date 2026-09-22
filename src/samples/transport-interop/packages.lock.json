@@ -46,9 +46,9 @@
       },
       "Microsoft.Native.Quic.MsQuic.OpenSSL": {
         "type": "Direct",
-        "requested": "[2.5.7, )",
-        "resolved": "2.5.7",
-        "contentHash": "d9PWpMuv3LzMLHT1zfSwkVvDKrdoOEA1tv6OjBE2kuJ5zQTDsoQ5Zq4qAMS5ddz2wm2/o2XJT89pO+RhOld5vA=="
+        "requested": "[2.5.11, )",
+        "resolved": "2.5.11",
+        "contentHash": "dq5UbjCDBiYaMHYfE7NeN3x61p+wmzkqiV8ocQn3bKpdJ/MFCfSPgnEgyAXnpKLu3tBOooTUIrezmCiV4ocNGQ=="
       },
       "NRedisStack": {
         "type": "Direct",

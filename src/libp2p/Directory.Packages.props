@@ -23,7 +23,7 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.5.7" />
+    <PackageVersion Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.5.11" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.111" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="1.9.1" />

@@ -7,18 +7,21 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Libp2p.Protocols.KadDht</AssemblyName>
     <RootNamespace>Libp2p.Protocols.KadDht</RootNamespace>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
 
   <PropertyGroup>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>libp2p network kad dht kademlia</PackageTags>
+    <PackageLicenseExpression>LGPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <AdditionalFiles Include="Dto\Kademlia.proto" CopyToOutputDirectory="Never" />
     <AdditionalFiles Include="Dto\IpnsEntry.proto" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
