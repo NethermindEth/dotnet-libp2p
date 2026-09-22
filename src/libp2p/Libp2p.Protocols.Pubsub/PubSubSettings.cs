@@ -30,7 +30,7 @@ public class PubsubSettings
     public Multiaddress[] DirectPeers { get; set; } = [];
 
     /// <summary>
-    /// Interval for reconnecting disconnected direct peers. Gossipsub recommends
+    /// Interval in milliseconds for reconnecting disconnected direct peers. Gossipsub recommends
     /// five minutes.
     /// </summary>
     public int DirectConnectPeriod { get; set; } = 5 * 60 * 1000;

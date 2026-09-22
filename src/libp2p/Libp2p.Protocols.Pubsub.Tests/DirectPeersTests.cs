@@ -114,13 +114,18 @@ public class DirectPeersTests
         connection.SetResult();
     }
 
-    [Test]
-    public async Task Router_ConnectsConfiguredDirectPeersAtStartup()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Router_ConnectsConfiguredDirectPeersAtStartup(bool addressesAlreadyKnown)
     {
         PeerStore peerStore = new();
         Multiaddress directAddress = TestPeers.Multiaddr(1);
         PeerId directPeerId = directAddress.GetPeerId()!;
         peerStore.GetPeerInfo(directPeerId).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        if (addressesAlreadyKnown)
+        {
+            peerStore.Discover([directAddress]);
+        }
         PubsubRouter router = new(peerStore, new PubsubSettings { DirectPeers = [directAddress] });
 
         TaskCompletionSource protocolDialed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -145,6 +150,119 @@ public class DirectPeersTests
         _ = session.Received(1).DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>());
 
         cancellation.Cancel();
+    }
+
+    [Test]
+    public async Task PublishPartial_ExcludesDirectPeersFromFanoutAndMesh()
+    {
+        const string topic = "topic";
+        Multiaddress directAddress = TestPeers.Multiaddr(1);
+        Multiaddress otherAddress = TestPeers.Multiaddr(2);
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            DirectPeers = [directAddress],
+            EnablePartialMessages = true,
+        });
+        IRoutingStateContainer state = router;
+        router.GetPartialMessagesTopic(topic,
+            new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }, subscribe: false);
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(3));
+        localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        using CancellationTokenSource cancellation = new();
+        TaskCompletionSource connection = new();
+        try
+        {
+            await router.StartAsync(localPeer, cancellation.Token);
+            foreach (Multiaddress address in new[] { directAddress, otherAddress })
+            {
+                router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, connection.Task, _ => { });
+                router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topic], []));
+            }
+
+            router.PublishPartial(topic, [1], partialMessage: [2]);
+            Assert.That(state.Fanout[topic], Is.EquivalentTo(new[] { otherAddress.GetPeerId() }));
+
+            router.Subscribe(topic);
+            Assert.That(state.Mesh[topic], Is.EquivalentTo(new[] { otherAddress.GetPeerId() }));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            connection.TrySetResult();
+        }
+    }
+
+    [Test]
+    public void Subscribe_ExcludesDirectPeersWhenMovingFanoutToMesh()
+    {
+        const string topic = "topic";
+        Multiaddress directAddress = TestPeers.Multiaddr(1);
+        PeerId otherPeerId = TestPeers.Multiaddr(2).GetPeerId()!;
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { DirectPeers = [directAddress] });
+        IRoutingStateContainer state = router;
+        state.Fanout[topic] = [directAddress.GetPeerId()!, otherPeerId];
+
+        router.Subscribe(topic);
+
+        Assert.That(state.Mesh[topic], Is.EquivalentTo(new[] { otherPeerId }));
+        Assert.That(state.Fanout.ContainsKey(topic), Is.False);
+    }
+
+    [Test]
+    public async Task Router_ReconnectsDisconnectedDirectPeersIndependentlyOfOtherIntervals()
+    {
+        Multiaddress directAddress = TestPeers.Multiaddr(1);
+        PeerStore peerStore = new();
+        peerStore.GetPeerInfo(directAddress.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        using PubsubRouter router = new(peerStore, new PubsubSettings
+        {
+            DirectPeers = [directAddress],
+            DirectConnectPeriod = 50,
+            ReconnectionPeriod = 60_000,
+            HeartbeatInterval = 60_000,
+        });
+        TaskCompletionSource firstConnection = new();
+        TaskCompletionSource secondConnection = new();
+        TaskCompletionSource redialed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int protocolDials = 0;
+        ISession session = Substitute.For<ISession>();
+        session.RemoteAddress.Returns(directAddress);
+        session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            int attempt = Interlocked.Increment(ref protocolDials);
+            router.OutboundConnection(directAddress, PubsubRouter.GossipsubProtocolVersionV12,
+                attempt == 1 ? firstConnection.Task : secondConnection.Task, _ => { });
+            if (attempt > 1)
+            {
+                redialed.TrySetResult();
+            }
+            return Task.CompletedTask;
+        });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(2));
+        localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(session);
+        using CancellationTokenSource cancellation = new();
+        try
+        {
+            await router.StartAsync(localPeer, cancellation.Token);
+            await Task.Delay(200);
+            _ = localPeer.Received(1).DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
+
+            firstConnection.SetResult();
+            await redialed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            await Task.Delay(200);
+            _ = localPeer.Received(2).DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
+            _ = session.Received(2).DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            cancellation.Cancel();
+            firstConnection.TrySetResult();
+            secondConnection.TrySetResult();
+        }
     }
 
     [Test]
