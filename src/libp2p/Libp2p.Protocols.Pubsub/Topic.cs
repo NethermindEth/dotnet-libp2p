@@ -20,21 +20,22 @@ internal class Topic : ITopic
 
     private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
     {
-        lock (router)
+        if (!IsSubscribed || this.topicName != topicName)
         {
-            if (!IsSubscribed || this.topicName != topicName)
-            {
-                return;
-            }
-
-            Action<PeerId, byte[]>? onMessage = OnMessage;
-            onMessage?.Invoke(peerId, message);
+            return;
         }
+
+        // User callbacks must not hold the routing lock: they may wait for work
+        // on another thread that needs the router. An in-flight delivery may finish
+        // concurrently with unsubscribe.
+        Action<PeerId, byte[]>? onMessage = OnMessage;
+        onMessage?.Invoke(peerId, message);
     }
 
     public DateTime LastPublished { get; set; }
 
-    public bool IsSubscribed { get; internal set; }
+    private volatile bool isSubscribed;
+    public bool IsSubscribed { get => isSubscribed; internal set => isSubscribed = value; }
     internal bool RequestsPartialMessages { get; private set; }
     internal bool SupportsSendingPartialMessages { get; private set; }
     internal PubsubRouter Router => router;
@@ -62,12 +63,12 @@ internal class Topic : ITopic
 
     public void Unsubscribe()
     {
-        if (IsSubscribed) router.Unsubscribe(topicName);
+        router.Unsubscribe(topicName);
     }
 
     public void Subscribe()
     {
-        if (!IsSubscribed) router.Subscribe(topicName);
+        router.Subscribe(topicName);
     }
 }
 
