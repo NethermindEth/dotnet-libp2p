@@ -11,7 +11,7 @@ using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-public partial class PubsubRouter : IRoutingStateContainer, IDisposable
+public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncDisposable
 {
     static int routerCounter = 0;
     readonly int routerId = Interlocked.Increment(ref routerCounter);
@@ -159,6 +159,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private readonly PeerStore _peerStore;
     private ulong seqNo = 1;
 
+    // Lifetime of work owned by the router: background loops and dials it starts itself.
+    private readonly object _lifecycleLock = new();
+    private bool _disposed;
+    private CancellationTokenSource? _lifetime;
+    private readonly CancellationTokenSource _stopped = new();
+    private Action<Multiaddress[]>? _onNewPeer;
+    private Task _loops = Task.CompletedTask;
+    private readonly ConcurrentDictionary<Task, byte> _connects = new();
+
     private record Reconnection(Multiaddress[] Addresses, int Attempts);
 
     static PubsubRouter()
@@ -179,50 +188,71 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _idontwantMessages = new(_settings.MessageCacheTtl);
     }
 
+    /// <summary>
+    /// Starts background loops and connects to peers from the <see cref="PeerStore"/>.
+    /// The router stops when <paramref name="token"/> is cancelled or when it is disposed;
+    /// use <see cref="DisposeAsync"/> to also wait for the owned work to finish.
+    /// </summary>
     public Task StartAsync(ILocalPeer localPeer, CancellationToken token = default)
     {
-        logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
-
-        if (this.localPeer is not null)
+        lock (_lifecycleLock)
         {
-            throw new InvalidOperationException("Router has been already started");
-        }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-        this.localPeer = localPeer;
+            logger?.LogDebug($"Running pubsub for {string.Join(",", localPeer.ListenAddresses)}");
 
-        _peerStore.OnNewPeer += (addrs) =>
-        {
-            if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+            if (this.localPeer is not null)
             {
-                return;
+                throw new InvalidOperationException("Router has been already started");
             }
-            _ = Connect(addrs, token, true);
-        };
 
-        _ = Task.Run(LoopHeartbeat, token);
-        _ = Task.Run(LoopReconnect, token);
+            this.localPeer = localPeer;
+
+            _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, _stopped.Token);
+            CancellationToken lifetime = _lifetime.Token;
+
+            _loops = Task.WhenAll(
+                Task.Run(() => LoopHeartbeat(lifetime), lifetime),
+                Task.Run(() => LoopReconnect(lifetime), lifetime));
+
+            _onNewPeer = (addrs) =>
+            {
+                if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+                {
+                    return;
+                }
+                Track(Connect(addrs, lifetime, true));
+            };
+            // Subscribing replays already known peers, so it goes last.
+            _peerStore.OnNewPeer += _onNewPeer;
+        }
 
         logger?.LogInformation("Started");
         return Task.CompletedTask;
+    }
 
-
-        async Task LoopHeartbeat()
+    private async Task LoopHeartbeat(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
         {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(_settings.HeartbeatInterval, token);
-                await Heartbeat();
-            }
+            await Task.Delay(_settings.HeartbeatInterval, token);
+            await Heartbeat();
         }
+    }
 
-        async Task LoopReconnect()
+    private async Task LoopReconnect(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
         {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(_settings.ReconnectionPeriod, token);
-                Reconnect(token);
-            }
+            await Task.Delay(_settings.ReconnectionPeriod, token);
+            Reconnect(token);
         }
+    }
+
+    private void Track(Task connect)
+    {
+        _connects.TryAdd(connect, 0);
+        _ = connect.ContinueWith(t => _connects.TryRemove(t, out _), TaskScheduler.Default);
     }
 
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
@@ -266,14 +296,58 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         catch (Exception e)
         {
             logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
-            if (reconnect) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
+            if (reconnect && !token.IsCancellationRequested) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
         }
     }
 
+    /// <summary>
+    /// Stops owned work and releases owned resources without waiting for background work to finish.
+    /// Shared dependencies such as <see cref="PeerStore"/> and the local peer are not disposed.
+    /// </summary>
     public void Dispose()
     {
+        CancellationTokenSource? lifetime;
+        Action<Multiaddress[]>? onNewPeer;
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            lifetime = _lifetime;
+            onNewPeer = _onNewPeer;
+        }
+
+        _peerStore.OnNewPeer -= onNewPeer;
+        _stopped.Cancel();
+        lifetime?.Dispose();
+
+        // Ends inbound stream loops; outbound streams close with their cancelled dial.
+        foreach (PubsubPeer peer in peerState.Values)
+        {
+            peer.TokenSource.Cancel();
+        }
+        reconnections.Clear();
+
         _messageCache.Dispose();
         _limboMessageCache.Dispose();
+        _idontwantMessages.Dispose();
+    }
+
+    /// <summary>
+    /// Stops the router like <see cref="Dispose"/> and waits for its background loops and dials to finish.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+
+        Task owned = Task.WhenAll([_loops, .. _connects.Keys]);
+        await owned.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (owned.IsFaulted)
+        {
+            logger?.LogWarning(owned.Exception, "Pubsub background work failed");
+        }
     }
 
     private void Reconnect(CancellationToken token)
@@ -283,7 +357,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
         {
             logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
-            _ = Connect(rec.Addresses, token, true).ContinueWith(t =>
+            Task connect = Connect(rec.Addresses, token, true);
+            Track(connect);
+            _ = connect.ContinueWith(t =>
             {
                 if (t.IsFaulted && rec.Attempts != 1)
                 {
@@ -458,6 +534,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Cancelled when the router is disposed; streams the router serves close on it.
+    /// </summary>
+    internal CancellationToken Stopped => _stopped.Token;
+
     internal void SuppressReconnection(PeerId peerId)
     {
         if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
@@ -470,7 +551,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null)
+        if (peerId is null || _stopped.IsCancellationRequested)
         {
             return Canceled;
         }
@@ -536,11 +617,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Action subDial)
+    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
     {
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null || peerId == localPeer!.Identity.PeerId)
+        if (peerId is null || peerId == localPeer!.Identity.PeerId || _stopped.IsCancellationRequested)
         {
             return Canceled;
         }
@@ -579,7 +660,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 });
 
-                subDial();
+                Track(subDial());
                 return newPeer.TokenSource.Token;
             }
             else
