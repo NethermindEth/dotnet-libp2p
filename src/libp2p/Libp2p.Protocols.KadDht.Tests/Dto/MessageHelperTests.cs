@@ -14,6 +14,32 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Dto;
 [TestFixture]
 public class MessageHelperTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public void FromWirePeer_PreservesRelayDestination(bool includeDestination)
+    {
+        var peerId = new Identity(new byte[32]).PeerId;
+        var relayId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        string relayAddress = $"/ip4/127.0.0.1/tcp/4001/p2p/{relayId}/p2p-circuit";
+        var node = peerId.ToDhtNode([includeDestination ? $"{relayAddress}/p2p/{peerId}" : relayAddress]);
+
+        var result = MessageHelper.FromWirePeer(MessageHelper.ToWirePeer(node));
+
+        Assert.That(result!.Multiaddrs, Is.EqualTo(new[] { $"{relayAddress}/p2p/{peerId}" }));
+    }
+
+    [Test]
+    public void FromWirePeer_DropsMismatchedRelayDestination()
+    {
+        var peerId = new Identity(new byte[32]).PeerId;
+        var otherId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        var node = peerId.ToDhtNode([$"/ip4/127.0.0.1/tcp/4001/p2p/{peerId}/p2p-circuit/p2p/{otherId}"]);
+
+        var result = MessageHelper.FromWirePeer(MessageHelper.ToWirePeer(node));
+
+        Assert.That(result!.Multiaddrs, Is.Empty);
+    }
+
     [Test]
     public void FromWirePeer_AppendsPeerIdToAddressesWithoutPeerComponent()
     {

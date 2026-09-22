@@ -3,7 +3,12 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using Org.BouncyCastle.Asn1;
+using Org.BouncyCastle.Asn1.Pkcs;
+using AlgorithmIdentifier = Org.BouncyCastle.Asn1.X509.AlgorithmIdentifier;
 using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Signers;
 using Org.BouncyCastle.Security;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
@@ -178,7 +183,8 @@ public class CertificateHelper
             AsnReader certificateSequence = certificateReader.ReadSequence();
 
             ReadOnlyMemory<byte> tbsCertificate = certificateSequence.ReadEncodedValue();
-            string signatureAlgorithmOid = ReadSignatureAlgorithmOid(certificateSequence);
+            var signatureAlgorithm = AlgorithmIdentifier.GetInstance(
+                Asn1Object.FromByteArray(certificateSequence.ReadEncodedValue().ToArray()));
             byte[] signature = certificateSequence.ReadBitString(out int unusedBitCount);
 
             if (unusedBitCount != 0 || certificateSequence.HasData || certificateReader.HasData)
@@ -193,7 +199,7 @@ public class CertificateHelper
             }
 
             AsymmetricKeyParameter publicKey = PublicKeyFactory.CreateKey(subjectPublicKeyInfo);
-            ISigner signer = SignerUtilities.GetSigner(SignatureAlgorithmName(signatureAlgorithmOid));
+            ISigner signer = CreateCertificateSigner(signatureAlgorithm);
             byte[] tbsBytes = tbsCertificate.ToArray();
 
             signer.Init(false, publicKey);
@@ -206,10 +212,23 @@ public class CertificateHelper
         }
     }
 
-    private static string ReadSignatureAlgorithmOid(AsnReader certificateSequence)
+    private static ISigner CreateCertificateSigner(AlgorithmIdentifier algorithm)
     {
-        AsnReader algorithmIdentifier = certificateSequence.ReadSequence();
-        return algorithmIdentifier.ReadObjectIdentifier();
+        if (!algorithm.Algorithm.Equals(PkcsObjectIdentifiers.IdRsassaPss))
+            return SignerUtilities.GetSigner(SignatureAlgorithmName(algorithm.Algorithm.Id));
+
+        // PSS encodes the message hash, MGF hash, and salt length independently.
+        var parameters = RsassaPssParameters.GetInstance(algorithm.Parameters)
+            ?? throw new CryptographicException("Missing RSA-PSS parameters.");
+        if (!parameters.MaskGenAlgorithm.Algorithm.Equals(PkcsObjectIdentifiers.IdMgf1)
+            || parameters.TrailerField.IntValueExact != 1)
+            throw new CryptographicException("Unsupported RSA-PSS parameters.");
+
+        var mgfHash = AlgorithmIdentifier.GetInstance(parameters.MaskGenAlgorithm.Parameters);
+        return new PssSigner(new RsaEngine(),
+            DigestUtilities.GetDigest(parameters.HashAlgorithm.Algorithm.Id),
+            DigestUtilities.GetDigest(mgfHash.Algorithm.Id),
+            parameters.SaltLength.IntValueExact);
     }
 
     private static string SignatureAlgorithmName(string oid) => oid switch

@@ -17,17 +17,20 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     private readonly ILogger<LibP2pKademliaMessageSender>? _logger;
     private readonly TimeSpan _operationTimeout;
     private readonly Action<DhtNode>? _onPeerDiscovered;
+    private readonly Action<DhtNode>? _onPingResponse;
 
     public LibP2pKademliaMessageSender(
         ILocalPeer localPeer,
         ILoggerFactory? loggerFactory = null,
         TimeSpan? operationTimeout = null,
-        Action<DhtNode>? onPeerDiscovered = null)
+        Action<DhtNode>? onPeerDiscovered = null,
+        Action<DhtNode>? onPingResponse = null)
     {
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender>();
         _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(30);
         _onPeerDiscovered = onPeerDiscovered;
+        _onPingResponse = onPingResponse;
     }
 
     public async Task<bool> Ping(DhtNode receiver, CancellationToken token = default)
@@ -44,6 +47,8 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
 
             _logger?.LogTrace("Ping response from {NodeId}", receiver.PeerId);
+            // Bootstrap relies on the transport to re-admit responding bootnodes.
+            _onPingResponse?.Invoke(receiver);
             return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)

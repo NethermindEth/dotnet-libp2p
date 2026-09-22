@@ -45,8 +45,10 @@ public static class ServiceCollectionExtensions
             var localPeer = sp.GetRequiredService<ILocalPeer>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<PeerStore>();
+            var sharedState = sp.GetRequiredService<SharedDhtState>();
             return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
-                onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null);
+                onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null,
+                onPingResponse: node => sharedState.AddNodeCallback?.Invoke(node));
         });
         services.AddSingleton<Integration.IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
         services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>

@@ -58,8 +58,10 @@ public static class KadDhtIntegrationExtensions
             var localPeer = sp.GetRequiredService<ILocalPeer>();
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>();
+            var state = sp.GetRequiredService<SharedDhtState>();
             return new LibP2pKademliaMessageSender(localPeer, loggerFactory,
-                onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null);
+                onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null,
+                onPingResponse: node => state.AddNodeCallback?.Invoke(node));
         });
         services.AddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<LibP2pKademliaMessageSender>());
         services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
