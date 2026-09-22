@@ -137,7 +137,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
         public void UpdatePartialMessagesSubscription(string topicId, bool requestsPartialMessages, bool supportsSendingPartialMessages)
         {
-            _partialMessagesSubscriptions[topicId] = new(requestsPartialMessages, supportsSendingPartialMessages);
+            // The extension registry makes sending support implicit for requesters.
+            _partialMessagesSubscriptions[topicId] = new(requestsPartialMessages, requestsPartialMessages || supportsSendingPartialMessages);
         }
 
         public void RemovePartialMessagesSubscription(string topicId)
@@ -749,7 +750,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
         foreach ((string topic, byte[] groupId, PeerId[] peers) in partialGossipNotifications)
         {
-            onPartialGossip?.Invoke(topic, groupId, peers);
+            foreach (Action<string, byte[], IReadOnlyList<PeerId>> handler in onPartialGossip!.GetInvocationList())
+            {
+                try
+                {
+                    handler(topic, groupId, peers);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogError(ex, "Exception in partial gossip handler for topic {topic}", topic);
+                }
+            }
         }
 
         return Task.CompletedTask;
