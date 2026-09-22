@@ -451,7 +451,7 @@ public class PartialMessagesTests
     [TestCase("ordinary")]
     [TestCase("unknown")]
     [TestCase("unsubscribed")]
-    public async Task PartialMessages_UnrequestedDataIsDroppedAndPenalized(string mode)
+    public async Task PartialMessages_DataWithoutARequestIsDroppedAndPenalized(string mode)
     {
         using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
         if (mode == "ordinary")
