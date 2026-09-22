@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
@@ -156,8 +157,19 @@ public partial class PubsubRouter
         {
             topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
 
-            ulong seqNo = this.seqNo++;
-            Rpc rpc = new Rpc().WithMessages(topicId, seqNo, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+            Rpc rpc = new();
+            if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
+            {
+                rpc.Publish.Add(new Message
+                {
+                    Topic = topicId,
+                    Data = ByteString.CopyFrom(message),
+                });
+            }
+            else
+            {
+                rpc.WithMessages(topicId, seqNo++, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+            }
 
             // Floodsub peers always get the message
             foreach (PeerId peerId in fPeers.GetValueOrDefault(topicId) ?? [])
