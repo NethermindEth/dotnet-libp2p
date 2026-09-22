@@ -158,6 +158,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly object _lifecycleLock = new();
     private bool _disposed;
     private CancellationTokenSource? _lifetime;
+    private readonly CancellationTokenSource _stopped = new();
     private Action<Multiaddress[]>? _onNewPeer;
     private Task _loops = Task.CompletedTask;
     private readonly ConcurrentDictionary<Task, byte> _connects = new();
@@ -202,7 +203,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
             this.localPeer = localPeer;
 
-            _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+            _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, _stopped.Token);
             CancellationToken lifetime = _lifetime.Token;
 
             _loops = Task.WhenAll(
@@ -314,7 +315,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
 
         _peerStore.OnNewPeer -= onNewPeer;
-        lifetime?.Cancel();
+        _stopped.Cancel();
         lifetime?.Dispose();
 
         // Ends inbound stream loops; outbound streams close with their cancelled dial.
@@ -528,11 +529,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Cancelled when the router is disposed; streams the router serves close on it.
+    /// </summary>
+    internal CancellationToken Stopped => _stopped.Token;
+
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
     {
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null)
+        if (peerId is null || _stopped.IsCancellationRequested)
         {
             return Canceled;
         }
@@ -595,11 +601,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Action subDial)
+    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
     {
         PeerId? peerId = addr.GetPeerId();
 
-        if (peerId is null || peerId == localPeer!.Identity.PeerId)
+        if (peerId is null || peerId == localPeer!.Identity.PeerId || _stopped.IsCancellationRequested)
         {
             return Canceled;
         }
@@ -635,7 +641,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
                 });
 
-                subDial();
+                Track(subDial());
                 return newPeer.TokenSource.Token;
             }
             else

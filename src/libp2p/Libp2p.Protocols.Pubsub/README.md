@@ -91,7 +91,7 @@ Unsubscribing announces the topic leave to connected pubsub peers and prunes the
 
 ## Stopping the router
 
-The router stops when the token passed to `StartAsync` is cancelled or when the router is disposed. Disposal cancels its heartbeat and reconnect loops and the dials it started, stops reading inbound pubsub streams and stops reacting to new `PeerStore` peers. It does not dispose the `PeerStore` or the local peer.
+The router stops when the token passed to `StartAsync` is cancelled or when the router is disposed. Disposal cancels its heartbeat and reconnect loops and the dials it started, closes the pubsub streams it serves and stops reacting to new `PeerStore` peers. It does not dispose the `PeerStore` or the local peer.
 
 ```csharp
 await router.DisposeAsync(); // waits for the owned background work to finish

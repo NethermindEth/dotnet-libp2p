@@ -27,15 +27,17 @@ public partial class PubsubRouter
 
     public void Subscribe(string topicId)
     {
-        topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId)).IsSubscribed = true;
+        Topic topic = topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
+        fPeers.TryAdd(topicId, []);
+        gPeers.TryAdd(topicId, []);
 
-        if (!fPeers.TryAdd(topicId, []))
+        // Routing state may already exist from a remote subscription or an earlier local one,
+        // so announce on every local transition to subscribed.
+        if (topic.IsSubscribed)
         {
-            // Already exists
             return;
         }
-
-        gPeers.TryAdd(topicId, []);
+        topic.IsSubscribed = true;
 
         HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
 

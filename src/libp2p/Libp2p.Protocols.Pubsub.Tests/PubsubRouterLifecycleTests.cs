@@ -3,6 +3,7 @@
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
@@ -68,6 +69,67 @@ public class PubsubRouterLifecycleTests
 
         await router.DisposeAsync().AsTask().WaitAsync(Timeout);
     }
+
+    [Test]
+    public void Topic_resubscribe_is_announced_to_connected_peers()
+    {
+        using PubsubRouter router = new(new PeerStore());
+        ITopic topic = router.GetTopic("topic");
+        List<Rpc> sent = ConnectFloodsubPeer(router, subscribedTo: "topic");
+
+        topic.Unsubscribe();
+        topic.Subscribe();
+
+        Assert.That(Announcements(sent, "topic"), Is.EqualTo(new[] { false, true }));
+    }
+
+    [Test]
+    public void Subscribe_is_announced_when_a_peer_announced_the_topic_first()
+    {
+        using PubsubRouter router = new(new PeerStore());
+        List<Rpc> sent = ConnectFloodsubPeer(router, subscribedTo: "topic");
+
+        router.GetTopic("topic");
+
+        Assert.That(Announcements(sent, "topic"), Is.EqualTo(new[] { true }));
+    }
+
+    [Test]
+    public async Task DisposeAsync_closes_and_awaits_the_reverse_dial_of_an_inbound_stream()
+    {
+        PubsubRouter router = new(new PeerStore());
+        await router.StartAsync(CreatePeer());
+        FloodsubProtocol protocol = new(router);
+        ISessionContext context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
+        TaskCompletionSource<Task> reverseDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.DialAsync(protocol).Returns(_ =>
+        {
+            Task dial = protocol.DialAsync(new Channel(), context);
+            reverseDial.TrySetResult(dial);
+            return dial;
+        });
+
+        Task listen = protocol.ListenAsync(new Channel(), context);
+        Task dial = await reverseDial.Task.WaitAsync(Timeout);
+
+        await router.DisposeAsync().AsTask().WaitAsync(Timeout);
+
+        Assert.That(dial.IsCompleted, Is.True);
+        await listen.WaitAsync(Timeout);
+    }
+
+    private static List<Rpc> ConnectFloodsubPeer(PubsubRouter router, string subscribedTo)
+    {
+        List<Rpc> sent = [];
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, sent.Add);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([subscribedTo], []));
+        sent.Clear();
+        return sent;
+    }
+
+    private static bool[] Announcements(List<Rpc> sent, string topic) =>
+        [.. sent.SelectMany(rpc => rpc.Subscriptions).Where(s => s.Topicid == topic).Select(s => s.Subscribe)];
 
     private static ILocalPeer CreatePeer()
     {
