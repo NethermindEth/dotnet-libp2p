@@ -187,6 +187,18 @@ public class CertificateHelper
             ReadOnlyMemory<byte> tbsCertificate = certificateSequence.ReadEncodedValue();
             var signatureAlgorithm = AlgorithmIdentifier.GetInstance(
                 Asn1Object.FromByteArray(certificateSequence.ReadEncodedValue().ToArray()));
+
+            AsnReader body = new AsnReader(tbsCertificate, AsnEncodingRules.DER).ReadSequence();
+            if (body.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
+                body.ReadEncodedValue(); // version
+            body.ReadEncodedValue(); // serialNumber
+            var innerSignatureAlgorithm = AlgorithmIdentifier.GetInstance(
+                Asn1Object.FromByteArray(body.ReadEncodedValue().ToArray()));
+
+            // RFC 5280 requires both identifiers, including parameters, to agree.
+            if (!signatureAlgorithm.Equals(innerSignatureAlgorithm))
+                return false;
+
             byte[] signature = certificateSequence.ReadBitString(out int unusedBitCount);
 
             if (unusedBitCount != 0 || certificateSequence.HasData || certificateReader.HasData)

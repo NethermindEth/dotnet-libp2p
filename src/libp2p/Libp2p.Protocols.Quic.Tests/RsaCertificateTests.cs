@@ -20,6 +20,38 @@ namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 
 public class RsaCertificateTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ValidateCertificate_RejectsMismatchedSignatureAlgorithms(bool pss)
+    {
+        var identity = new Identity(new byte[32]);
+        using RSA key = RSA.Create(2048);
+        var padding = pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1;
+        var request = CreateRequest(identity, key, HashAlgorithmName.SHA256, padding);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var sequence = Asn1Sequence.GetInstance(certificate.RawData);
+        var body = Asn1Sequence.GetInstance(sequence[0]).ToArray();
+        var outerAlgorithm = AlgorithmIdentifier.GetInstance(sequence[1]);
+        if (pss)
+        {
+            var parameters = RsassaPssParameters.GetInstance(outerAlgorithm.Parameters);
+            body[2] = new AlgorithmIdentifier(outerAlgorithm.Algorithm, new RsassaPssParameters(
+                parameters.HashAlgorithm, parameters.MaskGenAlgorithm,
+                DerInteger.ValueOf(parameters.SaltLength.IntValueExact + 1), parameters.TrailerField));
+        }
+        else
+        {
+            body[2] = new AlgorithmIdentifier(PkcsObjectIdentifiers.Sha384WithRsaEncryption, DerNull.Instance);
+        }
+
+        var modifiedBody = new DerSequence(body);
+        byte[] signature = key.SignData(modifiedBody.GetDerEncoded(), HashAlgorithmName.SHA256, padding);
+        using var malformed = X509CertificateLoader.LoadCertificate(
+            new DerSequence(modifiedBody, outerAlgorithm, new DerBitString(signature)).GetDerEncoded());
+
+        Assert.That(CertificateHelper.ValidateCertificate(malformed, identity.PeerId.ToString()), Is.False);
+    }
+
     [TestCase(true, "SHA256")]
     [TestCase(true, "SHA384")]
     [TestCase(true, "SHA512")]

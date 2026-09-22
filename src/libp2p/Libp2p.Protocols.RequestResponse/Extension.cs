@@ -14,14 +14,16 @@ public static class RequestResponseExtensions
         this IPeerFactoryBuilder builder,
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
-        bool isExposed = true)
+        bool isExposed = true,
+        Func<TRequest, bool>? expectsResponse = null)
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
     {
         var protocol = new RequestResponseProtocol<TRequest, TResponse>(
             protocolId,
             handler,
-            builder.ServiceProvider.GetService<ILoggerFactory>());
+            builder.ServiceProvider.GetService<ILoggerFactory>(),
+            expectsResponse);
 
         return builder.AddProtocol(protocol, isExposed);
     }

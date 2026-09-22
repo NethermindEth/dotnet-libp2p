@@ -64,7 +64,8 @@ public static class KadDhtProtocolExtensions
                     _ => new Message()
                 };
             },
-            isExposed: isExposed);
+            isExposed: isExposed,
+            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider);
 
         return builder;
     }

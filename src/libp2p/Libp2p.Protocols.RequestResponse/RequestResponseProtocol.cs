@@ -13,6 +13,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 {
     private readonly string _protocolId;
     private readonly Func<TRequest, ISessionContext, Task<TResponse>> _handler;
+    private readonly Func<TRequest, bool>? _expectsResponse;
     private readonly ILogger<RequestResponseProtocol<TRequest, TResponse>>? _logger;
 
     private readonly MessageParser<TRequest> _requestParser;
@@ -21,10 +22,12 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
     public RequestResponseProtocol(
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        Func<TRequest, bool>? expectsResponse = null)
     {
         _protocolId = protocolId ?? throw new ArgumentNullException(nameof(protocolId));
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        _expectsResponse = expectsResponse;
         _logger = loggerFactory?.CreateLogger<RequestResponseProtocol<TRequest, TResponse>>();
         _requestParser = new MessageParser<TRequest>(() => new TRequest());
         _responseParser = new MessageParser<TResponse>(() => new TResponse());
@@ -46,12 +49,15 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
             TResponse response = await _handler(request, context);
 
-            _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
-            _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
+            if (_expectsResponse?.Invoke(request) != false)
+            {
+                _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
+                _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
 
-            await channel.WriteSizeAndProtobufAsync(response);
+                await channel.WriteSizeAndProtobufAsync(response);
 
-            _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
+                _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
+            }
 
             await channel.CloseAsync();
         }
@@ -69,7 +75,11 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             _logger?.LogDebug("Starting DialAsync for protocol {ProtocolId} to peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            await channel.WriteSizeAndProtobufAsync(request);
+            await channel.WriteSizeAndDataAsync(request.ToByteArray()).OrThrow();
+
+            // One-way messages complete after transmission; there is no wire response.
+            if (_expectsResponse?.Invoke(request) == false)
+                return new TResponse();
 
             _logger?.LogDebug("Request sent, waiting for response");
 
@@ -89,4 +99,3 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
     public override string ToString() => Id;
 }
-

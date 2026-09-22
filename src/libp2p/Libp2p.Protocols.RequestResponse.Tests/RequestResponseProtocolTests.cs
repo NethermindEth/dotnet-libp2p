@@ -3,6 +3,7 @@
 
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
+using Google.Protobuf.WellKnownTypes;
 using Nethermind.Libp2p.Core;
 using NUnit.Framework;
 using NSubstitute;
@@ -63,6 +64,25 @@ public class TestResponse : IMessage<TestResponse>
 
 public class RequestResponseProtocolTests
 {
+    [Test]
+    public async Task DialAndListen_ReturnResponseByDefault()
+    {
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0", (request, _) => Task.FromResult(new StringValue
+            {
+                Value = request.Value + "!"
+            }));
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        var listen = protocol.ListenAsync(channel.Reverse, context);
+
+        var response = await protocol.DialAsync(channel, context, new StringValue { Value = "hello" })
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await listen.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.That(response.Value, Is.EqualTo("hello!"));
+    }
+
     [Test]
     public async Task SetsPropertiesCorrectly()
     {
