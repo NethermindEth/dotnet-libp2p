@@ -150,6 +150,34 @@ public class GossipsubControlLimitsTests
         Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(1));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task IDontWant_SuppressesMeshForwarding(bool sendIdontwant)
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        PeerId senderPeerId = TestPeers.PeerId(3);
+        TaskCompletionSource senderConnection = new();
+        setup.Router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV12, senderConnection.Task, _ => { });
+        setup.Router.OnRpc(senderPeerId, new Rpc().WithTopics([setup.Topic], []));
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Is.SupersetOf(new[] { setup.RemotePeerId, senderPeerId }));
+
+        Identity author = TestPeers.Identity(4);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author).Publish.Single();
+        if (sendIdontwant)
+        {
+            Rpc unwanted = new() { Control = new ControlMessage() };
+            unwanted.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(message).Bytes) } });
+            setup.Router.OnRpc(setup.RemotePeerId, unwanted);
+        }
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(senderPeerId, new Rpc { Publish = { message } });
+
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(sendIdontwant ? 0 : 1));
+        senderConnection.SetResult();
+    }
+
     [Test]
     public async Task IDontWant_SeparatesEnvelopeAndMessageIdLimits()
     {
@@ -305,7 +333,7 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
-    public async Task InvalidSignature_FulfillsIwantPromiseWithoutAcceptingMessage()
+    public async Task InvalidSignature_KeepsIwantPromiseWithoutAcceptingMessage()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
         Identity author = TestPeers.Identity(3);
@@ -325,7 +353,7 @@ public class GossipsubControlLimitsTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
+            Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1), "An invalid signature must not fulfill the promise.");
             Assert.That(deliveries, Is.Zero);
             Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
             Assert.That(setup.RemotePeerScore, Is.LessThan(0), "Invalid delivery must still be penalized.");
@@ -440,9 +468,7 @@ public class GossipsubControlLimitsTests
         public string Topic { get; }
         public PeerId RemotePeerId { get; }
         public List<Rpc> SentRpcs { get; }
-        public double RemotePeerScore => (double)typeof(PubsubRouter)
-            .GetMethod("GetPeerScore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(Router, [RemotePeerId])!;
+        public double RemotePeerScore => Router.GetPeerScore(RemotePeerId);
 
         public static async Task<RouterSetup> Create(PubsubSettings settings)
         {

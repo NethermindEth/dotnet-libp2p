@@ -213,8 +213,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
+                // Like go-libp2p, an obviously invalid delivery does not fulfill the IWANT promise,
+                // so a peer cannot clear its promise penalty with an unsigned message.
                 _limboMessageCache.Add(messageId);
-                _iwantPromises.Fulfill(messageId);
                 RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                 continue;
             }
@@ -231,7 +232,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             foreach (PeerId directPeerId in GetDirectPeersForTopic(message.Topic))
             {
-                if (directPeerId != author && directPeerId != peerId && ShouldSendFullMessage(directPeerId, message.Topic))
+                if (directPeerId != author && directPeerId != peerId && !IsUnwantedBy(directPeerId, messageId) && ShouldSendFullMessage(directPeerId, message.Topic))
                 {
                     peerMessages.GetOrAdd(directPeerId, _ => new Rpc()).Publish.Add(message);
                 }
@@ -255,7 +256,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 foreach (PeerId peer in topicPeers)
                 {
-                    if (peer == author || peer == peerId || IsDirectPeer(peer))
+                    if (peer == author || peer == peerId || IsDirectPeer(peer) || IsUnwantedBy(peer, messageId))
                     {
                         continue;
                     }
@@ -587,6 +588,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             }
         }
     }
+
+    private bool IsUnwantedBy(PeerId peerId, MessageId messageId) =>
+        peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.Control.IsUnwanted(messageId);
 
     private static MessageId[] SampleMessageIds(IEnumerable<MessageId> messageIds, int count)
     {
