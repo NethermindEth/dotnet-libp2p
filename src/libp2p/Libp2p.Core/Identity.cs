@@ -77,8 +77,10 @@ public class Identity
                     ECKeyPairGenerator generator = new("ECDSA");
                     generator.Init(keyParams);
                     AsymmetricCipherKeyPair keyPair = generator.GenerateKeyPair();
+                    byte[] privateKeyBytes = ((ECPrivateKeyParameters)keyPair.Private).D.ToByteArrayUnsigned();
                     Span<byte> privateKeySpan = stackalloc byte[32];
-                    ((ECPrivateKeyParameters)keyPair.Private).D.ToByteArrayUnsigned(privateKeySpan);
+                    privateKeySpan.Clear();
+                    privateKeyBytes.CopyTo(privateKeySpan[^privateKeyBytes.Length..]);
                     privateKeyData = ByteString.CopyFrom(privateKeySpan);
                     publicKeyData = ByteString.CopyFrom(((ECPublicKeyParameters)keyPair.Public).Q.GetEncoded(true));
                 }
@@ -128,7 +130,7 @@ public class Identity
             case KeyType.Secp256K1:
                 {
                     X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
-                    ECPoint pointQ = curve.G.Multiply(new BigInteger(privateKey.Data.ToArray()));
+                    ECPoint pointQ = curve.G.Multiply(new BigInteger(1, privateKey.Data.ToArray()));
                     publicKeyData = ByteString.CopyFrom(pointQ.GetEncoded(true));
                 }
                 break;

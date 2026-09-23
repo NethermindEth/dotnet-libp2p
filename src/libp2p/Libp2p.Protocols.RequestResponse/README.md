@@ -88,10 +88,13 @@ The core protocol class provides:
   - `protocolId`: Unique identifier for the protocol (e.g., "/my-app/1.0.0")
   - `handler`: Async function to process requests and generate responses
   - `loggerFactory`: Optional logger factory for debugging
+  - `expectsResponse`: Optional predicate for protocols that mix requests and one-way messages. Defaults to expecting a response.
 
 - **Key Methods**:
   - `ListenAsync()`: Handles incoming requests from remote peers
   - `DialAsync()`: Sends requests to remote peers and waits for responses
+
+When `expectsResponse` returns `false`, `DialAsync()` completes after a successful write and returns an empty `TResponse`; this is not a remote acknowledgement. `ListenAsync()` still invokes the handler but does not send its response.
 
 ### RequestResponseExtensions
 
@@ -102,7 +105,8 @@ public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse
     this IPeerFactoryBuilder builder,
     string protocolId,
     Func<TRequest, ISessionContext, Task<TResponse>> handler,
-    bool isExposed = true)
+    bool isExposed = true,
+    Func<TRequest, bool>? expectsResponse = null)
 ```
 
 **Parameters**:
@@ -110,6 +114,7 @@ public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse
 - `protocolId`: Unique protocol identifier
 - `handler`: Function to handle incoming requests
 - `isExposed`: Whether the protocol should be advertised to other peers
+- `expectsResponse`: Whether each request expects a wire response
 
 ## Type Constraints
 

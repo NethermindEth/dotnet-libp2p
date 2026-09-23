@@ -3,6 +3,7 @@
 
 using Libp2p.Protocols.Pubsub.E2eTests;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols;
 using NUnit.Framework;
 
 namespace Libp2p.Protocols.PubsubPeerDiscovery.E2eTests;

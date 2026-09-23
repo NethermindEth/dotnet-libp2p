@@ -53,7 +53,10 @@ public abstract class PubsubProtocol : ISessionProtocol
             context.Activity?.AddEvent(new ActivityEvent($"Sent message to {remotePeerId}: {rpc}"));
         });
 
-        await channel;
+        using (router.Stopped.Register(() => _ = channel.CloseAsync()))
+        {
+            await channel;
+        }
         dialTcs.SetResult();
         context.Activity?.AddEvent(new ActivityEvent($"Finished dial({context.Id}) {context.State.RemoteAddress}"));
     }
@@ -68,11 +71,9 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () =>
-        {
-            _ = context.DialAsync(this);
-        });
+        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
 
+        bool isFirstRpc = true;
         try
         {
             while (!token.IsCancellationRequested)
@@ -80,8 +81,13 @@ public abstract class PubsubProtocol : ISessionProtocol
                 Rpc rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, router.MaxRpcBytes, token);
                 _logger?.LogTrace("Received message from {remotePeerId}: {rpc}", remotePeerId, rpc);
                 context.Activity?.AddEvent(new ActivityEvent($"Received message from {remotePeerId}: {rpc}"));
-                router.OnRpc(remotePeerId, rpc);
+                router.OnRpc(remotePeerId, rpc, Id, isFirstRpc);
+                isFirstRpc = false;
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("RPC listener stopped for {remotePeerId}", remotePeerId);
         }
         catch (ChannelClosedException)
         {
@@ -93,7 +99,7 @@ public abstract class PubsubProtocol : ISessionProtocol
             _logger?.LogDebug(e, "Invalid RPC from {remotePeerId}: {message}", remotePeerId, e.Message);
             context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}: {e.Message}"));
             context.Activity?.SetStatus(ActivityStatusCode.Error);
-            router.SuppressReconnection(remotePeerId);
+            suppressReconnection();
             await context.DisconnectAsync();
         }
         catch (Exception e)

@@ -277,6 +277,38 @@ public class DirectPeersTests
     }
 
     [Test]
+    public async Task Router_DoesNotRepeatInFlightDirectPeerDials()
+    {
+        Multiaddress directAddress = TestPeers.Multiaddr(1);
+        PeerStore peerStore = new();
+        peerStore.Discover([directAddress]);
+        await using PubsubRouter router = new(peerStore, new PubsubSettings
+        {
+            DirectPeers = [directAddress],
+            DirectConnectPeriod = 20,
+            ReconnectionPeriod = 60_000,
+            HeartbeatInterval = 60_000,
+        });
+        TaskCompletionSource<ISession> slowDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(2));
+        localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(slowDial.Task);
+
+        try
+        {
+            await router.StartAsync(localPeer);
+            await Task.Delay(200);
+
+            _ = localPeer.Received(1).DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            slowDial.TrySetCanceled();
+        }
+    }
+
+    [Test]
     public void DirectPeers_RequirePeerIdsInTheirAddresses()
     {
         PubsubSettings settings = new()

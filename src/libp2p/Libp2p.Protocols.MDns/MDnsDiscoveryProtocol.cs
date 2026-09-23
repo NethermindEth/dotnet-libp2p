@@ -14,7 +14,7 @@ using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol
+public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol, IDisposable, IAsyncDisposable
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
     private const int MdnsQueryInterval = 5000;
@@ -24,15 +24,39 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     private string PeerName = null!;
 
+    private readonly object _lifecycleLock = new();
+    private bool _disposed;
+    private CancellationTokenSource? _lifetime;
+    private ServiceDiscovery? _serviceDiscovery;
+    private Task _run = Task.CompletedTask;
+
+    /// <summary>
+    /// Advertises the local peer and periodically queries the network for other peers.
+    /// Discovery stops when <paramref name="token"/> is cancelled or when it is disposed; the peer store is not disposed.
+    /// </summary>
     public Task StartDiscoveryAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
         ObservableCollection<Multiaddress> peers = [];
-        ServiceDiscovery sd = new();
         string? localPeerId = localPeerAddrs.First().GetPeerId()?.ToString();
 
         if (localPeerId is null)
         {
             throw new Libp2pException("Peer address lacks peer id");
+        }
+
+        ServiceDiscovery sd;
+        CancellationTokenSource lifetime;
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (_lifetime is not null)
+            {
+                throw new InvalidOperationException("Discovery has been already started");
+            }
+
+            sd = _serviceDiscovery = new();
+            lifetime = _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
         try
@@ -101,8 +125,54 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             _logger?.LogError(ex, "Error setting up mDNS");
         }
 
-        _ = RunAsync(sd, token);
+        _run = RunAsync(sd, lifetime.Token);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Stops querying, sends a goodbye for the advertised service and releases the mDNS sockets,
+    /// without waiting for the query loop to finish.
+    /// </summary>
+    public void Dispose()
+    {
+        CancellationTokenSource? lifetime;
+        ServiceDiscovery? sd;
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            lifetime = _lifetime;
+            sd = _serviceDiscovery;
+        }
+
+        lifetime?.Cancel();
+        lifetime?.Dispose();
+
+        if (sd is not null)
+        {
+            try
+            {
+                sd.Unadvertise();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Unable to send mDNS goodbye");
+            }
+            sd.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Stops discovery like <see cref="Dispose"/> and waits for the query loop to finish.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+
+        await _run.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
     private async Task RunAsync(ServiceDiscovery sd, CancellationToken token)

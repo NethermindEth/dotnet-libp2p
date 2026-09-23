@@ -6,6 +6,7 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -69,7 +70,8 @@ public class PartialMessagesTests
             TestPeers.PeerId(1),
             PubsubRouter.GossipsubProtocolVersionV13,
             logger: null,
-            settings: new PubsubSettings { EnablePartialMessages = true });
+            settings: new PubsubSettings { EnablePartialMessages = true },
+            reconnectionPolicy: new PubsubRouter.ReconnectionPolicy());
         ConcurrentQueue<Rpc> sentRpcs = [];
         peer.SendRpc = sentRpcs.Enqueue;
 
@@ -450,7 +452,6 @@ public class PartialMessagesTests
     [TestCase("metadata-only")]
     [TestCase("ordinary")]
     [TestCase("unknown")]
-    [TestCase("unsubscribed")]
     public async Task PartialMessages_DataWithoutARequestIsDroppedAndPenalized(string mode)
     {
         using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
@@ -462,9 +463,8 @@ public class PartialMessagesTests
         {
             router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
             {
-                RequestPartialMessages = mode == "unsubscribed",
                 SupportsSendingPartialMessages = true,
-            }, subscribe: mode != "unsubscribed");
+            });
         }
         TaskCompletionSource connection = new();
         PeerId peer = TestPeers.PeerId(1);
@@ -489,6 +489,87 @@ public class PartialMessagesTests
         router.GetTopic("topic");
         await router.Heartbeat();
         Assert.That(state.Mesh["topic"], Does.Not.Contain(peer));
+        connection.SetResult();
+    }
+
+    [Test]
+    public void PartialMessages_InFlightDataAfterUnsubscribeIsDroppedWithoutPenalty()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
+        TaskCompletionSource connection = new();
+        PeerId peer = TestPeers.PeerId(1);
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, connection.Task, _ => { });
+        router.OnRpc(peer, new Rpc { Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } } });
+        int deliveries = 0;
+        topic.OnPartialMessage += (_, _) => deliveries++;
+        topic.Unsubscribe();
+        double scoreBefore = (double)typeof(PubsubRouter)
+            .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(router, [peer])!;
+
+        router.OnRpc(peer, new Rpc
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = ByteString.CopyFromUtf8("topic"),
+                GroupID = ByteString.CopyFrom([1]),
+                PartialMessage = ByteString.CopyFrom([2]),
+            },
+        }, isFirstRpc: false);
+
+        double scoreAfter = (double)typeof(PubsubRouter)
+            .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(router, [peer])!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(deliveries, Is.Zero);
+            Assert.That(scoreAfter, Is.EqualTo(scoreBefore));
+        });
+        connection.SetResult();
+    }
+
+    [Test]
+    public void PartialMessages_HandlerCanWaitForRouterWorkOnAnotherThread()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
+        TaskCompletionSource connection = new();
+        PeerId peer = TestPeers.PeerId(1);
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, connection.Task, _ => { });
+        router.OnRpc(peer, new Rpc { Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } } });
+        bool? heldRouterLock = null;
+        bool heartbeatCompleted = false;
+        topic.OnPartialMessage += (_, _) =>
+        {
+            heldRouterLock = Monitor.IsEntered(router);
+            Task heartbeat = Task.Run(((IRoutingStateContainer)router).Heartbeat);
+            heartbeatCompleted = heartbeat.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        router.OnRpc(peer, new Rpc
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = ByteString.CopyFromUtf8("topic"),
+                GroupID = ByteString.CopyFrom([1]),
+                PartsMetadata = ByteString.CopyFrom([2]),
+            },
+        }, isFirstRpc: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(heldRouterLock, Is.False);
+            Assert.That(heartbeatCompleted, Is.True);
+        });
         connection.SetResult();
     }
 

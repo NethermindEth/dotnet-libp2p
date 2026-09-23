@@ -14,7 +14,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    internal void OnRpc(PeerId peerId, Rpc rpc)
+    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
         {
@@ -23,7 +23,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages = [];
             lock (this)
             {
-                HandleExtensions(peerId, rpc);
+                HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
                 if (rpc.Publish.Count != 0)
                 {
@@ -37,7 +37,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                 if (rpc.Partial is not null)
                 {
-                    HandlePartialMessage(peerId, rpc.Partial, receivedPartialMessages);
+                    HandlePartialMessage(peerId, rpc.Partial, protocolId, receivedPartialMessages);
                 }
 
                 if (rpc.Control is not null)
@@ -89,7 +89,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    private void HandleExtensions(PeerId peerId, Rpc rpc)
+    private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
@@ -97,7 +97,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         ControlExtensions? extensions = rpc.Control?.Extensions;
-        if (!peer.SupportsExtensions)
+        if (protocolId is null ? !peer.SupportsExtensions : protocolId != GossipsubProtocolVersionV13)
         {
             if (extensions is not null)
             {
@@ -107,24 +107,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
-        if (peer.ReceivedFirstRpc)
+        if (!isFirstRpc && extensions is not null)
         {
-            if (extensions is not null)
-            {
-                ApplyBehaviorPenalty(peerId, 1.0);
-                logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
-            }
-
-            return;
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
-
-        peer.ReceivedFirstRpc = true;
-        peer.SupportsPartialMessagesExtension = extensions?.PartialMessages ?? false;
+        if (isFirstRpc && extensions?.PartialMessages == true)
+        {
+            peer.SupportsPartialMessagesExtension = true;
+        }
     }
 
-    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
+    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
     {
         if (!_settings.EnablePartialMessages ||
+            protocolId is not null && protocolId != GossipsubProtocolVersionV13 ||
             !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
             !peer.SupportsPartialMessagesExtension)
         {
@@ -146,15 +143,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         topicState.TryGetValue(topicId, out Topic? topic);
-        if (partialMessage.HasPartialMessage &&
-            (topic?.IsSubscribed is not true || !topic.RequestsPartialMessages))
+        if (partialMessage.HasPartialMessage && topic?.RequestsPartialMessages is not true)
         {
             ApplyBehaviorPenalty(peerId, 1.0);
             logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
             return;
         }
 
-        if (topic?.SupportsSendingPartialMessages is not true)
+        if (topic?.IsSubscribed is not true || !topic.SupportsSendingPartialMessages)
         {
             return;
         }
