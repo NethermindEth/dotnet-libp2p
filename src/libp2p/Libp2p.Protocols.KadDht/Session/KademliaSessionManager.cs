@@ -126,7 +126,8 @@ public sealed class KademliaSessionManager : ISessionManager
             if (_stopTask is null)
             {
                 _stopping = true;
-                _stopTask = StopCoreAsync(_operations.ToArray());
+                Task[] operations = _operations.ToArray();
+                _stopTask = Task.Run(() => StopCoreAsync(operations));
             }
             return _stopTask.WaitAsync(ct);
         }
