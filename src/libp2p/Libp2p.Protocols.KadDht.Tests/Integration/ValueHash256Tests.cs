@@ -9,6 +9,21 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
 [TestFixture]
 public class ValueHash256Tests
 {
+    [Test]
+    public void Bytes_PreservesMutableArrayAndSpanContract()
+    {
+        byte[] bytes = new byte[ValueHash256.HashLength];
+        var hash = ValueHash256.Zero;
+
+        hash.Bytes = bytes;
+        hash.BytesAsSpan[0] = 7;
+
+        Assert.That(hash.Bytes, Is.SameAs(bytes));
+        Assert.That(bytes[0], Is.EqualTo(7));
+        Assert.That(typeof(ValueHash256).GetProperty(nameof(ValueHash256.Bytes))!.PropertyType,
+            Is.EqualTo(typeof(byte[])));
+    }
+
     [TestCase(1)]
     [TestCase(255)]
     [TestCase(256)]
