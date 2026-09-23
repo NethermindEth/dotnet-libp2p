@@ -32,6 +32,10 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
     private readonly DhtKeyOperator _keyOperator;
     private readonly DhtNodeHashProvider _nodeHashProvider;
     private readonly NodeHealthTracker<PublicKey, DhtNode, ValueHash256> _nodeHealthTracker;
+    private readonly CancellationTokenSource _stopCts = new();
+    private readonly Lock _runLock = new();
+    private Task? _runTask;
+    private bool _disposed;
 
     private readonly ConcurrentDictionary<string, byte[]> _locallyPublishedValues = new();
     private readonly ConcurrentDictionary<string, byte[]> _locallyProvidedKeys = new();
@@ -378,14 +382,31 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     #region Maintenance Operations
 
-    public async Task RunAsync(CancellationToken cancellationToken = default)
+    public Task RunAsync(CancellationToken cancellationToken = default)
     {
-        if (_kademlia is null) return;
+        lock (_runLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_kademlia is null) return Task.CompletedTask;
+            if (_runTask is not null) return _runTask;
 
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopCts.Token);
+            return _runTask = Task.Run(async () =>
+            {
+                using (linked)
+                {
+                    await RunCoreAsync(linked.Token).ConfigureAwait(false);
+                }
+            });
+        }
+    }
+
+    private async Task RunCoreAsync(CancellationToken cancellationToken)
+    {
         try
         {
             await Task.WhenAll(
-                _kademlia.Run(cancellationToken),
+                _kademlia!.Run(cancellationToken),
                 RunRepublishLoopAsync(cancellationToken),
                 RunMaintenanceLoopAsync(cancellationToken));
         }
@@ -526,7 +547,24 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public void Dispose()
     {
-        _nodeHealthTracker?.Dispose();
+        Task? run;
+        lock (_runLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            run = _runTask;
+        }
+
+        try
+        {
+            _stopCts.Cancel();
+            run?.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            _nodeHealthTracker.Dispose();
+            _stopCts.Dispose();
+        }
         GC.SuppressFinalize(this);
     }
 }

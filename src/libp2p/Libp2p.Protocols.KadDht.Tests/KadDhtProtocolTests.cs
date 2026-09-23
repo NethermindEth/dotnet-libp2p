@@ -110,6 +110,18 @@ public class KadDhtProtocolTests
     }
 
     [Test]
+    public async Task Dispose_StopsTheRunLoopBeforeReleasingResources()
+    {
+        Task run = _protocol.RunAsync();
+
+        _protocol.Dispose();
+
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(run.IsCompletedSuccessfully, Is.True);
+        Assert.Throws<ObjectDisposedException>(() => _protocol.RunAsync());
+    }
+
+    [Test]
     public async Task PutValueAsync_WithValidKeyAndValue_ReturnsTrue()
     {
         // Arrange
