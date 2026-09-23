@@ -842,6 +842,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     Rpc helloMessage = new();
                     helloMessage.Subscriptions.AddRange(topics.Select(topic => CreateSubscription(topic, subscribe: true)));
                     peer.Send(helloMessage);
+                }
             }
 
             logger?.LogDebug("Outbound {peerId}", peerId);

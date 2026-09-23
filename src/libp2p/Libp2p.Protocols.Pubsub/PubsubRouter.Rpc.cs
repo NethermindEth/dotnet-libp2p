@@ -37,7 +37,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                 if (rpc.Partial is not null)
                 {
-                    HandlePartialMessage(peerId, rpc.Partial, receivedPartialMessages);
+                    HandlePartialMessage(peerId, rpc.Partial, protocolId, receivedPartialMessages);
                 }
 
                 if (rpc.Control is not null)
@@ -112,15 +112,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             ApplyBehaviorPenalty(peerId, 1.0);
             logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
-        if (isFirstRpc)
+        if (isFirstRpc && extensions?.PartialMessages == true)
         {
-            peer.SupportsPartialMessagesExtension = extensions?.PartialMessages ?? false;
+            peer.SupportsPartialMessagesExtension = true;
         }
     }
 
-    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
+    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
     {
         if (!_settings.EnablePartialMessages ||
+            protocolId is not null && protocolId != GossipsubProtocolVersionV13 ||
             !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
             !peer.SupportsPartialMessagesExtension)
         {
@@ -142,15 +143,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         topicState.TryGetValue(topicId, out Topic? topic);
-        if (partialMessage.HasPartialMessage &&
-            (topic?.IsSubscribed is not true || !topic.RequestsPartialMessages))
+        if (partialMessage.HasPartialMessage && topic?.RequestsPartialMessages is not true)
         {
             ApplyBehaviorPenalty(peerId, 1.0);
             logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
             return;
         }
 
-        if (topic?.SupportsSendingPartialMessages is not true)
+        if (topic?.IsSubscribed is not true || !topic.SupportsSendingPartialMessages)
         {
             return;
         }
