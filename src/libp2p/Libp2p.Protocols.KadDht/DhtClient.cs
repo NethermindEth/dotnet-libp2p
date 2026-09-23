@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
-using System.Security.Cryptography;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Network;
@@ -42,9 +41,8 @@ public sealed class DhtClient
         var keyBytes = System.Text.Encoding.UTF8.GetBytes(key);
         var valueBytes = System.Text.Encoding.UTF8.GetBytes(value);
 
-        // Calculate key hash for finding closest peers
-        var keyHash = SHA256.HashData(keyBytes);
-        var targetKey = new PublicKey(keyHash);
+        // The routing table hashes the raw key once, matching FIND_NODE receivers.
+        var targetKey = new PublicKey(keyBytes);
 
         _logger.LogInformation("PUT: Starting distributed storage for key '{Key}'", key);
 
@@ -129,9 +127,8 @@ public sealed class DhtClient
             return (true, valueStr);
         }
 
-        // Calculate key hash for finding closest peers
-        var keyHash = SHA256.HashData(keyBytes);
-        var targetKey = new PublicKey(keyHash);
+        // The routing table hashes the raw key once, matching FIND_NODE receivers.
+        var targetKey = new PublicKey(keyBytes);
 
         // Get closest peers from SharedDhtState (uses KValue from config)
         var closestPeers = _sharedState.GetKNearestPeers(targetKey);

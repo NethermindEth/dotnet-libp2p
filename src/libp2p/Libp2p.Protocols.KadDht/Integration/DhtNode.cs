@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Kademlia;
 using Nethermind.Libp2p.Core;
@@ -12,11 +12,33 @@ namespace Libp2p.Protocols.KadDht.Integration;
 /// </summary>
 public sealed class DhtNode : IEquatable<DhtNode>, IComparable<DhtNode>
 {
+    private PublicKey? _peerKey;
+    private ValueHash256? _peerHash;
+
     public required PeerId PeerId { get; init; }
     public required PublicKey PublicKey { get; init; }
     public IReadOnlyList<string> Multiaddrs { get; init; } = Array.Empty<string>();
 
     public DhtNode() { }
+
+    public PublicKey PeerKey
+    {
+        get
+        {
+            ArgumentNullException.ThrowIfNull(PeerId);
+            return _peerKey ??= new PublicKey(PeerId.Bytes);
+        }
+    }
+
+    public ValueHash256 PeerHash
+    {
+        get
+        {
+            ArgumentNullException.ThrowIfNull(PeerId);
+            _peerHash ??= PublicKey.ComputeHash(PeerId.Bytes);
+            return _peerHash.Value;
+        }
+    }
 
     public bool Equals(DhtNode? other)
     {
