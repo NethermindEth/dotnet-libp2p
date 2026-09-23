@@ -18,6 +18,37 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 public class KademliaSessionManagerTests
 {
     [Test]
+    public async Task ConfiguredBootstrapAddressSuppliesThePackageBootNode()
+    {
+        PeerId localPeerId = new Identity(new byte[32]).PeerId;
+        byte[] bootstrapSeed = new byte[32];
+        bootstrapSeed[0] = 1;
+        PeerId bootstrapPeerId = new Identity(bootstrapSeed).PeerId;
+        SessionOptions options = new()
+        {
+            BootstrapMultiAddresses = [$"/ip4/127.0.0.1/tcp/1234/p2p/{bootstrapPeerId}"]
+        };
+        var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
+        KademliaSessionManager manager = new(options, localPeerId, sender);
+        var config = (Nethermind.Kademlia.KademliaConfig<SessionNode>)typeof(KademliaSessionManager)
+            .GetField("_config", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(manager)!;
+
+        Assert.That(config.BootNodes, Does.Contain(new SessionNode(bootstrapPeerId)));
+        await manager.StopAsync(CancellationToken.None);
+    }
+
+    [Test]
+    public void BootstrapAddressWithoutPeerIdIsRejected()
+    {
+        SessionOptions options = new() { BootstrapMultiAddresses = ["/ip4/127.0.0.1/tcp/1234"] };
+        PeerId localPeerId = new Identity(new byte[32]).PeerId;
+        var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
+
+        Assert.Throws<ArgumentException>(() => new KademliaSessionManager(options, localPeerId, sender));
+    }
+
+    [Test]
     public async Task DiscoverDoesNotReturnTheLocalNode()
     {
         PeerId localPeerId = new Identity(new byte[32]).PeerId;

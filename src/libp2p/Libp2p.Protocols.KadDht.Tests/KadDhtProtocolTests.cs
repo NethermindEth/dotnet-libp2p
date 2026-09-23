@@ -122,6 +122,44 @@ public class KadDhtProtocolTests
     }
 
     [Test]
+    public async Task Dispose_CancelsAndWaitsForAnInFlightLookup()
+    {
+        IValueStore valueStore = Substitute.For<IValueStore>();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<StoredValue?> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        valueStore.GetValueAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.ArgAt<CancellationToken>(1).Register(() => cancelled.TrySetResult());
+                started.TrySetResult();
+                return release.Task;
+            });
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender,
+            _options, valueStore, _providerStore, _loggerFactory);
+        Task lookup = protocol.GetValueAsync([1]);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task disposing = Task.Run(protocol.Dispose);
+        try
+        {
+            await Task.Delay(50);
+            Assert.That(disposing.IsCompleted, Is.False);
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetCanceled();
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5));
+            await lookup.ContinueWith(_ => { });
+        }
+
+        Assert.That(lookup.IsCanceled, Is.True);
+        Assert.ThrowsAsync<ObjectDisposedException>(async () => await protocol.GetValueAsync([1]));
+    }
+
+    [Test]
     public async Task PutValueAsync_WithValidKeyAndValue_ReturnsTrue()
     {
         // Arrange

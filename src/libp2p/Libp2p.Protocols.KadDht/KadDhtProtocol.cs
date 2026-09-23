@@ -35,6 +35,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
     private readonly CancellationTokenSource _stopCts = new();
     private readonly Lock _runLock = new();
     private Task? _runTask;
+    private TaskCompletionSource? _operationsDrained;
+    private int _activeOperations;
     private bool _disposed;
 
     private readonly ConcurrentDictionary<string, byte[]> _locallyPublishedValues = new();
@@ -117,6 +119,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task<bool> PutValueAsync(byte[] key, byte[] value, CancellationToken cancellationToken = default)
     {
+        using var operation = BeginOperation(cancellationToken);
+        cancellationToken = operation.Token;
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
@@ -187,6 +191,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task<byte[]?> GetValueAsync(byte[] key, CancellationToken cancellationToken = default)
     {
+        using var operation = BeginOperation(cancellationToken);
+        cancellationToken = operation.Token;
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
 
@@ -258,6 +264,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task<bool> ProvideAsync(byte[] key, CancellationToken cancellationToken = default)
     {
+        using var operation = BeginOperation(cancellationToken);
+        cancellationToken = operation.Token;
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
 
@@ -318,6 +326,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task<IEnumerable<PeerId>> FindProvidersAsync(byte[] key, int count, CancellationToken cancellationToken = default)
     {
+        using var operation = BeginOperation(cancellationToken);
+        cancellationToken = operation.Token;
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
         if (count <= 0) throw new ArgumentException("Count must be positive", nameof(count));
@@ -499,6 +509,8 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task BootstrapAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = BeginOperation(cancellationToken);
+        cancellationToken = operation.Token;
         if (_kademlia is null) return;
 
         await _kademlia.Bootstrap(cancellationToken);
@@ -508,7 +520,11 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
     public void AddNode(DhtNode node)
     {
         ArgumentNullException.ThrowIfNull(node);
-        _kademlia?.AddOrRefresh(node);
+        lock (_runLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _kademlia?.AddOrRefresh(node);
+        }
     }
 
     public async Task PerformMaintenanceAsync(CancellationToken cancellationToken = default)
@@ -545,20 +561,49 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         };
     }
 
+    private OperationScope BeginOperation(CancellationToken cancellationToken)
+    {
+        lock (_runLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopCts.Token);
+            if (_activeOperations++ == 0)
+                _operationsDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return new OperationScope(this, linked);
+        }
+    }
+
+    private sealed class OperationScope(KadDhtProtocol owner, CancellationTokenSource linked) : IDisposable
+    {
+        public CancellationToken Token => linked.Token;
+
+        public void Dispose()
+        {
+            linked.Dispose();
+            lock (owner._runLock)
+            {
+                if (--owner._activeOperations == 0)
+                    owner._operationsDrained!.TrySetResult();
+            }
+        }
+    }
+
     public void Dispose()
     {
         Task? run;
+        Task? operations;
         lock (_runLock)
         {
             if (_disposed) return;
             _disposed = true;
             run = _runTask;
+            operations = _operationsDrained?.Task;
         }
 
         try
         {
             _stopCts.Cancel();
-            run?.GetAwaiter().GetResult();
+            Task.WhenAll(run ?? Task.CompletedTask, operations ?? Task.CompletedTask).GetAwaiter().GetResult();
         }
         finally
         {

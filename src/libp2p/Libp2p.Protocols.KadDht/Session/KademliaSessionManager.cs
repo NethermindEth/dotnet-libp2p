@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Libp2p.Protocols.KadDht.Kademlia;
+using Multiformats.Address;
 using Nethermind.Kademlia;
 using Nethermind.Libp2p.Core;
 
@@ -48,7 +49,13 @@ public sealed class KademliaSessionManager : ISessionManager
 
         _config = new KademliaConfig<TestNode>
         {
-            CurrentNodeId = new TestNode(localPeerId)
+            CurrentNodeId = new TestNode(localPeerId),
+            BootNodes = options.BootstrapMultiAddresses.Select(address =>
+            {
+                if (((Multiaddress)address).GetPeerId() is not PeerId peerId)
+                    throw new ArgumentException("Bootstrap addresses must contain a peer ID.", nameof(options));
+                return new TestNode(peerId);
+            }).Distinct().ToArray()
         };
         if (options.KSize is int k) _config.KSize = k;
         if (options.RefreshInterval is TimeSpan r) _config.RefreshInterval = r;

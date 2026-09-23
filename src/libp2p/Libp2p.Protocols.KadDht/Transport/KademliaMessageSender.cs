@@ -26,9 +26,9 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
 
     public async Task<TestNode[]> FindNeighbours(TestNode receiver, PublicKey target, CancellationToken token)
     {
-        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
+        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver), token);
         var request = MessageHelper.CreateFindNodeRequest(target.Bytes.ToArray());
-        var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request);
+        var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, token);
 
         return response.CloserPeers
             .Select(p => new TestNode { Id = new PeerId(p.Id.ToByteArray()) })
@@ -37,8 +37,8 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
 
     public async Task Ping(TestNode receiver, CancellationToken token)
     {
-        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver));
-        await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(MessageHelper.CreatePingRequest());
+        ISession session = await _localPeer.DialAsync(GetFirstAddress(receiver), token);
+        await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(MessageHelper.CreatePingRequest(), token);
     }
 
     private Multiaddress GetFirstAddress(TestNode node)
