@@ -6,17 +6,21 @@ using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
+using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
+            List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages = [];
             lock (this)
             {
                 HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
@@ -29,6 +33,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 if (rpc.Subscriptions.Count != 0)
                 {
                     HandleSubscriptions(peerId, rpc.Subscriptions);
+                }
+
+                if (rpc.Partial is not null)
+                {
+                    HandlePartialMessage(peerId, rpc.Partial, protocolId, receivedPartialMessages);
                 }
 
                 if (rpc.Control is not null)
@@ -62,6 +71,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
             {
                 OnMessage?.Invoke(topic, receivedFrom, data);
+            }
+
+            foreach ((string topic, PeerId receivedFrom, PartialMessage message) in receivedPartialMessages)
+            {
+                OnPartialMessage?.Invoke(topic, receivedFrom, message);
             }
 
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
@@ -98,6 +112,57 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             ApplyBehaviorPenalty(peerId, 1.0);
             logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
+        if (isFirstRpc && extensions?.PartialMessages == true)
+        {
+            peer.SupportsPartialMessagesExtension = true;
+        }
+    }
+
+    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
+    {
+        if (!_settings.EnablePartialMessages ||
+            protocolId is not null && protocolId != GossipsubProtocolVersionV13 ||
+            !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
+            !peer.SupportsPartialMessagesExtension)
+        {
+            return;
+        }
+
+        if (!partialMessage.HasTopicID ||
+            !partialMessage.HasGroupID ||
+            (!partialMessage.HasPartialMessage && !partialMessage.HasPartsMetadata))
+        {
+            logger?.LogDebug("Ignoring an incomplete Partial Messages extension payload from {peerId}", peerId);
+            return;
+        }
+
+        if (!TryDecodeTopicId(partialMessage.TopicID, out string topicId))
+        {
+            logger?.LogDebug("Ignoring a Partial Messages extension payload with a non-UTF-8 topic from {peerId}", peerId);
+            return;
+        }
+
+        topicState.TryGetValue(topicId, out Topic? topic);
+        if (partialMessage.HasPartialMessage && topic?.RequestsPartialMessages is not true)
+        {
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
+            return;
+        }
+
+        if (topic?.IsSubscribed is not true || !topic.SupportsSendingPartialMessages)
+        {
+            return;
+        }
+
+        receivedPartialMessages.Add((
+            topicId,
+            peerId,
+            new PartialMessage(
+                topicId,
+                partialMessage.GroupID.ToByteArray(),
+                partialMessage.HasPartialMessage ? partialMessage.PartialMessage.ToByteArray() : null,
+                partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
     }
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
@@ -166,7 +231,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         continue;
                     }
-                    peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    if (ShouldSendFullMessage(peer, message.Topic))
+                    {
+                        peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    }
                 }
             }
             if (mesh.TryGetValue(message.Topic, out topicPeers))
@@ -179,12 +247,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
 
                     // Only forward to peers above publish threshold (Gossipsub v1.1)
-                    if (GetPeerScore(peer) >= _settings.PublishThreshold)
+                    if (GetPeerScore(peer) >= _settings.PublishThreshold && ShouldSendFullMessage(peer, message.Topic))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
                     }
                 }
             }
+        }
+    }
+
+    private static bool TryDecodeTopicId(ByteString topicIdBytes, out string topicId)
+    {
+        try
+        {
+            topicId = StrictUtf8.GetString(topicIdBytes.Span);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            topicId = string.Empty;
+            return false;
         }
     }
 
@@ -207,9 +289,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 {
                     fPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
                 }
+
+                if (_settings.EnablePartialMessages && state.SupportsPartialMessagesExtension)
+                {
+                    bool requestsPartialMessages = sub.RequestsPartial;
+                    state.UpdatePartialMessagesSubscription(
+                        sub.Topicid,
+                        requestsPartialMessages,
+                        sub.SupportsSendingPartial);
+                }
             }
             else
             {
+                state.RemovePartialMessagesSubscription(sub.Topicid);
                 if (state.IsGossipSub)
                 {
                     gPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);

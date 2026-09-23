@@ -40,6 +40,18 @@ public class PubsubSettings
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
     public int MaxIdontwantMessages { get; set; } = 50;
 
+    /// <summary>
+    /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router
+    /// advertises it only to v1.3 peers.
+    /// </summary>
+    public bool EnablePartialMessages { get; set; }
+
+    /// <summary>Number of heartbeats to retain a locally published partial-message group for gossip.</summary>
+    public int PartialMessageGossipTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum locally published partial-message groups retained for one topic.</summary>
+    public int MaxPartialMessageGroupsPerTopic { get; set; } = 255;
+
     public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 
     public enum SignaturePolicy
