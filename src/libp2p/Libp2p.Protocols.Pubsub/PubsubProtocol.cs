@@ -83,6 +83,10 @@ public abstract class PubsubProtocol : ISessionProtocol
                 router.OnRpc(remotePeerId, rpc);
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("RPC listener stopped for {remotePeerId}", remotePeerId);
+        }
         catch (ChannelClosedException)
         {
             _logger?.LogDebug("RPC channel closed by {remotePeerId}", remotePeerId);

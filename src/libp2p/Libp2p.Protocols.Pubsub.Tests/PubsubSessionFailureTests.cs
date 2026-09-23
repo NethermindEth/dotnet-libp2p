@@ -5,6 +5,7 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -12,6 +13,51 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [CancelAfter(5_000)]
 public class PubsubSessionFailureTests
 {
+    [Test]
+    public async Task ListenAsync_RouterShutdown_DoesNotMarkActivityAsError()
+    {
+        using PubsubRouter router = new(new PeerStore());
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        await router.StartAsync(localPeer);
+
+        using Activity activity = new Activity("pubsub-listen").Start();
+        ISessionContext context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        context.Activity.Returns(activity);
+        context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
+        CancelableReadChannel channel = new();
+
+        Task listen = new FloodsubProtocol(router).ListenAsync(channel, context);
+        await channel.ReadStarted.WaitAsync(TestContext.CurrentContext.CancellationToken);
+        router.Dispose();
+        await listen.WaitAsync(TestContext.CurrentContext.CancellationToken);
+
+        Assert.That(activity.Status, Is.EqualTo(ActivityStatusCode.Unset));
+        await context.DidNotReceive().DisconnectAsync();
+    }
+
+    private sealed class CancelableReadChannel : IChannel
+    {
+        private readonly TaskCompletionSource<ReadResult> _read = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task ReadStarted => _readStarted.Task;
+
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+        {
+            token.Register(() => _read.TrySetCanceled(token));
+            _readStarted.TrySetResult();
+            return new(_read.Task);
+        }
+
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask CloseAsync() => ValueTask.CompletedTask;
+        public TaskAwaiter GetAwaiter() => Task.CompletedTask.GetAwaiter();
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task ListenAsync_Eof_DoesNotMarkActivityAsErrorAndReconnects(bool outboundFirst)
