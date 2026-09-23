@@ -97,9 +97,6 @@ public class NoiseProtocol : IConnectionProtocol
             throw new Libp2pException("Noise handshake signature verification failed: responder identity key does not match noise static key.");
         }
 
-        context.State.RemotePublicKey = msg1KeyDecoded;
-
-
         List<string> responderMuxers = msg1Decoded.Extensions?.StreamMuxers?
             .Where(m => !string.IsNullOrEmpty(m))
             .ToList() ?? [];
@@ -115,11 +112,7 @@ public class NoiseProtocol : IConnectionProtocol
             };
         }
 
-        PeerId remotePeerId = new(msg1KeyDecoded);
-        if (!context.State.RemoteAddress.Has<P2P>())
-        {
-            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
-        }
+        SetRemoteIdentity(context, msg1KeyDecoded);
 
         byte[] msg = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. ByteString.CopyFrom(clientStatic.PublicKey)];
         byte[] sig = context.Peer.Identity.Sign(msg);
@@ -226,8 +219,6 @@ public class NoiseProtocol : IConnectionProtocol
             throw new Libp2pException("Noise handshake signature verification failed: initiator identity key does not match noise static key.");
         }
 
-        context.State.RemotePublicKey = msg2KeyDecoded;
-
         Transport? transport = msg2.Transport;
 
         List<string> initiatorMuxers = msg2Decoded.Extensions?.StreamMuxers?.Where(m => !string.IsNullOrEmpty(m)).ToList() ?? [];
@@ -245,11 +236,7 @@ public class NoiseProtocol : IConnectionProtocol
             };
         }
 
-        if (!context.State.RemoteAddress.Has<P2P>())
-        {
-            PeerId remotePeerId = new(msg2KeyDecoded);
-            context.State.RemoteAddress.Add(new P2P(remotePeerId.ToString()));
-        }
+        SetRemoteIdentity(context, msg2KeyDecoded);
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
@@ -260,6 +247,27 @@ public class NoiseProtocol : IConnectionProtocol
         _ = upChannel.CloseAsync();
         _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
+    }
+
+    private static void SetRemoteIdentity(IConnectionContext context, PublicKey remotePublicKey)
+    {
+        if (context.State.RemotePublicKey is { } existingRemotePublicKey && existingRemotePublicKey.ToByteString() != remotePublicKey.ToByteString())
+        {
+            throw new Libp2pException("Noise identity does not match the previously authenticated remote public key.");
+        }
+
+        PeerId remotePeerId = new(remotePublicKey);
+        PeerId? expectedPeerId = context.State.RemoteAddress?.GetPeerId();
+        if (expectedPeerId is not null && expectedPeerId != remotePeerId)
+        {
+            throw new Libp2pException("Noise handshake identity does not match the expected remote peer ID.");
+        }
+
+        context.State.RemotePublicKey = remotePublicKey;
+        if (context.State.RemoteAddress is { } remoteAddress && expectedPeerId is null)
+        {
+            remoteAddress.Add(new P2P(remotePeerId.ToString()));
+        }
     }
 
     private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)

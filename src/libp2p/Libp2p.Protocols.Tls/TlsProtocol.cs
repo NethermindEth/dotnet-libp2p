@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using System.Buffers;
 using System.Net.Security;
 using Nethermind.Libp2p.Protocols.Quic;
@@ -8,6 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using System.Text;
@@ -58,18 +60,9 @@ public class TlsProtocol : IConnectionProtocol
                 await sslStream.AuthenticateAsServerAsync(serverAuthenticationOptions);
                 LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
-                // Extract remote peer ID from the client certificate and add it to
-                // RemoteAddress so UpgradeToSession (called by Yamux) can find the peer.
-                if (sslStream.RemoteCertificate is X509Certificate2 remoteCert
-                    && context.State.RemoteAddress is not null
-                    && !context.State.RemoteAddress.Has<P2P>())
+                if (sslStream.RemoteCertificate is X509Certificate2 remoteCert)
                 {
-                    Core.Dto.PublicKey? remotePubKey = CertificateHelper.ExtractPublicKey(remoteCert, out _);
-                    if (remotePubKey != null)
-                    {
-                        Identity remoteIdentity = new(remotePubKey);
-                        context.State.RemoteAddress.Add(new P2P(remoteIdentity.PeerId.ToString()));
-                    }
+                    SetRemoteIdentity(context, remoteCert);
                 }
 
                 _logger?.LogInformation("Server TLS Authentication successful. PeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.", context.State.RemotePeerId, LastNegotiatedApplicationProtocol.HasValue ? System.Text.Encoding.UTF8.GetString(LastNegotiatedApplicationProtocol.Value.Protocol.ToArray()) : "None");
@@ -144,19 +137,9 @@ public class TlsProtocol : IConnectionProtocol
 
                 LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
-                // Extract remote peer ID from the server certificate and add it to
-                // RemoteAddress so UpgradeToSession (called by Yamux) can find the peer.
-                // (TCP protocol only sets /ip4/.../tcp/... address without /p2p/... component.)
-                if (sslStream.RemoteCertificate is X509Certificate2 remoteCert
-                    && context.State.RemoteAddress is not null
-                    && !context.State.RemoteAddress.Has<P2P>())
+                if (sslStream.RemoteCertificate is X509Certificate2 remoteCert)
                 {
-                    Core.Dto.PublicKey? remotePubKey = CertificateHelper.ExtractPublicKey(remoteCert, out _);
-                    if (remotePubKey != null)
-                    {
-                        Identity remoteIdentity = new(remotePubKey);
-                        context.State.RemoteAddress.Add(new P2P(remoteIdentity.PeerId.ToString()));
-                    }
+                    SetRemoteIdentity(context, remoteCert);
                 }
 
                 _logger?.LogInformation("Client TLS Authentication successful. RemotePeerId: {RemotePeerId}, NegotiatedProtocol: {Protocol}.", context.State.RemotePeerId, LastNegotiatedApplicationProtocol.HasValue ? System.Text.Encoding.UTF8.GetString(LastNegotiatedApplicationProtocol.Value.Protocol.ToArray()) : "None");
@@ -179,6 +162,24 @@ public class TlsProtocol : IConnectionProtocol
         {
             _logger?.LogError(ex, "Error during TLS protocol negotiation.");
             throw;
+        }
+    }
+
+    private static void SetRemoteIdentity(IConnectionContext context, X509Certificate2 certificate)
+    {
+        Core.Dto.PublicKey remotePublicKey = CertificateHelper.ExtractPublicKey(certificate, out _)
+            ?? throw new Libp2pException("Remote public key not found");
+
+        if (context.State.RemotePublicKey is { } existingRemotePublicKey && existingRemotePublicKey.ToByteString() != remotePublicKey.ToByteString())
+        {
+            throw new Libp2pException("TLS certificate public key does not match the previously authenticated remote public key.");
+        }
+
+        context.State.RemotePublicKey = remotePublicKey;
+
+        if (context.State.RemoteAddress is { } remoteAddress && !remoteAddress.Has<P2P>())
+        {
+            remoteAddress.Add(new P2P(new Identity(remotePublicKey).PeerId.ToString()));
         }
     }
 
