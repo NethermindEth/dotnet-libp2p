@@ -279,6 +279,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
+    private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
     private ulong seqNo = 1;
 
     // Lifetime of work owned by the router: background loops and dials it starts itself.
@@ -385,10 +386,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 _peerStore.Discover(directPeerAddresses);
             }
+            ConnectDirectPeers(lifetime);
 
             _onNewPeer = (addrs) =>
             {
-                if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+                // Direct peers are dialed by ConnectDirectPeers.
+                if (addrs.Any(a => a.GetPeerId() is PeerId peerId && (peerId == localPeer.Identity.PeerId || IsDirectPeer(peerId))))
                 {
                     return;
                 }
@@ -426,7 +429,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         while (!token.IsCancellationRequested)
         {
             await Task.Delay(_settings.DirectConnectPeriod, token);
-            ReconnectDirectPeers(token);
+            ConnectDirectPeers(token);
         }
     }
 
@@ -581,14 +584,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             .ToDictionary(group => group.Key, group => group.Select(entry => entry.Address).ToArray());
     }
 
-    private void ReconnectDirectPeers(CancellationToken token)
+    private void ConnectDirectPeers(CancellationToken token)
     {
         foreach ((PeerId peerId, Multiaddress[] addresses) in directPeers)
         {
-            if (!peerState.ContainsKey(peerId))
+            // The direct-peer loop owns retries, so a dial that is still in flight is not repeated.
+            if (peerState.ContainsKey(peerId) || !pendingDirectDials.TryAdd(peerId, 0))
             {
-                Track(Connect(addresses, token, reconnect: true));
+                continue;
             }
+
+            Task connect = Connect(addresses, token);
+            Track(connect);
+            _ = connect.ContinueWith(t => pendingDirectDials.TryRemove(peerId, out byte _), TaskScheduler.Default);
         }
     }
 
@@ -842,7 +850,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
-                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested)
+                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
                 {
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
                 }
