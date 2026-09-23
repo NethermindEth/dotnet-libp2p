@@ -176,7 +176,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {
-            int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId));
+            int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId => _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId));
             logger?.LogTrace($"Messages received: {messages.Count()}, already known: {knownMessages}. All: {string.Join(",", messages.Select(_settings.GetMessageId))}.");
         }
         else
@@ -188,7 +188,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             MessageId messageId = _settings.GetMessageId(message);
 
-            if (_limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId))
+            if (_limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId))
             {
                 continue;
             }
@@ -198,11 +198,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             switch (validity)
             {
                 case MessageValidity.Rejected:
-                    _limboMessageCache.Add(messageId, new(messageId, message));
+                    _limboMessageCache.Add(messageId);
                     RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                     continue;
                 case MessageValidity.Ignored:
-                    _limboMessageCache.Add(messageId, new(messageId, message));
+                    _limboMessageCache.Add(messageId);
                     continue;
                 case MessageValidity.Throttled:
                     continue;
@@ -210,12 +210,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
-                _limboMessageCache!.Add(messageId, new(messageId, message));
+                _limboMessageCache.Add(messageId);
                 RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
                 continue;
             }
 
-            _messageCache.Add(messageId, new(messageId, message));
+            _seenMessages.Add(messageId);
+            _messageCache.Put(messageId, message);
 
             // Record valid message delivery for scoring
             RecordMessageDelivery(peerId, message, message.Topic, true);
@@ -445,7 +446,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
         {
             messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
-                .Where(mid => !_messageCache.Contains(mid)));
+                .Where(mid => !_seenMessages.Contains(mid) && !_limboMessageCache.Contains(mid)));
         }
 
         if (messageIds.Any())
@@ -467,8 +468,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         List<Message> messages = [];
         foreach (MessageId mId in messageIds)
         {
-            Message message = _messageCache.Get(mId).Message;
-            if (message != default)
+            if (_messageCache.TryGet(mId, out Message message))
             {
                 messages.Add(message);
             }
