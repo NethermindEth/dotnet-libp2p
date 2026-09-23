@@ -240,7 +240,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
     private static (RTCCertificate2 Certificate, DtlsFingerprint Fingerprint) CreateLocalCertificate()
     {
         (Certificate certificateChain, AsymmetricKeyParameter privateKey) =
-            DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto(), useRsa: false);
+            DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
         X509Certificate certificate = new(certificateChain.GetCertificateAt(0).GetEncoded());
         RTCCertificate2 rtcCertificate = new()
         {

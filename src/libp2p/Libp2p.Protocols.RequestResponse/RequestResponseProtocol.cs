@@ -54,7 +54,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
                 _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
                 _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
 
-                await channel.WriteSizeAndProtobufAsync(response);
+                await channel.WriteSizeAndDataAsync(response.ToByteArray()).OrThrow();
 
                 _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
             }

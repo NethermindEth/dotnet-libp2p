@@ -1,17 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-// cspell:ignore Rsassa
-
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
-using Org.BouncyCastle.Asn1;
-using Org.BouncyCastle.Asn1.Pkcs;
-using AlgorithmIdentifier = Org.BouncyCastle.Asn1.X509.AlgorithmIdentifier;
-using Org.BouncyCastle.Crypto;
-using Org.BouncyCastle.Crypto.Engines;
-using Org.BouncyCastle.Crypto.Signers;
-using Org.BouncyCastle.Security;
+using Org.BouncyCastle.X509;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.Security.Cryptography;
@@ -181,84 +173,16 @@ public class CertificateHelper
     {
         try
         {
-            AsnReader certificateReader = new(certificate.RawData, AsnEncodingRules.DER);
-            AsnReader certificateSequence = certificateReader.ReadSequence();
-
-            ReadOnlyMemory<byte> tbsCertificate = certificateSequence.ReadEncodedValue();
-            var signatureAlgorithm = AlgorithmIdentifier.GetInstance(
-                Asn1Object.FromByteArray(certificateSequence.ReadEncodedValue().ToArray()));
-
-            AsnReader body = new AsnReader(tbsCertificate, AsnEncodingRules.DER).ReadSequence();
-            if (body.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
-                body.ReadEncodedValue(); // version
-            body.ReadEncodedValue(); // serialNumber
-            var innerSignatureAlgorithm = AlgorithmIdentifier.GetInstance(
-                Asn1Object.FromByteArray(body.ReadEncodedValue().ToArray()));
-
-            // RFC 5280 requires both identifiers, including parameters, to agree.
-            if (!signatureAlgorithm.Equals(innerSignatureAlgorithm))
-                return false;
-
-            byte[] signature = certificateSequence.ReadBitString(out int unusedBitCount);
-
-            if (unusedBitCount != 0 || certificateSequence.HasData || certificateReader.HasData)
-            {
-                return false;
-            }
-
-            byte[]? subjectPublicKeyInfo = ReadSubjectPublicKeyInfo(certificate);
-            if (subjectPublicKeyInfo is null)
-            {
-                return false;
-            }
-
-            AsymmetricKeyParameter publicKey = PublicKeyFactory.CreateKey(subjectPublicKeyInfo);
-            ISigner signer = CreateCertificateSigner(signatureAlgorithm);
-            byte[] tbsBytes = tbsCertificate.ToArray();
-
-            signer.Init(false, publicKey);
-            signer.BlockUpdate(tbsBytes, 0, tbsBytes.Length);
-            return signer.VerifySignature(signature);
+            X509CertificateParser parser = new();
+            Org.BouncyCastle.X509.X509Certificate parsedCertificate = parser.ReadCertificate(certificate.RawData);
+            parsedCertificate.Verify(parsedCertificate.GetPublicKey());
+            return true;
         }
         catch
         {
             return false;
         }
     }
-
-    private static ISigner CreateCertificateSigner(AlgorithmIdentifier algorithm)
-    {
-        if (!algorithm.Algorithm.Equals(PkcsObjectIdentifiers.IdRsassaPss))
-            return SignerUtilities.GetSigner(SignatureAlgorithmName(algorithm.Algorithm.Id));
-
-        // PSS encodes the message hash, MGF hash, and salt length independently.
-        var parameters = RsassaPssParameters.GetInstance(algorithm.Parameters)
-            ?? throw new CryptographicException("Missing RSA-PSS parameters.");
-        if (!parameters.MaskGenAlgorithm.Algorithm.Equals(PkcsObjectIdentifiers.IdMgf1)
-            || parameters.TrailerField.IntValueExact != 1)
-            throw new CryptographicException("Unsupported RSA-PSS parameters.");
-
-        var mgfHash = AlgorithmIdentifier.GetInstance(parameters.MaskGenAlgorithm.Parameters);
-        return new PssSigner(new RsaEngine(),
-            DigestUtilities.GetDigest(parameters.HashAlgorithm.Algorithm.Id),
-            DigestUtilities.GetDigest(mgfHash.Algorithm.Id),
-            parameters.SaltLength.IntValueExact);
-    }
-
-    private static string SignatureAlgorithmName(string oid) => oid switch
-    {
-        "1.2.840.10045.4.3.1" => "SHA-224withECDSA",
-        "1.2.840.10045.4.3.2" => "SHA-256withECDSA",
-        "1.2.840.10045.4.3.3" => "SHA-384withECDSA",
-        "1.2.840.10045.4.3.4" => "SHA-512withECDSA",
-        "1.2.840.113549.1.1.5" => "SHA-1withRSA",
-        "1.2.840.113549.1.1.11" => "SHA-256withRSA",
-        "1.2.840.113549.1.1.12" => "SHA-384withRSA",
-        "1.2.840.113549.1.1.13" => "SHA-512withRSA",
-        "1.3.101.112" => "Ed25519",
-        "1.3.101.113" => "Ed448",
-        _ => throw new CryptographicException($"Unsupported certificate signature algorithm '{oid}'."),
-    };
 
     private static byte[]? ReadSubjectPublicKeyInfo(X509Certificate2 certificate)
     {

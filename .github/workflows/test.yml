@@ -48,7 +48,7 @@ jobs:
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
         run: |
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
