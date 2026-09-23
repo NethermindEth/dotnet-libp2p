@@ -124,6 +124,7 @@ public class MessageCacheTests
             HeartbeatInterval = int.MaxValue,
             mcache_gossip = gossipWindows,
             mcache_len = historyWindows,
+            GossipRetransmission = historyWindows + 1,
         });
         ILocalPeer localPeer = Substitute.For<ILocalPeer>();
         localPeer.Identity.Returns(TestPeers.Identity(1));

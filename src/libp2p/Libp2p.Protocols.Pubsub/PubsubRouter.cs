@@ -58,6 +58,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
             Score = new PeerScore(settings);
+            Control = new PeerControlState();
         }
 
         public enum PubsubProtocol
@@ -216,6 +217,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
         // Peer scoring (Gossipsub v1.1)
         public PeerScore Score { get; internal set; }
+        public PeerControlState Control { get; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -252,8 +254,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly MessageCache _messageCache;
     private readonly TtlCache<MessageId> _seenMessages;
     private readonly TtlCache<MessageId> _limboMessageCache;
-    private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
     private readonly PartialMessageGossipCache partialMessageGossip;
+    private readonly IwantPromiseTracker _iwantPromises;
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -281,6 +283,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly PeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
     private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
+    private long heartbeatTick;
     private ulong seqNo = 1;
 
     // Lifetime of work owned by the router: background loops and dials it starts itself.
@@ -344,10 +347,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
 
         directPeers = CreateDirectPeers(_settings.DirectPeers);
+        ValidateControlSettings(_settings);
         _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
         _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
         _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
-        _idontwantMessages = new(_settings.MessageCacheTtl);
+        _iwantPromises = new(_settings.MaxIwantPromises);
         partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }
 
@@ -541,7 +545,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _messageCache.Clear();
         _seenMessages.Dispose();
         _limboMessageCache.Dispose();
-        _idontwantMessages.Dispose();
     }
 
     /// <summary>
@@ -616,6 +619,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         return directPeers.Keys.Where(peerId => IsDirectPeerSubscribedTo(peerId, topic));
     }
 
+    private static void ValidateControlSettings(PubsubSettings settings)
+    {
+        if (settings.MaxIHaveMessages <= 0 || settings.MaxIHaveLength <= 0 ||
+            settings.MaxIwantMessages <= 0 || settings.MaxIwantLength <= 0 ||
+            settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||
+            settings.MaxIwantPromises <= 0 || settings.IWantFollowupTime <= 0 ||
+            settings.IdontwantTtlHeartbeats <= 0 || settings.MaxIdontwantMessages <= 0 ||
+            settings.MaxIdontwantLength <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), "Gossipsub control limits must be positive.");
+        }
+    }
+
+    internal int IwantPromiseCount => _iwantPromises.Count;
+
     public Task Heartbeat()
     {
         // Apply score decay
@@ -626,6 +644,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         Action<string, byte[], IReadOnlyList<PeerId>>? onPartialGossip = OnPartialGossip;
         lock (this)
         {
+            foreach ((PeerId peerId, int brokenPromises) in _iwantPromises.TakeExpired(DateTime.UtcNow))
+            {
+                ApplyBehaviorPenalty(peerId, brokenPromises);
+            }
+
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
@@ -815,6 +838,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             }
             partialMessageGossip.Heartbeat();
             _messageCache.Shift();
+            heartbeatTick++;
+            foreach (PubsubPeer peer in peerState.Values)
+            {
+                peer.Control.ResetHeartbeatCounters(heartbeatTick);
+            }
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
             {
                 peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
@@ -845,6 +873,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
+                _iwantPromises.Clear(peerId);
                 foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
