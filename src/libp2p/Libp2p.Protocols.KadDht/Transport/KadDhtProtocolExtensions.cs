@@ -1,22 +1,30 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
-public readonly record struct TestNode(PeerId Id);
+public readonly record struct TestNode(PeerId Id)
+{
+    public Multiaddress[]? Addresses { get; init; }
+
+    public bool Equals(TestNode other) => Id.Equals(other.Id);
+
+    public override int GetHashCode() => Id.GetHashCode();
+}
 
 public static class KadDhtProtocolExtensions
 {
-    public const string DefaultBaseId = "/ipfs/kad/1.0.0";
+    public const string DefaultBaseId = KadDhtOptions.DefaultProtocolId;
 
     /// <summary>
     /// Registers the unified /ipfs/kad/1.0.0 protocol handler with Message-based request/response.
@@ -64,7 +72,8 @@ public static class KadDhtProtocolExtensions
                     _ => new Message()
                 };
             },
-            isExposed: isExposed);
+            isExposed: isExposed,
+            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider);
 
         return builder;
     }

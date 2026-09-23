@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2P.Protocols.KadDht.Dto;
@@ -57,7 +58,13 @@ public static class MessageHelper
         {
             try
             {
-                addrs.Add(Multiaddress.Decode(addrBytes.ToByteArray()).ToString());
+                var multiaddress = Multiaddress.Decode(addrBytes.ToByteArray());
+                var addressPeerId = multiaddress.GetPeerId();
+
+                if (addressPeerId is null)
+                    addrs.Add(multiaddress.Add<P2P>(peerId.ToString()).ToString());
+                else if (addressPeerId.Equals(peerId))
+                    addrs.Add(multiaddress.ToString());
             }
             catch
             {
@@ -92,10 +99,10 @@ public static class MessageHelper
     /// <summary>
     /// Build a FIND_NODE request message.
     /// </summary>
-    public static Message CreateFindNodeRequest(byte[] targetPeerId) => new()
+    public static Message CreateFindNodeRequest(byte[] targetKey) => new()
     {
         Type = Message.Types.MessageType.FindNode,
-        Key = ByteString.CopyFrom(targetPeerId)
+        Key = ByteString.CopyFrom(targetKey)
     };
 
     /// <summary>
