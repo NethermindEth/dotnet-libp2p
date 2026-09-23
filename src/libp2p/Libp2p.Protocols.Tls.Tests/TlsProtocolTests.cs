@@ -89,9 +89,10 @@ public class TlsProtocolTests
         }
         finally
         {
-            await upChannel.CloseAsync();
-            await listenerUpChannel.CloseAsync();
-            await downChannel.CloseAsync();
+            await Task.WhenAll(
+                upChannel.CloseAsync().AsTask(),
+                listenerUpChannel.CloseAsync().AsTask(),
+                downChannel.CloseAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(15));
             await Task.WhenAll(listenTask, dialTask).WaitAsync(TimeSpan.FromSeconds(15));
         }
 
