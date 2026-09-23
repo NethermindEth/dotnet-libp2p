@@ -127,6 +127,78 @@ public class PubsubSessionFailureTests
         await localPeer.Received(1).DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
     }
 
+    [Test]
+    public async Task SuppressReconnection_BlocksDiscoveryRetryAndNewStream()
+    {
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CurrentContext.CancellationToken);
+        PeerStore store = new();
+        using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = 50 });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        int[] dialCount = [0];
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            Interlocked.Increment(ref dialCount[0]);
+            return Task.FromException<ISession>(new IOException("Discovery dial failed"));
+        });
+        await router.StartAsync(localPeer, cts.Token);
+
+        store.Discover([remoteAddress]);
+        Assert.That(Volatile.Read(ref dialCount[0]), Is.EqualTo(1));
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        suppressReconnection();
+
+        CancellationToken rejected = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).Token;
+        Assert.That(rejected.IsCancellationRequested, Is.True);
+        await Task.Delay(200, cts.Token);
+        Assert.That(Volatile.Read(ref dialCount[0]), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task SuppressReconnection_DuringProtocolSetupDisconnectsRetry()
+    {
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CurrentContext.CancellationToken);
+        PeerStore store = new();
+        using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = 20 });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        store.GetPeerInfo(remoteAddress.GetPeerId()!).SupportedProtocols = [PubsubRouter.FloodsubProtocolVersion];
+
+        ISession session = Substitute.For<ISession>();
+        session.RemoteAddress.Returns(remoteAddress);
+        TaskCompletionSource setupStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource setupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.DialAsync<FloodsubProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            setupStarted.TrySetResult();
+            return setupFinished.Task;
+        });
+        session.DisconnectAsync().Returns(_ =>
+        {
+            disconnected.TrySetResult();
+            return Task.CompletedTask;
+        });
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(session));
+        await router.StartAsync(localPeer, cts.Token);
+
+        TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        outboundClosed.SetResult();
+        await setupStarted.Task.WaitAsync(cts.Token);
+
+        suppressReconnection();
+        CancellationToken rejected = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).Token;
+        Assert.That(rejected.IsCancellationRequested, Is.True);
+        setupFinished.SetResult();
+        await disconnected.Task.WaitAsync(cts.Token);
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task ListenAsync_Eof_DoesNotMarkActivityAsErrorAndReconnects(bool outboundFirst)
