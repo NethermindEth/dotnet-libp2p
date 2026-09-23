@@ -48,7 +48,7 @@ jobs:
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
         run: |
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
@@ -57,6 +57,8 @@ jobs:
           dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}

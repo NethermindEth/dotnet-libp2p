@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2024 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Diagnostics;
@@ -34,7 +36,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        PeerId? remotePeerId = context.State.RemotePeerId;
+        PeerId remotePeerId = context.State.RemotePeerId!;
 
         _logger?.LogDebug("Dialed({contextId}) {remoteAddress}", context.Id, context.State.RemoteAddress);
 
@@ -51,7 +53,10 @@ public abstract class PubsubProtocol : ISessionProtocol
             context.Activity?.AddEvent(new ActivityEvent($"Sent message to {remotePeerId}: {rpc}"));
         });
 
-        await channel;
+        using (router.Stopped.Register(() => _ = channel.CloseAsync()))
+        {
+            await channel;
+        }
         dialTcs.SetResult();
         context.Activity?.AddEvent(new ActivityEvent($"Finished dial({context.Id}) {context.State.RemoteAddress}"));
     }
@@ -61,43 +66,52 @@ public abstract class PubsubProtocol : ISessionProtocol
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        PeerId? remotePeerId = context.State.RemotePeerId;
+        PeerId remotePeerId = context.State.RemotePeerId!;
 
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () =>
-        {
-            _ = context.DialAsync(this);
-        });
+        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
 
+        bool isFirstRpc = true;
         try
         {
             while (!token.IsCancellationRequested)
             {
-                Rpc? rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, token);
-                if (rpc is null)
-                {
-                    _logger?.LogDebug("Received a broken message or EOF from {remotePeerId}", remotePeerId);
-                    context.Activity?.AddEvent(new ActivityEvent($"Received a broken message or EOF from {remotePeerId}"));
-                    break;
-                }
-                else
-                {
-                    _logger?.LogTrace("Received message from {remotePeerId}: {rpc}", remotePeerId, rpc);
-                    context.Activity?.AddEvent(new ActivityEvent($"Received message from {remotePeerId}: {rpc}"));
-                    router.OnRpc(remotePeerId, rpc);
-                }
+                Rpc rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, router.MaxRpcBytes, token);
+                _logger?.LogTrace("Received message from {remotePeerId}: {rpc}", remotePeerId, rpc);
+                context.Activity?.AddEvent(new ActivityEvent($"Received message from {remotePeerId}: {rpc}"));
+                router.OnRpc(remotePeerId, rpc, Id, isFirstRpc);
+                isFirstRpc = false;
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger?.LogDebug("RPC listener stopped for {remotePeerId}", remotePeerId);
+        }
+        catch (ChannelClosedException)
+        {
+            _logger?.LogDebug("RPC channel closed by {remotePeerId}", remotePeerId);
+            context.Activity?.AddEvent(new ActivityEvent($"RPC channel closed by {remotePeerId}"));
+        }
+        catch (Exception e) when (e is InvalidDataException or FormatException or InvalidProtocolBufferException)
+        {
+            _logger?.LogDebug(e, "Invalid RPC from {remotePeerId}: {message}", remotePeerId, e.Message);
+            context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}: {e.Message}"));
+            context.Activity?.SetStatus(ActivityStatusCode.Error);
+            suppressReconnection();
+            await context.DisconnectAsync();
         }
         catch (Exception e)
         {
             context.Activity?.AddEvent(new ActivityEvent($"Exception: {e.Message}"));
             context.Activity?.SetStatus(ActivityStatusCode.Error);
         }
-
-        listTcs.SetResult();
-        context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
+        finally
+        {
+            listTcs.SetResult();
+            context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
+        }
     }
 
     public override string ToString() => Id;
@@ -110,3 +124,5 @@ public class GossipsubProtocol(PubsubRouter router, ILoggerFactory? loggerFactor
 public class GossipsubProtocolV11(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV11, router, loggerFactory);
 
 public class GossipsubProtocolV12(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV12, router, loggerFactory);
+
+public class GossipsubProtocolV13(PubsubRouter router, ILoggerFactory? loggerFactory = null) : PubsubProtocol(PubsubRouter.GossipsubProtocolVersionV13, router, loggerFactory);

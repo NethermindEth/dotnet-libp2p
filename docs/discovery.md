@@ -85,3 +85,21 @@ await discovery.StartDiscoveryAsync(localPeer.ListenAddresses, cancellationToken
 ```
 
 All peers that should discover each other must join at least one common discovery topic. When a peer announcement is received, the protocol decodes the advertised addresses and stores them in `PeerStore`.
+
+## Stopping discovery
+
+Discovery stops when the token passed to `StartDiscoveryAsync` is cancelled or when the discovery protocol is disposed. `DisposeAsync` also waits for the background loop to finish:
+
+- `MDnsDiscoveryProtocol` stops querying, sends an mDNS goodbye for the advertised service and releases its sockets.
+- `PubsubPeerDiscoveryProtocol` stops broadcasting, removes its topic handlers and unsubscribes from the discovery topics.
+
+Neither disposes the shared `PeerStore`, `PubsubRouter` or local peer.
+
+Who disposes depends on who created the instance. `AddLibp2p` registers `MDnsDiscoveryProtocol`, `PubsubRouter` and `PeerStore` as singletons, and the service provider disposes them when it is disposed. Dispose instances you create with `new`, such as `PubsubPeerDiscoveryProtocol` in the example above, yourself:
+
+```csharp
+await discovery.DisposeAsync();
+await provider.DisposeAsync(); // disposes the mDNS discovery and the pubsub router
+```
+
+A disposed discovery protocol cannot be started again.

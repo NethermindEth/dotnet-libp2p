@@ -56,4 +56,27 @@ public class IdentityTests
 
         Assert.That(id.VerifySignature(message, signature), Is.True);
     }
+
+    [Test]
+    public void Test_GeneratedSecp256K1KeysAlwaysSign()
+    {
+        byte[] message = [1, 2, 3];
+        for (int i = 0; i < 1000; i++)
+        {
+            Identity id = new(keyType: KeyType.Secp256K1);
+            Assert.That(id.VerifySignature(message, id.Sign(message)), Is.True, $"Generated key {i}");
+        }
+    }
+
+    [Test]
+    public void Test_ImportedSecp256K1PrivateKeyIsUnsigned()
+    {
+        byte[] privateKey = new byte[32];
+        privateKey[0] = 0x80;
+        privateKey[^1] = 1;
+        Identity id = new(privateKey, KeyType.Secp256K1);
+        byte[] message = [1, 2, 3];
+
+        Assert.That(id.VerifySignature(message, id.Sign(message)), Is.True);
+    }
 }

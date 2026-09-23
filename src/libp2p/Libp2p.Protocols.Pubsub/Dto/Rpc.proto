@@ -7,9 +7,15 @@ message Rpc {
   repeated Message publish = 2;
   optional ControlMessage control = 3;
 
+  // Canonical Gossipsub v1.3 extensions are registered here.
+  optional PartialMessagesExtension partial = 10;
+
   message SubOpts {
     optional bool subscribe = 1;
     optional string topicid = 2;
+    // Used with the Gossipsub v1.3 Partial Messages extension.
+    optional bool requestsPartial = 3;
+    optional bool supportsSendingPartial = 4;
   }
 }
 
@@ -28,6 +34,7 @@ message ControlMessage {
   repeated ControlGraft graft = 3; 
   repeated ControlPrune prune = 4;
   repeated ControlIDontWant idontwant = 5;
+  optional ControlExtensions extensions = 6;
 }
 
 message ControlIHave {
@@ -49,11 +56,26 @@ message ControlPrune {
 	optional uint64 backoff = 3; // gossipsub v1.1 backoff time (in seconds)
 }
 
+message PeerInfo {
+	optional bytes peerID = 1;
+	optional bytes signedPeerRecord = 2;
+}
+
 message ControlIDontWant {
     repeated bytes messageIDs = 1;
 }
 
-message PeerInfo {
-	optional bytes peerID = 1;
-	optional SignedPeerRecordEnvelope signedPeerRecord = 2;
+// Gossipsub v1.3 extension capabilities. Unknown fields are intentionally
+// ignored so future extensions remain wire compatible.
+message ControlExtensions {
+    optional bool partialMessages = 10;
+}
+
+// The Partial Messages registry identifies topics as opaque bytes. Go's
+// current string declaration is wire compatible with this canonical form.
+message PartialMessagesExtension {
+    optional bytes topicID = 1;
+    optional bytes groupID = 2;
+    optional bytes partialMessage = 3;
+    optional bytes partsMetadata = 4;
 }

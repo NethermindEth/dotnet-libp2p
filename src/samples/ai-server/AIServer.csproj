@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.5.11" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.6.1" PrivateAssets="all" GeneratePathProperty="true" />
     <RuntimeHostConfigurationOption Include="System.Net.Quic.AppLocalMsQuic" Value="true" />
     <Content Include="$(PkgMicrosoft_Native_Quic_MsQuic_OpenSSL)\build\native\bin\x64\msquic.dll"
              Link="msquic.dll"

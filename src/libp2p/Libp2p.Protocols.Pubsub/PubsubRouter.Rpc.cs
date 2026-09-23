@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
-    internal void OnRpc(PeerId peerId, Rpc rpc)
+    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
         {
@@ -19,6 +19,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             lock (this)
             {
+                HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
+
                 if (rpc.Publish.Count != 0)
                 {
                     HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages);
@@ -70,6 +72,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         catch (Exception ex)
         {
             logger?.LogError(ex, "Exception while processing RPC");
+        }
+    }
+
+    private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
+    {
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        {
+            return;
+        }
+
+        ControlExtensions? extensions = rpc.Control?.Extensions;
+        if (protocolId is null ? !peer.SupportsExtensions : protocolId != GossipsubProtocolVersionV13)
+        {
+            if (extensions is not null)
+            {
+                logger?.LogDebug("Ignoring Gossipsub v1.3 extensions from {peerId} on {protocol}", peerId, peer.Protocol);
+            }
+
+            return;
+        }
+
+        if (!isFirstRpc && extensions is not null)
+        {
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
     }
 
@@ -210,10 +237,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (ControlGraft? graft in grafts)
         {
-            if (!topicState.ContainsKey(graft.TopicID))
+            if (topicState.GetValueOrDefault(graft.TopicID)?.IsSubscribed is not true ||
+                !mesh.TryGetValue(graft.TopicID, out HashSet<PeerId>? topicMesh))
             {
-                // Ignore GRAFT for unknown topics (spam protection)
-                logger?.LogDebug("Ignoring GRAFT from {peerId} for unknown topic {topic}", peerId, graft.TopicID);
+                logger?.LogDebug("Ignoring GRAFT from {peerId} for inactive topic {topic}", peerId, graft.TopicID);
                 continue;
             }
 
@@ -233,13 +260,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
 
-            HashSet<PeerId> topicMesh = mesh[graft.TopicID];
-
             if (topicMesh.Count >= _settings.HighestDegree)
             {
                 ControlPrune prune = new() { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
 
-                if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.IsGossipSub && peerData.Protocol >= PubsubPeer.PubsubProtocol.GossipsubV11)
+                if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.SupportsPeerExchange)
                 {
                     peerData.Backoff[prune.TopicID] = DateTime.Now.AddMilliseconds(_settings.PruneBackoff);
 
@@ -278,14 +303,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         foreach (ControlPrune? prune in prunes)
         {
-            if (topicState.ContainsKey(prune.TopicID) && mesh[prune.TopicID].Contains(peerId))
+            if (topicState.GetValueOrDefault(prune.TopicID)?.IsSubscribed is true &&
+                mesh.TryGetValue(prune.TopicID, out HashSet<PeerId>? topicMesh) &&
+                topicMesh.Contains(peerId))
             {
                 if (peerState.TryGetValue(peerId, out PubsubPeer? state))
                 {
                     ulong backoffSeconds = prune.Backoff == 0 ? (ulong)(_settings.PruneBackoff / 1000) : prune.Backoff;
                     state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(backoffSeconds);
                 }
-                mesh[prune.TopicID].Remove(peerId);
+                topicMesh.Remove(peerId);
                 RecordPeerLeaveMesh(peerId, prune.TopicID);  // Track for scoring (P1 and P3b)
 
                 // Handle PX (Peer Exchange) only if peer score is above threshold
@@ -306,7 +333,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     {
         List<MessageId> messageIds = [];
 
-        foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.ContainsKey(iw.TopicID)))
+        foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
         {
             messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
                 .Where(mid => !_messageCache.Contains(mid)));

@@ -77,16 +77,23 @@ public static class VarInt
         throw new EndOfStreamException("Exhausted span before end of integer.");
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static async Task<ulong> DecodeUlong(IReader buf)
+    public static Task<ulong> DecodeUlong(IReader buf)
+    {
+        return DecodeUlong(buf, default);
+    }
+
+    public static async Task<ulong> DecodeUlong(IReader buf, CancellationToken token = default)
     {
         ulong res = 0;
-        byte mul = 0;
         for (int i = 0; i < 10; i++)
         {
-            byte @byte = (await buf.ReadAsync(1).OrThrow()).FirstSpan[0];
-            res += ((ulong)@byte & 127) << mul;
-            mul += 7;
+            byte @byte = (await buf.ReadAsync(1, token: token).OrThrow()).FirstSpan[0];
+            if (i == 9 && (@byte & 0x7f) > 1)
+            {
+                throw new FormatException("Invalid 7-bit encoding");
+            }
+
+            res |= ((ulong)@byte & 127) << (i * 7);
             if ((@byte & 128) == 0)
             {
                 return res;
