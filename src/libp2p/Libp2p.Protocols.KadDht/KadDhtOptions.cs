@@ -7,6 +7,14 @@ namespace Libp2p.Protocols.KadDht;
 /// </summary>
 public class KadDhtOptions
 {
+    public const string DefaultProtocolId = "/ipfs/kad/1.0.0";
+
+    /// <summary>
+    /// Libp2p protocol ID used by the Kad-DHT request/response protocol.
+    /// Default: /ipfs/kad/1.0.0
+    /// </summary>
+    public string ProtocolId { get; set; } = DefaultProtocolId;
+
     /// <summary>
     /// Number of nodes to return in each query (K parameter)
     /// Default: 20

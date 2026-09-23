@@ -100,7 +100,7 @@ public class TlsProtocol : IConnectionProtocol
         }
 
         return CertificateHelper.ValidateCertificate(x509Certificate2,
-            remotePeerAddress?.Get<P2P>()?.ToString());
+            remotePeerAddress.GetPeerId()?.ToString());
     }
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
@@ -177,7 +177,7 @@ public class TlsProtocol : IConnectionProtocol
 
         context.State.RemotePublicKey = remotePublicKey;
 
-        if (context.State.RemoteAddress is { } remoteAddress && !remoteAddress.Has<P2P>())
+        if (context.State.RemoteAddress is { } remoteAddress && remoteAddress.GetPeerId() is null)
         {
             remoteAddress.Add(new P2P(new Identity(remotePublicKey).PeerId.ToString()));
         }

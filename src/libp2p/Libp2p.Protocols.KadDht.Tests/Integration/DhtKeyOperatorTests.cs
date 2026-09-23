@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using NUnit.Framework;
@@ -38,7 +38,7 @@ public class DhtKeyOperatorTests
         PublicKey result = _keyOperator.GetKey(_node);
 
         // Assert
-        Assert.That(result, Is.EqualTo(_publicKey));
+        Assert.That(result.Bytes.ToArray(), Is.EqualTo(_node.PeerId.Bytes));
     }
 
     [Test]
@@ -67,13 +67,13 @@ public class DhtKeyOperatorTests
     }
 
     [Test]
-    public void GetNodeHash_ShouldReturnSameAsGetKeyHashOfPublicKey()
+    public void GetNodeHash_ShouldReturnSameAsGetKeyHashOfPeerId()
     {
         // Act
         ValueHash256 nodeHash = _keyOperator.GetNodeHash(_node);
-        ValueHash256 keyHash = _keyOperator.GetKeyHash(_publicKey);
+        ValueHash256 keyHash = _keyOperator.GetKeyHash(new PublicKey(_node.PeerId.Bytes));
 
-        // Assert
+        // Assert - node hashes are derived from the advertised peer id used on the wire.
         Assert.That(nodeHash.Bytes.ToArray(), Is.EqualTo(keyHash.Bytes.ToArray()));
     }
 
@@ -107,5 +107,39 @@ public class DhtKeyOperatorTests
 
         // Assert
         Assert.That(hash.Bytes.Length, Is.EqualTo(32));
+    }
+
+    [Test]
+    public void CreateRandomKeyAtDistance_ShouldReturnNormalWireKey()
+    {
+        ValueHash256 prefix = CreatePrefixHash();
+
+        PublicKey result = _keyOperator.CreateRandomKeyAtDistance(prefix, 128);
+        ValueHash256 receiverHash = new PublicKey(result.Bytes).Hash;
+
+        Assert.That(result.Bytes.Length, Is.EqualTo(32));
+        Assert.That(result.Hash.Bytes.ToArray(), Is.EqualTo(receiverHash.Bytes.ToArray()));
+    }
+
+    [Test]
+    public void SessionKeyOperator_CreateRandomKeyAtDistance_ShouldReturnNormalWireKey()
+    {
+        var sessionKeyOperator = new PublicKeyKeyOperator();
+        ValueHash256 prefix = CreatePrefixHash();
+
+        PublicKey result = sessionKeyOperator.CreateRandomKeyAtDistance(prefix, 128);
+        ValueHash256 receiverHash = new PublicKey(result.Bytes).Hash;
+
+        Assert.That(result.Bytes.Length, Is.EqualTo(64));
+        Assert.That(result.Hash.Bytes.ToArray(), Is.EqualTo(receiverHash.Bytes.ToArray()));
+    }
+
+    private static ValueHash256 CreatePrefixHash()
+    {
+        byte[] bytes = new byte[32];
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)(i * 7);
+
+        return ValueHash256.FromBytes(bytes);
     }
 }
