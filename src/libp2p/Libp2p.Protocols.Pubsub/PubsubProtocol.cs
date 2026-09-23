@@ -73,6 +73,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         TaskCompletionSource listTcs = new();
         (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
 
+        bool isFirstRpc = true;
         try
         {
             while (!token.IsCancellationRequested)
@@ -80,7 +81,8 @@ public abstract class PubsubProtocol : ISessionProtocol
                 Rpc rpc = await channel.ReadPrefixedProtobufAsync(Rpc.Parser, router.MaxRpcBytes, token);
                 _logger?.LogTrace("Received message from {remotePeerId}: {rpc}", remotePeerId, rpc);
                 context.Activity?.AddEvent(new ActivityEvent($"Received message from {remotePeerId}: {rpc}"));
-                router.OnRpc(remotePeerId, rpc);
+                router.OnRpc(remotePeerId, rpc, Id, isFirstRpc);
+                isFirstRpc = false;
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)

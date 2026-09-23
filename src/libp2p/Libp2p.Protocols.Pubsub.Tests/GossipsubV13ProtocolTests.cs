@@ -22,18 +22,18 @@ public class GossipsubV13ProtocolTests
         PeerId peerId = TestPeers.PeerId(1);
         double initialScore = GetPeerScore(router, peerId);
 
-        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc());
+        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: true);
         Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
 
-        router.OnRpc(peerId, CreateExtensionsRpc());
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: false);
         double penalizedScore = GetPeerScore(router, peerId);
         Assert.That(penalizedScore, Is.LessThan(initialScore));
 
-        router.OnRpc(peerId, new Rpc());
+        router.OnRpc(peerId, new Rpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: false);
         Assert.That(GetPeerScore(router, peerId), Is.EqualTo(penalizedScore),
             "Subsequent RPCs without extensions must not incur a penalty.");
 
-        router.OnRpc(peerId, CreateExtensionsRpc());
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: false);
         Assert.That(GetPeerScore(router, peerId), Is.LessThan(penalizedScore),
             "Each additional extensions advertisement must incur a penalty.");
     }
@@ -46,8 +46,8 @@ public class GossipsubV13ProtocolTests
         PeerId peerId = TestPeers.PeerId(1);
         double initialScore = GetPeerScore(router, peerId);
 
-        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc());
-        router.OnRpc(peerId, new Rpc { Control = new ControlMessage() });
+        router.OnRpc(peerId, firstRpcHasExtensions ? CreateExtensionsRpc() : new Rpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: true);
+        router.OnRpc(peerId, new Rpc { Control = new ControlMessage() }, PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: false);
 
         Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
     }
@@ -62,10 +62,39 @@ public class GossipsubV13ProtocolTests
         PeerId peerId = TestPeers.PeerId(1);
         double initialScore = GetPeerScore(router, peerId);
 
-        router.OnRpc(peerId, CreateExtensionsRpc());
+        router.OnRpc(peerId, CreateExtensionsRpc(), protocolId, isFirstRpc: true);
         Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
 
-        router.OnRpc(peerId, CreateExtensionsRpc());
+        router.OnRpc(peerId, CreateExtensionsRpc(), protocolId, isFirstRpc: false);
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+    }
+
+    [Test]
+    public void Router_AllowsExtensionsInTheFirstRpcOnEachStream()
+    {
+        using PubsubRouter router = CreateConnectedRouter(PubsubRouter.GossipsubProtocolVersionV13);
+        PeerId peerId = TestPeers.PeerId(1);
+        double initialScore = GetPeerScore(router, peerId);
+
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: true);
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: true);
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: false);
+        Assert.That(GetPeerScore(router, peerId), Is.LessThan(initialScore));
+    }
+
+    [Test]
+    public void Router_UsesTheIncomingStreamsProtocolForExtensions()
+    {
+        using PubsubRouter router = CreateConnectedRouter(PubsubRouter.GossipsubProtocolVersionV13);
+        PeerId peerId = TestPeers.PeerId(1);
+        double initialScore = GetPeerScore(router, peerId);
+
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV12, isFirstRpc: false);
+        Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
+
+        router.OnRpc(peerId, CreateExtensionsRpc(), PubsubRouter.GossipsubProtocolVersionV13, isFirstRpc: true);
         Assert.That(GetPeerScore(router, peerId), Is.EqualTo(initialScore));
     }
 

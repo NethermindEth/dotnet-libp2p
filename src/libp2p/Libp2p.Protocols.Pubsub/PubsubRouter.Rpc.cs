@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
-    internal void OnRpc(PeerId peerId, Rpc rpc)
+    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
         {
@@ -19,7 +19,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             lock (this)
             {
-                HandleExtensions(peerId, rpc);
+                HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
                 if (rpc.Publish.Count != 0)
                 {
@@ -75,7 +75,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    private void HandleExtensions(PeerId peerId, Rpc rpc)
+    private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
@@ -83,7 +83,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         ControlExtensions? extensions = rpc.Control?.Extensions;
-        if (!peer.SupportsExtensions)
+        if (protocolId is null ? !peer.SupportsExtensions : protocolId != GossipsubProtocolVersionV13)
         {
             if (extensions is not null)
             {
@@ -93,18 +93,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             return;
         }
 
-        if (peer.ReceivedFirstRpc)
+        if (!isFirstRpc && extensions is not null)
         {
-            if (extensions is not null)
-            {
-                ApplyBehaviorPenalty(peerId, 1.0);
-                logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
-            }
-
-            return;
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
-
-        peer.ReceivedFirstRpc = true;
     }
 
     private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)

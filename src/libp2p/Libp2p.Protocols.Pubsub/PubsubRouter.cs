@@ -100,7 +100,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
         private readonly ILogger? _logger;
-        public bool ReceivedFirstRpc { get; set; }
 
         public Action<Rpc>? SendRpc
         {
