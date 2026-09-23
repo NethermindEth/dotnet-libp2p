@@ -18,6 +18,20 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 public class KademliaSessionManagerTests
 {
     [Test]
+    public async Task DiscoverDoesNotReturnTheLocalNode()
+    {
+        PeerId localPeerId = new Identity(new byte[32]).PeerId;
+        var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
+        KademliaSessionManager manager = new(new SessionOptions(), localPeerId, sender);
+
+        SessionNode[] nodes = await manager.DiscoverAsync<SessionNode>(
+            new PublicKey(localPeerId.Bytes.ToArray()), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(nodes, Does.Not.Contain(new SessionNode(localPeerId)));
+        await manager.StopAsync(CancellationToken.None);
+    }
+
+    [Test]
     public async Task UsesHostIdentityAndStopsBeforeDisposal()
     {
         PeerId localPeerId = new Identity(new byte[32]).PeerId;

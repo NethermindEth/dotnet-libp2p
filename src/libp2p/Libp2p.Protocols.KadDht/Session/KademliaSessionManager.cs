@@ -107,14 +107,14 @@ public sealed class KademliaSessionManager : ISessionManager
                 if (_keyOperator.GetNodeHash(nextNode).Equals(currentNodeIdAsHash))
                 {
                     ValueHash256 keyHash = _keyOperator.GetKeyHash(key);
-                    return _routingTable.GetKNearestNeighbour(keyHash);
+                    return _routingTable.GetKNearestNeighbour(keyHash, excludeSelf: true);
                 }
                 return await _kademliaMessageSender.FindNeighbours(nextNode, key, token).ConfigureAwait(false);
             },
             ct).ConfigureAwait(false);
 
         if (typeof(TNode) == typeof(TestNode))
-            return (TNode[])(object)nodes;
+            return (TNode[])(object)nodes.Where(node => !node.Equals(_config.CurrentNodeId)).ToArray();
 
         throw new NotSupportedException("Provide an adapter to map TestNode to your domain node type.");
     }
