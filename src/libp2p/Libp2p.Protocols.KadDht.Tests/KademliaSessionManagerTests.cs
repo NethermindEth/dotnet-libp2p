@@ -24,9 +24,11 @@ public class KademliaSessionManagerTests
         byte[] bootstrapSeed = new byte[32];
         bootstrapSeed[0] = 1;
         PeerId bootstrapPeerId = new Identity(bootstrapSeed).PeerId;
+        string firstAddress = $"/ip4/127.0.0.1/tcp/1234/p2p/{bootstrapPeerId}";
+        string secondAddress = $"/ip4/127.0.0.1/tcp/5678/p2p/{bootstrapPeerId}";
         SessionOptions options = new()
         {
-            BootstrapMultiAddresses = [$"/ip4/127.0.0.1/tcp/1234/p2p/{bootstrapPeerId}"]
+            BootstrapMultiAddresses = [firstAddress, secondAddress]
         };
         var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
         KademliaSessionManager manager = new(options, localPeerId, sender);
@@ -35,6 +37,8 @@ public class KademliaSessionManagerTests
             .GetValue(manager)!;
 
         Assert.That(config.BootNodes, Does.Contain(new SessionNode(bootstrapPeerId)));
+        Assert.That(config.BootNodes.Single().Addresses!.Select(address => address.ToString()),
+            Is.EquivalentTo(new[] { firstAddress, secondAddress }));
         await manager.StopAsync(CancellationToken.None);
     }
 

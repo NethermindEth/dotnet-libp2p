@@ -47,15 +47,20 @@ public sealed class KademliaSessionManager : ISessionManager
         _transportMessageSender = messageSender;
         _kademliaMessageSender = new MessageSenderAdapter(_transportMessageSender);
 
+        var bootstrapAddresses = options.BootstrapMultiAddresses.Select(address =>
+        {
+            Multiaddress multiaddress = (Multiaddress)address;
+            if (multiaddress.GetPeerId() is not PeerId peerId)
+                throw new ArgumentException("Bootstrap addresses must contain a peer ID.", nameof(options));
+            return (PeerId: peerId, Address: multiaddress);
+        }).ToArray();
+
         _config = new KademliaConfig<TestNode>
         {
             CurrentNodeId = new TestNode(localPeerId),
-            BootNodes = options.BootstrapMultiAddresses.Select(address =>
-            {
-                if (((Multiaddress)address).GetPeerId() is not PeerId peerId)
-                    throw new ArgumentException("Bootstrap addresses must contain a peer ID.", nameof(options));
-                return new TestNode(peerId);
-            }).Distinct().ToArray()
+            BootNodes = bootstrapAddresses.GroupBy(entry => entry.PeerId)
+                .Select(group => new TestNode(group.Key) { Addresses = group.Select(entry => entry.Address).ToArray() })
+                .ToArray()
         };
         if (options.KSize is int k) _config.KSize = k;
         if (options.RefreshInterval is TimeSpan r) _config.RefreshInterval = r;

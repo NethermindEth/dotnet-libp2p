@@ -191,6 +191,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
     public async Task<byte[]?> GetValueAsync(byte[] key, CancellationToken cancellationToken = default)
     {
+        CancellationToken callerCancellationToken = cancellationToken;
         using var operation = BeginOperation(cancellationToken);
         cancellationToken = operation.Token;
         ArgumentNullException.ThrowIfNull(key);
@@ -248,14 +249,23 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         // Entry correction: PUT_VALUE back to nodes that had stale/missing values
         if (nodesWithStaleValue.Count > 0)
         {
-            _ = Task.Run(async () =>
+            OperationScope? correction = TryBeginOperation(callerCancellationToken);
+            if (correction is not null)
             {
-                foreach (var staleNode in nodesWithStaleValue)
+                _ = Task.Run(async () =>
                 {
-                    try { await _dhtMessageSender.PutValueAsync(staleNode, key, bestValue, CancellationToken.None); }
-                    catch { /* best-effort correction */ }
-                }
-            }, CancellationToken.None);
+                    using (correction)
+                    {
+                        foreach (var staleNode in nodesWithStaleValue)
+                        {
+                            if (correction.Token.IsCancellationRequested) break;
+                            try { await _dhtMessageSender.PutValueAsync(staleNode, key, bestValue, correction.Token); }
+                            catch (OperationCanceledException) when (correction.Token.IsCancellationRequested) { break; }
+                            catch { /* best-effort correction */ }
+                        }
+                    }
+                });
+            }
         }
 
         _logger?.LogInformation("GetValue found {Count} records for key {KeyHash}, selected best", valuesList.Count, KeyHashHex(key));
@@ -561,11 +571,14 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         };
     }
 
-    private OperationScope BeginOperation(CancellationToken cancellationToken)
+    private OperationScope BeginOperation(CancellationToken cancellationToken) =>
+        TryBeginOperation(cancellationToken) ?? throw new ObjectDisposedException(nameof(KadDhtProtocol));
+
+    private OperationScope? TryBeginOperation(CancellationToken cancellationToken)
     {
         lock (_runLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed) return null;
             var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopCts.Token);
             if (_activeOperations++ == 0)
                 _operationsDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

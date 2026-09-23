@@ -160,6 +160,65 @@ public class KadDhtProtocolTests
     }
 
     [Test]
+    public async Task Dispose_CancelsAndWaitsForBackgroundValueCorrection()
+    {
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        DhtNode staleNode = CreateNode(1);
+        DhtNode validNode = CreateNode(2);
+        _dhtMessageSender.GetValueAsync(Arg.Any<DhtNode>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new GetValueResult
+            {
+                Value = call.ArgAt<DhtNode>(0).Equals(staleNode) ? [1] : [2]
+            }));
+        _dhtMessageSender.PutValueAsync(Arg.Is<DhtNode>(node => node.Equals(staleNode)),
+                Arg.Any<byte[]>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.ArgAt<CancellationToken>(3).Register(() => cancelled.TrySetResult());
+                started.TrySetResult();
+                return release.Task;
+            });
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender,
+            _options, _valueStore, _providerStore, _loggerFactory, new AcceptTwoValidator());
+        protocol.AddNode(staleNode);
+        protocol.AddNode(validNode);
+
+        byte[]? value = await protocol.GetValueAsync([3]).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(value, Is.EqualTo(new byte[] { 2 }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task disposing = Task.Run(protocol.Dispose);
+        try
+        {
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(disposing.IsCompleted, Is.False);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static DhtNode CreateNode(byte seed)
+    {
+        byte[] key = new byte[32];
+        key[0] = seed;
+        PeerId peerId = new Identity(key).PeerId;
+        return new DhtNode { PeerId = peerId, PublicKey = new KademliaPublicKey(peerId.Bytes) };
+    }
+
+    private sealed class AcceptTwoValidator : IRecordValidator
+    {
+        public bool Validate(ReadOnlySpan<byte> key, ReadOnlySpan<byte> value) => value.SequenceEqual(new byte[] { 2 });
+
+        public int Select(ReadOnlySpan<byte> key, System.Collections.Generic.IReadOnlyList<byte[]> values) => 0;
+    }
+
+    [Test]
     public async Task PutValueAsync_WithValidKeyAndValue_ReturnsTrue()
     {
         // Arrange
