@@ -71,7 +71,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        CancellationToken token = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
+        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this));
 
         try
         {
@@ -97,7 +97,7 @@ public abstract class PubsubProtocol : ISessionProtocol
             _logger?.LogDebug(e, "Invalid RPC from {remotePeerId}: {message}", remotePeerId, e.Message);
             context.Activity?.AddEvent(new ActivityEvent($"Invalid RPC from {remotePeerId}: {e.Message}"));
             context.Activity?.SetStatus(ActivityStatusCode.Error);
-            router.SuppressReconnection(remotePeerId);
+            suppressReconnection();
             await context.DisconnectAsync();
         }
         catch (Exception e)

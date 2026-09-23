@@ -58,6 +58,75 @@ public class PubsubSessionFailureTests
         public TaskAwaiter GetAwaiter() => Task.CompletedTask.GetAwaiter();
     }
 
+    [Test]
+    public async Task SuppressReconnection_PreventsAlreadyQueuedRetry()
+    {
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CurrentContext.CancellationToken);
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { ReconnectionPeriod = 200 });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        TaskCompletionSource redial = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            redial.TrySetResult();
+            return new TestRemotePeer(remoteAddress);
+        });
+        await router.StartAsync(localPeer, cts.Token);
+
+        TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        outboundClosed.SetResult();
+        while (((IRoutingStateContainer)router).ConnectedPeers.Count != 0)
+        {
+            await Task.Delay(10, cts.Token);
+        }
+
+        suppressReconnection();
+        await Task.Delay(500, cts.Token);
+        Assert.That(redial.Task.IsCompleted, Is.False);
+    }
+
+    [Test]
+    public async Task SuppressReconnection_DisconnectsInFlightRetry()
+    {
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CurrentContext.CancellationToken);
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { ReconnectionPeriod = 20 });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        TaskCompletionSource dialStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<ISession> dialResult = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            dialStarted.TrySetResult();
+            return dialResult.Task;
+        });
+        await router.StartAsync(localPeer, cts.Token);
+
+        TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        outboundClosed.SetResult();
+        await dialStarted.Task.WaitAsync(cts.Token);
+
+        suppressReconnection();
+        ISession session = Substitute.For<ISession>();
+        TaskCompletionSource disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.DisconnectAsync().Returns(_ =>
+        {
+            disconnected.TrySetResult();
+            return Task.CompletedTask;
+        });
+        dialResult.SetResult(session);
+        await disconnected.Task.WaitAsync(cts.Token);
+        await Task.Delay(100, cts.Token);
+        await localPeer.Received(1).DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task ListenAsync_Eof_DoesNotMarkActivityAsErrorAndReconnects(bool outboundFirst)

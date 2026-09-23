@@ -168,7 +168,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private Task _loops = Task.CompletedTask;
     private readonly ConcurrentDictionary<Task, byte> _connects = new();
 
-    private record Reconnection(Multiaddress[] Addresses, int Attempts);
+    private record Reconnection(Multiaddress[] Addresses, int Attempts, PubsubPeer? Peer = null);
 
     static PubsubRouter()
     {
@@ -255,12 +255,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _ = connect.ContinueWith(t => _connects.TryRemove(t, out _), TaskScheduler.Default);
     }
 
-    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false)
+    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, PubsubPeer? reconnectingPeer = null)
     {
+        if (reconnectingPeer?.SuppressReconnection == true) return;
+
         try
         {
             ILocalPeer peer = localPeer ?? throw new InvalidOperationException("Router has not been started.");
             ISession session = await peer.DialAsync(addrs, token);
+            if (reconnectingPeer?.SuppressReconnection == true)
+            {
+                await session.DisconnectAsync();
+                return;
+            }
 
             if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
@@ -295,8 +302,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
         catch (Exception e)
         {
-            logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
-            if (reconnect && !token.IsCancellationRequested) reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts));
+            if (reconnect && !token.IsCancellationRequested && reconnectingPeer?.SuppressReconnection != true)
+            {
+                logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
+                reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts, reconnectingPeer));
+            }
         }
     }
 
@@ -354,14 +364,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         const int MaxParallelReconnections = 5;
 
-        for (int rCount = 0; reconnections.TryTake(out Reconnection? rec) && rCount < MaxParallelReconnections; rCount++)
+        for (int rCount = 0; rCount < MaxParallelReconnections && reconnections.TryTake(out Reconnection? rec); rCount++)
         {
+            if (rec.Peer?.SuppressReconnection == true) continue;
             logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
-            Task connect = Connect(rec.Addresses, token, true);
+            Task connect = Connect(rec.Addresses, token, true, rec.Peer);
             Track(connect);
             _ = connect.ContinueWith(t =>
             {
-                if (t.IsFaulted && rec.Attempts != 1)
+                if (t.IsFaulted && rec.Attempts != 1 && rec.Peer?.SuppressReconnection != true)
                 {
                     reconnections.Add(rec with { Attempts = rec.Attempts - 1 });
                 }
@@ -539,14 +550,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     /// </summary>
     internal CancellationToken Stopped => _stopped.Token;
 
-    internal void SuppressReconnection(PeerId peerId)
-    {
-        if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
-        {
-            peer.SuppressReconnection = true;
-        }
-    }
-
     internal CancellationToken OutboundConnection(Multiaddress addr, string protocolId, Task dialTask, Action<Rpc> sendRpc)
     {
         PeerId? peerId = addr.GetPeerId();
@@ -598,7 +601,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 if (!peer.SuppressReconnection)
                 {
-                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                    reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer));
                 }
             });
 
@@ -617,13 +620,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
-    internal CancellationToken InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
+    internal (CancellationToken Token, Action SuppressReconnection) InboundConnection(Multiaddress addr, string protocolId, Task listTask, Func<Task> subDial)
     {
         PeerId? peerId = addr.GetPeerId();
 
         if (peerId is null || peerId == localPeer!.Identity.PeerId || _stopped.IsCancellationRequested)
         {
-            return Canceled;
+            return (Canceled, static () => { });
         }
 
         PubsubPeer? newPeer = null;
@@ -656,16 +659,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     }
                     if (!existingPeer.SuppressReconnection)
                     {
-                        reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts));
+                        reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, existingPeer));
                     }
                 });
 
                 Track(subDial());
-                return newPeer.TokenSource.Token;
+                return (newPeer.TokenSource.Token, () => existingPeer.SuppressReconnection = true);
             }
             else
             {
-                return existingPeer.TokenSource.Token;
+                return (existingPeer.TokenSource.Token, () => existingPeer.SuppressReconnection = true);
             }
         }
     }
