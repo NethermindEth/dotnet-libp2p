@@ -15,13 +15,7 @@ public struct ValueHash256 : IComparable<ValueHash256>, IEquatable<ValueHash256>
 
     public static ValueHash256 Zero => new() { _bytes = new byte[HashLength] };
 
-    public byte[] Bytes
-    {
-        get => _bytes ??= new byte[HashLength];
-        set => _bytes = value;
-    }
-
-    public Span<byte> BytesAsSpan => Bytes.AsSpan();
+    public ReadOnlySpan<byte> Bytes => (_bytes ??= new byte[HashLength]).AsSpan();
 
     public static int CalculateLogDistance(ValueHash256 h1, ValueHash256 h2)
     {
@@ -131,7 +125,7 @@ public struct ValueHash256 : IComparable<ValueHash256>, IEquatable<ValueHash256>
 
     public bool Equals(ValueHash256 other)
     {
-        return BytesAsSpan.SequenceEqual(other.BytesAsSpan);
+        return Bytes.SequenceEqual(other.Bytes);
     }
 
     public override bool Equals(object? obj)

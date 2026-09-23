@@ -22,6 +22,10 @@ ADD_PROVIDER is a one-way wire operation. The sender does not wait for a respons
 
 Bucket refresh uses approximate random raw-key sampling. A FIND_NODE receiver hashes the raw key, so selecting raw bytes that hash into a particular bucket prefix would require finding bytes with a chosen SHA-256 prefix. This limitation replaces the former non-wire-compatible `PublicKey.FromHash` shortcut.
 
+## Migrating from the in-tree Kademlia implementation
+
+This migration intentionally changes the public API. Generic routing and lookup types now come from `Nethermind.Kademlia`. `ValueHash256.Bytes` is a `ReadOnlySpan<byte>`; use `ValueHash256.FromBytes(...)` to construct a hash and `hash.Bytes.ToArray()` when an owned array is needed. The mutable `Bytes` setter and `BytesAsSpan` accessor are no longer available. Consumers must rebuild against the new package API.
+
 ## License and tests
 
 This project is MIT-licensed. The separate `Nethermind.Kademlia` NuGet package has its own license metadata. Kad-DHT tests cover routing adapters, wire-key handling, provider announcements, record stores, protocol behavior, and bootstrap recovery; the repository's CI workflow runs the suite.
