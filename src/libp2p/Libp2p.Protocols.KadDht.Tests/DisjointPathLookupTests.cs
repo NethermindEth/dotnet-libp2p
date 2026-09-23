@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Libp2p.Protocols.KadDht.Kademlia;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nethermind.Kademlia;
 using NUnit.Framework;
+using System.Runtime.CompilerServices;
 
 namespace Libp2p.Protocols.KadDht.Tests;
 
@@ -12,11 +14,13 @@ namespace Libp2p.Protocols.KadDht.Tests;
 public class DisjointPathLookupTests
 {
     private ILoggerFactory _loggerFactory = null!;
+    private ValueHash256Distance _distance = null!;
 
     [SetUp]
     public void Setup()
     {
         _loggerFactory = NullLoggerFactory.Instance;
+        _distance = new ValueHash256Distance();
     }
 
     [Test]
@@ -26,7 +30,7 @@ public class DisjointPathLookupTests
         var hashProvider = new FakeNodeHashProvider();
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 1, _loggerFactory));
+            new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 1, _loggerFactory));
     }
 
     [Test]
@@ -50,7 +54,7 @@ public class DisjointPathLookupTests
         });
 
         var hashProvider = new FakeNodeHashProvider();
-        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 2, _loggerFactory);
+        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 2, _loggerFactory);
 
         var targetHash = ValueHash256.FromBytes(new byte[32]);
         var result = await lookup.Lookup(targetHash, 10, (_, _) => Task.FromResult<FakeNode[]?>(null), CancellationToken.None);
@@ -68,7 +72,7 @@ public class DisjointPathLookupTests
             Task.FromResult(nodes));
 
         var hashProvider = new FakeNodeHashProvider();
-        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 2, _loggerFactory);
+        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 2, _loggerFactory);
 
         var targetHash = ValueHash256.FromBytes(new byte[32]);
         var result = await lookup.Lookup(targetHash, 3, (_, _) => Task.FromResult<FakeNode[]?>(null), CancellationToken.None);
@@ -90,7 +94,7 @@ public class DisjointPathLookupTests
         });
 
         var hashProvider = new FakeNodeHashProvider();
-        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 2, _loggerFactory);
+        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 2, _loggerFactory);
 
         var targetHash = ValueHash256.FromBytes(new byte[32]);
         var result = await lookup.Lookup(targetHash, 10, (_, _) => Task.FromResult<FakeNode[]?>(null), CancellationToken.None);
@@ -108,7 +112,7 @@ public class DisjointPathLookupTests
             Task.FromResult(new[] { sharedNode }));
 
         var hashProvider = new FakeNodeHashProvider();
-        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 3, _loggerFactory);
+        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 3, _loggerFactory);
 
         var targetHash = ValueHash256.FromBytes(new byte[32]);
         var result = await lookup.Lookup(targetHash, 10, (_, _) => Task.FromResult<FakeNode[]?>(null), CancellationToken.None);
@@ -141,7 +145,7 @@ public class DisjointPathLookupTests
         });
 
         var hashProvider = new FakeNodeHashProvider();
-        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, 2, _loggerFactory);
+        var lookup = new DisjointPathLookup<ValueHash256, FakeNode>(inner, hashProvider, _distance, 2, _loggerFactory);
 
         var targetHash = ValueHash256.FromBytes(new byte[32]);
         await lookup.Lookup(targetHash, 10, (node, _) =>
@@ -182,12 +186,12 @@ public class DisjointPathLookupTests
         public override int GetHashCode() => Id;
     }
 
-    private sealed class FakeNodeHashProvider : INodeHashProvider<ValueHash256, FakeNode>
+    private sealed class FakeNodeHashProvider : INodeHashProvider<FakeNode, ValueHash256>
     {
         public ValueHash256 GetHash(FakeNode node) => node.Hash;
     }
 
-    private sealed class FakeLookupAlgo : ILookupAlgo<ValueHash256, FakeNode>
+    private sealed class FakeLookupAlgo : ILookupAlgo<FakeNode, ValueHash256>
     {
         private readonly Func<ValueHash256, int, Func<FakeNode, CancellationToken, Task<FakeNode[]?>>, CancellationToken, Task<FakeNode[]>> _impl;
 
@@ -200,6 +204,20 @@ public class DisjointPathLookupTests
         public Task<FakeNode[]> Lookup(ValueHash256 targetHash, int k,
             Func<FakeNode, CancellationToken, Task<FakeNode[]?>> findNeighbourOp, CancellationToken token) =>
             _impl(targetHash, k, findNeighbourOp, token);
+
+        public async IAsyncEnumerable<FakeNode> LookupNodes(
+            ValueHash256 targetHash,
+            int maxResults,
+            Func<FakeNode, CancellationToken, Task<FakeNode[]?>> findNeighbourOp,
+            [EnumeratorCancellation] CancellationToken token)
+        {
+            FakeNode[] nodes = await Lookup(targetHash, maxResults, findNeighbourOp, token);
+            foreach (FakeNode node in nodes)
+            {
+                token.ThrowIfCancellationRequested();
+                yield return node;
+            }
+        }
     }
 
     #endregion

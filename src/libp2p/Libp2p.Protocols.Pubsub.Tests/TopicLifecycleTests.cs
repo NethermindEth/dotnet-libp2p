@@ -407,7 +407,7 @@ public class TopicLifecycleTests
         PeerId peerId = address.GetPeerId()!;
         TaskCompletionSource connectionClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CancellationToken disconnected = inbound
-            ? router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, () => { })
+            ? router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, () => Task.CompletedTask).Token
             : router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, _ => { });
         TaskCompletionSource cleanupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using CancellationTokenRegistration registration = disconnected.Register(() => cleanupFinished.TrySetResult());

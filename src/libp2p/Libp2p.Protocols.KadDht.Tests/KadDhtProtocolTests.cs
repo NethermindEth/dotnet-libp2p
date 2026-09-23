@@ -16,7 +16,7 @@ using Multiformats.Address;
 using NSubstitute;
 using NUnit.Framework;
 using KademliaPublicKey = global::Libp2p.Protocols.KadDht.Kademlia.PublicKey;
-using KademliaMessageSender = global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
+using KademliaMessageSender = global::Nethermind.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
@@ -61,6 +61,7 @@ public class KadDhtProtocolTests
     [TearDown]
     public async Task TearDown()
     {
+        _protocol.Dispose();
         await _localPeer.DisposeAsync();
         (_loggerFactory as IDisposable)?.Dispose();
     }
@@ -97,6 +98,124 @@ public class KadDhtProtocolTests
     public void Id_ShouldReturnCorrectProtocolId()
     {
         Assert.That(_protocol.Id, Is.EqualTo("/ipfs/kad/1.0.0"));
+    }
+
+    [Test]
+    public void Id_WithCustomProtocolId_ShouldReturnConfiguredProtocolId()
+    {
+        _options.ProtocolId = "/test/kad/1.0.0";
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
+
+        Assert.That(protocol.Id, Is.EqualTo("/test/kad/1.0.0"));
+    }
+
+    [Test]
+    public async Task Dispose_StopsTheRunLoopBeforeReleasingResources()
+    {
+        Task run = _protocol.RunAsync();
+
+        _protocol.Dispose();
+
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(run.IsCompletedSuccessfully, Is.True);
+        Assert.Throws<ObjectDisposedException>(() => _protocol.RunAsync());
+    }
+
+    [Test]
+    public async Task Dispose_CancelsAndWaitsForAnInFlightLookup()
+    {
+        IValueStore valueStore = Substitute.For<IValueStore>();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<StoredValue?> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        valueStore.GetValueAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.ArgAt<CancellationToken>(1).Register(() => cancelled.TrySetResult());
+                started.TrySetResult();
+                return release.Task;
+            });
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender,
+            _options, valueStore, _providerStore, _loggerFactory);
+        Task lookup = protocol.GetValueAsync([1]);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task disposing = Task.Run(protocol.Dispose);
+        try
+        {
+            await Task.Delay(50);
+            Assert.That(disposing.IsCompleted, Is.False);
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetCanceled();
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5));
+            await lookup.ContinueWith(_ => { });
+        }
+
+        Assert.That(lookup.IsCanceled, Is.True);
+        Assert.ThrowsAsync<ObjectDisposedException>(async () => await protocol.GetValueAsync([1]));
+    }
+
+    [Test]
+    public async Task Dispose_CancelsAndWaitsForBackgroundValueCorrection()
+    {
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        DhtNode staleNode = CreateNode(1);
+        DhtNode validNode = CreateNode(2);
+        _dhtMessageSender.GetValueAsync(Arg.Any<DhtNode>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new GetValueResult
+            {
+                Value = call.ArgAt<DhtNode>(0).Equals(staleNode) ? [1] : [2]
+            }));
+        _dhtMessageSender.PutValueAsync(Arg.Is<DhtNode>(node => node.Equals(staleNode)),
+                Arg.Any<byte[]>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.ArgAt<CancellationToken>(3).Register(() => cancelled.TrySetResult());
+                started.TrySetResult();
+                return release.Task;
+            });
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender,
+            _options, _valueStore, _providerStore, _loggerFactory, new AcceptTwoValidator());
+        protocol.AddNode(staleNode);
+        protocol.AddNode(validNode);
+
+        byte[]? value = await protocol.GetValueAsync([3]).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(value, Is.EqualTo(new byte[] { 2 }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task disposing = Task.Run(protocol.Dispose);
+        try
+        {
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(disposing.IsCompleted, Is.False);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static DhtNode CreateNode(byte seed)
+    {
+        byte[] key = new byte[32];
+        key[0] = seed;
+        PeerId peerId = new Identity(key).PeerId;
+        return new DhtNode { PeerId = peerId, PublicKey = new KademliaPublicKey(peerId.Bytes) };
+    }
+
+    private sealed class AcceptTwoValidator : IRecordValidator
+    {
+        public bool Validate(ReadOnlySpan<byte> key, ReadOnlySpan<byte> value) => value.SequenceEqual(new byte[] { 2 });
+
+        public int Select(ReadOnlySpan<byte> key, System.Collections.Generic.IReadOnlyList<byte[]> values) => 0;
     }
 
     [Test]
@@ -243,6 +362,26 @@ public class KadDhtProtocolTests
         Assert.That(providers, Is.Not.Null);
         Assert.That(providers.Count(), Is.EqualTo(1));
         Assert.That(providers.First(), Is.EqualTo(_localPeer.Identity.PeerId));
+
+        var storedProviders = await _providerStore.GetProvidersAsync(key, 1, CancellationToken.None);
+        Assert.That(storedProviders.Single().Ttl, Is.EqualTo(_options.ProviderRecordTtl));
+    }
+
+    [Test]
+    public async Task ProvideAsync_UsesCurrentListenAddresses()
+    {
+        var listenAddresses = new System.Collections.ObjectModel.ObservableCollection<Multiaddress>();
+        _localPeer.ListenAddresses.Returns(listenAddresses);
+
+        using KadDhtProtocol protocol = new(_localPeer, _messageSender, _dhtMessageSender, _options, _valueStore, _providerStore, _loggerFactory);
+        string listenAddress = $"/ip4/127.0.0.1/tcp/4001/p2p/{_localPeer.Identity.PeerId}";
+        listenAddresses.Add(Multiaddress.Decode(listenAddress));
+
+        byte[] key = Encoding.UTF8.GetBytes("test-key");
+        await protocol.ProvideAsync(key, CancellationToken.None);
+
+        var storedProviders = await _providerStore.GetProvidersAsync(key, 1, CancellationToken.None);
+        Assert.That(storedProviders.Single().Multiaddrs.Single(), Is.EqualTo(listenAddress));
     }
 
     [Test]

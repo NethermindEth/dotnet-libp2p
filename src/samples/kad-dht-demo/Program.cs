@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System.Net;
 using System.Net.NetworkInformation;
@@ -276,13 +276,13 @@ internal static class Program
             Console.WriteLine("  ──────────┼──────────────────────────────");
             foreach (var (_, distance, bucket) in buckets)
             {
-                var peers = bucket.GetAll();
-                if (peers.Length == 0) continue;
+                var peers = bucket;
+                if (peers.Count == 0) continue;
                 Console.Write($"  {distance,8}  | ");
                 Console.WriteLine(string.Join(", ",
                     peers.Take(3).Select(p => TruncatePeerId(p.PeerId))));
-                if (peers.Length > 3)
-                    Console.WriteLine($"            |   ... +{peers.Length - 3} more");
+                if (peers.Count > 3)
+                    Console.WriteLine($"            |   ... +{peers.Count - 3} more");
             }
         }
         Console.WriteLine("  ════════════════════════════════════════════════");

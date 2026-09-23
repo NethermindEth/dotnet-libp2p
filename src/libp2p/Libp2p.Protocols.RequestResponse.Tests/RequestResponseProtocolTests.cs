@@ -3,9 +3,11 @@
 
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
+using Google.Protobuf.WellKnownTypes;
 using Nethermind.Libp2p.Core;
 using NUnit.Framework;
 using NSubstitute;
+using ChannelClosedException = Nethermind.Libp2p.Core.Exceptions.ChannelClosedException;
 
 namespace Nethermind.Libp2p.Protocols.Tests;
 
@@ -63,6 +65,49 @@ public class TestResponse : IMessage<TestResponse>
 
 public class RequestResponseProtocolTests
 {
+    [Test]
+    public async Task DialAndListen_ReturnResponseByDefault()
+    {
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0", (request, _) => Task.FromResult(new StringValue
+            {
+                Value = request.Value + "!"
+            }));
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        var listen = protocol.ListenAsync(channel.Reverse, context);
+
+        var response = await protocol.DialAsync(channel, context, new StringValue { Value = "hello" })
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await listen.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.That(response.Value, Is.EqualTo("hello!"));
+    }
+
+    [Test]
+    public async Task ListenAsync_ThrowsWhenResponseWriteEnds()
+    {
+        TaskCompletionSource responseReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource resumeHandler = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0", async (request, _) =>
+            {
+                responseReady.SetResult();
+                await resumeHandler.Task;
+                return new StringValue { Value = request.Value };
+            });
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        Task listen = protocol.ListenAsync(channel.Reverse, context);
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "hello" }.ToByteArray()).OrThrow();
+        await responseReady.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await channel.Reverse.WriteEofAsync();
+        resumeHandler.SetResult();
+
+        Assert.ThrowsAsync<ChannelClosedException>(async () => await listen.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
     [Test]
     public async Task SetsPropertiesCorrectly()
     {

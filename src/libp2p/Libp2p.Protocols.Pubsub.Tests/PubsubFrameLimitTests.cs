@@ -12,6 +12,19 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 public class PubsubFrameLimitTests
 {
     [Test]
+    public async Task ReadPrefixedProtobufAsync_DefaultTokenRemainsUnambiguous()
+    {
+        TestChannel channel = new();
+        Task write = channel.Reverse().WriteAsync(new ReadOnlySequence<byte>([2, 0x20, 0])).AsTask();
+        IChannel reader = channel;
+
+        Rpc rpc = await reader.ReadPrefixedProtobufAsync(Rpc.Parser, default);
+
+        Assert.That(rpc, Is.Not.Null);
+        await write;
+    }
+
+    [Test]
     public async Task ReadVarintUlongAsync_WithoutCancellationTokenRemainsAvailable()
     {
         TestChannel channel = new();

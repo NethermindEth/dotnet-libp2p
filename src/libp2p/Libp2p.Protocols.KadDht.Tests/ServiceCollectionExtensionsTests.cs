@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using System;
 using System.Collections.Generic;
@@ -10,18 +10,102 @@ using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Integration;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2P.Protocols.KadDht.Dto;
+using System.Threading;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
 using NSubstitute;
 using NUnit.Framework;
 using KademliaPublicKey = global::Libp2p.Protocols.KadDht.Kademlia.PublicKey;
-using KademliaMessageSender = global::Libp2p.Protocols.KadDht.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
+using KademliaMessageSender = global::Nethermind.Kademlia.IKademliaMessageSender<global::Libp2p.Protocols.KadDht.Kademlia.PublicKey, global::Libp2p.Protocols.KadDht.Integration.DhtNode>;
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
 [TestFixture]
 public class ServiceCollectionExtensionsTests
 {
+    [Test]
+    public async Task Bootstrap_ReadmitsBootstrapNodeAfterFailedLookups()
+    {
+        var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        var bootstrapNode = peerId.ToDhtNode();
+        using var builderServices = _services.BuildServiceProvider();
+        var builder = new TestPeerFactoryBuilder(builderServices, _services);
+        builder.AddKadDht(bootstrapNodes: [bootstrapNode]);
+        using var serviceProvider = _services.BuildServiceProvider();
+        var protocol = serviceProvider.GetRequiredService<KadDhtProtocol>();
+        var state = serviceProvider.GetRequiredService<SharedDhtState>();
+        var session = Substitute.For<ISession>();
+        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(session);
+        bool online = false;
+        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(call => online
+                ? Task.FromResult(new Message { Type = call.Arg<Message>().Type })
+                : Task.FromException<Message>(new InvalidOperationException("Disconnected")));
+
+        for (int i = 0; i < 10; i++)
+            await protocol.GetValueAsync([1, 2, 3]);
+        Assert.That(state.GetKNearestPeers(bootstrapNode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.False);
+
+        online = true;
+        await protocol.BootstrapAsync();
+
+        Assert.That(state.GetKNearestPeers(bootstrapNode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.True);
+        await session.Received().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Is<Message>(m => m.Type == Message.Types.MessageType.Ping), Arg.Any<CancellationToken>());
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task DiscoveredPeer_StoresRelayUnderDestination(bool includeDestination)
+    {
+        var peerId = new Identity(new byte[32]).PeerId;
+        var relayId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        string relayAddress = $"/ip4/127.0.0.1/tcp/4001/p2p/{relayId}/p2p-circuit";
+        var node = peerId.ToDhtNode([includeDestination ? $"{relayAddress}/p2p/{peerId}" : relayAddress]);
+        var store = new PeerStore();
+        _services.AddSingleton(store);
+        _services.AddKadDht();
+        using var serviceProvider = _services.BuildServiceProvider();
+        var sender = serviceProvider.GetRequiredService<KademliaMessageSender>();
+        var session = Substitute.For<ISession>();
+        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(session);
+        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(MessageHelper.CreateFindNodeResponse([node]));
+
+        await sender.FindNeighbours(peerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
+
+        Assert.That(store.GetPeerInfo(peerId).Addrs?.Select(a => a.ToString()),
+            Is.EqualTo(new[] { $"{relayAddress}/p2p/{peerId}" }));
+        Assert.That(store.GetPeerInfo(relayId).Addrs, Is.Null);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task Ping_RefreshesRoutingOnlyAfterSuccess(bool succeeds)
+    {
+        _services.AddKadDht();
+        using var serviceProvider = _services.BuildServiceProvider();
+        var protocol = serviceProvider.GetRequiredService<KadDhtProtocol>();
+        var sender = serviceProvider.GetRequiredService<KademliaMessageSender>();
+        var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        var node = peerId.ToDhtNode();
+        var session = Substitute.For<ISession>();
+        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(session);
+        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(_ => succeeds
+                ? Task.FromResult(MessageHelper.CreatePingResponse())
+                : Task.FromException<Message>(new InvalidOperationException("Disconnected")));
+        protocol.AddNode(node);
+        protocol.RoutingTable!.Remove(new DhtNodeHashProvider().GetHash(node));
+
+        Assert.That(await sender.Ping(node, CancellationToken.None), Is.EqualTo(succeeds));
+        var peers = serviceProvider.GetRequiredService<SharedDhtState>().GetKNearestPeers(node.PublicKey);
+        Assert.That(peers.Any(p => p.PeerId.Equals(peerId)), Is.EqualTo(succeeds));
+    }
+
     private IServiceCollection _services;
     private ILocalPeer _mockLocalPeer;
 
@@ -153,6 +237,20 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Test]
+    public void WithKadDht_WithCustomProtocolId_RegistersConfiguredProtocolHandler()
+    {
+        _services.AddKadDht(options => options.ProtocolId = "/test/kad/1.0.0");
+        using var serviceProvider = _services.BuildServiceProvider();
+        var builder = new TestPeerFactoryBuilder(serviceProvider);
+
+        builder.WithKadDht();
+
+        var registeredProtocolIds = builder.Protocols.Select(p => p.Id).ToArray();
+        Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
+        Assert.That(registeredProtocolIds[0], Is.EqualTo("/test/kad/1.0.0"));
+    }
+
+    [Test]
     public void AddKadDht_CanResolveAllDependenciesWithoutErrors()
     {
 
@@ -175,10 +273,10 @@ public class ServiceCollectionExtensionsTests
     {
         private readonly List<IProtocol> _protocols = new();
 
-        public TestPeerFactoryBuilder(IServiceProvider serviceProvider)
+        public TestPeerFactoryBuilder(IServiceProvider serviceProvider, IServiceCollection? services = null)
         {
             ServiceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-            Services = new ServiceCollection();
+            Services = services ?? new ServiceCollection();
         }
 
         public IReadOnlyList<IProtocol> Protocols => _protocols;
@@ -192,7 +290,8 @@ public class ServiceCollectionExtensionsTests
         {
             if (instance is null)
             {
-                throw new ArgumentNullException(nameof(instance));
+                // Type-only registration is resolved from the final service provider.
+                return this;
             }
 
             _protocols.Add(instance);
