@@ -16,6 +16,10 @@ public class NetworkDiscoveryTests
 
         int totalCount = 3;
         await using PubsubDiscoveryE2eTestSetup test = new();
+        // This test only checks discovery; its idle topics should not penalize missing message deliveries.
+        test.DefaultSettings.TopicScoreParams[commonTopic] = new() { MeshMessageDeliveriesThreshold = 0 };
+        foreach (string discoveryTopic in test.DefaultDiscoverySettings.Topics)
+            test.DefaultSettings.TopicScoreParams[discoveryTopic] = new() { MeshMessageDeliveriesThreshold = 0 };
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);

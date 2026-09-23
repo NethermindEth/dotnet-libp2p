@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Libp2p.Protocols.KadDht.Kademlia;
+using Multiformats.Address;
+using Nethermind.Kademlia;
+using Nethermind.Libp2p.Core;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -13,20 +16,26 @@ public sealed class KademliaSessionManager : ISessionManager
     private readonly ILoggerFactory _logFactory;
     private readonly ILogger<KademliaSessionManager> _log;
 
-    private readonly IKeyOperator<PublicKey, ValueHash256, TestNode> _keyOperator;
+    private readonly IKeyOperator<PublicKey, TestNode, ValueHash256> _keyOperator;
     private readonly IKademliaMessageSender<PublicKey, TestNode> _transportMessageSender;
-    private readonly Kademlia.IKademliaMessageSender<PublicKey, TestNode> _kademliaMessageSender;
+    private readonly Nethermind.Kademlia.IKademliaMessageSender<PublicKey, TestNode> _kademliaMessageSender;
     private readonly KademliaConfig<TestNode> _config;
-    private readonly INodeHashProvider<ValueHash256, TestNode> _nodeHashProvider;
-    private readonly IRoutingTable<ValueHash256, TestNode> _routingTable;
-    private readonly INodeHealthTracker<TestNode> _nodeHealthTracker;
-    private readonly ILookupAlgo<ValueHash256, TestNode> _lookupAlgo;
-    private readonly Kademlia<PublicKey, ValueHash256, TestNode> _kad;
+    private readonly INodeHashProvider<TestNode, ValueHash256> _nodeHashProvider;
+    private readonly IRoutingTable<TestNode, ValueHash256> _routingTable;
+    private readonly NodeHealthTracker<PublicKey, TestNode, ValueHash256> _nodeHealthTracker;
+    private readonly ILookupAlgo<TestNode, ValueHash256> _lookupAlgo;
+    private readonly Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256> _kad;
 
     private readonly CancellationTokenSource _cts = new();
+    private readonly Lock _lifecycleLock = new();
+    private readonly HashSet<Task> _operations = [];
+    private Task? _runTask;
+    private Task? _stopTask;
+    private bool _stopping;
 
     public KademliaSessionManager(
         SessionOptions options,
+        PeerId localPeerId,
         IKademliaMessageSender<PublicKey, TestNode> messageSender,
         ILoggerFactory? logFactory = null)
     {
@@ -38,37 +47,69 @@ public sealed class KademliaSessionManager : ISessionManager
         _transportMessageSender = messageSender;
         _kademliaMessageSender = new MessageSenderAdapter(_transportMessageSender);
 
-        _config = new KademliaConfig<TestNode>();
+        var bootstrapAddresses = options.BootstrapMultiAddresses.Select(address =>
+        {
+            Multiaddress multiaddress = (Multiaddress)address;
+            if (multiaddress.GetPeerId() is not PeerId peerId)
+                throw new ArgumentException("Bootstrap addresses must contain a peer ID.", nameof(options));
+            return (PeerId: peerId, Address: multiaddress);
+        }).ToArray();
+
+        _config = new KademliaConfig<TestNode>
+        {
+            CurrentNodeId = new TestNode(localPeerId),
+            BootNodes = bootstrapAddresses.GroupBy(entry => entry.PeerId)
+                .Select(group => new TestNode(group.Key) { Addresses = group.Select(entry => entry.Address).ToArray() })
+                .ToArray()
+        };
         if (options.KSize is int k) _config.KSize = k;
         if (options.RefreshInterval is TimeSpan r) _config.RefreshInterval = r;
 
-        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, ValueHash256, TestNode>(_keyOperator);
-        _routingTable = new KBucketTree<ValueHash256, TestNode>(_config, _nodeHashProvider, _logFactory);
-        _nodeHealthTracker = new NodeHealthTracker<PublicKey, ValueHash256, TestNode>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender, _logFactory);
-        _lookupAlgo = new LookupKNearestNeighbour<ValueHash256, TestNode>(_routingTable, _nodeHashProvider, _nodeHealthTracker, _config, _logFactory);
+        var distance = new ValueHash256Distance();
+        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, TestNode, ValueHash256>(_keyOperator);
+        _routingTable = new KBucketTree<TestNode, ValueHash256>(_config, _nodeHashProvider, distance);
+        _nodeHealthTracker = new NodeHealthTracker<PublicKey, TestNode, ValueHash256>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender);
+        _lookupAlgo = new LookupKNearestNeighbour<PublicKey, TestNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, _config);
 
-        _kad = new Kademlia<PublicKey, ValueHash256, TestNode>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _logFactory, _nodeHealthTracker, _config);
+        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config, _logFactory);
     }
 
-    public async Task BootstrapAsync(CancellationToken ct)
+    public Task BootstrapAsync(CancellationToken ct) => TrackAsync(async token =>
     {
         _log.LogInformation("Kademlia bootstrap starting. Bootstrap peers: {Count}", _options.BootstrapMultiAddresses.Count);
-        await _kad.Bootstrap(ct).ConfigureAwait(false);
-    }
+        await _kad.Bootstrap(token).ConfigureAwait(false);
+        return true;
+    }, ct);
 
-    public async Task RunAsync(CancellationToken ct)
+    public Task RunAsync(CancellationToken ct)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
-        _log.LogInformation("Kademlia run loop starting.");
-        await _kad.Run(linked.Token).ConfigureAwait(false);
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_stopping, this);
+            return _runTask ??= TrackAsync(async token =>
+            {
+                _log.LogInformation("Kademlia run loop starting.");
+                try
+                {
+                    await _kad.Run(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                return true;
+            }, ct);
+        }
     }
 
-    public async Task<TNode[]> DiscoverAsync<TNode>(object targetKey, CancellationToken ct)
+    public Task<TNode[]> DiscoverAsync<TNode>(object targetKey, CancellationToken ct)
     {
         if (targetKey is not PublicKey key)
             throw new ArgumentException("targetKey must be Kademlia.PublicKey for this session.", nameof(targetKey));
 
-        ValueHash256 currentNodeIdAsHash = default; // TODO: inject self node ID when available
+        return TrackAsync(token => DiscoverCoreAsync<TNode>(key, token), ct);
+    }
+
+    private async Task<TNode[]> DiscoverCoreAsync<TNode>(PublicKey key, CancellationToken ct)
+    {
+        ValueHash256 currentNodeIdAsHash = _keyOperator.GetNodeHash(_config.CurrentNodeId);
 
         var nodes = await _lookupAlgo.Lookup(
             _keyOperator.GetKeyHash(key),
@@ -78,22 +119,65 @@ public sealed class KademliaSessionManager : ISessionManager
                 if (_keyOperator.GetNodeHash(nextNode).Equals(currentNodeIdAsHash))
                 {
                     ValueHash256 keyHash = _keyOperator.GetKeyHash(key);
-                    return _routingTable.GetKNearestNeighbour(keyHash);
+                    return _routingTable.GetKNearestNeighbour(keyHash, excludeSelf: true);
                 }
                 return await _kademliaMessageSender.FindNeighbours(nextNode, key, token).ConfigureAwait(false);
             },
             ct).ConfigureAwait(false);
 
         if (typeof(TNode) == typeof(TestNode))
-            return (TNode[])(object)nodes;
+            return (TNode[])(object)nodes.Where(node => !node.Equals(_config.CurrentNodeId)).ToArray();
 
         throw new NotSupportedException("Provide an adapter to map TestNode to your domain node type.");
     }
 
     public Task StopAsync(CancellationToken ct)
     {
+        lock (_lifecycleLock)
+        {
+            if (_stopTask is null)
+            {
+                _stopping = true;
+                Task[] operations = _operations.ToArray();
+                _stopTask = Task.Run(() => StopCoreAsync(operations));
+            }
+            return _stopTask.WaitAsync(ct);
+        }
+    }
+
+    private Task<T> TrackAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct)
+    {
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_stopping, this);
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+            Task<T> task = Task.Run(async () =>
+            {
+                using (linked)
+                    return await operation(linked.Token).ConfigureAwait(false);
+            });
+            _operations.Add(task);
+            _ = task.ContinueWith(completed =>
+            {
+                lock (_lifecycleLock) _operations.Remove(completed);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return task;
+        }
+    }
+
+    private async Task StopCoreAsync(Task[] operations)
+    {
         _log.LogInformation("Kademlia stopping.");
-        _cts.Cancel();
-        return Task.CompletedTask;
+        try
+        {
+            _cts.Cancel();
+            await Task.WhenAll(operations).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
+        finally
+        {
+            _nodeHealthTracker.Dispose();
+            _cts.Dispose();
+        }
     }
 }
