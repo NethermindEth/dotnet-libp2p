@@ -57,7 +57,7 @@ public interface IReader
         return ReadPrefixedProtobufAsync(parser, int.MaxValue, token);
     }
 
-    async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, int maxMessageLength, CancellationToken token = default) where T : IMessage<T>
+    async ValueTask<T> ReadPrefixedProtobufAsync<T>(MessageParser<T> parser, int maxMessageLength, CancellationToken token) where T : IMessage<T>
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMessageLength);
 
