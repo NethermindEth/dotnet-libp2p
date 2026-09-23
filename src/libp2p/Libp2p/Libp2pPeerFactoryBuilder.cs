@@ -99,6 +99,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
         ProtocolRef[] relay = addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
         ProtocolRef[] pubsub = addPubsub ? [
+            Get<GossipsubProtocolV13>(),
             Get<GossipsubProtocolV12>(),
             Get<GossipsubProtocolV11>(),
             Get<GossipsubProtocol>(),

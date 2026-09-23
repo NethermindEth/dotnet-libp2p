@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
-    internal void OnRpc(PeerId peerId, Rpc rpc)
+    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
         try
         {
@@ -19,6 +19,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             lock (this)
             {
+                HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
+
                 if (rpc.Publish.Count != 0)
                 {
                     HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages);
@@ -70,6 +72,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         catch (Exception ex)
         {
             logger?.LogError(ex, "Exception while processing RPC");
+        }
+    }
+
+    private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
+    {
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        {
+            return;
+        }
+
+        ControlExtensions? extensions = rpc.Control?.Extensions;
+        if (protocolId is null ? !peer.SupportsExtensions : protocolId != GossipsubProtocolVersionV13)
+        {
+            if (extensions is not null)
+            {
+                logger?.LogDebug("Ignoring Gossipsub v1.3 extensions from {peerId} on {protocol}", peerId, peer.Protocol);
+            }
+
+            return;
+        }
+
+        if (!isFirstRpc && extensions is not null)
+        {
+            ApplyBehaviorPenalty(peerId, 1.0);
+            logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
         }
     }
 
@@ -237,7 +264,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 ControlPrune prune = new() { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
 
-                if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.IsGossipSub && peerData.Protocol >= PubsubPeer.PubsubProtocol.GossipsubV11)
+                if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.SupportsPeerExchange)
                 {
                     peerData.Backoff[prune.TopicID] = DateTime.Now.AddMilliseconds(_settings.PruneBackoff);
 
