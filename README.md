@@ -73,7 +73,6 @@ The target is to provide a performant well-tested implementation of a wide range
 | mDns               | basic w/o DNS-SD   | ✅             |
 | pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
 | Kademlia DHT       | /ipfs/kad/1.0.0    | ✅             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧             |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
