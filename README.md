@@ -52,7 +52,7 @@ The target is to provide a performant well-tested implementation of a wide range
 | yamux              | /yamux/1.0.0       | ✅             |
 | tls                | /tls/1.0.0         | ✅             |
 | WebSockets         | /ws, /wss          | ✅             |
-| WebRTC Direct      | /webrtc-direct     | ✅             |
+| WebRTC Direct      | /webrtc-direct     | 🚧             |
 | Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
 | WebTransport       |                    | ⬜ help wanted |
 | hole punching      |                    | ⬜ help wanted |
