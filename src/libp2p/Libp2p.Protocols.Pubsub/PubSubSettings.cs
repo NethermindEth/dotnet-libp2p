@@ -3,6 +3,7 @@
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Multiformats.Address;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -22,11 +23,42 @@ public class PubsubSettings
 
     public int MaxConnections { get; set; }
 
+    /// <summary>
+    /// Peers with reciprocal explicit peering agreements. Each address must
+    /// contain a peer ID and is configured before the router starts.
+    /// </summary>
+    public Multiaddress[] DirectPeers { get; set; } = [];
+
+    /// <summary>
+    /// Interval in milliseconds for reconnecting disconnected direct peers. Gossipsub recommends
+    /// five minutes.
+    /// </summary>
+    public int DirectConnectPeriod { get; set; } = 5 * 60 * 1000;
+
     public int HeartbeatInterval { get; set; } = 1_000; // Time between heartbeats 	1 second
     public int FanoutTtl { get; set; } = 60 * 1000; // Time-to-live for each topic's fanout state 	60 seconds
     public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
-    public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
+    /// <summary>Maximum number of messages retained for gossip and IWANT responses.</summary>
+    public int MaxMessageCacheEntries { get; set; } = 10_000;
+
+    /// <summary>Maximum total serialized message bytes retained for gossip and IWANT responses.</summary>
+    public long MaxMessageCacheBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>Maximum valid or rejected message IDs retained by each TTL deduplication cache.</summary>
+    /// <remarks>
+    /// At capacity, the oldest IDs are evicted even before <see cref="MessageCacheTtl"/> expires,
+    /// shortening the deduplication window and allowing those messages to be processed again.
+    /// Size this limit for the expected number of unique messages during the TTL; the defaults
+    /// retain two minutes of IDs only up to roughly 83 unique messages per second per cache.
+    /// </remarks>
+    public int MaxSeenMessageIds { get; set; } = 10_000;
+
+    /// <summary>
+    /// Maximum retention time in milliseconds for seen message IDs. Capacity eviction via
+    /// <see cref="MaxSeenMessageIds"/> can remove IDs sooner. Defaults to two minutes.
+    /// </summary>
+    public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;
     // Maximum incoming RPC frame size in bytes (default: 1 MiB).
     public int MaxRpcBytes
     {
@@ -38,7 +70,51 @@ public class PubsubSettings
         }
     }
     public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
-    public int MaxIdontwantMessages { get; set; } = 50;
+
+    /// <summary>Maximum RPCs containing IHAVE accepted from one peer during a heartbeat.</summary>
+    public int MaxIHaveMessages { get; set; } = 10;
+
+    /// <summary>Maximum IDs inspected per IHAVE envelope and total IDs requested from one peer during a heartbeat.</summary>
+    public int MaxIHaveLength { get; set; } = 5_000;
+
+    /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIwantMessages { get; set; } = 10;
+
+    /// <summary>Maximum message IDs accepted from one peer through IWANT during a heartbeat.</summary>
+    public int MaxIwantLength { get; set; } = 5_000;
+
+    /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>
+    public int GossipRetransmission { get; set; } = 3;
+
+    /// <summary>Maximum serialized bytes returned in response to a single IWANT RPC.</summary>
+    public int MaxIwantResponseBytes { get; set; } = 512 * 1024;
+
+    /// <summary>Maximum outstanding sampled promises from IHAVE advertisements.</summary>
+    public int MaxIwantPromises { get; set; } = 10_000;
+
+    /// <summary>Time after which a sampled IHAVE promise is penalized when its message never arrives.</summary>
+    public int IWantFollowupTime { get; set; } = 3_000;
+
+    /// <summary>Number of heartbeats for which accepted IDONTWANT IDs suppress IWANT responses.</summary>
+    public int IdontwantTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum IDONTWANT envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIdontwantMessages { get; set; } = 1_000;
+
+    /// <summary>Maximum message IDs accepted from one IDONTWANT envelope.</summary>
+    public int MaxIdontwantLength { get; set; } = 10;
+
+    /// <summary>
+    /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router
+    /// advertises it only to v1.3 peers.
+    /// </summary>
+    public bool EnablePartialMessages { get; set; }
+
+    /// <summary>Number of heartbeats to retain a locally published partial-message group for gossip.</summary>
+    public int PartialMessageGossipTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum locally published partial-message groups retained for one topic.</summary>
+    public int MaxPartialMessageGroupsPerTopic { get; set; } = 255;
 
     public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 

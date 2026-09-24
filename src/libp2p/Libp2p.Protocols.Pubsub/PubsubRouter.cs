@@ -33,12 +33,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     public const string GossipsubProtocolVersionV12 = "/meshsub/1.2.0";
     public const string GossipsubProtocolVersionV13 = "/meshsub/1.3.0";
 
-    private sealed class ReconnectionPolicy
+    internal sealed class ReconnectionPolicy
     {
         public volatile bool Suppressed;
     }
 
-    class PubsubPeer
+    internal sealed class PubsubPeer
     {
         public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings, ReconnectionPolicy reconnectionPolicy)
         {
@@ -53,10 +53,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 GossipsubProtocolVersionV13 => PubsubProtocol.GossipsubV13,
                 _ => PubsubProtocol.Floodsub,
             };
+            _advertisesPartialMessages = settings.EnablePartialMessages;
             TokenSource = new CancellationTokenSource();
             Backoff = [];
             SendRpcQueue = new ConcurrentQueue<Rpc>();
             Score = new PeerScore(settings);
+            Control = new PeerControlState();
         }
 
         public enum PubsubProtocol
@@ -72,21 +74,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
         public void Send(Rpc rpc)
         {
-            SendRpcQueue.Enqueue(rpc);
-            FlushSendQueue();
-        }
-
-        private void FlushSendQueue()
-        {
-            if (SendRpc is not null)
+            lock (SendRpcQueue)
             {
-                lock (SendRpcQueue)
+                rpc = RemoveUnsupportedPartialSubscriptionOptions(rpc);
+                rpc = AddExtensionsIfNeeded(rpc);
+                SendRpcQueue.Enqueue(rpc);
+                if (_sendRpc is not null)
                 {
                     while (SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
                     {
                         try
                         {
-                            SendRpc.Invoke(rpcToSend);
+                            _sendRpc.Invoke(rpcToSend);
                         }
                         catch (Exception ex)
                         {
@@ -96,18 +95,110 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }
         }
+
+        private Rpc RemoveUnsupportedPartialSubscriptionOptions(Rpc rpc)
+        {
+            if (SupportsExtensions || !rpc.Subscriptions.Any(subscription => subscription.HasRequestsPartial || subscription.HasSupportsSendingPartial))
+            {
+                return rpc;
+            }
+
+            Rpc filteredRpc = rpc.Clone();
+            foreach (Rpc.Types.SubOpts subscription in filteredRpc.Subscriptions)
+            {
+                subscription.ClearRequestsPartial();
+                subscription.ClearSupportsSendingPartial();
+            }
+
+            return filteredRpc;
+        }
+
         public Dictionary<string, DateTime> Backoff { get; internal set; }
         public ConcurrentQueue<Rpc> SendRpcQueue { get; }
         private Action<Rpc>? _sendRpc;
         private readonly ILogger? _logger;
+        private readonly bool _advertisesPartialMessages;
+        private readonly ConcurrentDictionary<string, PartialMessagesSubscription> _partialMessagesSubscriptions = new();
+
+        private readonly record struct PartialMessagesSubscription(bool RequestsPartialMessages, bool SupportsSendingPartialMessages);
+
+        public bool ExtensionsSent { get; private set; }
+        public bool SupportsPartialMessagesExtension { get; set; }
+
+        public bool NeedsExtensions
+        {
+            get
+            {
+                lock (SendRpcQueue)
+                {
+                    return _advertisesPartialMessages && SupportsExtensions && !ExtensionsSent;
+                }
+            }
+        }
+
+        public void UpdatePartialMessagesSubscription(string topicId, bool requestsPartialMessages, bool supportsSendingPartialMessages)
+        {
+            // The extension registry makes sending support implicit for requesters.
+            _partialMessagesSubscriptions[topicId] = new(requestsPartialMessages, requestsPartialMessages || supportsSendingPartialMessages);
+        }
+
+        public void RemovePartialMessagesSubscription(string topicId)
+        {
+            _partialMessagesSubscriptions.TryRemove(topicId, out _);
+        }
+
+        public bool RequestsPartialMessages(string topicId)
+        {
+            return _partialMessagesSubscriptions.TryGetValue(topicId, out PartialMessagesSubscription subscription) && subscription.RequestsPartialMessages;
+        }
+
+        public bool SupportsSendingPartialMessages(string topicId)
+        {
+            return _partialMessagesSubscriptions.TryGetValue(topicId, out PartialMessagesSubscription subscription) && subscription.SupportsSendingPartialMessages;
+        }
+
+        private Rpc AddExtensionsIfNeeded(Rpc rpc)
+        {
+            if (!_advertisesPartialMessages || !SupportsExtensions || ExtensionsSent)
+            {
+                return rpc;
+            }
+
+            Rpc extendedRpc = rpc.Clone();
+            extendedRpc.Control ??= new ControlMessage();
+            extendedRpc.Control.Extensions ??= new ControlExtensions();
+            extendedRpc.Control.Extensions.PartialMessages = true;
+            ExtensionsSent = true;
+            return extendedRpc;
+        }
 
         public Action<Rpc>? SendRpc
         {
-            get => _sendRpc; set
+            get
             {
-                _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
-                _sendRpc = value;
-                FlushSendQueue();
+                lock (SendRpcQueue)
+                {
+                    return _sendRpc;
+                }
+            }
+            set
+            {
+                lock (SendRpcQueue)
+                {
+                    _logger?.LogDebug($"Set SENDRPC for {PeerId}: {value}");
+                    _sendRpc = value;
+                    while (_sendRpc is not null && SendRpcQueue.TryDequeue(out Rpc? rpcToSend))
+                    {
+                        try
+                        {
+                            _sendRpc.Invoke(rpcToSend);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogWarning(ex, "Failed to send pubsub RPC to {peerId}", PeerId);
+                        }
+                    }
+                }
             }
         }
         public CancellationTokenSource TokenSource { get; init; }
@@ -126,6 +217,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
         // Peer scoring (Gossipsub v1.1)
         public PeerScore Score { get; internal set; }
+        public PeerControlState Control { get; }
     }
 
     private static readonly CancellationToken Canceled;
@@ -142,14 +234,28 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     #endregion
 
     public event Action<string, PeerId, byte[]>? OnMessage;
+    /// <summary>
+    /// Raised for Gossipsub v1.3 Partial Messages extension payloads. The router
+    /// does not retain their application-defined state.
+    /// </summary>
+    public event Action<string, PeerId, PartialMessage>? OnPartialMessage;
+
+    /// <summary>
+    /// Raised with a locally published partial-message group and non-mesh peers
+    /// that requested it instead of an IHAVE announcement. Applications can
+    /// respond by calling <see cref="SendPartial"/> for the supplied group.
+    /// </summary>
+    public event Action<string, byte[], IReadOnlyList<PeerId>>? OnPartialGossip;
     public Func<Message, MessageValidity>? VerifyMessage = null;
 
     internal int MaxRpcBytes => _settings.MaxRpcBytes;
 
     private readonly PubsubSettings _settings;
-    private readonly TtlCache<MessageId, MessageWithId> _messageCache;
-    private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
-    private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
+    private readonly MessageCache _messageCache;
+    private readonly TtlCache<MessageId> _seenMessages;
+    private readonly TtlCache<MessageId> _limboMessageCache;
+    private readonly PartialMessageGossipCache partialMessageGossip;
+    private readonly IwantPromiseTracker _iwantPromises;
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -175,6 +281,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
+    private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
+    private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
+    private long heartbeatTick;
     private ulong seqNo = 1;
 
     // Lifetime of work owned by the router: background loops and dials it starts itself.
@@ -232,9 +341,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             throw new InvalidOperationException("StrictNoSign requires a custom GetMessageId function.");
         }
 
-        _messageCache = new(_settings.MessageCacheTtl);
-        _limboMessageCache = new(_settings.MessageCacheTtl);
-        _idontwantMessages = new(_settings.MessageCacheTtl);
+        if (_settings.DirectConnectPeriod <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.DirectConnectPeriod), "DirectConnectPeriod must be positive.");
+        }
+
+        directPeers = CreateDirectPeers(_settings.DirectPeers);
+        ValidateControlSettings(_settings);
+        _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
+        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
+        _iwantPromises = new(_settings.MaxIwantPromises);
+        partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }
 
     /// <summary>
@@ -260,13 +378,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, _stopped.Token);
             CancellationToken lifetime = _lifetime.Token;
 
-            _loops = Task.WhenAll(
+            List<Task> loops = [
                 Task.Run(() => LoopHeartbeat(lifetime), lifetime),
-                Task.Run(() => LoopReconnect(lifetime), lifetime));
+                Task.Run(() => LoopReconnect(lifetime), lifetime),
+            ];
+            if (directPeers.Count > 0)
+            {
+                loops.Add(Task.Run(() => LoopReconnectDirectPeers(lifetime), lifetime));
+            }
+            _loops = Task.WhenAll(loops);
+
+            foreach (Multiaddress[] directPeerAddresses in directPeers.Values)
+            {
+                _peerStore.Discover(directPeerAddresses);
+            }
+            ConnectDirectPeers(lifetime);
 
             _onNewPeer = (addrs) =>
             {
-                if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+                // Direct peers are dialed by ConnectDirectPeers.
+                if (addrs.Any(a => a.GetPeerId() is PeerId peerId && (peerId == localPeer.Identity.PeerId || IsDirectPeer(peerId))))
                 {
                     return;
                 }
@@ -296,6 +427,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             await Task.Delay(_settings.ReconnectionPeriod, token);
             Reconnect(token);
             CleanupReconnectionPolicies();
+        }
+    }
+
+    private async Task LoopReconnectDirectPeers(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(_settings.DirectConnectPeriod, token);
+            ConnectDirectPeers(token);
         }
     }
 
@@ -402,9 +542,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         reconnections.Clear();
         reconnectionPolicies.Clear();
 
-        _messageCache.Dispose();
+        _messageCache.Clear();
+        _seenMessages.Dispose();
         _limboMessageCache.Dispose();
-        _idontwantMessages.Dispose();
     }
 
     /// <summary>
@@ -442,14 +582,73 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
+    private static IReadOnlyDictionary<PeerId, Multiaddress[]> CreateDirectPeers(IEnumerable<Multiaddress>? configuredPeers)
+    {
+        return (configuredPeers ?? [])
+            .Select(address => (PeerId: address.GetPeerId() ?? throw new ArgumentException("A direct peer address must include a peer ID.", nameof(PubsubSettings.DirectPeers)), Address: address))
+            .GroupBy(entry => entry.PeerId)
+            .ToDictionary(group => group.Key, group => group.Select(entry => entry.Address).ToArray());
+    }
+
+    private void ConnectDirectPeers(CancellationToken token)
+    {
+        foreach ((PeerId peerId, Multiaddress[] addresses) in directPeers)
+        {
+            // The direct-peer loop owns retries, so a dial that is still in flight is not repeated.
+            if (peerState.ContainsKey(peerId) || !pendingDirectDials.TryAdd(peerId, 0))
+            {
+                continue;
+            }
+
+            Task connect = Connect(addresses, token);
+            Track(connect);
+            _ = connect.ContinueWith(t => pendingDirectDials.TryRemove(peerId, out byte _), TaskScheduler.Default);
+        }
+    }
+
+    private bool IsDirectPeer(PeerId peerId) => directPeers.ContainsKey(peerId);
+
+    private bool IsDirectPeerSubscribedTo(PeerId peerId, string topic)
+    {
+        return (fPeers.TryGetValue(topic, out HashSet<PeerId>? floodsubPeers) && floodsubPeers.Contains(peerId)) ||
+               (gPeers.TryGetValue(topic, out HashSet<PeerId>? gossipsubPeers) && gossipsubPeers.Contains(peerId));
+    }
+
+    private IEnumerable<PeerId> GetDirectPeersForTopic(string topic)
+    {
+        return directPeers.Keys.Where(peerId => IsDirectPeerSubscribedTo(peerId, topic));
+    }
+
+    private static void ValidateControlSettings(PubsubSettings settings)
+    {
+        if (settings.MaxIHaveMessages <= 0 || settings.MaxIHaveLength <= 0 ||
+            settings.MaxIwantMessages <= 0 || settings.MaxIwantLength <= 0 ||
+            settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||
+            settings.MaxIwantPromises <= 0 || settings.IWantFollowupTime <= 0 ||
+            settings.IdontwantTtlHeartbeats <= 0 || settings.MaxIdontwantMessages <= 0 ||
+            settings.MaxIdontwantLength <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), "Gossipsub control limits must be positive.");
+        }
+    }
+
+    internal int IwantPromiseCount => _iwantPromises.Count;
+
     public Task Heartbeat()
     {
         // Apply score decay
         DecayScores();
 
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
+        List<(string Topic, byte[] GroupId, PeerId[] Peers)> partialGossipNotifications = [];
+        Action<string, byte[], IReadOnlyList<PeerId>>? onPartialGossip = OnPartialGossip;
         lock (this)
         {
+            foreach ((PeerId peerId, int brokenPromises) in _iwantPromises.TakeExpired(DateTime.UtcNow))
+            {
+                ApplyBehaviorPenalty(peerId, brokenPromises);
+            }
+
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
@@ -478,6 +677,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
+                            && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
                             && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= DateTime.Now))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
@@ -563,7 +763,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? []).Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
+                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? [])
+                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p))
+                            .Take(peerCountToAdd))
                         {
                             fanout[fanoutTopic].Add(peerId);
                         }
@@ -571,39 +773,94 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }
 
-            IEnumerable<IGrouping<string, MessageWithId>> msgs = _messageCache.ToList().GroupBy(m => m.Message.Topic);
-
             foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
                 .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true || fanout.ContainsKey(topic))
                 .ToArray())
             {
-                IGrouping<string, MessageWithId>? msgsInTopic = msgs.FirstOrDefault(mit => mit.Key == topic);
-                if (msgsInTopic is not null && gPeers.TryGetValue(topic, out HashSet<PeerId>? topicGossipsubPeers))
+                IReadOnlyList<MessageId> messageIds = _messageCache.GetGossipIds(topic);
+                bool canGossipPartialMessages =
+                    onPartialGossip is not null &&
+                    _settings.EnablePartialMessages &&
+                    topicState.TryGetValue(topic, out Topic? localTopic) &&
+                    localTopic.SupportsSendingPartialMessages;
+                IReadOnlyList<byte[]> partialMessageGroupIds = canGossipPartialMessages
+                    ? partialMessageGossip.GetGroupIds(topic)
+                    : [];
+                if (messageIds.Count == 0 && partialMessageGroupIds.Count == 0)
+                {
+                    continue;
+                }
+
+                // Only send gossip to peers above gossip threshold.
+                HashSet<PeerId> fanoutPeers = fanout.GetValueOrDefault(topic) ?? [];
+                HashSet<PeerId> topicMesh = mesh.GetValueOrDefault(topic) ?? [];
+                HashSet<PeerId> topicGossipsubPeers = gPeers.GetValueOrDefault(topic) ?? [];
+                PeerId[] eligiblePeers = topicGossipsubPeers
+                    .Where(p => !topicMesh.Contains(p)
+                        && !fanoutPeers.Contains(p)
+                        && !IsDirectPeer(p)
+                        && GetPeerScore(p) >= _settings.GossipThreshold)
+                    .ToArray();
+
+                // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy).
+                int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Length * _settings.GossipFactor));
+                PeerId[] gossipPeers = eligiblePeers.Take(gossipCount).ToArray();
+
+                if (partialMessageGroupIds.Count > 0)
+                {
+                    PeerId[] partialGossipPeers = gossipPeers
+                        .Where(peerId => peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
+                            peer.SupportsPartialMessagesExtension &&
+                            peer.RequestsPartialMessages(topic))
+                        .ToArray();
+
+                    if (partialGossipPeers.Length > 0)
+                    {
+                        foreach (byte[] groupId in partialMessageGroupIds)
+                        {
+                            partialGossipNotifications.Add((topic, groupId, partialGossipPeers));
+                        }
+
+                        gossipPeers = gossipPeers.Except(partialGossipPeers).ToArray();
+                    }
+                }
+
+                if (messageIds.Count != 0)
                 {
                     ControlIHave ihave = new() { TopicID = topic };
-                    ihave.MessageIDs.AddRange(msgsInTopic.Select(m => ByteString.CopyFrom(m.Id.Bytes)));
-
-                    // Only send gossip to peers above gossip threshold
-                    HashSet<PeerId>? topicMesh = mesh.GetValueOrDefault(topic);
-                    HashSet<PeerId>? topicFanout = fanout.GetValueOrDefault(topic);
-                    var eligiblePeers = topicGossipsubPeers
-                        .Where(p => !(topicMesh?.Contains(p) ?? false)
-                            && !(topicFanout?.Contains(p) ?? false)
-                            && GetPeerScore(p) >= _settings.GossipThreshold);
-
-                    // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy)
-                    int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Count() * _settings.GossipFactor));
-
-                    foreach (PeerId? peer in eligiblePeers.Take(gossipCount))
+                    ihave.MessageIDs.AddRange(messageIds.Select(id => ByteString.CopyFrom(id.Bytes)));
+                    foreach (PeerId peer in gossipPeers)
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc())
                             .Ensure(r => r.Control.Ihave).Add(ihave);
                     }
                 }
             }
+            partialMessageGossip.Heartbeat();
+            _messageCache.Shift();
+            heartbeatTick++;
+            foreach (PubsubPeer peer in peerState.Values)
+            {
+                peer.Control.ResetHeartbeatCounters(heartbeatTick);
+            }
             foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
             {
                 peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+            }
+        }
+
+        foreach ((string topic, byte[] groupId, PeerId[] peers) in partialGossipNotifications)
+        {
+            foreach (Action<string, byte[], IReadOnlyList<PeerId>> handler in onPartialGossip!.GetInvocationList())
+            {
+                try
+                {
+                    handler(topic, groupId, peers);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogError(ex, "Exception in partial gossip handler for topic {topic}", topic);
+                }
             }
         }
 
@@ -616,6 +873,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
+                _iwantPromises.Clear(peerId);
                 foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
@@ -623,7 +881,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
-                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested)
+                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
                 {
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
                 }
@@ -680,11 +938,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     .Where(pair => pair.Value.IsSubscribed)
                     .Select(pair => pair.Key)
                     .ToArray();
-                if (topics.Any())
+                if (topics.Any() || peer.NeedsExtensions)
                 {
                     logger?.LogDebug("Topics sent to {peerId}: {topics}", peerId, string.Join(",", topics));
-
-                    Rpc helloMessage = new Rpc().WithTopics(topics, []);
+                    Rpc helloMessage = new();
+                    helloMessage.Subscriptions.AddRange(topics.Select(topic => CreateSubscription(topic, subscribe: true)));
                     peer.Send(helloMessage);
                 }
             }
@@ -744,10 +1002,4 @@ internal enum ConnectionInitiation
 {
     Local,
     Remote,
-}
-
-internal readonly struct MessageWithId(MessageId id, Message message)
-{
-    public MessageId Id { get; } = id;
-    public Message Message { get; } = message;
 }

@@ -3166,8 +3166,9 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Dto {
   }
 
   /// <summary>
-  /// The Partial Messages registry identifies topics as opaque bytes. Go's
-  /// current string declaration is wire compatible with this canonical form.
+  /// The Partial Messages registry identifies topics as opaque bytes. The base
+  /// pubsub API uses UTF-8 topic strings, so the router validates and decodes this
+  /// field at its boundary. Go's current string declaration is wire compatible.
   /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class PartialMessagesExtension : pb::IMessage<PartialMessagesExtension>

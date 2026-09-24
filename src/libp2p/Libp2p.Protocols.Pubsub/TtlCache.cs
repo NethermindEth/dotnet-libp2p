@@ -6,18 +6,27 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 {
     private readonly int ttl;
+    private readonly int maxEntries;
     private readonly TimeProvider timeProvider;
     private readonly object sync = new();
     private readonly Dictionary<TKey, CachedItem> items = [];
+    private readonly LinkedList<TKey> insertionOrder = [];
     private readonly CancellationTokenSource sweeperCancellation = new();
     private readonly Task sweeperTask;
     private int disposed;
-    private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill);
+    private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill, LinkedListNode<TKey> Node);
 
     public TtlCache(int ttl, TimeProvider? timeProvider = null)
+        : this(ttl, int.MaxValue, timeProvider)
+    {
+    }
+
+    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ttl);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
         this.ttl = ttl;
+        this.maxEntries = maxEntries;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         sweeperTask = Task.Run(async () =>
         {
@@ -62,7 +71,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
                     return true;
                 }
 
-                items.Remove(key);
+                Remove(key, cachedItem);
             }
         }
 
@@ -90,10 +99,16 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
                     return;
                 }
 
-                items.Remove(key);
+                Remove(key, cachedItem);
             }
 
-            items.Add(key, new CachedItem(item, now.AddMilliseconds(ttl)));
+            while (items.Count >= maxEntries)
+            {
+                EvictOldest();
+            }
+
+            LinkedListNode<TKey> node = insertionOrder.AddLast(key);
+            items.Add(key, new CachedItem(item, now.AddMilliseconds(ttl), node));
         }
     }
 
@@ -113,9 +128,30 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         {
             foreach (TKey key in expired)
             {
-                items.Remove(key);
+                Remove(key, items[key]);
             }
         }
+    }
+
+    private void EvictOldest()
+    {
+        LinkedListNode<TKey>? oldest = insertionOrder.First;
+        if (oldest is null)
+        {
+            throw new InvalidOperationException("TTL cache insertion order was unexpectedly empty.");
+        }
+
+        insertionOrder.RemoveFirst();
+        if (!items.Remove(oldest.Value))
+        {
+            throw new InvalidOperationException("TTL cache insertion order was out of sync with its entries.");
+        }
+    }
+
+    private void Remove(TKey key, CachedItem item)
+    {
+        items.Remove(key);
+        insertionOrder.Remove(item.Node);
     }
 
     public void Dispose()
@@ -132,6 +168,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         lock (sync)
         {
             items.Clear();
+            insertionOrder.Clear();
         }
     }
 
@@ -148,7 +185,15 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     }
 }
 
-internal class TtlCache<TKey>(int ttl, TimeProvider? timeProvider = null) : TtlCache<TKey, bool>(ttl, timeProvider) where TKey : notnull
+internal class TtlCache<TKey> : TtlCache<TKey, bool> where TKey : notnull
 {
+    public TtlCache(int ttl, TimeProvider? timeProvider = null) : base(ttl, timeProvider)
+    {
+    }
+
+    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null) : base(ttl, maxEntries, timeProvider)
+    {
+    }
+
     public void Add(TKey key) => Add(key, true);
 }

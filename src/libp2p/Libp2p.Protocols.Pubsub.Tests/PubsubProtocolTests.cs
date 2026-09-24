@@ -40,6 +40,18 @@ public class PubsubProtocolTests
     }
 
     [Test]
+    public async Task Publish_WithoutSubscription_DoesNotThrow()
+    {
+        PubsubRouter router = new(new PeerStore());
+        using CancellationTokenSource cancellation = new();
+        await router.StartAsync(new LocalPeerStub(), cancellation.Token);
+
+        Assert.DoesNotThrow(() => router.Publish("test-topic", [1, 2, 3]));
+
+        cancellation.Cancel();
+    }
+
+    [Test]
     public void Topic_OnMessage_IncludesReceivedFromPeerId()
     {
         PeerStore peerStore = new();
