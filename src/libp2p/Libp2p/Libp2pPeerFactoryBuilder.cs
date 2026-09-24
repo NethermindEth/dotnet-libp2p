@@ -21,6 +21,10 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(PingProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyPushProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyProtocol))]
+#if LIBP2P_WEBSOCKETS
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebSocketProtocol))]
+#endif
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebRtcDirectProtocol))]
     private static void PreserveTransportProtocolMetadata() { }
 
     private bool enforcePlaintext;

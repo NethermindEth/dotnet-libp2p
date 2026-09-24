@@ -23,7 +23,7 @@ As a libp2p protocol implementer, you may be interested in [more advanced tutori
 ## Adding libp2p to your project
 
 ```sh
-dotnet add package Nethermind.Libp2p --prerelease
+dotnet add package Nethermind.Libp2p
 ```
 
 ## Building the solution
@@ -37,7 +37,7 @@ dotnet test
 
 ## Roadmap
 
-🚧 The library is not stable and under heavy development. Consider the [beta](https://github.com/NethermindEth/dotnet-libp2p/milestone/5) milestone as a reflection of readiness for production 🚧
+The stable 1.0.0 release supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 
@@ -51,28 +51,28 @@ The target is to provide a performant well-tested implementation of a wide range
 | noise              | /noise             | ✅             |
 | yamux              | /yamux/1.0.0       | ✅             |
 | tls                | /tls/1.0.0         | ✅             |
+| WebSockets         | /ws, /wss          | ✅             |
+| WebRTC Direct      | /webrtc-direct     | 🚧             |
 | Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
 | WebTransport       |                    | ⬜ help wanted |
-| WebRTC             |                    | ⬜ help wanted |
 | hole punching      |                    | ⬜ help wanted |
 | auto-tls           |                    | 🚧             |
-| **Application layer**
+| **Application layer** |                 |                 |
 | Identify           | /ipfs/id/1.0.0     | ✅             |
 | ping               | /ipfs/ping/1.0.0   | ✅             |
-| ping/push          | /ipfs/id/push/1.0.0 | ✅             |
+| Identify push      | /ipfs/id/push/1.0.0 | ✅            |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | ✅             |
-|                    | /meshsub/1.2.0     | 🚧             |
-|                    | /meshsub/1.3.0     | 🚧             |
+|                    | /meshsub/1.2.0     | ✅             |
+|                    | /meshsub/1.3.0     | ✅             |
 |                    | /meshsub/2.0.0     | ⬜ help wanted |
 | request-response   |                    | ✅             |
 | perf               | /perf/1.0.0        | ✅             |
-| **Discovery**
+| **Discovery**      |                    |                 |
 | mDns               | basic w/o DNS-SD   | ✅             |
 | pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
-| Kademlia DHT       | /*/kad/1.0.0       | ✅             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧             |
+| Kademlia DHT       | /ipfs/kad/1.0.0    | ✅             |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>

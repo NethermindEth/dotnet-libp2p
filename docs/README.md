@@ -5,7 +5,7 @@ The libp2p network stack contains the pieces needed to work around common networ
 The following package links the core protocols and assembles them into a single convenient libp2p library:
 
 ```sh
-dotnet add package Nethermind.Libp2p --prerelease
+dotnet add package Nethermind.Libp2p
 ```
 
 The library targets [.NET 10](https://dotnet.microsoft.com/en-us/download) or higher.

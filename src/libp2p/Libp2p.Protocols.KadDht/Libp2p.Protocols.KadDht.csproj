@@ -7,8 +7,6 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Libp2p.Protocols.KadDht</AssemblyName>
     <RootNamespace>Libp2p.Protocols.KadDht</RootNamespace>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -19,6 +17,10 @@
   <ItemGroup>
     <AdditionalFiles Include="Dto\Kademlia.proto" CopyToOutputDirectory="Never" />
     <AdditionalFiles Include="Dto\IpnsEntry.proto" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
