@@ -154,7 +154,7 @@ public class DeferredValidationTests
     }
 
     [Test]
-    public void PendingByteLimitAndMutationCannotForwardUnvalidatedBytes()
+    public void PendingByteLimitAndMutationCannotForwardChangedBytes()
     {
         PubsubSettings settings = Settings();
         settings.MaxPendingValidationBytes = NewMessage(1).CalculateSize();
