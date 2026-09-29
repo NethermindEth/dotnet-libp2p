@@ -76,6 +76,55 @@ public class StrictNoSignTests
         Assert.That(deliveries, Is.EqualTo(2));
     }
 
+    [Test]
+    public void StrictNoSign_RejectsSignedMessagesBeforeApplicationValidation()
+    {
+        PubsubSettings settings = new()
+        {
+            DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
+            GetMessageId = message => new(message.Data.ToByteArray()),
+        };
+        using PubsubRouter router = new(new PeerStore(), settings);
+        int validations = 0;
+        int deliveries = 0;
+        router.VerifyMessage = _ =>
+        {
+            validations++;
+            return MessageValidity.Accepted;
+        };
+        router.GetTopic("no-sign").OnMessage += (_, _) => deliveries++;
+        Rpc rpc = CreateUnsignedMessage("signed");
+        rpc.Publish[0].Signature = ByteString.Empty;
+
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validations, Is.Zero);
+            Assert.That(deliveries, Is.Zero);
+        });
+    }
+
+    [Test]
+    public void StrictNoSign_InvalidSignedMessageDoesNotSuppressUnsignedCopy()
+    {
+        PubsubSettings settings = new()
+        {
+            DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
+            GetMessageId = message => new(message.Data.ToByteArray()),
+        };
+        using PubsubRouter router = new(new PeerStore(), settings);
+        int deliveries = 0;
+        router.GetTopic("no-sign").OnMessage += (_, _) => deliveries++;
+        Rpc signed = CreateUnsignedMessage("same payload");
+        signed.Publish[0].Signature = ByteString.Empty;
+
+        router.OnRpc(TestPeers.PeerId(1), signed);
+        router.OnRpc(TestPeers.PeerId(2), CreateUnsignedMessage("same payload"));
+
+        Assert.That(deliveries, Is.EqualTo(1));
+    }
+
     [TestCase(PubsubSettings.SignaturePolicy.StrictNoSign, PubsubRouter.FloodsubProtocolVersion)]
     [TestCase(PubsubSettings.SignaturePolicy.StrictNoSign, PubsubRouter.GossipsubProtocolVersionV11)]
     [TestCase(PubsubSettings.SignaturePolicy.StrictSign, PubsubRouter.FloodsubProtocolVersion)]

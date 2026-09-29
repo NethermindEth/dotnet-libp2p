@@ -128,6 +128,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
+            if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
+            {
+                // An unauthenticated copy can share the application message ID of a valid message.
+                RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
+                continue;
+            }
+
             MessageValidity validity = VerifyMessage?.Invoke(message) ?? MessageValidity.Accepted;
 
             switch (validity)
@@ -141,13 +148,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     continue;
                 case MessageValidity.Throttled:
                     continue;
-            }
-
-            if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
-            {
-                _limboMessageCache!.Add(messageId, new(messageId, message));
-                RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
-                continue;
             }
 
             _messageCache.Add(messageId, new(messageId, message));
