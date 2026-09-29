@@ -9,6 +9,7 @@ internal class Topic : ITopic
 {
     private readonly PubsubRouter router;
     private readonly string topicName;
+    private PartialMessagesTopic? partialMessagesTopic;
 
     public Topic(PubsubRouter router, string topicName)
     {
@@ -35,8 +36,33 @@ internal class Topic : ITopic
 
     private volatile bool isSubscribed;
     public bool IsSubscribed { get => isSubscribed; internal set => isSubscribed = value; }
+    private volatile bool requestsPartialMessages;
+    private volatile bool supportsSendingPartialMessages;
+    internal bool RequestsPartialMessages => requestsPartialMessages;
+    internal bool SupportsSendingPartialMessages => supportsSendingPartialMessages;
+    internal bool HasRequestedPartialMessages { get; private set; }
+    internal PubsubRouter Router => router;
+    internal string Name => topicName;
 
     public event Action<PeerId, byte[]>? OnMessage;
+
+    internal IPartialMessagesTopic ConfigurePartialMessages(PartialMessagesTopicOptions options)
+    {
+        if (options.RequestPartialMessages && !options.SupportsSendingPartialMessages)
+        {
+            throw new ArgumentException("Requesting partial messages requires support for sending partial messages.", nameof(options));
+        }
+
+        if (IsSubscribed && RequestsPartialMessages && !options.RequestPartialMessages)
+        {
+            throw new InvalidOperationException("Unsubscribe before disabling partial-message requests on a subscribed topic.");
+        }
+
+        supportsSendingPartialMessages = options.SupportsSendingPartialMessages;
+        requestsPartialMessages = options.RequestPartialMessages;
+        HasRequestedPartialMessages |= options.RequestPartialMessages;
+        return partialMessagesTopic ??= new PartialMessagesTopic(this);
+    }
 
     public void Publish(byte[] value)
     {
@@ -51,5 +77,55 @@ internal class Topic : ITopic
     public void Subscribe()
     {
         router.Subscribe(topicName);
+    }
+}
+
+internal sealed class PartialMessagesTopic : IPartialMessagesTopic
+{
+    private readonly Topic topic;
+
+    public PartialMessagesTopic(Topic topic)
+    {
+        this.topic = topic;
+        topic.Router.OnPartialMessage += OnRouterPartialMessage;
+    }
+
+    public event Action<PeerId, byte[]>? OnMessage
+    {
+        add => topic.OnMessage += value;
+        remove => topic.OnMessage -= value;
+    }
+
+    public event Action<PeerId, PartialMessage>? OnPartialMessage;
+
+    public bool IsSubscribed => topic.IsSubscribed;
+    public bool RequestsPartialMessages => topic.RequestsPartialMessages;
+    public bool SupportsSendingPartialMessages => topic.SupportsSendingPartialMessages;
+
+    public void Publish(byte[] value) => topic.Publish(value);
+
+    public void PublishPartial(byte[] groupId, byte[]? partialMessage = null, byte[]? partsMetadata = null)
+    {
+        topic.Router.PublishPartial(topic.Name, groupId, partialMessage, partsMetadata);
+    }
+
+    public void SendPartial(PeerId peerId, byte[] groupId, byte[]? partialMessage = null, byte[]? partsMetadata = null)
+    {
+        topic.Router.SendPartial(peerId, topic.Name, groupId, partialMessage, partsMetadata);
+    }
+
+    public void Unsubscribe() => topic.Unsubscribe();
+
+    public void Subscribe() => topic.Subscribe();
+
+    private void OnRouterPartialMessage(string topicName, PeerId peerId, PartialMessage message)
+    {
+        if (!IsSubscribed || !SupportsSendingPartialMessages || topic.Name != topicName)
+        {
+            return;
+        }
+
+        Action<PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
+        onPartialMessage?.Invoke(peerId, message);
     }
 }

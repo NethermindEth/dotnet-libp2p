@@ -78,7 +78,7 @@ peerStore.Discover([
 ]);
 ```
 
-When a new peer is discovered, `PubsubRouter` dials it and negotiates the best supported pubsub protocol from the remote peer's identified protocols. Gossipsub v1.2 is preferred, then gossipsub v1.1, gossipsub v1.0, and floodsub.
+When a new peer is discovered, `PubsubRouter` dials it and negotiates the best supported pubsub protocol from the remote peer's identified protocols. Gossipsub v1.3 is preferred, then gossipsub v1.2, gossipsub v1.1, gossipsub v1.0, and floodsub.
 
 ## Unsubscribing
 

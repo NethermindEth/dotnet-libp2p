@@ -27,7 +27,7 @@ There is an optional separate package containing a helper that allows you to:
 - inject the activity source required for spawning tracing activities
 
 ```sh
-dotnet add package Nethermind.Libp2p.OpenTelemetry --prerelease
+dotnet add package Nethermind.Libp2p.OpenTelemetry
 ```
 
 ```cs
