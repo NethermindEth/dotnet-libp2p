@@ -34,15 +34,22 @@ public class ProtocolTests
     {
         if (!QuicListener.IsSupported)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Fail("The Windows QUIC test runner must support QUIC.");
+            }
             Assert.Inconclusive("QUIC is not supported in this environment.");
         }
 
+        ListenerLoggerFactory listenerLogger = new();
         using ServiceProvider listenerServices = new ServiceCollection()
-            .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>().AddProtocol<HalfCloseTestProtocol>())
-            .AddSingleton<ILoggerFactory>(new TestContextLoggerFactory())
+            .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>()
+                .AddProtocol<HalfCloseTestProtocol>().AddProtocol<FaultingTestProtocol>())
+            .AddSingleton<ILoggerFactory>(listenerLogger)
             .BuildServiceProvider();
         using ServiceProvider dialerServices = new ServiceCollection()
-            .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>().AddProtocol<HalfCloseTestProtocol>())
+            .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>()
+                .AddProtocol<HalfCloseTestProtocol>().AddProtocol<FaultingTestProtocol>())
             .AddSingleton<ILoggerFactory>(new TestContextLoggerFactory())
             .BuildServiceProvider();
         await using ILocalPeer listener = listenerServices.GetRequiredService<IPeerFactory>().Create(new Identity(keyType: keyType));
@@ -94,8 +101,14 @@ public class ProtocolTests
             Assert.That(Volatile.Read(ref acceptedSessions), Is.Zero, "A client without a certificate must not create a session.");
         });
 
+        if (OperatingSystem.IsWindows())
+        {
+            await listenerLogger.RejectionHandled.Task.WaitAsync(cts.Token);
+        }
+
         ISession session = await dialer.DialAsync([.. listener.ListenAddresses], cts.Token);
         Assert.That(session.RemoteAddress.GetPeerId(), Is.EqualTo(listener.Identity.PeerId));
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await session.DialAsync<FaultingTestProtocol>(cts.Token));
         Assert.That(await session.DialAsync<IncrementNumberTestProtocol, int, int>(41, cts.Token), Is.EqualTo(42));
         Assert.That(await session.DialAsync<HalfCloseTestProtocol, int, int>(41, cts.Token), Is.EqualTo(42));
     }
@@ -118,6 +131,16 @@ public class ProtocolTests
             Assert.That(result.Result, Is.EqualTo(IOResult.Ended));
             await downChannel.WriteVarintAsync(request + 1);
         }
+    }
+
+    private sealed class FaultingTestProtocol : ISessionProtocol
+    {
+        public string Id => "/test/quic-faulting/1.0.0";
+
+        public Task DialAsync(IChannel downChannel, ISessionContext context) =>
+            Task.FromException(new InvalidOperationException("Injected stream failure"));
+
+        public Task ListenAsync(IChannel downChannel, ISessionContext context) => Task.CompletedTask;
     }
 
     [Test]
@@ -196,12 +219,40 @@ public class ProtocolTests
         Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.False);
     }
 
-    private static X509Certificate2 CreateCertificateWithCriticalLibp2pExtension(ECDsa certKey, Identity identity, bool addUnknownCriticalExtension = false)
+    [Test]
+    public void KnownCriticalCertificateExtensionsAccepted()
+    {
+        Identity identity = new();
+        using CertificateKey sessionKey = new();
+        using X509Certificate2 certificate = CreateCertificateWithCriticalLibp2pExtension(sessionKey.Key, identity, addKnownCriticalExtensions: true);
+
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.True);
+    }
+
+    [Test]
+    public void UnsupportedIdentityKeyTypeRejectedWithoutThrowing()
+    {
+        Identity identity = new();
+        using CertificateKey sessionKey = new();
+        byte[] unsupportedPublicKey = new Nethermind.Libp2p.Core.Dto.PublicKey
+        {
+            Type = (KeyType)99,
+            Data = ByteString.Empty,
+        }.ToByteArray();
+        using X509Certificate2 certificate = CreateCertificateWithCriticalLibp2pExtension(
+            sessionKey.Key, identity, extensionPublicKey: unsupportedPublicKey);
+
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null), Is.False);
+    }
+
+    private static X509Certificate2 CreateCertificateWithCriticalLibp2pExtension(
+        ECDsa certKey, Identity identity, bool addUnknownCriticalExtension = false,
+        bool addKnownCriticalExtensions = false, byte[]? extensionPublicKey = null)
     {
         byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(certKey.ExportSubjectPublicKeyInfo()));
         AsnWriter asnWriter = new(AsnEncodingRules.DER);
         asnWriter.PushSequence();
-        asnWriter.WriteOctetString(identity.PublicKey.ToByteArray());
+        asnWriter.WriteOctetString(extensionPublicKey ?? identity.PublicKey.ToByteArray());
         asnWriter.WriteOctetString(signature);
         asnWriter.PopSequence();
 
@@ -212,6 +263,11 @@ public class ProtocolTests
 
         CertificateRequest certRequest = new($"SERIALNUMBER={Convert.ToHexString(bytes)}", certKey, HashAlgorithmName.SHA256);
         certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, critical: true));
+        if (addKnownCriticalExtensions)
+        {
+            certRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, critical: true));
+            certRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
+        }
         if (addUnknownCriticalExtension)
         {
             certRequest.CertificateExtensions.Add(new X509Extension(new Oid("1.3.6.1.4.1.53594.1.99"), [0x05, 0x00], critical: true));
@@ -257,6 +313,33 @@ public class ProtocolTests
             finally
             {
                 Key.Dispose();
+            }
+        }
+    }
+
+    private sealed class ListenerLoggerFactory : ILoggerFactory
+    {
+        private readonly TestContextLoggerFactory _inner = new();
+        public TaskCompletionSource RejectionHandled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ILogger CreateLogger(string categoryName) => new ListenerLogger(_inner.CreateLogger(categoryName), RejectionHandled);
+        public void AddProvider(ILoggerProvider provider) => _inner.AddProvider(provider);
+        public void Dispose() => _inner.Dispose();
+
+        private sealed class ListenerLogger(ILogger inner, TaskCompletionSource rejectionHandled) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+            public bool IsEnabled(LogLevel logLevel) => inner.IsEnabled(logLevel);
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                inner.Log(logLevel, eventId, state, exception, formatter);
+                if (exception is AuthenticationException or QuicException &&
+                    formatter(state, exception).StartsWith("QUIC client", StringComparison.Ordinal))
+                {
+                    rejectionHandled.TrySetResult();
+                }
             }
         }
     }

@@ -11,6 +11,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Quic.Tests")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Tls")]
 
 namespace Nethermind.Libp2p.Protocols.Quic;
 
@@ -148,13 +149,32 @@ public class CertificateHelper
             return false; // Certificate self-signature is invalid
         }
 
-        foreach (X509Extension extension in certificate.Extensions)
+        try
         {
-            if (extension.Critical && extension.Oid?.Value != PubkeyExtensionOidString)
+            foreach (X509Extension extension in certificate.Extensions)
             {
-                failureReason = "certificate contains an unknown critical extension";
-                return false;
+                if (!extension.Critical)
+                {
+                    continue;
+                }
+
+                switch (extension.Oid?.Value)
+                {
+                    case PubkeyExtensionOidString:
+                    case "2.5.29.19" when extension is X509BasicConstraintsExtension { CertificateAuthority: false }:
+                    case "2.5.29.15" when extension is X509KeyUsageExtension keyUsage
+                        && (keyUsage.KeyUsages & X509KeyUsageFlags.DigitalSignature) != 0:
+                        break;
+                    default:
+                        failureReason = "certificate contains an unknown or invalid critical extension";
+                        return false;
+                }
             }
+        }
+        catch (CryptographicException)
+        {
+            failureReason = "certificate contains a malformed critical extension";
+            return false;
         }
 
         Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
@@ -163,13 +183,6 @@ public class CertificateHelper
         {
             failureReason = "libp2p public key extension is missing or invalid";
             return false; // Missing libp2p extension or signature
-        }
-
-        Identity id = new(key);
-        if (peerId is not null && id.PeerId.ToString() != peerId)
-        {
-            failureReason = "peer id does not match certificate public key";
-            return false; // Peer ID mismatch
         }
 
         // Verify the signature over the certificate's subjectPublicKeyInfo.
@@ -183,9 +196,24 @@ public class CertificateHelper
             return false; // Malformed certificate body
         }
 
-        if (!id.VerifySignature(ContentToSignFromTlsPublicKey(subjectPublicKeyInfo), signature))
+        try
         {
-            failureReason = "libp2p public key extension signature is invalid";
+            Identity id = new(key);
+            if (peerId is not null && id.PeerId.ToString() != peerId)
+            {
+                failureReason = "peer id does not match certificate public key";
+                return false; // Peer ID mismatch
+            }
+
+            if (!id.VerifySignature(ContentToSignFromTlsPublicKey(subjectPublicKeyInfo), signature))
+            {
+                failureReason = "libp2p public key extension signature is invalid";
+                return false;
+            }
+        }
+        catch (Exception)
+        {
+            failureReason = "libp2p public key extension is invalid";
             return false;
         }
 
