@@ -13,7 +13,7 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Reflection;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -55,7 +55,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
-        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+        using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+        X509Certificate2 cert = certificateLease.Certificate;
 
         QuicServerConnectionOptions serverConnectionOptions = new()
         {
@@ -80,7 +81,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             },
         };
 
-        QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
+        await using QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
         {
             ListenEndPoint = localEndpoint,
             ApplicationProtocols = protocols,
@@ -96,23 +97,63 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         _logger?.ReadyToHandleConnections();
 
-        token.Register(() => _ = listener.DisposeAsync());
-
         while (!token.IsCancellationRequested)
         {
             try
             {
                 QuicConnection connection = await listener.AcceptConnectionAsync(token);
-                INewConnectionContext clientContext = context.CreateConnection();
+                INewConnectionContext clientContext;
+                try
+                {
+                    clientContext = context.CreateConnection();
+                }
+                catch
+                {
+                    await connection.DisposeAsync();
+                    throw;
+                }
 
-                _ = ProcessStreams(clientContext, connection, token).ContinueWith(t =>
-                clientContext.Dispose());
+                _ = ProcessAcceptedConnection(clientContext, connection, token);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (token.IsCancellationRequested)
             {
                 _logger?.LogDebug("Closed with exception {exception}", ex.Message);
                 _logger?.LogTrace("{stackTrace}", ex.StackTrace);
             }
+            catch (AuthenticationException ex)
+            {
+                _logger?.LogDebug(ex, "QUIC client authentication failed");
+            }
+            catch (QuicException ex) when (ex.QuicError is QuicError.ConnectionAborted
+                or QuicError.ConnectionTimeout or QuicError.ConnectionIdle
+                or QuicError.TransportError or QuicError.VersionNegotiationError)
+            {
+                _logger?.LogDebug(ex, "QUIC client connection failed");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "QUIC listener failed");
+                throw;
+            }
+        }
+    }
+
+    private async Task ProcessAcceptedConnection(INewConnectionContext context, QuicConnection connection, CancellationToken token)
+    {
+        try
+        {
+            using (context)
+            await using (connection)
+            {
+                await ProcessStreams(context, connection, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "QUIC connection from {remoteAddress} closed", connection.RemoteEndPoint);
         }
     }
 
@@ -129,7 +170,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
-        X509Certificate2 clientCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+        using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+        X509Certificate2 clientCertificate = certificateLease.Certificate;
 
         QuicClientConnectionOptions clientConnectionOptions = new()
         {
@@ -175,10 +217,10 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             throw;
         }
 
+        await using QuicConnection connected = connection;
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
-        INewConnectionContext connectionContext = context.CreateConnection();
+        using INewConnectionContext connectionContext = context.CreateConnection();
 
-        token.Register(() => _ = connection.CloseAsync(0));
         await ProcessStreams(connectionContext, connection, token);
     }
 
@@ -187,18 +229,6 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         if (!QuicListener.IsSupported)
         {
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        }
-
-        if (IsSchannel())
-        {
-            throw new NotSupportedException($"QUIC uses the Schannel backend, which is not supported. Check {AppContext.BaseDirectory}");
-        }
-
-        static bool IsSchannel()
-        {
-            Type quicApiType = typeof(QuicConnection).Assembly.GetType("System.Net.Quic.MsQuicApi")!;
-            PropertyInfo usesSChannelBackendProperty = quicApiType.GetProperty("UsesSChannelBackend", BindingFlags.Static | BindingFlags.NonPublic)!;
-            return (bool)usesSChannelBackendProperty.GetValue(null)!;
         }
     }
 
@@ -245,7 +275,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
                 IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
-                ExchangeData(stream, upChannel);
+                _ = ExchangeData(stream, upChannel);
             }
         }, token);
 
@@ -253,19 +283,13 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         {
             QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
             IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
-            ExchangeData(inboundStream, upChannel);
+            _ = ExchangeData(inboundStream, upChannel);
         }
     }
 
-    private void ExchangeData(QuicStream stream, IChannel upChannel)
+    private async Task ExchangeData(QuicStream stream, IChannel upChannel)
     {
-        upChannel.GetAwaiter().OnCompleted(() =>
-        {
-            stream.Close();
-            _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
-        });
-
-        _ = Task.Run(async () =>
+        Task outgoing = Task.Run(async () =>
         {
             try
             {
@@ -275,14 +299,14 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 }
                 stream.CompleteWrites();
             }
-            catch (SocketException ex)
+            catch (Exception ex)
             {
-                _logger?.SocketException(ex, ex.Message);
+                _logger?.LogDebug(ex, "QUIC stream {streamId} outgoing data failed", stream.Id);
                 await upChannel.CloseAsync();
             }
         });
 
-        _ = Task.Run(async () =>
+        Task incoming = Task.Run(async () =>
         {
             try
             {
@@ -290,18 +314,49 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 {
                     byte[] buf = new byte[1024];
                     int len = await stream.ReadAtLeastAsync(buf, 1, false);
-                    if (len != 0)
+                    if (len == 0)
                     {
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                        break;
                     }
+                    await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
                 }
                 await upChannel.WriteEofAsync();
             }
-            catch (SocketException ex)
+            catch (Exception ex)
             {
-                _logger?.SocketException(ex, ex.Message);
+                _logger?.LogDebug(ex, "QUIC stream {streamId} incoming data failed", stream.Id);
                 await upChannel.CloseAsync();
             }
         });
+
+        try
+        {
+            await upChannel;
+            await outgoing;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "QUIC stream {streamId} data exchange failed", stream.Id);
+        }
+        finally
+        {
+            try
+            {
+                await stream.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} close failed", stream.Id);
+            }
+            try
+            {
+                await incoming;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} incoming pump failed", stream.Id);
+            }
+            _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
+        }
     }
 }

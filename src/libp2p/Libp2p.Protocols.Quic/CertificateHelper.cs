@@ -6,8 +6,11 @@ using Nethermind.Libp2p.Core;
 using Org.BouncyCastle.X509;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Quic.Tests")]
 
 namespace Nethermind.Libp2p.Protocols.Quic;
 
@@ -16,6 +19,10 @@ public class CertificateHelper
     private const string PubkeyExtensionOidString = "1.3.6.1.4.1.53594.1.1";
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
 
+    /// <summary>
+    /// Creates a libp2p certificate. On Windows the certificate uses a persisted named CNG key;
+    /// callers must delete that key after the certificate's last TLS use.
+    /// </summary>
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
     {
         // On Windows, SslStream (SChannel) requires a named CNG key.
@@ -26,6 +33,58 @@ public class CertificateHelper
             certKey = CreateWindowsCompatibleKey();
         }
 
+        try
+        {
+            return CreateCertificate(certKey, identity);
+        }
+        catch
+        {
+            if (certKey is ECDsaCng cngKey)
+            {
+                using CngKey key = cngKey.Key;
+                key.Delete();
+            }
+            throw;
+        }
+        finally
+        {
+            if (!ReferenceEquals(certKey, sessionKey))
+            {
+                certKey.Dispose();
+            }
+        }
+    }
+
+    internal static CertificateLease CreateCertificateLease(ECDsa sessionKey, Identity identity) =>
+        new(CertificateFromIdentity(sessionKey, identity));
+
+    internal sealed class CertificateLease(X509Certificate2 certificate) : IDisposable
+    {
+        public X509Certificate2 Certificate { get; } = certificate;
+
+        public void Dispose()
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    using ECDsa? privateKey = Certificate.GetECDsaPrivateKey();
+                    if (privateKey is ECDsaCng cngKey)
+                    {
+                        using CngKey key = cngKey.Key;
+                        key.Delete();
+                    }
+                }
+            }
+            finally
+            {
+                Certificate.Dispose();
+            }
+        }
+    }
+
+    private static X509Certificate2 CreateCertificate(ECDsa certKey, Identity identity)
+    {
         Span<byte> signature = identity.Sign(ContentToSignFromTlsPublicKey(certKey.ExportSubjectPublicKeyInfo()));
         AsnWriter asnWriter = new(AsnEncodingRules.DER);
         asnWriter.PushSequence();
@@ -59,7 +118,7 @@ public class CertificateHelper
             ExportPolicy = CngExportPolicies.AllowPlaintextExport,
             KeyUsage = CngKeyUsages.AllUsages,
         };
-        CngKey cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", cngParams);
+        using CngKey cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", cngParams);
         return new ECDsaCng(cngKey);
     }
 
