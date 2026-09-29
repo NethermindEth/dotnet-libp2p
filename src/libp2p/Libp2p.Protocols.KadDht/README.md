@@ -1,20 +1,42 @@
 # Kad-DHT
 
-This project connects .NET libp2p to the `Nethermind.Kademlia` 2.0.0 package. The package owns the generic routing table, peer health, and iterative lookup algorithms. This repository owns the libp2p protocol, peer and key adapters, network message sender, record stores, and validation.
+Kademlia DHT support for dotnet-libp2p. It implements the libp2p [`/ipfs/kad/1.0.0`](https://github.com/libp2p/specs/blob/master/kad-dht/README.md) protocol and integrates it into an `ILibp2pPeerFactoryBuilder`.
 
-The DHT uses `/ipfs/kad/1.0.0` by default. `KadDhtOptions.ProtocolId` can select another protocol ID when joining a network that uses one. A single protobuf `Message` envelope carries PING, FIND_NODE, GET_VALUE, PUT_VALUE, GET_PROVIDERS, and ADD_PROVIDER.
+The separate `Nethermind.Kademlia` 2.0.0 package provides the generic routing table, peer health, and iterative lookup algorithms. This package provides the libp2p protocol, peer and key adapters, network message sender, record stores, and validation.
 
-## Integration
+## Install
 
-Register services with `services.AddKadDht(options => { ... })` and add the protocol handlers to a peer factory with `builder.WithKadDht()`. `KadDhtOptions` controls the protocol ID, bucket size (`KSize`), query concurrency (`Alpha`), operating mode, record limits, and maintenance intervals. `KadDhtProtocol` exposes value storage and retrieval, provider announcement and discovery, bootstrap, and maintenance methods.
+```sh
+dotnet add package Libp2p.Protocols.KadDht
+```
 
-The libp2p-specific pieces are:
+## Configure
 
-- `KadDhtProtocol`: public DHT operations and protocol lifecycle.
-- `SharedDhtState`: access to the package routing table and local value store.
-- `LibP2pKademliaMessageSender`: wire requests, session reuse, and discovered-peer addresses.
-- `DhtKeyOperator` and `DhtNodeHashProvider`: map raw libp2p keys and peer IDs to Kademlia hashes.
-- `IValueStore`, `IProviderStore`, and `IRecordValidator`: record storage and validation.
+Register the DHT while configuring libp2p. Server mode is the default; client mode participates in routing without serving stored records.
+
+```csharp
+using Libp2p.Protocols.KadDht;
+using Libp2p.Protocols.KadDht.Integration;
+using Microsoft.Extensions.DependencyInjection;
+using Nethermind.Libp2p;
+
+var services = new ServiceCollection();
+
+services.AddLibp2p(builder => builder.AddKadDht(options =>
+{
+    options.Mode = KadDhtMode.Server;
+    options.KSize = 20;
+    options.Alpha = 10;
+}));
+```
+
+After the local peer is initialized, call `RunKadDhtAsync` to bootstrap the DHT and run its maintenance loop. Use `GetKadDht` to retrieve the configured `KadDhtProtocol` for DHT operations.
+
+## Configuration
+
+`KadDhtOptions` controls the routing-table size and query concurrency (`KSize` and `Alpha`), operating mode, record and provider retention, storage limits, message limits, maintenance intervals, operation timeout, and disjoint lookup paths. The default mode is `KadDhtMode.Server`.
+
+The default protocol ID is `/ipfs/kad/1.0.0`; `KadDhtOptions.ProtocolId` can select another network's protocol ID. A single protobuf `Message` envelope carries PING, FIND_NODE, GET_VALUE, PUT_VALUE, GET_PROVIDERS, and ADD_PROVIDER.
 
 FIND_NODE sends raw target-key bytes; the receiver hashes those bytes with SHA-256 once for distance calculations. The sender and local routing table use the same rule. Relayed multiaddresses retain the destination peer ID after `/p2p-circuit` rather than treating the relay as the destination.
 
@@ -26,6 +48,6 @@ Bucket refresh uses approximate random raw-key sampling. A FIND_NODE receiver ha
 
 This migration intentionally changes the public API. Generic routing and lookup types now come from `Nethermind.Kademlia`. `ValueHash256.Bytes` is a `ReadOnlySpan<byte>`; use `ValueHash256.FromBytes(...)` to construct a hash and `hash.Bytes.ToArray()` when an owned array is needed. The mutable `Bytes` setter and `BytesAsSpan` accessor are no longer available. Consumers must rebuild against the new package API.
 
-## License and tests
+## License
 
-This project is MIT-licensed. The separate `Nethermind.Kademlia` NuGet package has its own license metadata. Kad-DHT tests cover routing adapters, wire-key handling, provider announcements, record stores, protocol behavior, and bootstrap recovery; the repository's CI workflow runs the suite.
+This project is MIT-licensed. The separate `Nethermind.Kademlia` package has its own license metadata.
