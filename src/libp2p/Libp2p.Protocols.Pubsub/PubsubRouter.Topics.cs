@@ -244,10 +244,20 @@ public partial class PubsubRouter
             _seenMessages.Add(messageId);
             _messageCache.Put(messageId, publishedMessage);
 
+            if (message.Length >= _settings.IdontwantMessageThreshold && mesh.ContainsKey(topicId))
+            {
+                Dictionary<PeerId, Rpc> idontwantMessages = [];
+                AddIdontwantMessages(publishedMessage, messageId, source: null, idontwantMessages);
+                foreach ((PeerId recipient, Rpc idontwant) in idontwantMessages)
+                {
+                    peerState.GetValueOrDefault(recipient)?.Send(idontwant);
+                }
+            }
+
             HashSet<PeerId> directRecipients = GetDirectPeersForTopic(topicId).ToHashSet();
             foreach (PeerId peerId in directRecipients)
             {
-                if (ShouldSendFullMessage(peerId, topicId))
+                if (ShouldSendFullMessage(peerId, topicId, messageId))
                 {
                     peerState.GetValueOrDefault(peerId)?.Send(rpc);
                 }
@@ -256,7 +266,7 @@ public partial class PubsubRouter
             // Floodsub peers always get the message.
             foreach (PeerId peerId in fPeers.GetValueOrDefault(topicId) ?? [])
             {
-                if (!directRecipients.Contains(peerId) && ShouldSendFullMessage(peerId, topicId))
+                if (!directRecipients.Contains(peerId) && ShouldSendFullMessage(peerId, topicId, messageId))
                 {
                     peerState.GetValueOrDefault(peerId)?.Send(rpc);
                 }
@@ -270,7 +280,7 @@ public partial class PubsubRouter
                 {
                     if (!directRecipients.Contains(peerId) &&
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
-                        ShouldSendFullMessage(peerId, topicId))
+                        ShouldSendFullMessage(peerId, topicId, messageId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -283,7 +293,7 @@ public partial class PubsubRouter
                 {
                     if (!directRecipients.Contains(peerId) &&
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
-                        ShouldSendFullMessage(peerId, topicId))
+                        ShouldSendFullMessage(peerId, topicId, messageId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -312,7 +322,7 @@ public partial class PubsubRouter
                 {
                     if (!directRecipients.Contains(peerId) &&
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
-                        ShouldSendFullMessage(peerId, topicId))
+                        ShouldSendFullMessage(peerId, topicId, messageId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
                     }
@@ -417,14 +427,15 @@ public partial class PubsubRouter
         }
     }
 
-    private bool ShouldSendFullMessage(PeerId peerId, string topicId)
+    private bool ShouldSendFullMessage(PeerId peerId, string topicId, MessageId messageId)
     {
-        return !_settings.EnablePartialMessages ||
+        return !IsUnwantedBy(peerId, messageId) &&
+            (!_settings.EnablePartialMessages ||
             !topicState.TryGetValue(topicId, out Topic? topic) ||
             !topic.SupportsSendingPartialMessages ||
             !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
             !peer.SupportsPartialMessagesExtension ||
-            !peer.RequestsPartialMessages(topicId);
+            !peer.RequestsPartialMessages(topicId));
     }
 
     private static void ValidatePartialMessage(byte[] groupId, byte[]? partialMessage, byte[]? partsMetadata)
