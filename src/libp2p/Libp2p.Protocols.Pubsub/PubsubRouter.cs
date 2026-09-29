@@ -626,7 +626,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||
             settings.MaxIwantPromises <= 0 || settings.IWantFollowupTime <= 0 ||
             settings.IdontwantTtlHeartbeats <= 0 || settings.MaxIdontwantMessages <= 0 ||
-            settings.MaxIdontwantLength <= 0)
+            settings.MaxIdontwantLength <= 0 || settings.IdontwantMessageThreshold <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(settings), "Gossipsub control limits must be positive.");
         }

@@ -98,11 +98,14 @@ public class PubsubSettings
     /// <summary>Number of heartbeats for which accepted IDONTWANT IDs suppress IWANT responses.</summary>
     public int IdontwantTtlHeartbeats { get; set; } = 3;
 
-    /// <summary>Maximum IDONTWANT envelopes accepted from one peer during a heartbeat.</summary>
+    /// <summary>Maximum IDONTWANT envelopes sent to or accepted from one peer during a heartbeat.</summary>
     public int MaxIdontwantMessages { get; set; } = 1_000;
 
-    /// <summary>Maximum message IDs accepted from one IDONTWANT envelope.</summary>
+    /// <summary>Maximum message IDs sent or accepted in one IDONTWANT envelope.</summary>
     public int MaxIdontwantLength { get; set; } = 10;
+
+    /// <summary>Minimum data size in bytes for announcing a message with IDONTWANT.</summary>
+    public int IdontwantMessageThreshold { get; set; } = 1_024;
 
     /// <summary>
     /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router

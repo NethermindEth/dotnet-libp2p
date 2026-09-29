@@ -19,6 +19,7 @@ internal sealed class PeerControlState
     public int IHaveRequested { get; private set; }
     public int IwantMessages { get; private set; }
     public int IdontwantMessages { get; private set; }
+    public int SentIdontwantMessages { get; private set; }
 
     public bool TryAcceptIHave(int maxMessages)
     {
@@ -46,6 +47,17 @@ internal sealed class PeerControlState
         }
 
         IdontwantMessages++;
+        return true;
+    }
+
+    public bool TrySendIdontwant(int maxMessages)
+    {
+        if (SentIdontwantMessages >= maxMessages)
+        {
+            return false;
+        }
+
+        SentIdontwantMessages++;
         return true;
     }
 
@@ -98,6 +110,7 @@ internal sealed class PeerControlState
         IHaveRequested = 0;
         IwantMessages = 0;
         IdontwantMessages = 0;
+        SentIdontwantMessages = 0;
         RemoveExpired(unwanted, currentTick);
         RemoveExpired(iwantResponses, currentTick);
     }
