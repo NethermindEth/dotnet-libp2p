@@ -435,6 +435,38 @@ public class DeferredValidationTests
         Assert.Throws<ArgumentException>(() => router.OnDeferredMessage += (_, _) => Task.CompletedTask);
     }
 
+    [TestCase(0L)]
+    [TestCase(-1L)]
+    [TestCase(long.MaxValue)]
+    public void InvalidRuntimePendingTimeoutReleasesEveryAdmittedMessage(long timeoutTicks)
+    {
+        PubsubSettings settings = Settings();
+        using PubsubRouter router = CreateRouter(settings, new TestClock());
+        router.GetTopic(Topic);
+        router.VerifyMessage = (_, _) => MessageValidity.Deferred;
+        int callbacks = 0;
+        router.OnDeferredMessage = (_, _) =>
+        {
+            callbacks++;
+            return Task.CompletedTask;
+        };
+
+        settings.PendingValidationTimeout = TimeSpan.FromTicks(timeoutTicks);
+        Rpc rpc = RpcWith(NewMessage(1));
+        rpc.Publish.Add(NewMessage(2));
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(callbacks, Is.Zero);
+            Assert.That(router.PendingValidationCount, Is.Zero);
+        });
+
+        settings.PendingValidationTimeout = TimeSpan.FromSeconds(5);
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+        Assert.That(callbacks, Is.EqualTo(2));
+    }
+
     [Test]
     public void PendingTimeoutStartsWhenEachCallbackIsDispatched()
     {

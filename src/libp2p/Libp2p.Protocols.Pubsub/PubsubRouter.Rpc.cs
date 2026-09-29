@@ -92,20 +92,25 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            lock (this)
-            {
-                if (_stopped.IsCancellationRequested ||
-                    !_pendingValidations.TryGetValue(pending.Id, out PendingValidation? current) ||
-                    !ReferenceEquals(current, pending))
-                {
-                    continue;
-                }
-
-                pending.ExpiresAt = _timeProvider.GetUtcNow().Add(_settings.PendingValidationTimeout);
-            }
-
             try
             {
+                lock (this)
+                {
+                    if (_stopped.IsCancellationRequested ||
+                        !_pendingValidations.TryGetValue(pending.Id, out PendingValidation? current) ||
+                        !ReferenceEquals(current, pending))
+                    {
+                        continue;
+                    }
+
+                    TimeSpan timeout = _settings.PendingValidationTimeout;
+                    if (timeout <= TimeSpan.Zero)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(PubsubSettings.PendingValidationTimeout));
+                    }
+                    pending.ExpiresAt = _timeProvider.GetUtcNow().Add(timeout);
+                }
+
                 Task validation = callback(pending.Source, pending.Original);
                 ArgumentNullException.ThrowIfNull(validation);
                 _ = ObserveDeferredValidation(validation, new WeakReference<PendingValidation>(pending), pending.Snapshot.Topic);
