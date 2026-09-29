@@ -179,6 +179,176 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task IDontWant_SendsFirstLargeMessageIdToV12MeshPeersBeforeForwarding()
+    {
+        PubsubSettings settings = new()
+        {
+            HeartbeatInterval = int.MaxValue,
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()[..20]),
+        };
+        await using RouterSetup setup = await RouterSetup.Create(settings);
+        List<Rpc> senderRpcs = [];
+        List<Rpc> oldPeerRpcs = [];
+        List<Rpc> v13PeerRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV11, oldPeerRpcs);
+        _ = setup.ConnectPeer(5, PubsubRouter.GossipsubProtocolVersionV13, v13PeerRpcs);
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Has.Count.EqualTo(4));
+        setup.SentRpcs.Clear();
+        senderRpcs.Clear();
+        oldPeerRpcs.Clear();
+        v13PeerRpcs.Clear();
+
+        Identity author = TestPeers.Identity(6);
+        byte[] data = new byte[1024];
+        for (int i = 0; i < 20; i++)
+        {
+            data[i] = (byte)(i + 1);
+        }
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, data, author).Publish.Single();
+        ByteString expectedId = ByteString.CopyFrom(settings.GetMessageId(message).Bytes);
+
+        setup.Router.OnRpc(sender, new Rpc { Publish = { message } });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { expectedId }));
+            Assert.That(GetIdontwantIds(v13PeerRpcs), Is.EqualTo(new[] { expectedId }));
+            Assert.That(GetIdontwantIds(senderRpcs), Is.Empty);
+            Assert.That(GetIdontwantIds(oldPeerRpcs), Is.Empty);
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(new[] { message }));
+            Assert.That(GetPublishedMessages(oldPeerRpcs), Is.EqualTo(new[] { message }));
+            Assert.That(GetPublishedMessages(v13PeerRpcs), Is.EqualTo(new[] { message }));
+            Assert.That(setup.SentRpcs.FindIndex(rpc => rpc.Control?.Idontwant.Count > 0),
+                Is.LessThan(setup.SentRpcs.FindIndex(rpc => rpc.Publish.Count > 0)));
+        });
+
+        setup.Router.OnRpc(sender, new Rpc { Publish = { message } });
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { expectedId }));
+    }
+
+    [Test]
+    public async Task IDontWant_AnnouncesLocallyPublishedLargeMessageBeforeSendingIt()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        List<Rpc> oldPeerRpcs = [];
+        List<Rpc> v13PeerRpcs = [];
+        _ = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV11, oldPeerRpcs);
+        _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV13, v13PeerRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        oldPeerRpcs.Clear();
+        v13PeerRpcs.Clear();
+
+        setup.Router.Publish(setup.Topic, new byte[1024]);
+
+        Message published = GetPublishedMessages(setup.SentRpcs).Single();
+        ByteString expectedId = ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(published).Bytes);
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { expectedId }));
+            Assert.That(GetIdontwantIds(v13PeerRpcs), Is.EqualTo(new[] { expectedId }));
+            Assert.That(GetIdontwantIds(oldPeerRpcs), Is.Empty);
+            Assert.That(setup.SentRpcs.FindIndex(rpc => rpc.Control?.Idontwant.Count > 0),
+                Is.LessThan(setup.SentRpcs.FindIndex(rpc => rpc.Publish.Count > 0)));
+        });
+    }
+
+    [Test]
+    public async Task IDontWant_UnknownVerdictCannotAnnounceOrForward()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        List<Rpc> recipientRpcs = [];
+        _ = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, recipientRpcs);
+        await setup.Router.Heartbeat();
+        recipientRpcs.Clear();
+        Identity author = TestPeers.Identity(4);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        setup.Router.VerifyMessage = _ => (MessageValidity)int.MaxValue;
+
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(recipientRpcs), Is.Empty);
+            Assert.That(GetPublishedMessages(recipientRpcs), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task IDontWant_BoundsOutboundMessagesPerPeerPerHeartbeat()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIdontwantMessages = 1,
+        });
+        List<Rpc> senderRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        Identity author = TestPeers.Identity(4);
+
+        Message first = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        Message second = new Rpc().WithMessages(setup.Topic, 2, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        Message third = new Rpc().WithMessages(setup.Topic, 3, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        setup.Router.OnRpc(sender, new Rpc { Publish = { first, second } });
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(first).Bytes) }));
+
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(sender, new Rpc { Publish = { third } });
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(third).Bytes) }));
+    }
+
+    [Test]
+    public async Task IDontWant_DoesNotAnnounceSmallOrRejectedMessages()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        List<Rpc> senderRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        Identity author = TestPeers.Identity(4);
+
+        Message small = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1023], author).Publish.Single();
+        Message rejected = new Rpc().WithMessages(setup.Topic, 2, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        setup.Router.OnRpc(sender, new Rpc { Publish = { small } });
+        setup.Router.VerifyMessage = _ => MessageValidity.Rejected;
+        setup.Router.OnRpc(sender, new Rpc { Publish = { rejected } });
+
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
+    }
+
+    [Test]
+    public async Task IDontWant_DoesNotAmplifyLargeMessageIds()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()[..600]),
+        });
+        List<Rpc> senderRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        Identity author = TestPeers.Identity(4);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+
+        setup.Router.OnRpc(sender, new Rpc { Publish = { message } });
+
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(new[] { message }));
+    }
+
+    [Test]
+    public void Router_RejectsNonPositiveIdontwantThreshold()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubRouter(new PeerStore(), new PubsubSettings { IdontwantMessageThreshold = 0 }));
+    }
+
+    [Test]
     public async Task IDontWant_SeparatesEnvelopeAndMessageIdLimits()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
@@ -447,6 +617,12 @@ public class GossipsubControlLimitsTests
         .SelectMany(iwant => iwant.MessageIDs)
         .ToArray();
 
+    private static IReadOnlyList<ByteString> GetIdontwantIds(IEnumerable<Rpc> rpcs) => rpcs
+        .Where(rpc => rpc.Control is not null)
+        .SelectMany(rpc => rpc.Control.Idontwant)
+        .SelectMany(idontwant => idontwant.MessageIDs)
+        .ToArray();
+
     private static IReadOnlyList<Message> GetPublishedMessages(IEnumerable<Rpc> rpcs) => rpcs
         .SelectMany(rpc => rpc.Publish)
         .ToArray();
@@ -455,6 +631,7 @@ public class GossipsubControlLimitsTests
     {
         private readonly CancellationTokenSource cancellation = new();
         private readonly TaskCompletionSource connection = new();
+        private readonly List<TaskCompletionSource> extraConnections = [];
 
         private RouterSetup(PubsubRouter router, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
         {
@@ -495,9 +672,20 @@ public class GossipsubControlLimitsTests
             return PubsubSettings.ConcatFromAndSeqno(published);
         }
 
+        public PeerId ConnectPeer(int index, string protocol, List<Rpc> sentRpcs)
+        {
+            PeerId peerId = TestPeers.PeerId(index);
+            TaskCompletionSource connection = new();
+            extraConnections.Add(connection);
+            Router.OutboundConnection(TestPeers.Multiaddr(index), protocol, connection.Task, sentRpcs.Add);
+            Router.OnRpc(peerId, new Rpc().WithTopics([Topic], []));
+            return peerId;
+        }
+
         public ValueTask DisposeAsync()
         {
             connection.TrySetResult();
+            foreach (TaskCompletionSource extraConnection in extraConnections) extraConnection.TrySetResult();
             cancellation.Cancel();
             cancellation.Dispose();
             Router.Dispose();

@@ -244,6 +244,16 @@ public partial class PubsubRouter
             _seenMessages.Add(messageId);
             _messageCache.Put(messageId, publishedMessage);
 
+            if (message.Length >= _settings.IdontwantMessageThreshold && mesh.ContainsKey(topicId))
+            {
+                List<(PeerId PeerId, Rpc Rpc)> idontwantMessages = [];
+                AddIdontwantMessages(publishedMessage, messageId, source: null, idontwantMessages);
+                foreach ((PeerId recipient, Rpc idontwant) in idontwantMessages)
+                {
+                    peerState.GetValueOrDefault(recipient)?.Send(idontwant);
+                }
+            }
+
             HashSet<PeerId> directRecipients = GetDirectPeersForTopic(topicId).ToHashSet();
             foreach (PeerId peerId in directRecipients)
             {

@@ -19,6 +19,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         try
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
+            List<(PeerId PeerId, Rpc Rpc)> idontwantMessages = [];
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages = [];
             lock (this)
@@ -27,7 +28,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                 if (rpc.Publish.Count != 0)
                 {
-                    HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages);
+                    HandleNewMessages(peerId, rpc.Publish, peerMessages, idontwantMessages, receivedMessages);
                 }
 
                 if (rpc.Subscriptions.Count != 0)
@@ -68,6 +69,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 }
             }
+            foreach ((PeerId recipient, Rpc idontwant) in idontwantMessages)
+            {
+                peerState.GetValueOrDefault(recipient)?.Send(idontwant);
+            }
+
             foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
             {
                 OnMessage?.Invoke(topic, receivedFrom, data);
@@ -165,7 +171,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
     }
 
-    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
+    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(PeerId PeerId, Rpc Rpc)> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
     {
         // Check if peer is graylisted (Gossipsub v1.1)
         if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
@@ -211,6 +217,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     continue;
             }
 
+            if (validity != MessageValidity.Accepted)
+            {
+                continue;
+            }
+
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
             {
                 // Like go-libp2p, an obviously invalid delivery does not fulfill the IWANT promise,
@@ -226,6 +237,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             // Record valid message delivery for scoring
             RecordMessageDelivery(peerId, message, message.Topic, true);
+
+            AddIdontwantMessages(message, messageId, peerId, idontwantMessages);
 
             PeerId author = new(message.From.ToArray());
             receivedMessages.Add((message.Topic, peerId, message.Data.ToByteArray()));
@@ -268,6 +281,36 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
                 }
             }
+        }
+    }
+
+    private void AddIdontwantMessages(Message message, MessageId messageId, PeerId? source,
+        List<(PeerId PeerId, Rpc Rpc)> idontwantMessages)
+    {
+        // Do not amplify a message ID across the mesh.
+        if (!mesh.TryGetValue(message.Topic, out HashSet<PeerId>? meshPeers) ||
+            message.Data.Length < _settings.IdontwantMessageThreshold ||
+            message.Data.Length < (long)meshPeers.Count * (messageId.Bytes.Length + 16))
+        {
+            return;
+        }
+
+        ByteString idBytes = ByteString.CopyFrom(messageId.Bytes);
+        bool requestsPartialMessages = topicState.TryGetValue(message.Topic, out Topic? topic) && topic.RequestsPartialMessages;
+        foreach (PeerId meshPeerId in meshPeers)
+        {
+            if (meshPeerId == source ||
+                !peerState.TryGetValue(meshPeerId, out PubsubPeer? meshPeer) ||
+                meshPeer.Protocol < PubsubPeer.PubsubProtocol.GossipsubV12 ||
+                (requestsPartialMessages && meshPeer.SupportsSendingPartialMessages(message.Topic)) ||
+                !meshPeer.Control.TrySendIdontwant(_settings.MaxIdontwantMessages))
+            {
+                continue;
+            }
+
+            Rpc idontwant = new() { Control = new ControlMessage() };
+            idontwant.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { idBytes } });
+            idontwantMessages.Add((meshPeerId, idontwant));
         }
     }
 
