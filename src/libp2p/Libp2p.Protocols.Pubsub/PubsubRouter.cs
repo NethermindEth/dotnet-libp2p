@@ -142,14 +142,62 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     #endregion
 
     public event Action<string, PeerId, byte[]>? OnMessage;
+    /// <summary>
+    /// Called outside the router lock only after a deferred message fits in the pending store.
+    /// Start asynchronous validation here, then call <see cref="CompleteValidation"/> with this
+    /// exact message instance before <see cref="PubsubSettings.PendingValidationTimeout"/> elapses.
+    /// Return the validation task so the router can observe failures without waiting for it.
+    /// The task must include the call to <see cref="CompleteValidation"/>; an entry still pending
+    /// when the task finishes is discarded. Assign one owner for each verdict.
+    /// Application-owned validation work is not cancelled or awaited when the router is disposed;
+    /// a completion after disposal is ignored.
+    /// </summary>
+    private Func<PeerId, Message, Task>? _onDeferredMessage;
+    public Func<PeerId, Message, Task>? OnDeferredMessage
+    {
+        get => _onDeferredMessage;
+        set
+        {
+            if (value?.GetInvocationList().Length > 1)
+            {
+                throw new ArgumentException("Deferred validation has one owner.", nameof(value));
+            }
+
+            _onDeferredMessage = value;
+        }
+    }
+    /// <summary>
+    /// Perform only synchronous checks here. Return <see cref="MessageValidity.Deferred"/> to
+    /// request admission to the bounded pending store; start asynchronous work in
+    /// <see cref="OnDeferredMessage"/>. Do not mutate the message.
+    /// </summary>
     public Func<PeerId, Message, MessageValidity>? VerifyMessage = null;
 
     internal int MaxRpcBytes => _settings.MaxRpcBytes;
+    internal int PendingValidationCount
+    {
+        get
+        {
+            lock (this)
+            {
+                RemoveExpiredPendingValidations();
+                return _pendingValidations.Count;
+            }
+        }
+    }
 
     private readonly PubsubSettings _settings;
     private readonly TtlCache<MessageId, MessageWithId> _messageCache;
     private readonly TtlCache<MessageId, MessageWithId> _limboMessageCache;
     private readonly TtlCache<(PeerId, MessageId)> _idontwantMessages;
+    private readonly Dictionary<MessageId, PendingValidation> _pendingValidations = [];
+    private readonly TimeProvider _timeProvider;
+    private int _pendingValidationBytes;
+
+    private sealed record PendingValidation(MessageId Id, Message Original, Message Snapshot, PeerId Source, int Size)
+    {
+        public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.MaxValue;
+    }
 
     private ILocalPeer? localPeer;
     private readonly ILogger? logger;
@@ -221,20 +269,27 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         Canceled = cts.Token;
     }
 
-    public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default)
+    public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default, TimeProvider? timeProvider = null)
     {
         logger = loggerFactory?.CreateLogger("pubsub-router");
 
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationMessages);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationBytes);
+        if (_settings.PendingValidationTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.PendingValidationTimeout));
+        }
         if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign && _settings.GetMessageId == PubsubSettings.ConcatFromAndSeqno)
         {
             throw new InvalidOperationException("StrictNoSign requires a custom GetMessageId function.");
         }
 
-        _messageCache = new(_settings.MessageCacheTtl);
-        _limboMessageCache = new(_settings.MessageCacheTtl);
-        _idontwantMessages = new(_settings.MessageCacheTtl);
+        _messageCache = new(_settings.MessageCacheTtl, _timeProvider);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _timeProvider);
+        _idontwantMessages = new(_settings.MessageCacheTtl, _timeProvider);
     }
 
     /// <summary>
@@ -401,6 +456,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
         reconnections.Clear();
         reconnectionPolicies.Clear();
+        lock (this)
+        {
+            _pendingValidations.Clear();
+            _pendingValidationBytes = 0;
+        }
 
         _messageCache.Dispose();
         _limboMessageCache.Dispose();
@@ -450,6 +510,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
         lock (this)
         {
+            RemoveExpiredPendingValidations();
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {

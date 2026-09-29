@@ -13,67 +13,246 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
     internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
     {
+        List<PendingValidation> deferredMessages = [];
         try
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
-            lock (this)
+            try
             {
-                HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
-
-                if (rpc.Publish.Count != 0)
+                lock (this)
                 {
-                    HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages);
-                }
-
-                if (rpc.Subscriptions.Count != 0)
-                {
-                    HandleSubscriptions(peerId, rpc.Subscriptions);
-                }
-
-                if (rpc.Control is not null)
-                {
-                    if (rpc.Control.Graft.Count != 0)
+                    if (_stopped.IsCancellationRequested)
                     {
-                        HandleGraft(peerId, rpc.Control.Graft, peerMessages);
+                        return;
                     }
 
-                    if (rpc.Control.Prune.Count != 0)
+                    RemoveExpiredPendingValidations();
+                    HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
+
+                    if (rpc.Publish.Count != 0)
                     {
-                        HandlePrune(peerId, rpc.Control.Prune, peerMessages);
+                        HandleNewMessages(peerId, rpc.Publish, peerMessages, receivedMessages, deferredMessages);
                     }
 
-                    if (rpc.Control.Ihave.Count != 0)
+                    if (rpc.Subscriptions.Count != 0)
                     {
-                        HandleIhave(peerId, rpc.Control.Ihave, peerMessages);
+                        HandleSubscriptions(peerId, rpc.Subscriptions);
                     }
 
-                    if (rpc.Control.Iwant.Count != 0)
+                    if (rpc.Control is not null)
                     {
-                        HandleIwant(peerId, rpc.Control.Iwant, peerMessages);
-                    }
+                        if (rpc.Control.Graft.Count != 0)
+                        {
+                            HandleGraft(peerId, rpc.Control.Graft, peerMessages);
+                        }
 
-                    if (rpc.Control.Idontwant.Count != 0)
-                    {
-                        HandleIdontwant(peerId, rpc.Control.Idontwant);
+                        if (rpc.Control.Prune.Count != 0)
+                        {
+                            HandlePrune(peerId, rpc.Control.Prune, peerMessages);
+                        }
+
+                        if (rpc.Control.Ihave.Count != 0)
+                        {
+                            HandleIhave(peerId, rpc.Control.Ihave, peerMessages);
+                        }
+
+                        if (rpc.Control.Iwant.Count != 0)
+                        {
+                            HandleIwant(peerId, rpc.Control.Iwant, peerMessages);
+                        }
+
+                        if (rpc.Control.Idontwant.Count != 0)
+                        {
+                            HandleIdontwant(peerId, rpc.Control.Idontwant);
+                        }
                     }
                 }
             }
-            foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
+            finally
             {
-                OnMessage?.Invoke(topic, receivedFrom, data);
+                DispatchDeferredMessages(deferredMessages);
             }
-
-            foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-            {
-                peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
-            }
+            DispatchMessages(receivedMessages, peerMessages);
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Exception while processing RPC");
         }
     }
+
+    private void DispatchDeferredMessages(List<PendingValidation> deferredMessages)
+    {
+        foreach (PendingValidation pending in deferredMessages)
+        {
+            Func<PeerId, Message, Task>? callback = OnDeferredMessage;
+            if (callback is null)
+            {
+                RemovePendingValidation(pending);
+                continue;
+            }
+
+            lock (this)
+            {
+                if (_stopped.IsCancellationRequested ||
+                    !_pendingValidations.TryGetValue(pending.Id, out PendingValidation? current) ||
+                    !ReferenceEquals(current, pending))
+                {
+                    continue;
+                }
+
+                pending.ExpiresAt = _timeProvider.GetUtcNow().Add(_settings.PendingValidationTimeout);
+            }
+
+            try
+            {
+                Task validation = callback(pending.Source, pending.Original);
+                ArgumentNullException.ThrowIfNull(validation);
+                _ = ObserveDeferredValidation(validation, new WeakReference<PendingValidation>(pending), pending.Snapshot.Topic);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Deferred pubsub validator failed for topic {topic}", pending.Snapshot.Topic);
+                RemovePendingValidation(pending);
+            }
+        }
+    }
+
+    private void RemovePendingValidation(PendingValidation pending)
+    {
+        lock (this)
+        {
+            if (_pendingValidations.TryGetValue(pending.Id, out PendingValidation? current) && ReferenceEquals(current, pending))
+            {
+                _pendingValidations.Remove(pending.Id);
+                _pendingValidationBytes -= pending.Size;
+            }
+        }
+    }
+
+    private async Task ObserveDeferredValidation(Task validation, WeakReference<PendingValidation> pendingReference, string topic)
+    {
+        try
+        {
+            await validation.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (validation.IsCanceled)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Deferred pubsub validator failed for topic {topic}", topic);
+        }
+        finally
+        {
+            if (pendingReference.TryGetTarget(out PendingValidation? pending))
+            {
+                RemovePendingValidation(pending);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completes a message for which <see cref="VerifyMessage"/> returned
+    /// <see cref="MessageValidity.Deferred"/>. The exact message instance passed to the
+    /// validator is required, so a late completion cannot finish a replacement with the same ID.
+    /// Returns false if it was not pending, expired, or was changed after validation began.
+    /// </summary>
+    public bool CompleteValidation(Message message, MessageValidity validity)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        if (validity is MessageValidity.Deferred || !Enum.IsDefined(validity))
+        {
+            throw new ArgumentOutOfRangeException(nameof(validity));
+        }
+
+        ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
+        List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
+        lock (this)
+        {
+            if (_stopped.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            RemoveExpiredPendingValidations();
+            KeyValuePair<MessageId, PendingValidation> entry = _pendingValidations.FirstOrDefault(
+                pair => ReferenceEquals(pair.Value.Original, message));
+            PendingValidation? pending = entry.Value;
+            if (pending is null)
+            {
+                return false;
+            }
+
+            _pendingValidations.Remove(entry.Key);
+            _pendingValidationBytes -= pending.Size;
+            if (!message.Equals(pending.Snapshot))
+            {
+                return false;
+            }
+
+            switch (validity)
+            {
+                case MessageValidity.Accepted:
+                    AcceptMessage(entry.Key, pending.Snapshot, pending.Source, peerMessages, receivedMessages);
+                    break;
+                case MessageValidity.Rejected:
+                    _limboMessageCache.Add(entry.Key, new(entry.Key, pending.Snapshot));
+                    RecordMessageDelivery(pending.Source, pending.Snapshot, pending.Snapshot.Topic, false);
+                    break;
+                case MessageValidity.Ignored:
+                    _limboMessageCache.Add(entry.Key, new(entry.Key, pending.Snapshot));
+                    break;
+            }
+        }
+
+        DispatchMessages(receivedMessages, peerMessages);
+        return true;
+    }
+
+    private void RemoveExpiredPendingValidations()
+    {
+        if (_pendingValidations.Count == 0)
+        {
+            return;
+        }
+
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        foreach (MessageId messageId in _pendingValidations
+            .Where(pair => pair.Value.ExpiresAt <= now)
+            .Select(pair => pair.Key).ToArray())
+        {
+            _pendingValidationBytes -= _pendingValidations[messageId].Size;
+            _pendingValidations.Remove(messageId);
+        }
+    }
+
+    private void DispatchMessages(List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages,
+        ConcurrentDictionary<PeerId, Rpc> peerMessages)
+    {
+        foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
+        {
+            foreach (Delegate handler in OnMessage?.GetInvocationList() ?? [])
+            {
+                try
+                {
+                    ((Action<string, PeerId, byte[]>)handler)(topic, receivedFrom, data);
+                }
+                catch (Exception ex)
+                {
+                    LogSubscriberError(ex, topic);
+                }
+            }
+        }
+
+        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        {
+            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+        }
+    }
+
+    internal void LogSubscriberError(Exception ex, string topic)
+        => logger?.LogWarning(ex, "Pubsub message subscriber failed for topic {topic}", topic);
 
     private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
     {
@@ -100,7 +279,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
+    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages,
+        List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages, List<PendingValidation> deferredMessages)
     {
         // Check if peer is graylisted (Gossipsub v1.1)
         if (ShouldGraylistPeer(peerId))
@@ -123,7 +303,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             MessageId messageId = _settings.GetMessageId(message);
 
-            if (_limboMessageCache.Contains(messageId) || _messageCache!.Contains(messageId))
+            if (_pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _messageCache.Contains(messageId))
             {
                 continue;
             }
@@ -135,54 +315,93 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            MessageValidity validity = VerifyMessage?.Invoke(peerId, message) ?? MessageValidity.Accepted;
+            Func<PeerId, Message, MessageValidity>? verify = VerifyMessage;
+            Message? authenticated = verify is null ? null : message.Clone();
+            MessageValidity validity = verify?.Invoke(peerId, message) ?? MessageValidity.Accepted;
+            if (authenticated is not null && !message.Equals(authenticated))
+            {
+                logger?.LogWarning("Pubsub validator changed a message after authentication for topic {topic}", authenticated.Topic);
+                continue;
+            }
+
+            Message validated = authenticated ?? message;
 
             switch (validity)
             {
                 case MessageValidity.Rejected:
-                    _limboMessageCache.Add(messageId, new(messageId, message));
-                    RecordMessageDelivery(peerId, message, message.Topic, false);  // Track invalid message
+                    _limboMessageCache.Add(messageId, new(messageId, validated));
+                    RecordMessageDelivery(peerId, validated, validated.Topic, false);  // Track invalid message
                     continue;
                 case MessageValidity.Ignored:
-                    _limboMessageCache.Add(messageId, new(messageId, message));
+                    _limboMessageCache.Add(messageId, new(messageId, validated));
                     continue;
                 case MessageValidity.Throttled:
                     continue;
             }
 
-            _messageCache.Add(messageId, new(messageId, message));
-
-            // Record valid message delivery for scoring
-            RecordMessageDelivery(peerId, message, message.Topic, true);
-
-            PeerId author = new(message.From.ToArray());
-            receivedMessages.Add((message.Topic, peerId, message.Data.ToByteArray()));
-
-            if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
+            if (validity == MessageValidity.Deferred)
             {
-                foreach (PeerId peer in topicPeers)
+                if (OnDeferredMessage is null)
                 {
-                    if (peer == author || peer == peerId)
-                    {
-                        continue;
-                    }
-                    peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+                    continue;
                 }
-            }
-            if (mesh.TryGetValue(message.Topic, out topicPeers))
-            {
-                foreach (PeerId peer in topicPeers)
-                {
-                    if (peer == author || peer == peerId)
-                    {
-                        continue;
-                    }
 
-                    // Only forward to peers above publish threshold (Gossipsub v1.1)
-                    if (GetPeerScore(peer) >= _settings.PublishThreshold)
-                    {
-                        peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
-                    }
+                int size = validated.CalculateSize();
+                if (_pendingValidations.Count >= _settings.MaxPendingValidationMessages ||
+                    size > _settings.MaxPendingValidationBytes - _pendingValidationBytes)
+                {
+                    continue;
+                }
+
+                PendingValidation pending = new(messageId, message, validated, peerId, size);
+                _pendingValidations.Add(messageId, pending);
+                _pendingValidationBytes += size;
+                deferredMessages.Add(pending);
+                continue;
+            }
+
+            if (validity != MessageValidity.Accepted)
+            {
+                continue;
+            }
+
+            AcceptMessage(messageId, validated, peerId, peerMessages, receivedMessages);
+        }
+    }
+
+    private void AcceptMessage(MessageId messageId, Message message, PeerId peerId,
+        ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
+    {
+        _messageCache.Add(messageId, new(messageId, message));
+        RecordMessageDelivery(peerId, message, message.Topic, true);
+
+        PeerId author = new(message.From.ToArray());
+        receivedMessages.Add((message.Topic, peerId, message.Data.ToByteArray()));
+
+        if (fPeers.TryGetValue(message.Topic, out HashSet<PeerId>? topicPeers))
+        {
+            foreach (PeerId peer in topicPeers)
+            {
+                if (peer == author || peer == peerId)
+                {
+                    continue;
+                }
+                peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
+            }
+        }
+        if (mesh.TryGetValue(message.Topic, out topicPeers))
+        {
+            foreach (PeerId peer in topicPeers)
+            {
+                if (peer == author || peer == peerId)
+                {
+                    continue;
+                }
+
+                // Only forward to peers above publish threshold (Gossipsub v1.1)
+                if (GetPeerScore(peer) >= _settings.PublishThreshold)
+                {
+                    peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
                 }
             }
         }
@@ -336,7 +555,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         foreach (ControlIHave? ihave in ihaves.Where(iw => topicState.GetValueOrDefault(iw.TopicID)?.IsSubscribed is true))
         {
             messageIds.AddRange(ihave.MessageIDs.Select(m => new MessageId(m.ToByteArray()))
-                .Where(mid => !_messageCache.Contains(mid)));
+                .Where(mid => !_pendingValidations.ContainsKey(mid) && !_messageCache.Contains(mid)));
         }
 
         if (messageIds.Any())
