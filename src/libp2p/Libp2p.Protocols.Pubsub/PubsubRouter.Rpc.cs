@@ -244,7 +244,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             foreach (PeerId directPeerId in GetDirectPeersForTopic(message.Topic))
             {
-                if (directPeerId != author && directPeerId != peerId && !IsUnwantedBy(directPeerId, messageId) && ShouldSendFullMessage(directPeerId, message.Topic))
+                if (directPeerId != author && directPeerId != peerId && ShouldSendFullMessage(directPeerId, message.Topic, messageId))
                 {
                     peerMessages.GetOrAdd(directPeerId, _ => new Rpc()).Publish.Add(message);
                 }
@@ -258,7 +258,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         continue;
                     }
-                    if (ShouldSendFullMessage(peer, message.Topic))
+                    if (ShouldSendFullMessage(peer, message.Topic, messageId))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
                     }
@@ -268,13 +268,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 foreach (PeerId peer in topicPeers)
                 {
-                    if (peer == author || peer == peerId || IsDirectPeer(peer) || IsUnwantedBy(peer, messageId))
+                    if (peer == author || peer == peerId || IsDirectPeer(peer))
                     {
                         continue;
                     }
 
                     // Only forward to peers above publish threshold (Gossipsub v1.1)
-                    if (GetPeerScore(peer) >= _settings.PublishThreshold && ShouldSendFullMessage(peer, message.Topic))
+                    if (GetPeerScore(peer) >= _settings.PublishThreshold && ShouldSendFullMessage(peer, message.Topic, messageId))
                     {
                         peerMessages.GetOrAdd(peer, _ => new Rpc()).Publish.Add(message);
                     }

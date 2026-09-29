@@ -178,6 +178,52 @@ public class GossipsubControlLimitsTests
         senderConnection.SetResult();
     }
 
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task IDontWant_SuppressesLocalPublishToDirectMeshFloodAndFanoutPeers(bool floodPublish, bool useFanout)
+    {
+        PubsubSettings settings = new()
+        {
+            HeartbeatInterval = int.MaxValue,
+            FloodPublish = floodPublish,
+            DirectPeers = [TestPeers.Multiaddr(3)],
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()),
+        };
+        await using RouterSetup setup = await RouterSetup.Create(settings);
+        List<Rpc> directRpcs = [];
+        List<Rpc> allowedRpcs = [];
+        List<Rpc> floodsubRpcs = [];
+        PeerId directPeer = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, directRpcs);
+        _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV12, allowedRpcs);
+        _ = setup.ConnectPeer(5, PubsubRouter.FloodsubProtocolVersion, floodsubRpcs);
+        await setup.Router.Heartbeat();
+        if (useFanout)
+        {
+            setup.Router.Unsubscribe(setup.Topic);
+        }
+
+        MessageId messageId = new([42]);
+        Rpc unwanted = new() { Control = new ControlMessage() };
+        unwanted.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, unwanted);
+        setup.Router.OnRpc(directPeer, unwanted);
+        setup.SentRpcs.Clear();
+        directRpcs.Clear();
+        allowedRpcs.Clear();
+        floodsubRpcs.Clear();
+
+        setup.Router.Publish(setup.Topic, [42]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+            Assert.That(GetPublishedMessages(directRpcs), Is.Empty);
+            Assert.That(GetPublishedMessages(allowedRpcs), Has.Count.EqualTo(1));
+            Assert.That(GetPublishedMessages(floodsubRpcs), Has.Count.EqualTo(1));
+        });
+    }
+
     [Test]
     public async Task IDontWant_SendsFirstLargeMessageIdToV12MeshPeersBeforeForwarding()
     {
