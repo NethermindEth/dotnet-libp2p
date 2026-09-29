@@ -26,6 +26,7 @@ public partial class PubsubRouter
 
     /// <summary>
     /// Gets a topic configured for the opt-in Gossipsub v1.3 Partial Messages extension.
+    /// Unsubscribe before disabling partial-message requests on a subscribed topic.
     /// </summary>
     public IPartialMessagesTopic GetPartialMessagesTopic(string topicId, PartialMessagesTopicOptions options, bool subscribe = true)
     {
@@ -36,21 +37,24 @@ public partial class PubsubRouter
             throw new InvalidOperationException("Partial messages are not enabled. Set EnablePartialMessages before creating a partial messages topic.");
         }
 
-        Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
-        bool wasSubscribed = topic.IsSubscribed;
-        IPartialMessagesTopic partialMessagesTopic = topic.ConfigurePartialMessages(options);
-
-        if (subscribe)
+        lock (this)
         {
-            Subscribe(topicId);
-        }
+            Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
+            bool wasSubscribed = topic.IsSubscribed;
+            IPartialMessagesTopic partialMessagesTopic = topic.ConfigurePartialMessages(options);
 
-        if (wasSubscribed)
-        {
-            AnnounceSubscription(topicId);
-        }
+            if (subscribe)
+            {
+                Subscribe(topicId);
+            }
 
-        return partialMessagesTopic;
+            if (wasSubscribed)
+            {
+                AnnounceSubscription(topicId);
+            }
+
+            return partialMessagesTopic;
+        }
     }
 
     private Rpc.Types.SubOpts CreateSubscription(string topicId, bool subscribe)
@@ -347,6 +351,7 @@ public partial class PubsubRouter
         PeerId[] recipients;
         lock (this)
         {
+            // Only the application knows group IDs; relayed full messages retain ordinary IHAVE gossip.
             partialMessageGossip.Track(topicId, groupId);
 
             if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers))

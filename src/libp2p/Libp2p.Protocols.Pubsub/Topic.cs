@@ -36,8 +36,10 @@ internal class Topic : ITopic
 
     private volatile bool isSubscribed;
     public bool IsSubscribed { get => isSubscribed; internal set => isSubscribed = value; }
-    internal bool RequestsPartialMessages { get; private set; }
-    internal bool SupportsSendingPartialMessages { get; private set; }
+    private volatile bool requestsPartialMessages;
+    private volatile bool supportsSendingPartialMessages;
+    internal bool RequestsPartialMessages => requestsPartialMessages;
+    internal bool SupportsSendingPartialMessages => supportsSendingPartialMessages;
     internal PubsubRouter Router => router;
     internal string Name => topicName;
 
@@ -45,14 +47,18 @@ internal class Topic : ITopic
 
     internal IPartialMessagesTopic ConfigurePartialMessages(PartialMessagesTopicOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
         if (options.RequestPartialMessages && !options.SupportsSendingPartialMessages)
         {
             throw new ArgumentException("Requesting partial messages requires support for sending partial messages.", nameof(options));
         }
 
-        RequestsPartialMessages = options.RequestPartialMessages;
-        SupportsSendingPartialMessages = options.SupportsSendingPartialMessages;
+        if (IsSubscribed && RequestsPartialMessages && !options.RequestPartialMessages)
+        {
+            throw new InvalidOperationException("Unsubscribe before disabling partial-message requests on a subscribed topic.");
+        }
+
+        supportsSendingPartialMessages = options.SupportsSendingPartialMessages;
+        requestsPartialMessages = options.RequestPartialMessages;
         return partialMessagesTopic ??= new PartialMessagesTopic(this);
     }
 
