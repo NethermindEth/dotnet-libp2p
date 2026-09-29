@@ -821,7 +821,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                             partialGossipNotifications.Add((topic, groupId, partialGossipPeers));
                         }
 
-                        gossipPeers = gossipPeers.Except(partialGossipPeers).ToArray();
+                        // A group ID does not identify which cached full message it advertises.
+                        // Keep IHAVE for those messages so unrelated full messages remain discoverable.
                     }
                 }
 

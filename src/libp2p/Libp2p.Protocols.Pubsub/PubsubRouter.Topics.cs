@@ -351,7 +351,7 @@ public partial class PubsubRouter
         PeerId[] recipients;
         lock (this)
         {
-            // Only the application knows group IDs; relayed full messages retain ordinary IHAVE gossip.
+            // Only the application knows group IDs; cached full messages retain ordinary IHAVE gossip.
             partialMessageGossip.Track(topicId, groupId);
 
             if (mesh.TryGetValue(topicId, out HashSet<PeerId>? meshPeers))

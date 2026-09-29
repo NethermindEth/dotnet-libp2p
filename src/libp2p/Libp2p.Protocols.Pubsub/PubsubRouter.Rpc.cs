@@ -151,7 +151,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         topicState.TryGetValue(topicId, out Topic? topic);
         if (partialMessage.HasPartialMessage && topic?.RequestsPartialMessages is not true)
         {
-            ApplyBehaviorPenalty(peerId, 1.0);
+            // SubOpts have no acknowledgement. A peer may still be acting on a prior request.
+            if (topic?.HasRequestedPartialMessages is not true)
+            {
+                ApplyBehaviorPenalty(peerId, 1.0);
+            }
             logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
             return;
         }

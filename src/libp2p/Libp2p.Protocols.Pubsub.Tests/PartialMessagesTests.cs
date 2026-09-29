@@ -328,7 +328,7 @@ public class PartialMessagesTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public async Task PartialMessages_GossipUsesTheApplicationCallbackInsteadOfIhave(bool throwingHandler)
+    public async Task PartialMessages_GossipCallbackKeepsFullMessagesDiscoverable(bool throwingHandler)
     {
         const string topicName = "topic";
         PubsubRouter router = new(new PeerStore(), new PubsubSettings
@@ -404,8 +404,9 @@ public class PartialMessagesTests
         Assert.That(partialGossipGroupId, Is.EqualTo(new byte[] { 7, 8 }));
         Assert.That(partialGossipRecipients!, Does.Not.Contain(plainPeer));
         Assert.That(partialGossipRecipients!.All(sentRpcs.ContainsKey), Is.True);
-        Assert.That(sentRpcs.Where(pair => pair.Key != plainPeer).SelectMany(pair => pair.Value)
-            .SelectMany(rpc => rpc.Control?.Ihave ?? []), Is.Empty);
+        Assert.That(partialGossipRecipients!.All(peer => sentRpcs[peer]
+            .SelectMany(rpc => rpc.Control?.Ihave ?? []).Any()), Is.True,
+            "A partial group cannot substitute for an unrelated cached full message ID.");
         Assert.That(plainPeerRpcs.SelectMany(rpc => rpc.Control?.Ihave ?? []), Is.Not.Empty);
 
         await router.Heartbeat();
@@ -615,9 +616,10 @@ public class PartialMessagesTests
         List<Rpc> sentRpcs = [];
         router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, connection.Task, sentRpcs.Add);
         router.OnRpc(peer, new Rpc { Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } } });
-        double scoreBefore = (double)typeof(PubsubRouter)
+        double Score() => (double)typeof(PubsubRouter)
             .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(router, [peer])!;
+        double scoreBefore = Score();
         int deliveries = 0;
         topic.OnPartialMessage += (_, _) => deliveries++;
 
@@ -625,7 +627,7 @@ public class PartialMessagesTests
         {
             SupportsSendingPartialMessages = true,
         }), Throws.TypeOf<InvalidOperationException>());
-        router.OnRpc(peer, new Rpc
+        Rpc partial = new()
         {
             Partial = new PartialMessagesExtension
             {
@@ -633,23 +635,33 @@ public class PartialMessagesTests
                 GroupID = ByteString.CopyFrom([1]),
                 PartialMessage = ByteString.CopyFrom([2]),
             },
-        }, isFirstRpc: false);
-        double scoreAfter = (double)typeof(PubsubRouter)
-            .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(router, [peer])!;
+        };
+        router.OnRpc(peer, partial, isFirstRpc: false);
         Assert.Multiple(() =>
         {
             Assert.That(topic.RequestsPartialMessages, Is.True);
             Assert.That(deliveries, Is.EqualTo(1));
-            Assert.That(scoreAfter, Is.EqualTo(scoreBefore));
+            Assert.That(Score(), Is.EqualTo(scoreBefore));
         });
 
         topic.Unsubscribe();
+        router.OnRpc(peer, partial, isFirstRpc: false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(deliveries, Is.EqualTo(1));
+            Assert.That(Score(), Is.EqualTo(scoreBefore), "An in-flight partial after unsubscribe must not be penalized.");
+        });
         router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
         {
             SupportsSendingPartialMessages = true,
         }, subscribe: false);
         topic.Subscribe();
+        router.OnRpc(peer, partial, isFirstRpc: false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(deliveries, Is.EqualTo(1));
+            Assert.That(Score(), Is.EqualTo(scoreBefore), "A stale partial after resubscribe must not be penalized.");
+        });
         Rpc.Types.SubOpts updatedSubscription = sentRpcs.SelectMany(rpc => rpc.Subscriptions).Last();
         Assert.Multiple(() =>
         {

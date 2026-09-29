@@ -40,6 +40,7 @@ internal class Topic : ITopic
     private volatile bool supportsSendingPartialMessages;
     internal bool RequestsPartialMessages => requestsPartialMessages;
     internal bool SupportsSendingPartialMessages => supportsSendingPartialMessages;
+    internal bool HasRequestedPartialMessages { get; private set; }
     internal PubsubRouter Router => router;
     internal string Name => topicName;
 
@@ -59,6 +60,7 @@ internal class Topic : ITopic
 
         supportsSendingPartialMessages = options.SupportsSendingPartialMessages;
         requestsPartialMessages = options.RequestPartialMessages;
+        HasRequestedPartialMessages |= options.RequestPartialMessages;
         return partialMessagesTopic ??= new PartialMessagesTopic(this);
     }
 
