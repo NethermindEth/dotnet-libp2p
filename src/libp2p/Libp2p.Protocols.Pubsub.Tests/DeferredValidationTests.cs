@@ -97,7 +97,7 @@ public class DeferredValidationTests
         TestClock clock = new();
         PubsubSettings settings = Settings();
         settings.MaxPendingValidationMessages = 1;
-        settings.MaxPendingValidationBytes = 128;
+        settings.MaxPendingValidationBytes = NewMessage(1).CalculateSize();
         settings.PendingValidationTimeout = TimeSpan.FromSeconds(5);
         using PubsubRouter router = CreateRouter(settings, clock);
         int validations = 0;
@@ -162,13 +162,18 @@ public class DeferredValidationTests
         List<byte[]> delivered = [];
         router.GetTopic(Topic).OnMessage += (_, data) => delivered.Add(data);
         int validations = 0;
+        int callbacks = 0;
         TaskCompletionSource validationWork = new();
         router.VerifyMessage = (_, _) =>
         {
             validations++;
             return MessageValidity.Deferred;
         };
-        router.OnDeferredMessage = (_, _) => validationWork.Task;
+        router.OnDeferredMessage = (_, _) =>
+        {
+            callbacks++;
+            return validationWork.Task;
+        };
 
         Message first = NewMessage(1);
         router.OnRpc(TestPeers.PeerId(1), RpcWith(first));
@@ -184,7 +189,11 @@ public class DeferredValidationTests
         });
         validationWork.SetResult();
         router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(2)));
-        Assert.That(validations, Is.EqualTo(3));
+        Assert.Multiple(() =>
+        {
+            Assert.That(validations, Is.EqualTo(3));
+            Assert.That(callbacks, Is.EqualTo(2), "Completing a validation must free its byte budget.");
+        });
     }
 
     [Test]
@@ -224,6 +233,47 @@ public class DeferredValidationTests
         router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1)));
 
         Assert.That(order, Is.EqualTo(new[] { "local", "forward" }));
+    }
+
+    [Test]
+    public void AcceptedMessagesAndControlRepliesDispatchBeforeDeferredCallbacks()
+    {
+        using PubsubRouter router = CreateRouter();
+        List<byte[]> delivered = [];
+        router.GetTopic(Topic).OnMessage += (_, data) => delivered.Add(data);
+        TaskCompletionSource closed = new();
+        List<Rpc> forwarded = [];
+        router.OutboundConnection(TestPeers.Multiaddr(2), PubsubRouter.FloodsubProtocolVersion, closed.Task,
+            rpc => forwarded.Add(rpc));
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics([Topic], []));
+        List<Rpc> replies = [];
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV11, closed.Task, replies.Add);
+        replies.Clear();
+        router.VerifyMessage = (_, message) => message.Data.Span[0] == 1
+            ? MessageValidity.Accepted
+            : MessageValidity.Deferred;
+        int callbacks = 0;
+        router.OnDeferredMessage = (_, _) =>
+        {
+            callbacks++;
+            Assert.Multiple(() =>
+            {
+                Assert.That(delivered, Is.EqualTo(new[] { new byte[] { 1 } }));
+                Assert.That(forwarded.SelectMany(rpc => rpc.Publish).Select(message => message.Data.ToByteArray()),
+                    Is.EqualTo(new[] { new byte[] { 1 } }));
+                Assert.That(replies.SelectMany(rpc => rpc.Control?.Iwant ?? []).SelectMany(iwant => iwant.MessageIDs),
+                    Is.EqualTo(new[] { ByteString.CopyFrom([3]) }));
+            });
+            return Task.CompletedTask;
+        };
+
+        Rpc rpc = RpcWith(NewMessage(1));
+        rpc.Publish.Add(NewMessage(2));
+        rpc.Control = new ControlMessage();
+        rpc.Control.Ihave.Add(new ControlIHave { TopicID = Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+
+        Assert.That(callbacks, Is.EqualTo(1));
     }
 
     [TestCase(MessageValidity.Deferred)]
@@ -377,7 +427,9 @@ public class DeferredValidationTests
     [Test]
     public void SynchronousCallbackFailureReleasesTheExactPendingEntry()
     {
-        using PubsubRouter router = CreateRouter();
+        PubsubSettings settings = Settings();
+        settings.MaxPendingValidationBytes = NewMessage(1).CalculateSize();
+        using PubsubRouter router = CreateRouter(settings);
         int validations = 0;
         int callbacks = 0;
         router.VerifyMessage = (_, _) =>
@@ -406,14 +458,21 @@ public class DeferredValidationTests
     [Test]
     public void FaultedCallbackTaskReleasesPendingEntryForRetry()
     {
-        using PubsubRouter router = CreateRouter();
+        PubsubSettings settings = Settings();
+        settings.MaxPendingValidationBytes = NewMessage(1).CalculateSize();
+        using PubsubRouter router = CreateRouter(settings);
         int validations = 0;
+        int callbacks = 0;
         router.VerifyMessage = (_, _) =>
         {
             validations++;
             return MessageValidity.Deferred;
         };
-        router.OnDeferredMessage = (_, _) => Task.FromException(new InvalidOperationException("validation failed"));
+        router.OnDeferredMessage = (_, _) =>
+        {
+            callbacks++;
+            return Task.FromException(new InvalidOperationException("validation failed"));
+        };
 
         router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1)));
         Assert.That(router.PendingValidationCount, Is.Zero);
@@ -422,8 +481,33 @@ public class DeferredValidationTests
         Assert.Multiple(() =>
         {
             Assert.That(validations, Is.EqualTo(2));
+            Assert.That(callbacks, Is.EqualTo(2), "A faulted callback must free its byte budget.");
             Assert.That(router.PendingValidationCount, Is.Zero);
         });
+    }
+
+    [Test]
+    public void ThrowingDeferredCallbackDoesNotSkipTheNextMessageInTheSameRpc()
+    {
+        using PubsubRouter router = CreateRouter();
+        router.VerifyMessage = (_, _) => MessageValidity.Deferred;
+        List<byte> callbacks = [];
+        router.OnDeferredMessage = (_, message) =>
+        {
+            byte data = message.Data.Span[0];
+            callbacks.Add(data);
+            if (data == 1)
+            {
+                throw new InvalidOperationException("callback failed");
+            }
+            return Task.CompletedTask;
+        };
+
+        Rpc rpc = RpcWith(NewMessage(1));
+        rpc.Publish.Add(NewMessage(2));
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+
+        Assert.That(callbacks, Is.EqualTo(new byte[] { 1, 2 }));
     }
 
     [Test]
@@ -496,7 +580,8 @@ public class DeferredValidationTests
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             clock.UtcNow += TimeSpan.FromSeconds(5);
-            Assert.That(router.PendingValidationCount, Is.Zero);
+            int pending = await Task.Run(() => router.PendingValidationCount).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(pending, Is.Zero);
         }
         finally
         {
@@ -512,6 +597,7 @@ public class DeferredValidationTests
         TestClock clock = new();
         PubsubSettings settings = Settings();
         settings.PendingValidationTimeout = TimeSpan.FromSeconds(5);
+        settings.MaxPendingValidationBytes = 2 * NewMessage(1).CalculateSize();
         using PubsubRouter router = CreateRouter(settings, clock);
         router.GetTopic(Topic);
         router.VerifyMessage = (_, _) => MessageValidity.Deferred;
@@ -534,6 +620,11 @@ public class DeferredValidationTests
             Assert.That(callbacks, Is.EqualTo(1));
             Assert.That(router.PendingValidationCount, Is.Zero);
         });
+
+        Rpc next = RpcWith(NewMessage(3));
+        next.Publish.Add(NewMessage(4));
+        router.OnRpc(TestPeers.PeerId(1), next);
+        Assert.That(callbacks, Is.EqualTo(3), "Expiry before callback dispatch must free its byte budget.");
     }
 
     [Test]

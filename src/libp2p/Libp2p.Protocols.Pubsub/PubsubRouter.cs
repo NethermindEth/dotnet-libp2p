@@ -174,7 +174,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     public Func<PeerId, Message, MessageValidity>? VerifyMessage = null;
 
     internal int MaxRpcBytes => _settings.MaxRpcBytes;
-    internal int PendingValidationCount
+    /// <summary>Number of unexpired messages awaiting an application validation verdict.</summary>
+    public int PendingValidationCount
     {
         get
         {

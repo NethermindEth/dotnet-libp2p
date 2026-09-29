@@ -71,9 +71,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             }
             finally
             {
-                DispatchDeferredMessages(deferredMessages);
+                try
+                {
+                    DispatchMessages(receivedMessages, peerMessages);
+                }
+                finally
+                {
+                    DispatchDeferredMessages(deferredMessages);
+                }
             }
-            DispatchMessages(receivedMessages, peerMessages);
         }
         catch (Exception ex)
         {
@@ -368,18 +374,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 if (OnDeferredMessage is null)
                 {
+                    logger?.LogDebug("Dropping deferred pubsub message for topic {topic}: no deferred validator is registered", validated.Topic);
                     continue;
                 }
 
                 int size = validated.CalculateSize();
-                if (_pendingValidations.Count >= _settings.MaxPendingValidationMessages ||
-                    size > _settings.MaxPendingValidationBytes - _pendingValidationBytes)
+                // Local saturation can affect an honest peer, so it is not scored as invalid delivery.
+                if (_pendingValidations.Count >= _settings.MaxPendingValidationMessages)
                 {
+                    logger?.LogDebug("Dropping deferred pubsub message for topic {topic} from {peerId}: pending validation count limit reached", validated.Topic, peerId);
+                    continue;
+                }
+                if (size > _settings.MaxPendingValidationBytes - _pendingValidationBytes)
+                {
+                    logger?.LogDebug("Dropping deferred pubsub message for topic {topic} from {peerId}: pending validation byte limit reached", validated.Topic, peerId);
                     continue;
                 }
 
                 if (!TryGetPendingValidationExpiry(_timeProvider.GetUtcNow(), out DateTimeOffset expiresAt))
                 {
+                    logger?.LogDebug("Dropping deferred pubsub message for topic {topic}: pending validation timeout is invalid", validated.Topic);
                     continue;
                 }
 
