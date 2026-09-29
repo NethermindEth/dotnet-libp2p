@@ -294,12 +294,94 @@ public class GossipsubControlLimitsTests
         Message second = new Rpc().WithMessages(setup.Topic, 2, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
         Message third = new Rpc().WithMessages(setup.Topic, 3, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
         setup.Router.OnRpc(sender, new Rpc { Publish = { first, second } });
-        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(first).Bytes) }));
+        Rpc idontwant = setup.SentRpcs.Single(rpc => rpc.Control?.Idontwant.Count > 0);
+        Assert.Multiple(() =>
+        {
+            Assert.That(idontwant.Control.Idontwant, Has.Count.EqualTo(1));
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[]
+            {
+                ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(first).Bytes),
+                ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(second).Bytes),
+            }));
+        });
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(sender, new Rpc { Publish = { third } });
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
         setup.SentRpcs.Clear();
-        setup.Router.OnRpc(sender, new Rpc { Publish = { third } });
-        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(third).Bytes) }));
+        Message fourth = new Rpc().WithMessages(setup.Topic, 4, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+        setup.Router.OnRpc(sender, new Rpc { Publish = { fourth } });
+        Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(fourth).Bytes) }));
+    }
+
+    [Test]
+    public async Task IDontWant_BoundsBatchLengthAndEnvelopeCount()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIdontwantMessages = 2,
+            MaxIdontwantLength = 2,
+        });
+        List<Rpc> senderRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        Identity author = TestPeers.Identity(4);
+        Message[] messages = Enumerable.Range(1, 5)
+            .Select(sequence => new Rpc().WithMessages(setup.Topic, (ulong)sequence, author.PeerId.Bytes, new byte[1024], author).Publish.Single())
+            .ToArray();
+
+        setup.Router.OnRpc(sender, new Rpc { Publish = { messages } });
+
+        Rpc idontwant = setup.SentRpcs.Single(rpc => rpc.Control?.Idontwant.Count > 0);
+        Assert.Multiple(() =>
+        {
+            Assert.That(idontwant.Control.Idontwant.Select(envelope => envelope.MessageIDs.Count), Is.EqualTo(new[] { 2, 2 }));
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(messages.Take(4).Select(message => ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(message).Bytes))));
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(messages));
+        });
+    }
+
+    [Test]
+    public async Task IDontWant_SkipsPeersSendingRequestedPartialMessages()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            EnablePartialMessages = true,
+        });
+        _ = setup.Router.GetPartialMessagesTopic(setup.Topic, new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
+        List<Rpc> partialPeerRpcs = [];
+        List<Rpc> fullPeerRpcs = [];
+        PeerId partialPeer = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV13, partialPeerRpcs);
+        _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV13, fullPeerRpcs);
+        setup.Router.OnRpc(partialPeer, new Rpc
+        {
+            Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } },
+            Subscriptions = { new Rpc.Types.SubOpts { Subscribe = true, Topicid = setup.Topic, SupportsSendingPartial = true } },
+        });
+        await setup.Router.Heartbeat();
+        partialPeerRpcs.Clear();
+        fullPeerRpcs.Clear();
+        Identity author = TestPeers.Identity(5);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
+
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(partialPeerRpcs), Is.Empty);
+            Assert.That(GetIdontwantIds(fullPeerRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(message).Bytes) }));
+            Assert.That(GetPublishedMessages(partialPeerRpcs), Is.EqualTo(new[] { message }));
+            Assert.That(GetPublishedMessages(fullPeerRpcs), Is.EqualTo(new[] { message }));
+        });
     }
 
     [Test]

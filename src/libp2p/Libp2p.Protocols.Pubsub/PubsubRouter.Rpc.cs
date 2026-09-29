@@ -19,7 +19,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         try
         {
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
-            List<(PeerId PeerId, Rpc Rpc)> idontwantMessages = [];
+            Dictionary<PeerId, Rpc> idontwantMessages = [];
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
             List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages = [];
             lock (this)
@@ -171,7 +171,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
     }
 
-    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, List<(PeerId PeerId, Rpc Rpc)> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
+    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages, Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
     {
         // Check if peer is graylisted (Gossipsub v1.1)
         if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
@@ -215,11 +215,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 case MessageValidity.Throttled:
                     _iwantPromises.Clear(peerId);
                     continue;
-            }
-
-            if (validity != MessageValidity.Accepted)
-            {
-                continue;
+                case MessageValidity.Accepted:
+                    break;
+                default:
+                    continue;
             }
 
             if (!message.VerifySignature(_settings.DefaultSignaturePolicy))
@@ -285,7 +284,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     }
 
     private void AddIdontwantMessages(Message message, MessageId messageId, PeerId? source,
-        List<(PeerId PeerId, Rpc Rpc)> idontwantMessages)
+        Dictionary<PeerId, Rpc> idontwantMessages)
     {
         // Do not amplify a message ID across the mesh.
         if (!mesh.TryGetValue(message.Topic, out HashSet<PeerId>? meshPeers) ||
@@ -302,15 +301,29 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             if (meshPeerId == source ||
                 !peerState.TryGetValue(meshPeerId, out PubsubPeer? meshPeer) ||
                 meshPeer.Protocol < PubsubPeer.PubsubProtocol.GossipsubV12 ||
-                (requestsPartialMessages && meshPeer.SupportsSendingPartialMessages(message.Topic)) ||
-                !meshPeer.Control.TrySendIdontwant(_settings.MaxIdontwantMessages))
+                (requestsPartialMessages && meshPeer.SupportsSendingPartialMessages(message.Topic)))
             {
                 continue;
             }
 
-            Rpc idontwant = new() { Control = new ControlMessage() };
+            if (idontwantMessages.TryGetValue(meshPeerId, out Rpc? idontwant) &&
+                idontwant.Control.Idontwant[^1].MessageIDs.Count < _settings.MaxIdontwantLength)
+            {
+                idontwant.Control.Idontwant[^1].MessageIDs.Add(idBytes);
+                continue;
+            }
+
+            if (!meshPeer.Control.TrySendIdontwant(_settings.MaxIdontwantMessages))
+            {
+                continue;
+            }
+
+            if (idontwant is null)
+            {
+                idontwant = new Rpc { Control = new ControlMessage() };
+                idontwantMessages.Add(meshPeerId, idontwant);
+            }
             idontwant.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { idBytes } });
-            idontwantMessages.Add((meshPeerId, idontwant));
         }
     }
 

@@ -246,7 +246,7 @@ public partial class PubsubRouter
 
             if (message.Length >= _settings.IdontwantMessageThreshold && mesh.ContainsKey(topicId))
             {
-                List<(PeerId PeerId, Rpc Rpc)> idontwantMessages = [];
+                Dictionary<PeerId, Rpc> idontwantMessages = [];
                 AddIdontwantMessages(publishedMessage, messageId, source: null, idontwantMessages);
                 foreach ((PeerId recipient, Rpc idontwant) in idontwantMessages)
                 {
