@@ -103,6 +103,33 @@ internal class SessionCancellationTests
         await transport.TokenRegistered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await session.DisconnectAsync();
     }
+
+    [Test]
+    public async Task PendingSessionDialIsCanceledWhenConnectionEnds()
+    {
+        TokenUsingAfterConnectedTransport transport = new();
+        IPeerFactory factory = new TokenUsingAfterConnectedStackBuilder(new ServiceCollection()
+                .AddSingleton<IProtocolStackSettings>(new ProtocolStackSettings())
+                .AddSingleton(transport)
+                .AddSingleton(new IncrementNumberTestProtocol())
+                .BuildServiceProvider())
+            .AddProtocol<IncrementNumberTestProtocol>()
+            .Build();
+
+        ILocalPeer peer = factory.Create(TestPeers.Identity(1));
+        Multiaddress remoteAddr = $"/p2p/{TestPeers.Identity(2).PeerId}";
+        ISession session = await peer.DialAsync(remoteAddr).WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ContinueAfterConnected.SetResult();
+        await transport.TokenRegistered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task<int> pending = session.DialAsync<IncrementNumberTestProtocol, int, int>(42);
+        Assert.That(pending.IsCompleted, Is.False);
+
+        await session.DisconnectAsync();
+        Assert.CatchAsync<OperationCanceledException>(async () => await pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await session.DialAsync<IncrementNumberTestProtocol, int, int>(42).WaitAsync(TimeSpan.FromSeconds(2)));
+    }
 }
 
 class StackBuilder(IServiceProvider serviceProvider) : PeerFactoryBuilderBase<StackBuilder, PeerFactory>(serviceProvider)
