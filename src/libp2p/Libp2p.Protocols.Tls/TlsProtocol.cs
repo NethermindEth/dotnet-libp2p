@@ -40,7 +40,8 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogInformation("Starting ListenAsync: PeerId {LocalPeerId}", context.Peer.Identity.PeerId);
 
             Stream str = new ChannelStream(downChannel);
-            X509Certificate certificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+            using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+            X509Certificate2 certificate = certificateLease.Certificate;
             _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.Peer.Identity.PeerId, certificate.Subject, certificate.Issuer);
 
             SslServerAuthenticationOptions serverAuthenticationOptions = new()
@@ -108,7 +109,8 @@ public class TlsProtocol : IConnectionProtocol
         try
         {
             _logger?.LogInformation("Starting DialAsync: LocalPeerId {LocalPeerId}", context.Peer.Identity.PeerId);
-            X509Certificate2 clientCert = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+            using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+            X509Certificate2 clientCert = certificateLease.Certificate;
 
             SslClientAuthenticationOptions clientAuthenticationOptions = new()
             {

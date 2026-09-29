@@ -65,3 +65,30 @@ jobs:
           dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
+
+  windows-quic-tls:
+    name: Windows QUIC and TLS
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src/libp2p
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+
+      - name: Build QUIC tests
+        run: dotnet build Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Build TLS tests
+        run: dotnet build Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Test QUIC
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 18
+
+      - name: Test TLS
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 25

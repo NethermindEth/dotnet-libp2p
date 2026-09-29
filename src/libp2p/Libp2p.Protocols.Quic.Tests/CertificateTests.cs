@@ -10,6 +10,30 @@ namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 
 public class CertificateTests
 {
+    [Test]
+    public void WindowsCertificateLeaseDeletesPersistedPrivateKey()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("CNG key persistence is Windows-specific.");
+            return;
+        }
+
+        using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string keyName;
+        using (CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity()))
+        {
+            using ECDsaCng privateKey = lease.Certificate.GetECDsaPrivateKey() as ECDsaCng
+                ?? throw new AssertionException("Expected a CNG private key.");
+            using CngKey key = privateKey.Key;
+            keyName = key.KeyName ?? throw new AssertionException("Expected a named CNG private key.");
+
+            Assert.That(CngKey.Exists(keyName), Is.True);
+        }
+
+        Assert.That(CngKey.Exists(keyName), Is.False);
+    }
+
     [TestCaseSource(nameof(CertificatesSerialized))]
     public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
         CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
@@ -51,7 +75,7 @@ public class CertificateTests
         {
             Identity id = new(null, keyType);
             yield return new TestCaseData(
-              CertificateHelper.CertificateFromIdentity(ECDsa.Create(), id).GetRawCertData(),
+              CreateCertificateBytes(id),
               id.PeerId.ToString()
               )
             { TestName = $"Roundtrip valid {keyType} key", ExpectedResult = true };
@@ -62,8 +86,8 @@ public class CertificateTests
     {
         Identity id = new();
         using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(certificateKey, id);
-        byte[] certificateBytes = certificate.GetRawCertData();
+        using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(certificateKey, id);
+        byte[] certificateBytes = lease.Certificate.GetRawCertData();
         certificateBytes[^1] ^= 0x01;
 
         return new TestCaseData(certificateBytes, id.PeerId.ToString())
@@ -71,5 +95,12 @@ public class CertificateTests
             TestName = "Invalid certificate self-signature",
             ExpectedResult = false,
         };
+    }
+
+    private static byte[] CreateCertificateBytes(Identity identity)
+    {
+        using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(certificateKey, identity);
+        return lease.Certificate.GetRawCertData();
     }
 }
