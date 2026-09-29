@@ -142,7 +142,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     #endregion
 
     public event Action<string, PeerId, byte[]>? OnMessage;
-    public Func<Message, MessageValidity>? VerifyMessage = null;
+    public Func<PeerId, Message, MessageValidity>? VerifyMessage = null;
 
     internal int MaxRpcBytes => _settings.MaxRpcBytes;
 

@@ -135,7 +135,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            MessageValidity validity = VerifyMessage?.Invoke(message) ?? MessageValidity.Accepted;
+            MessageValidity validity = VerifyMessage?.Invoke(peerId, message) ?? MessageValidity.Accepted;
 
             switch (validity)
             {

@@ -87,7 +87,7 @@ public class StrictNoSignTests
         using PubsubRouter router = new(new PeerStore(), settings);
         int validations = 0;
         int deliveries = 0;
-        router.VerifyMessage = _ =>
+        router.VerifyMessage = (_, _) =>
         {
             validations++;
             return MessageValidity.Accepted;
@@ -123,6 +123,28 @@ public class StrictNoSignTests
         router.OnRpc(TestPeers.PeerId(2), CreateUnsignedMessage("same payload"));
 
         Assert.That(deliveries, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void VerifyMessage_ReceivesThePropagatingPeer()
+    {
+        PubsubSettings settings = new()
+        {
+            DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
+            GetMessageId = message => new(message.Data.ToByteArray()),
+        };
+        using PubsubRouter router = new(new PeerStore(), settings);
+        PeerId propagatingPeer = TestPeers.PeerId(1);
+        PeerId? validatedPeer = null;
+        router.VerifyMessage = (peerId, _) =>
+        {
+            validatedPeer = peerId;
+            return MessageValidity.Accepted;
+        };
+
+        router.OnRpc(propagatingPeer, CreateUnsignedMessage("first"));
+
+        Assert.That(validatedPeer, Is.EqualTo(propagatingPeer));
     }
 
     [TestCase(PubsubSettings.SignaturePolicy.StrictNoSign, PubsubRouter.FloodsubProtocolVersion)]
