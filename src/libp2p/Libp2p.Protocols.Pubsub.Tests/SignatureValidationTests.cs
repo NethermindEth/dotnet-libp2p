@@ -13,21 +13,30 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 public class SignatureValidationTests
 {
     [Test]
-    public void MalformedSignedMessage_DoesNotDropFollowingValidMessage()
+    public void MalformedPeerId_DoesNotDropFollowingValidMessage()
+        => AssertBatchContinuesAfterMalformedMessage(message => message.From = ByteString.CopyFrom([1]));
+
+    [Test]
+    public void ShortSignature_DoesNotDropFollowingValidMessage()
+        => AssertBatchContinuesAfterMalformedMessage(message => message.Signature = ByteString.CopyFrom(new byte[63]));
+
+    [Test]
+    public void ShortEmbeddedPublicKey_DoesNotDropFollowingValidMessage()
+    {
+        var shortKey = new Identity().PublicKey.Clone();
+        shortKey.Data = ByteString.CopyFrom(new byte[31]);
+        AssertBatchContinuesAfterMalformedMessage(message => message.From = ByteString.CopyFrom(new PeerId(shortKey).Bytes));
+    }
+
+    private static void AssertBatchContinuesAfterMalformedMessage(Action<Message> makeMalformed)
     {
         using PubsubRouter router = new(new PeerStore());
         List<byte[]> deliveries = [];
         router.GetTopic("signed").OnMessage += (_, data) => deliveries.Add(data);
         Identity author = new();
         Rpc rpc = new();
-        rpc.Publish.Add(new Message
-        {
-            Topic = "signed",
-            From = ByteString.CopyFrom([1]),
-            Seqno = ByteString.CopyFrom([1]),
-            Signature = ByteString.CopyFrom(new byte[64]),
-            Data = ByteString.CopyFrom([1]),
-        });
+        rpc.WithMessages("signed", 1, author.PeerId.Bytes, [1], author);
+        makeMalformed(rpc.Publish[0]);
         rpc.WithMessages("signed", 2, author.PeerId.Bytes, [2], author);
 
         router.OnRpc(TestPeers.PeerId(1), rpc);
