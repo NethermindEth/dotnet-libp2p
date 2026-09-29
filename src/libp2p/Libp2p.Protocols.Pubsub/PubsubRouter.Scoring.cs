@@ -19,7 +19,7 @@ public partial class PubsubRouter
     /// <summary>
     /// Gets the score for a peer
     /// </summary>
-    private double GetPeerScore(PeerId peerId)
+    internal double GetPeerScore(PeerId peerId)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
