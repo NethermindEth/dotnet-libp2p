@@ -278,6 +278,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private readonly ConcurrentBag<Reconnection> reconnections = [];
     private readonly PeerStore _peerStore;
+    private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
+    private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
     private ulong seqNo = 1;
 
     // Lifetime of work owned by the router: background loops and dials it starts itself.
@@ -335,6 +337,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             throw new InvalidOperationException("StrictNoSign requires a custom GetMessageId function.");
         }
 
+        if (_settings.DirectConnectPeriod <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.DirectConnectPeriod), "DirectConnectPeriod must be positive.");
+        }
+
+        directPeers = CreateDirectPeers(_settings.DirectPeers);
         _messageCache = new(_settings.MessageCacheTtl);
         _limboMessageCache = new(_settings.MessageCacheTtl);
         _idontwantMessages = new(_settings.MessageCacheTtl);
@@ -364,13 +372,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, _stopped.Token);
             CancellationToken lifetime = _lifetime.Token;
 
-            _loops = Task.WhenAll(
+            List<Task> loops = [
                 Task.Run(() => LoopHeartbeat(lifetime), lifetime),
-                Task.Run(() => LoopReconnect(lifetime), lifetime));
+                Task.Run(() => LoopReconnect(lifetime), lifetime),
+            ];
+            if (directPeers.Count > 0)
+            {
+                loops.Add(Task.Run(() => LoopReconnectDirectPeers(lifetime), lifetime));
+            }
+            _loops = Task.WhenAll(loops);
+
+            foreach (Multiaddress[] directPeerAddresses in directPeers.Values)
+            {
+                _peerStore.Discover(directPeerAddresses);
+            }
+            ConnectDirectPeers(lifetime);
 
             _onNewPeer = (addrs) =>
             {
-                if (addrs.Any(a => a.GetPeerId()! == localPeer.Identity.PeerId))
+                // Direct peers are dialed by ConnectDirectPeers.
+                if (addrs.Any(a => a.GetPeerId() is PeerId peerId && (peerId == localPeer.Identity.PeerId || IsDirectPeer(peerId))))
                 {
                     return;
                 }
@@ -400,6 +421,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             await Task.Delay(_settings.ReconnectionPeriod, token);
             Reconnect(token);
             CleanupReconnectionPolicies();
+        }
+    }
+
+    private async Task LoopReconnectDirectPeers(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(_settings.DirectConnectPeriod, token);
+            ConnectDirectPeers(token);
         }
     }
 
@@ -546,6 +576,43 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
+    private static IReadOnlyDictionary<PeerId, Multiaddress[]> CreateDirectPeers(IEnumerable<Multiaddress>? configuredPeers)
+    {
+        return (configuredPeers ?? [])
+            .Select(address => (PeerId: address.GetPeerId() ?? throw new ArgumentException("A direct peer address must include a peer ID.", nameof(PubsubSettings.DirectPeers)), Address: address))
+            .GroupBy(entry => entry.PeerId)
+            .ToDictionary(group => group.Key, group => group.Select(entry => entry.Address).ToArray());
+    }
+
+    private void ConnectDirectPeers(CancellationToken token)
+    {
+        foreach ((PeerId peerId, Multiaddress[] addresses) in directPeers)
+        {
+            // The direct-peer loop owns retries, so a dial that is still in flight is not repeated.
+            if (peerState.ContainsKey(peerId) || !pendingDirectDials.TryAdd(peerId, 0))
+            {
+                continue;
+            }
+
+            Task connect = Connect(addresses, token);
+            Track(connect);
+            _ = connect.ContinueWith(t => pendingDirectDials.TryRemove(peerId, out byte _), TaskScheduler.Default);
+        }
+    }
+
+    private bool IsDirectPeer(PeerId peerId) => directPeers.ContainsKey(peerId);
+
+    private bool IsDirectPeerSubscribedTo(PeerId peerId, string topic)
+    {
+        return (fPeers.TryGetValue(topic, out HashSet<PeerId>? floodsubPeers) && floodsubPeers.Contains(peerId)) ||
+               (gPeers.TryGetValue(topic, out HashSet<PeerId>? gossipsubPeers) && gossipsubPeers.Contains(peerId));
+    }
+
+    private IEnumerable<PeerId> GetDirectPeersForTopic(string topic)
+    {
+        return directPeers.Keys.Where(peerId => IsDirectPeerSubscribedTo(peerId, topic));
+    }
+
     public Task Heartbeat()
     {
         // Apply score decay
@@ -584,6 +651,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
+                            && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
                             && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= DateTime.Now))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
@@ -669,7 +737,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? []).Where(p => !fanout[fanoutTopic].Contains(p)).Take(peerCountToAdd))
+                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? [])
+                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p))
+                            .Take(peerCountToAdd))
                         {
                             fanout[fanoutTopic].Add(peerId);
                         }
@@ -704,6 +774,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 PeerId[] eligiblePeers = topicGossipsubPeers
                     .Where(p => !topicMesh.Contains(p)
                         && !fanoutPeers.Contains(p)
+                        && !IsDirectPeer(p)
                         && GetPeerScore(p) >= _settings.GossipThreshold)
                     .ToArray();
 
@@ -779,7 +850,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
-                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested)
+                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
                 {
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
                 }
