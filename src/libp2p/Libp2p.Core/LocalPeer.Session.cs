@@ -50,9 +50,13 @@ public partial class LocalPeer
         private async Task<object?> DialAsyncCore(IProtocol? protocol, object? argument, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            CancellationToken connectionToken = ConnectionToken;
+            connectionToken.ThrowIfCancellationRequested();
 
             TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
             using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+            using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
+            connectionToken.ThrowIfCancellationRequested();
 
             SubDialRequests.Add(new UpgradeOptions()
             {

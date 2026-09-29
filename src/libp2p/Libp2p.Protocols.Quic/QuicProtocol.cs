@@ -9,11 +9,11 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Utils;
 using Nethermind.Libp2p.Protocols.Quic;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -55,7 +55,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
-        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+        using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+        X509Certificate2 cert = certificateLease.Certificate;
 
         QuicServerConnectionOptions serverConnectionOptions = new()
         {
@@ -80,7 +81,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             },
         };
 
-        QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
+        await using QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
         {
             ListenEndPoint = localEndpoint,
             ApplicationProtocols = protocols,
@@ -96,23 +97,55 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         _logger?.ReadyToHandleConnections();
 
-        token.Register(() => _ = listener.DisposeAsync());
-
         while (!token.IsCancellationRequested)
         {
+            QuicConnection connection;
             try
             {
-                QuicConnection connection = await listener.AcceptConnectionAsync(token);
-                INewConnectionContext clientContext = context.CreateConnection();
-
-                _ = ProcessStreams(clientContext, connection, token).ContinueWith(t =>
-                clientContext.Dispose());
+                connection = await listener.AcceptConnectionAsync(token);
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                _logger?.LogDebug("Closed with exception {exception}", ex.Message);
-                _logger?.LogTrace("{stackTrace}", ex.StackTrace);
+                break;
             }
+            catch (Exception ex) when (ex is not ArgumentException and not ObjectDisposedException
+                and not QuicException { QuicError: QuicError.CallbackError or QuicError.InternalError or QuicError.OperationAborted })
+            {
+                _logger?.LogDebug(ex, "QUIC client handshake failed");
+                continue;
+            }
+
+            INewConnectionContext clientContext;
+            try
+            {
+                clientContext = context.CreateConnection();
+            }
+            catch
+            {
+                await connection.DisposeAsync();
+                throw;
+            }
+
+            _ = ProcessAcceptedConnection(clientContext, connection, token);
+        }
+    }
+
+    private async Task ProcessAcceptedConnection(INewConnectionContext context, QuicConnection connection, CancellationToken token)
+    {
+        try
+        {
+            using (context)
+            await using (connection)
+            {
+                await ProcessStreams(context, connection, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "QUIC connection from {remoteAddress} closed", connection.RemoteEndPoint);
         }
     }
 
@@ -129,7 +162,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         IPEndPoint remoteEndpoint = new(ipAddress, udpPort);
 
-        X509Certificate2 clientCertificate = CertificateHelper.CertificateFromIdentity(_sessionKey, context.Peer.Identity);
+        using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
+        X509Certificate2 clientCertificate = certificateLease.Certificate;
 
         QuicClientConnectionOptions clientConnectionOptions = new()
         {
@@ -175,10 +209,10 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             throw;
         }
 
+        await using QuicConnection connected = connection;
         _logger?.Connected(connection.LocalEndPoint, connection.RemoteEndPoint);
-        INewConnectionContext connectionContext = context.CreateConnection();
+        using INewConnectionContext connectionContext = context.CreateConnection();
 
-        token.Register(() => _ = connection.CloseAsync(0));
         await ProcessStreams(connectionContext, connection, token);
     }
 
@@ -187,18 +221,6 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         if (!QuicListener.IsSupported)
         {
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
-        }
-
-        if (IsSchannel())
-        {
-            throw new NotSupportedException($"QUIC uses the Schannel backend, which is not supported. Check {AppContext.BaseDirectory}");
-        }
-
-        static bool IsSchannel()
-        {
-            Type quicApiType = typeof(QuicConnection).Assembly.GetType("System.Net.Quic.MsQuicApi")!;
-            PropertyInfo usesSChannelBackendProperty = quicApiType.GetProperty("UsesSChannelBackend", BindingFlags.Static | BindingFlags.NonPublic)!;
-            return (bool)usesSChannelBackendProperty.GetValue(null)!;
         }
     }
 
@@ -237,71 +259,224 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         context.State.RemotePublicKey = CertificateHelper.ExtractPublicKey(connection.RemoteCertificate as X509Certificate2, out _) ?? throw new Libp2pException("Remote public key not found");
         context.State.RemoteAddress = $"/{(connection.RemoteEndPoint.AddressFamily == AddressFamily.InterNetwork ? "ip4" : "ip6")}/{connection.RemoteEndPoint.Address}/udp/{connection.RemoteEndPoint.Port}/quic-v1/p2p/{new Identity(context.State.RemotePublicKey).PeerId}";
 
-        using INewSessionContext session = context.UpgradeToSession();
+        INewSessionContext session = context.UpgradeToSession();
+        using CancellationTokenSource acceptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        ConcurrentDictionary<Task, byte> exchanges = new();
+        void TrackExchange(QuicStream stream, IChannel channel)
+        {
+            Task exchange = ExchangeData(stream, channel, session.Token);
+            exchanges.TryAdd(exchange, 0);
+            _ = exchange.ContinueWith(task =>
+            {
+                exchanges.TryRemove(task, out _);
+                _ = task.Exception;
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
 
-        _ = Task.Run(async () =>
+        Task outgoing = Task.Run(async () =>
         {
             foreach (UpgradeOptions upgradeOptions in session.DialRequests)
             {
-                QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-                IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
-                ExchangeData(stream, upChannel);
+                try
+                {
+                    QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, session.Token);
+                    try
+                    {
+                        IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                        TrackExchange(stream, upChannel);
+                    }
+                    catch
+                    {
+                        await stream.DisposeAsync();
+                        throw;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    upgradeOptions.CompletionSource?.TrySetException(ex);
+                    throw;
+                }
             }
-        }, token);
+        }, session.Token);
 
-        while (!token.IsCancellationRequested)
+        Task<QuicStream>? pendingAccept = null;
+        try
         {
-            QuicStream inboundStream = await connection.AcceptInboundStreamAsync(token);
-            IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
-            ExchangeData(inboundStream, upChannel);
+            while (!token.IsCancellationRequested)
+            {
+                pendingAccept = connection.AcceptInboundStreamAsync(acceptCancellation.Token).AsTask();
+                if (await Task.WhenAny(pendingAccept, outgoing) == outgoing)
+                {
+                    break;
+                }
+
+                Task<QuicStream> completedAccept = pendingAccept;
+                pendingAccept = null;
+                QuicStream inboundStream = await completedAccept;
+                try
+                {
+                    IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                    TrackExchange(inboundStream, upChannel);
+                }
+                catch
+                {
+                    await inboundStream.DisposeAsync();
+                    throw;
+                }
+            }
+        }
+        finally
+        {
+            acceptCancellation.Cancel();
+            session.Dispose();
+            if (pendingAccept is not null)
+            {
+                try
+                {
+                    await using QuicStream unusedStream = await pendingAccept;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "QUIC pending inbound stream closed");
+                }
+            }
+
+            try
+            {
+                await outgoing;
+            }
+            catch (OperationCanceledException) when (session.Token.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                try
+                {
+                    await Task.WhenAll(exchanges.Keys);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "QUIC stream cleanup failed");
+                }
+            }
         }
     }
 
-    private void ExchangeData(QuicStream stream, IChannel upChannel)
+    private async Task ExchangeData(QuicStream stream, IChannel upChannel, CancellationToken token)
     {
-        upChannel.GetAwaiter().OnCompleted(() =>
-        {
-            stream.Close();
-            _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
-        });
-
-        _ = Task.Run(async () =>
+        using CancellationTokenSource pumpCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        Task outgoing = Task.Run(async () =>
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(pumpCancellation.Token))
                 {
-                    await stream.WriteAsync(data.ToArray());
+                    await stream.WriteAsync(data.ToArray(), pumpCancellation.Token);
                 }
                 stream.CompleteWrites();
             }
-            catch (SocketException ex)
+            catch (Exception) when (pumpCancellation.IsCancellationRequested)
             {
-                _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync();
+                await CloseChannelAsync(upChannel);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} outgoing data failed", stream.Id);
+                pumpCancellation.Cancel();
+                await CloseChannelAsync(upChannel);
             }
         });
 
-        _ = Task.Run(async () =>
+        Task incoming = Task.Run(async () =>
         {
             try
             {
                 while (stream.CanRead)
                 {
                     byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false);
-                    if (len != 0)
+                    int len = await stream.ReadAtLeastAsync(buf, 1, false, pumpCancellation.Token);
+                    if (len == 0)
                     {
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]));
+                        break;
+                    }
+                    if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]), pumpCancellation.Token) != IOResult.Ok)
+                    {
+                        break;
                     }
                 }
                 await upChannel.WriteEofAsync();
             }
-            catch (SocketException ex)
+            catch (Exception) when (pumpCancellation.IsCancellationRequested)
             {
-                _logger?.SocketException(ex, ex.Message);
-                await upChannel.CloseAsync();
+                await CloseChannelAsync(upChannel);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} incoming data failed", stream.Id);
+                pumpCancellation.Cancel();
+                await CloseChannelAsync(upChannel);
             }
         });
+
+        try
+        {
+            await upChannel;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "QUIC stream {streamId} data exchange failed", stream.Id);
+            pumpCancellation.Cancel();
+        }
+        finally
+        {
+            try
+            {
+                await outgoing;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} outgoing pump failed", stream.Id);
+            }
+
+            if (!incoming.IsCompleted)
+            {
+                pumpCancellation.Cancel();
+            }
+
+            try
+            {
+                await incoming;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} incoming pump failed", stream.Id);
+            }
+
+            try
+            {
+                await stream.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "QUIC stream {streamId} close failed", stream.Id);
+            }
+            _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
+        }
+    }
+
+    private static async Task CloseChannelAsync(IChannel channel)
+    {
+        // Drain a pending write so it releases the semaphore needed by CloseAsync.
+        Task close = channel.CloseAsync().AsTask();
+        try
+        {
+            await foreach (ReadOnlySequence<byte> _ in channel.ReadAllAsync())
+            {
+            }
+        }
+        finally
+        {
+            await close;
+        }
     }
 }
