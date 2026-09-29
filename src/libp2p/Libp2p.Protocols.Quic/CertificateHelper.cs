@@ -148,6 +148,15 @@ public class CertificateHelper
             return false; // Certificate self-signature is invalid
         }
 
+        foreach (X509Extension extension in certificate.Extensions)
+        {
+            if (extension.Critical && extension.Oid?.Value != PubkeyExtensionOidString)
+            {
+                failureReason = "certificate contains an unknown critical extension";
+                return false;
+            }
+        }
+
         Core.Dto.PublicKey? key = ExtractPublicKey(certificate, out byte[]? signature);
 
         if (key is null || signature is null)

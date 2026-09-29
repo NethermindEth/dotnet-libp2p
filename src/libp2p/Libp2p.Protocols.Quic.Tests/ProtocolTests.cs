@@ -37,10 +37,9 @@ public class ProtocolTests
             Assert.Inconclusive("QUIC is not supported in this environment.");
         }
 
-        AuthenticationLoggerFactory listenerLogs = new();
         using ServiceProvider listenerServices = new ServiceCollection()
             .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>().AddProtocol<HalfCloseTestProtocol>())
-            .AddSingleton<ILoggerFactory>(listenerLogs)
+            .AddSingleton<ILoggerFactory>(new TestContextLoggerFactory())
             .BuildServiceProvider();
         using ServiceProvider dialerServices = new ServiceCollection()
             .AddLibp2p(builder => builder.WithQuic().AddProtocol<IncrementNumberTestProtocol>().AddProtocol<HalfCloseTestProtocol>())
@@ -49,17 +48,21 @@ public class ProtocolTests
         await using ILocalPeer listener = listenerServices.GetRequiredService<IPeerFactory>().Create(new Identity(keyType: keyType));
         await using ILocalPeer dialer = dialerServices.GetRequiredService<IPeerFactory>().Create(new Identity(keyType: keyType));
         using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+        int acceptedSessions = 0;
+        listener.OnConnected += _ => Interlocked.Increment(ref acceptedSessions);
 
         await listener.StartListenAsync(["/ip4/127.0.0.1/udp/0/quic-v1"], cts.Token);
         Assert.That(listener.ListenAddresses, Has.Count.EqualTo(1));
 
         IPEndPoint endpoint = new(IPAddress.Loopback, int.Parse(listener.ListenAddresses.Single().Get<UDP>().ToString()));
+        bool rejected = false;
         try
         {
-            QuicConnection rejectedClient = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
+            await using QuicConnection rejectedClient = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
             {
                 DefaultStreamErrorCode = 0,
                 DefaultCloseErrorCode = 1,
+                MaxInboundBidirectionalStreams = 1,
                 RemoteEndPoint = endpoint,
                 ClientAuthenticationOptions = new SslClientAuthenticationOptions
                 {
@@ -68,15 +71,28 @@ public class ProtocolTests
                     RemoteCertificateValidationCallback = (_, _, _, _) => true,
                 },
             }, cts.Token);
-            await rejectedClient.DisposeAsync();
+            try
+            {
+                await using QuicStream unexpectedStream = await rejectedClient.AcceptInboundStreamAsync(cts.Token);
+            }
+            catch (QuicException)
+            {
+                rejected = true;
+            }
         }
         catch (AuthenticationException)
         {
+            rejected = true;
         }
         catch (QuicException)
         {
+            rejected = true;
         }
-        await listenerLogs.Rejected.Task.WaitAsync(cts.Token);
+        Assert.Multiple(() =>
+        {
+            Assert.That(rejected, Is.True, "A client without a certificate must be disconnected.");
+            Assert.That(Volatile.Read(ref acceptedSessions), Is.Zero, "A client without a certificate must not create a session.");
+        });
 
         ISession session = await dialer.DialAsync([.. listener.ListenAddresses], cts.Token);
         Assert.That(session.RemoteAddress.GetPeerId(), Is.EqualTo(listener.Identity.PeerId));
@@ -170,7 +186,17 @@ public class ProtocolTests
         Assert.That(serverValidatedClientCertificate, Is.True);
     }
 
-    private static X509Certificate2 CreateCertificateWithCriticalLibp2pExtension(ECDsa certKey, Identity identity)
+    [Test]
+    public void UnknownCriticalCertificateExtensionRejected()
+    {
+        Identity identity = new();
+        using CertificateKey sessionKey = new();
+        using X509Certificate2 certificate = CreateCertificateWithCriticalLibp2pExtension(sessionKey.Key, identity, addUnknownCriticalExtension: true);
+
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.False);
+    }
+
+    private static X509Certificate2 CreateCertificateWithCriticalLibp2pExtension(ECDsa certKey, Identity identity, bool addUnknownCriticalExtension = false)
     {
         byte[] signature = identity.Sign(ContentToSignFromTlsPublicKey(certKey.ExportSubjectPublicKeyInfo()));
         AsnWriter asnWriter = new(AsnEncodingRules.DER);
@@ -186,6 +212,10 @@ public class ProtocolTests
 
         CertificateRequest certRequest = new($"SERIALNUMBER={Convert.ToHexString(bytes)}", certKey, HashAlgorithmName.SHA256);
         certRequest.CertificateExtensions.Add(new X509Extension(PubkeyExtensionOid, pubkeyExtension, critical: true));
+        if (addUnknownCriticalExtension)
+        {
+            certRequest.CertificateExtensions.Add(new X509Extension(new Oid("1.3.6.1.4.1.53594.1.99"), [0x05, 0x00], critical: true));
+        }
 
         return certRequest.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1),
@@ -227,30 +257,6 @@ public class ProtocolTests
             finally
             {
                 Key.Dispose();
-            }
-        }
-    }
-
-    private sealed class AuthenticationLoggerFactory : ILoggerFactory
-    {
-        public TaskCompletionSource Rejected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ILogger CreateLogger(string categoryName) => new AuthenticationLogger(Rejected);
-        public void AddProvider(ILoggerProvider provider) { }
-        public void Dispose() { }
-
-        private sealed class AuthenticationLogger(TaskCompletionSource rejected) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-            public bool IsEnabled(LogLevel logLevel) => true;
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                if (logLevel == LogLevel.Debug && formatter(state, exception) is
-                    "QUIC client authentication failed" or "QUIC client connection failed")
-                {
-                    rejected.TrySetResult();
-                }
             }
         }
     }
