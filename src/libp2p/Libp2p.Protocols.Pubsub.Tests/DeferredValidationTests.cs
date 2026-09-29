@@ -468,6 +468,75 @@ public class DeferredValidationTests
     }
 
     [Test]
+    public async Task BlockedDeferredCallbackDoesNotStrandLaterPendingMessages()
+    {
+        TestClock clock = new();
+        PubsubSettings settings = Settings();
+        settings.PendingValidationTimeout = TimeSpan.FromSeconds(5);
+        using PubsubRouter router = CreateRouter(settings, clock);
+        router.GetTopic(Topic);
+        router.VerifyMessage = (_, _) => MessageValidity.Deferred;
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int callbacks = 0;
+        router.OnDeferredMessage = (_, _) =>
+        {
+            if (++callbacks == 1)
+            {
+                entered.SetResult();
+                release.Task.GetAwaiter().GetResult();
+            }
+            return Task.CompletedTask;
+        };
+
+        Rpc rpc = RpcWith(NewMessage(1));
+        rpc.Publish.Add(NewMessage(2));
+        Task dispatch = Task.Run(() => router.OnRpc(TestPeers.PeerId(1), rpc));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            clock.UtcNow += TimeSpan.FromSeconds(5);
+            Assert.That(router.PendingValidationCount, Is.Zero);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await dispatch.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.That(callbacks, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void PendingMessageExpiredBeforeCallbackDispatchIsDropped()
+    {
+        TestClock clock = new();
+        PubsubSettings settings = Settings();
+        settings.PendingValidationTimeout = TimeSpan.FromSeconds(5);
+        using PubsubRouter router = CreateRouter(settings, clock);
+        router.GetTopic(Topic);
+        router.VerifyMessage = (_, _) => MessageValidity.Deferred;
+        int callbacks = 0;
+        router.OnDeferredMessage = (_, _) =>
+        {
+            if (++callbacks == 1)
+            {
+                clock.UtcNow += TimeSpan.FromSeconds(5);
+            }
+            return Task.CompletedTask;
+        };
+
+        Rpc rpc = RpcWith(NewMessage(1));
+        rpc.Publish.Add(NewMessage(2));
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(callbacks, Is.EqualTo(1));
+            Assert.That(router.PendingValidationCount, Is.Zero);
+        });
+    }
+
+    [Test]
     public void PendingTimeoutStartsWhenEachCallbackIsDispatched()
     {
         TestClock clock = new();
@@ -481,8 +550,8 @@ public class DeferredValidationTests
         {
             if (message.Data.Span[0] == 1)
             {
-                clock.UtcNow += TimeSpan.FromSeconds(6);
-                Assert.That(router.PendingValidationCount, Is.EqualTo(1));
+                clock.UtcNow += TimeSpan.FromSeconds(4);
+                Assert.That(router.PendingValidationCount, Is.EqualTo(2));
                 return Task.CompletedTask;
             }
 
@@ -495,6 +564,7 @@ public class DeferredValidationTests
         router.OnRpc(TestPeers.PeerId(1), rpc);
 
         Assert.That(second, Is.SameAs(rpc.Publish[1]));
+        clock.UtcNow += TimeSpan.FromSeconds(2);
         Assert.That(router.CompleteValidation(second!, MessageValidity.Accepted), Is.True);
         validationWork.SetResult();
     }

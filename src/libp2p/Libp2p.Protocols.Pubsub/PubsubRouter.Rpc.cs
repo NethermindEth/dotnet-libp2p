@@ -103,12 +103,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                         continue;
                     }
 
-                    TimeSpan timeout = _settings.PendingValidationTimeout;
-                    if (timeout <= TimeSpan.Zero)
+                    DateTimeOffset now = _timeProvider.GetUtcNow();
+                    if (pending.ExpiresAt <= now)
+                    {
+                        _pendingValidations.Remove(pending.Id);
+                        _pendingValidationBytes -= pending.Size;
+                        continue;
+                    }
+
+                    if (!TryGetPendingValidationExpiry(now, out DateTimeOffset expiresAt))
                     {
                         throw new ArgumentOutOfRangeException(nameof(PubsubSettings.PendingValidationTimeout));
                     }
-                    pending.ExpiresAt = _timeProvider.GetUtcNow().Add(timeout);
+                    pending.ExpiresAt = expiresAt;
                 }
 
                 Task validation = callback(pending.Source, pending.Original);
@@ -133,6 +140,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 _pendingValidationBytes -= pending.Size;
             }
         }
+    }
+
+    private bool TryGetPendingValidationExpiry(DateTimeOffset now, out DateTimeOffset expiresAt)
+    {
+        TimeSpan timeout = _settings.PendingValidationTimeout;
+        if (timeout <= TimeSpan.Zero || timeout > DateTimeOffset.MaxValue - now)
+        {
+            expiresAt = default;
+            return false;
+        }
+
+        expiresAt = now.Add(timeout);
+        return true;
     }
 
     private async Task ObserveDeferredValidation(Task validation, WeakReference<PendingValidation> pendingReference, string topic)
@@ -358,7 +378,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     continue;
                 }
 
-                PendingValidation pending = new(messageId, message, validated, peerId, size);
+                if (!TryGetPendingValidationExpiry(_timeProvider.GetUtcNow(), out DateTimeOffset expiresAt))
+                {
+                    continue;
+                }
+
+                PendingValidation pending = new(messageId, message, validated, peerId, size) { ExpiresAt = expiresAt };
                 _pendingValidations.Add(messageId, pending);
                 _pendingValidationBytes += size;
                 deferredMessages.Add(pending);

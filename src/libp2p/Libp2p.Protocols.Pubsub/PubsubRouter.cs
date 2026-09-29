@@ -196,7 +196,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private sealed record PendingValidation(MessageId Id, Message Original, Message Snapshot, PeerId Source, int Size)
     {
-        public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.MaxValue;
+        public required DateTimeOffset ExpiresAt { get; set; }
     }
 
     private ILocalPeer? localPeer;
