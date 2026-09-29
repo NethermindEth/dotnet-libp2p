@@ -27,6 +27,12 @@ public class PubsubSettings
     public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
     public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
     public int MessageCacheTtl { get; set; } = 2 * 60 * 1000; // Expiry time for cache of seen message ids 	2 minutes
+    /// <summary>Maximum number of messages awaiting application validation.</summary>
+    public int MaxPendingValidationMessages { get; set; } = 128;
+    /// <summary>Maximum total protobuf size of messages awaiting application validation.</summary>
+    public int MaxPendingValidationBytes { get; set; } = 16 * 1024 * 1024;
+    /// <summary>Time allowed to complete a deferred verdict before the message is dropped.</summary>
+    public TimeSpan PendingValidationTimeout { get; set; } = TimeSpan.FromSeconds(30);
     // Maximum incoming RPC frame size in bytes (default: 1 MiB).
     public int MaxRpcBytes
     {

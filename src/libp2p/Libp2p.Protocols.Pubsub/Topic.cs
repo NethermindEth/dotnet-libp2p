@@ -28,7 +28,17 @@ internal class Topic : ITopic
         // on another thread that needs the router. An in-flight delivery may finish
         // concurrently with unsubscribe.
         Action<PeerId, byte[]>? onMessage = OnMessage;
-        onMessage?.Invoke(peerId, message);
+        foreach (Delegate handler in onMessage?.GetInvocationList() ?? [])
+        {
+            try
+            {
+                ((Action<PeerId, byte[]>)handler)(peerId, message);
+            }
+            catch (Exception ex)
+            {
+                router.LogSubscriberError(ex, topicName);
+            }
+        }
     }
 
     public DateTime LastPublished { get; set; }
