@@ -35,6 +35,8 @@ dotnet build
 dotnet test
 ```
 
+The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./src/samples/maui-chat/README.md) requires the MAUI workload.
+
 ## Roadmap
 
 The stable 1.0.0 release supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
