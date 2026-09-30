@@ -24,6 +24,19 @@ namespace Nethermind.Libp2p.Protocols.TLS.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class TlsProtocolTests
 {
+    [Test]
+    public void Test_TlsCertificateUsesP256SessionKey()
+    {
+        TlsProtocol protocol = new();
+        FieldInfo sessionKeyField = typeof(TlsProtocol).GetField("_sessionKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using ECDsa sessionKey = (ECDsa)sessionKeyField.GetValue(protocol)!;
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, TestPeers.Identity(1));
+        using ECDsa certificateKey = certificate.GetECDsaPublicKey()!;
+
+        Assert.That(sessionKey.KeySize, Is.EqualTo(256));
+        Assert.That(certificateKey.KeySize, Is.EqualTo(256));
+    }
+
     [TestCase(false, false)]
     [TestCase(true, false)]
     [TestCase(false, true)]

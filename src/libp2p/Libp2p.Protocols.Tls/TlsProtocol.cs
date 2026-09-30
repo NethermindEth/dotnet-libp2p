@@ -18,7 +18,7 @@ namespace Nethermind.Libp2p.Protocols.Tls;
 
 public class TlsProtocol : IConnectionProtocol
 {
-    private readonly ECDsa _sessionKey = ECDsa.Create();
+    private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly ILogger<TlsProtocol>? _logger;
 
     // libp2p TLS spec requires "libp2p" as ALPN protocol
