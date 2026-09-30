@@ -725,6 +725,37 @@ public class PartialMessagesTests
         connection.SetResult();
     }
 
+    [Test]
+    public void PartialMessages_ThrowingSubscriberDoesNotSuppressLaterSubscribers()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
+        IPartialMessagesTopic topic = router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions
+        {
+            RequestPartialMessages = true,
+            SupportsSendingPartialMessages = true,
+        });
+        TaskCompletionSource connection = new();
+        PeerId peer = TestPeers.PeerId(1);
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, connection.Task, _ => { });
+        router.OnRpc(peer, new Rpc { Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } } });
+        int deliveries = 0;
+        topic.OnPartialMessage += (_, _) => throw new InvalidOperationException("Subscriber failure");
+        topic.OnPartialMessage += (_, _) => deliveries++;
+
+        router.OnRpc(peer, new Rpc
+        {
+            Partial = new PartialMessagesExtension
+            {
+                TopicID = ByteString.CopyFromUtf8("topic"),
+                GroupID = ByteString.CopyFrom([1]),
+                PartsMetadata = ByteString.CopyFrom([2]),
+            },
+        }, isFirstRpc: false);
+
+        Assert.That(deliveries, Is.EqualTo(1));
+        connection.SetResult();
+    }
+
     [TestCase(true)]
     [TestCase(false)]
     public async Task PublishPartial_UsesFanoutOnlyWhenUnsubscribed(bool subscribed)
