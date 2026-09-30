@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText:2023 Demerzel Solutions Limited
-// SPDX-License-Identifier:MIT
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
@@ -20,6 +20,7 @@ public sealed class PerfPeerFactoryBuilder(IServiceProvider? serviceProvider = n
 
         ProtocolRef quic = Get<QuicProtocol>();
         Connect([quic], appSelector);
+        // Perf peers only advertise the benchmark protocol, not Identify or Ping.
         Connect(appSelector, [.. additionalProtocols]);
 
         return [tcp, quic];
