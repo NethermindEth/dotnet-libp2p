@@ -1,6 +1,7 @@
 /.github/ @rubo
 
-/src/ @flcl42 @rubo
+/libp2p/ @flcl42 @rubo
+/samples/ @flcl42 @rubo
 
 /LICENSE @rubo
 *.md @rubo

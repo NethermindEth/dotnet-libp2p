@@ -44,10 +44,10 @@
     <Project Path="../samples/transport-interop/TransportInterop.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
-    <File Path="../../.github/workflows/format.yml" />
-    <File Path="../../.github/workflows/publish.yml" />
-    <File Path="../../.github/workflows/test.yml" />
-    <File Path="../../README.md" />
+    <File Path="../.github/workflows/format.yml" />
+    <File Path="../.github/workflows/publish.yml" />
+    <File Path="../.github/workflows/test.yml" />
+    <File Path="../README.md" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
   </Folder>

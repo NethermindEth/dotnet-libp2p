@@ -35,10 +35,10 @@ new ServiceCollection()
     .AddTracing(appName: "my app", createRootActivity: true)
 ```
 
-or copy and customize the [tracing-related dependency injection code](../src/libp2p/Libp2p.OpenTelemetry/ServiceProviderExtensions.cs).
+or copy and customize the [tracing-related dependency injection code](../libp2p/Libp2p.OpenTelemetry/ServiceProviderExtensions.cs).
 
 ## Tips on `Activities` tracing
 
-- Activities need to be disposed; otherwise they might not be exported. Disposing the `TracerProvider` instance can help. If some activities are still not sent, track and dispose them explicitly, as shown by [ActivityTracker](../src/libp2p/Libp2p.E2eTests/E2eTestSetup.cs).
+- Activities need to be disposed; otherwise they might not be exported. Disposing the `TracerProvider` instance can help. If some activities are still not sent, track and dispose them explicitly, as shown by [ActivityTracker](../libp2p/Libp2p.E2eTests/E2eTestSetup.cs).
 
 - Jaeger is a convenient development tool for receiving telemetry and checking graphs: https://www.jaegertracing.io/download/. Start the Jaeger executable from the CLI, navigate to http://localhost:16686/search, then run your app.

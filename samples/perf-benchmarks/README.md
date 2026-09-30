@@ -59,5 +59,5 @@ dotnet run
 
 ```bash
 # Build from repository root
-docker build -f src/samples/perf-benchmarks/Dockerfile -t perf-benchmarks .
+docker build -f samples/perf-benchmarks/Dockerfile -t perf-benchmarks .
 ```

@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILD_CONFIG: release
-      WORKING_DIR: src/libp2p
+      WORKING_DIR: libp2p
     steps:
 
       - name: Check out repository
@@ -72,7 +72,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: src/libp2p
+        working-directory: libp2p
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
