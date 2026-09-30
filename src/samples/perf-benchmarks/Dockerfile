@@ -3,7 +3,7 @@ WORKDIR /src
 COPY global.json Directory.Build.props ./
 COPY src ./src
 RUN dotnet publish src/samples/perf-benchmarks/PerfBenchmarks.csproj -c Release -o /app/publish \
-    -p:SaveDiskSpace=true -p:EnableSourceLink=false -p:EnableSourceControlManagerQueries=false -warnaserror
+    -p:SaveDiskSpace=true -p:EnableSourceLink=false -p:EnableSourceControlManagerQueries=false -p:TreatWarningsAsErrors=true
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
