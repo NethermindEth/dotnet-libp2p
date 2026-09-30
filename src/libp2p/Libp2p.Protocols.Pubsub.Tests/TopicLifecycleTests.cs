@@ -209,7 +209,7 @@ public class TopicLifecycleTests
         const string topicName = "topic-lifecycle";
         PubsubRouter router = new(new PeerStore())
         {
-            VerifyMessage = _ => MessageValidity.Rejected,
+            VerifyMessage = (_, _) => MessageValidity.Rejected,
         };
         _ = router.GetTopic(topicName);
         Multiaddress peerAddress = TestPeers.Multiaddr(3);

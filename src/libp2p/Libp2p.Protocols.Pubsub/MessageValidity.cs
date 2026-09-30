@@ -8,5 +8,6 @@ public enum MessageValidity
     Accepted,
     Ignored,
     Rejected,
-    Throttled
+    Throttled,
+    Deferred
 }
