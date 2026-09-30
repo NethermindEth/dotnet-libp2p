@@ -29,7 +29,17 @@ internal class Topic : ITopic
         // on another thread that needs the router. An in-flight delivery may finish
         // concurrently with unsubscribe.
         Action<PeerId, byte[]>? onMessage = OnMessage;
-        onMessage?.Invoke(peerId, message);
+        foreach (Delegate handler in onMessage?.GetInvocationList() ?? [])
+        {
+            try
+            {
+                ((Action<PeerId, byte[]>)handler)(peerId, message);
+            }
+            catch (Exception ex)
+            {
+                router.LogSubscriberError(ex, topicName);
+            }
+        }
     }
 
     public DateTime LastPublished { get; set; }
@@ -126,6 +136,16 @@ internal sealed class PartialMessagesTopic : IPartialMessagesTopic
         }
 
         Action<PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
-        onPartialMessage?.Invoke(peerId, message);
+        foreach (Delegate handler in onPartialMessage?.GetInvocationList() ?? [])
+        {
+            try
+            {
+                ((Action<PeerId, PartialMessage>)handler)(peerId, message);
+            }
+            catch (Exception ex)
+            {
+                topic.Router.LogSubscriberError(ex, topicName);
+            }
+        }
     }
 }

@@ -275,6 +275,56 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task IDontWant_DefersAnnouncementAndForwardingUntilValidationAccepts()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        List<Rpc> senderRpcs = [];
+        PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
+        await setup.Router.Heartbeat();
+        setup.SentRpcs.Clear();
+        senderRpcs.Clear();
+
+        Identity author = TestPeers.Identity(4);
+        Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes,
+            new byte[1024], author).Publish.Single();
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(message);
+        Message? pending = null;
+        TaskCompletionSource validation = new();
+        setup.Router.VerifyMessage = (_, _) => MessageValidity.Deferred;
+        setup.Router.OnDeferredMessage = (_, received) =>
+        {
+            pending = received;
+            return validation.Task;
+        };
+
+        setup.Router.OnRpc(sender, new Rpc { Publish = { message } });
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+        });
+
+        setup.Router.OnRpc(sender, CreateIhave(setup.Topic, messageId.Bytes, [9]));
+        Assert.That(GetIwantIds(senderRpcs), Is.EqualTo(new[] { ByteString.CopyFrom([9]) }));
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+
+        Assert.That(setup.Router.CompleteValidation(pending!, MessageValidity.Accepted), Is.True);
+        validation.SetResult();
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(messageId.Bytes) }));
+            Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(new[] { message }));
+            Assert.That(setup.SentRpcs.FindIndex(rpc => rpc.Control?.Idontwant.Count > 0),
+                Is.LessThan(setup.SentRpcs.FindIndex(rpc => rpc.Publish.Count > 0)));
+        });
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(new[] { message }));
+    }
+
+    [Test]
     public async Task IDontWant_AnnouncesLocallyPublishedLargeMessageBeforeSendingIt()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
@@ -311,7 +361,7 @@ public class GossipsubControlLimitsTests
         recipientRpcs.Clear();
         Identity author = TestPeers.Identity(4);
         Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
-        setup.Router.VerifyMessage = _ => (MessageValidity)int.MaxValue;
+        setup.Router.VerifyMessage = (_, _) => (MessageValidity)int.MaxValue;
 
         setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
 
@@ -443,7 +493,7 @@ public class GossipsubControlLimitsTests
         Message small = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1023], author).Publish.Single();
         Message rejected = new Rpc().WithMessages(setup.Topic, 2, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
         setup.Router.OnRpc(sender, new Rpc { Publish = { small } });
-        setup.Router.VerifyMessage = _ => MessageValidity.Rejected;
+        setup.Router.VerifyMessage = (_, _) => MessageValidity.Rejected;
         setup.Router.OnRpc(sender, new Rpc { Publish = { rejected } });
 
         Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
@@ -624,7 +674,7 @@ public class GossipsubControlLimitsTests
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, messageId.Bytes));
         Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
 
-        setup.Router.VerifyMessage = _ => validity;
+        setup.Router.VerifyMessage = (_, _) => validity;
         setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
 
         Assert.That(setup.Router.IwantPromiseCount, Is.Zero);
@@ -669,7 +719,7 @@ public class GossipsubControlLimitsTests
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, messageId.Bytes));
         Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
 
-        setup.Router.VerifyMessage = _ => MessageValidity.Throttled;
+        setup.Router.VerifyMessage = (_, _) => MessageValidity.Throttled;
         setup.Router.OnRpc(setup.RemotePeerId, new Rpc { Publish = { message } });
 
         Assert.That(setup.Router.IwantPromiseCount, Is.Zero);

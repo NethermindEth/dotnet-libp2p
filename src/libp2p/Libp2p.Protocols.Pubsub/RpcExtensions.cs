@@ -52,8 +52,22 @@ internal static class RpcExtensions
             return !message.HasSignature && !message.HasFrom && !message.HasSeqno && !message.HasKey;
         }
 
-        PublicKey? pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
-        if (pubKey is null)
+        if (message.Signature.Length != Ed25519.SignatureSize)
+        {
+            return false;
+        }
+
+        PublicKey? pubKey;
+        try
+        {
+            pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Malformed peer IDs and embedded protobuf keys are invalid wire messages.
+            return false;
+        }
+        if (pubKey is null || pubKey.Data.Length != Ed25519.PublicKeySize)
         {
             return false;
         }

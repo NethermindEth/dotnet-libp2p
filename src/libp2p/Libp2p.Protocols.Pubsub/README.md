@@ -64,6 +64,25 @@ chat.Publish(Encoding.UTF8.GetBytes("hello from dotnet-libp2p"));
 
 Publishing does not create peers by itself. The router sends messages to connected pubsub peers and uses `PeerStore.OnNewPeer` to dial newly discovered peers that advertise pubsub support.
 
+## Validating received messages
+
+`VerifyMessage` runs after libp2p signature verification and before the message is delivered, forwarded, or placed in the message cache. Its callback takes the **connected peer that sent the RPC** and the message. Applications using the older message-only callback must add the peer argument. Return `Accepted` to deliver and forward, `Rejected` to record an invalid delivery, `Ignored` to suppress without a penalty, or `Throttled` to drop without caching the message ID. Do not mutate the message in the callback.
+
+For asynchronous checks, assign one `OnDeferredMessage` callback before configuring `VerifyMessage` to return `Deferred`, especially when the router is already running. The callback receives the same message instance outside the router lock. Complete it with `CompleteValidation(message, verdict)` before the timeout; a false return means the message is no longer pending, expired, or changed after authentication. A deferred message is not delivered or forwarded while pending.
+
+```csharp
+router.OnDeferredMessage = async (sourcePeer, message) =>
+{
+    bool valid = await ValidateAsync(sourcePeer, message);
+    router.CompleteValidation(message, valid ? MessageValidity.Accepted : MessageValidity.Rejected);
+};
+router.VerifyMessage = (sourcePeer, message) => NeedsAsyncCheck(message)
+    ? MessageValidity.Deferred
+    : MessageValidity.Accepted;
+```
+
+Configure `MaxPendingValidationMessages`, `MaxPendingValidationBytes`, and `PendingValidationTimeout` in `PubsubSettings` to bound deferred work. `PendingValidationCount` reports the current unexpired count. If the store is full, the callback is absent, or the timeout is invalid, the router drops the deferred message without scoring its source because these are local capacity or configuration conditions. Expired entries are removed when the router next processes a message or queries the count; application validation work is not cancelled on expiry or disposal. An invalid signature is rejected before `VerifyMessage` and does not reserve its message ID, so replaying the same invalid message repeats signature verification.
+
 ## Connecting pubsub peers
 
 Use one of the discovery mechanisms to populate `PeerStore`, or add known peer addresses manually:
