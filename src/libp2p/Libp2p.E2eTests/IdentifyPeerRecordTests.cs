@@ -69,14 +69,35 @@ public class IdentifyPeerRecordTests
     }
 
     [Test]
+    public async Task ShortSignatureDoesNotPreventIdentify()
+    {
+        Identity remote = TestPeers.Identity(86);
+        PeerStore peerStore = new();
+        SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(SigningHelper.CreateSignedEnvelope(remote, [], 1));
+        envelope.Signature = ByteString.CopyFrom([1, 2, 3]);
+        Identify identify = new()
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            SignedPeerRecord = envelope.ToByteString()
+        };
+
+        await ReadIdentifyAsync(remote, peerStore, identify);
+
+        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        Assert.That(peerInfo.SignedPeerRecord, Is.Null);
+        Assert.That(peerInfo.Seq, Is.Null);
+    }
+
+    [Test]
     public void StrictPolicyRejectsMissingPeerRecord()
     {
         Identity remote = TestPeers.Identity(85);
         PeerStore peerStore = new();
         Identify identify = new() { PublicKey = remote.PublicKey.ToByteString() };
 
-        Assert.ThrowsAsync<PeerConnectionException>(async () =>
+        PeerConnectionException? exception = Assert.ThrowsAsync<PeerConnectionException>(async () =>
             await ReadIdentifyAsync(remote, peerStore, identify, PeerRecordsVerificationPolicy.RequireCorrect));
+        Assert.That(exception?.Message, Does.Contain("there is no peer record"));
     }
 
     [Test]

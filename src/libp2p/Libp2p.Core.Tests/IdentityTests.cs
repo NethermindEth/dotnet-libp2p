@@ -57,6 +57,16 @@ public class IdentityTests
         Assert.That(id.VerifySignature(message, signature), Is.True);
     }
 
+    [TestCase(0)]
+    [TestCase(3)]
+    [TestCase(65)]
+    public void Ed25519SignatureWithWrongLengthIsInvalid(int length)
+    {
+        Identity id = new(keyType: KeyType.Ed25519);
+
+        Assert.That(id.VerifySignature([1, 2, 3], new byte[length]), Is.False);
+    }
+
     [Test]
     public void Test_GeneratedSecp256K1KeysAlwaysSign()
     {

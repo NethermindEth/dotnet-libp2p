@@ -157,6 +157,11 @@ public class Identity
         {
             case KeyType.Ed25519:
                 {
+                    if (signature.Length != Ed25519.SignatureSize)
+                    {
+                        return false;
+                    }
+
                     return Ed25519.Verify(signature, 0, PublicKey.Data.ToByteArray(), 0, message, 0, message.Length);
                 }
             case KeyType.Rsa:
