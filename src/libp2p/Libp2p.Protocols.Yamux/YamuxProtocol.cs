@@ -224,7 +224,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
                 {
-                    _ = channels[header.StreamID].Channel?.CloseAsync();
+                    ChannelState state = channels[header.StreamID];
+                    state.AbortOutbound();
+                    _ = state.Channel?.CloseAsync();
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset", session.Id, header.StreamID);
                 }
             }
@@ -249,13 +251,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 ChannelState state = new(upChannel, _windowSettings);
 
-                upChannel.GetAwaiter().OnCompleted(() =>
-                {
-                    channels.TryRemove(streamId, out ChannelState? _);
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
-                });
+                TaskCompletionSource channelClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                upChannel.GetAwaiter().OnCompleted(() => channelClosed.TrySetResult());
 
-                Task.Run(async () =>
+                Task outboundPump = Task.Run(async () =>
                 {
                     try
                     {
@@ -282,7 +281,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                             for (int i = 0; i < upData.Length;)
                             {
-                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.Channel!.CancellationToken);
+                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.OutboundCancellation);
 
                                 _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
 
@@ -311,6 +310,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         context.Activity?.AddEvent(new ActivityEvent($"exception {e.Message}"));
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed due to transport disconnection", contextId, streamId);
                     }
+                    catch (OperationCanceledException) when (state.OutboundCancellation.IsCancellationRequested)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Outbound pump cancelled", contextId, streamId);
+                    }
                     catch (Exception e)
                     {
                         await WriteHeaderAsync(contextId, channel,
@@ -325,6 +328,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Unexpected error, closing: {error}", contextId, streamId, e.Message);
                     }
+                });
+
+                _ = Task.WhenAll(channelClosed.Task, outboundPump).ContinueWith(task =>
+                {
+                    if (task.Exception is not null)
+                        _logger?.LogDebug(task.Exception, "Ctx({ctx}), stream {stream id}: Outbound pump failed", contextId, streamId);
+                    channels.TryRemove(streamId, out ChannelState? _);
+                    state.Dispose();
+                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
                 });
 
                 return state;
@@ -348,6 +360,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             foreach (ChannelState? upChannel in channels.Values)
             {
                 context.Activity?.AddEvent(new ActivityEvent("close an up chan"));
+                upChannel?.AbortOutbound();
                 _ = upChannel?.Channel?.CloseAsync();
             }
 

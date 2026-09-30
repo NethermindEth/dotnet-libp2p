@@ -15,13 +15,7 @@ class Program
     static async Task Main(string[] args)
     {
         var services = new ServiceCollection()
-            .AddLibp2p(builder =>
-            {
-                // TCP is enabled by default, also enable QUIC
-                return builder
-                    .WithQuic()  // Enable QUIC transport
-                    .AddProtocol<PerfProtocol>();
-            })
+            .AddLibp2p<PerfPeerFactoryBuilder>(builder => builder.AddProtocol<PerfProtocol>())
             .AddLogging(builder => builder
                 .SetMinimumLevel(LogLevel.Information) // Show information and above
                 .AddConsole(options =>

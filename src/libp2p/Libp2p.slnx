@@ -33,6 +33,7 @@
     <Project Path="Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj" />
     <Project Path="../samples/ai-server/AIServer.csproj" />
     <Project Path="../samples/chat/Chat.csproj" />
     <Project Path="../samples/maui-chat/MauiChat.csproj" />
