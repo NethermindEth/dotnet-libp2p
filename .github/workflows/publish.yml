@@ -27,7 +27,7 @@ jobs:
     env:
       BUILD_CONFIG: Release
       NUGET_HOST: ${{ inputs.feed == 'Staging' && 'https://int.nugettest.org' || 'https://www.nuget.org' }}
-      WORKING_DIR: src/libp2p
+      WORKING_DIR: libp2p
     steps:
 
       - name: Check out repository

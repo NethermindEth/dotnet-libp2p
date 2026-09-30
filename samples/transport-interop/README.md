@@ -29,7 +29,7 @@ Optional:
 ## Build with docker
 
 ```sh
-docker build -f ./src/samples/transport-interop/Dockerfile .
+docker build -f ./samples/transport-interop/Dockerfile .
 ```
 
 ## Development
@@ -46,5 +46,5 @@ dotnet build
 dotnet run
 
 # build from repo root
-docker build -f src/samples/transport-interop/Dockerfile -t transport-interop:latest .
+docker build -f samples/transport-interop/Dockerfile -t transport-interop:latest .
 # run from repository root

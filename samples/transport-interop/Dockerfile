@@ -3,9 +3,10 @@ WORKDIR /app
 
 # Bring in solution files and sources so project references resolve during restore.
 COPY ./global.json ./Directory.Build.props ./
-COPY ./src ./src
+COPY ./libp2p ./libp2p
+COPY ./samples ./samples
 
-WORKDIR /app/src/samples/transport-interop
+WORKDIR /app/samples/transport-interop
 RUN dotnet restore
 RUN dotnet publish -c Release -o /app/out
 

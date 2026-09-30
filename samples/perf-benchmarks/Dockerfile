@@ -1,8 +1,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY global.json Directory.Build.props ./
-COPY src ./src
-RUN dotnet publish src/samples/perf-benchmarks/PerfBenchmarks.csproj -c Release -o /app/publish \
+COPY libp2p ./libp2p
+COPY samples ./samples
+RUN dotnet publish samples/perf-benchmarks/PerfBenchmarks.csproj -c Release -o /app/publish \
     -p:SaveDiskSpace=true -p:EnableSourceLink=false -p:EnableSourceControlManagerQueries=false -p:TreatWarningsAsErrors=true
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
