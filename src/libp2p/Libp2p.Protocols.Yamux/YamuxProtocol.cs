@@ -26,8 +26,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
         YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null, TimeSpan? closedStreamIdleTimeout = null)
     {
-        if (closedStreamIdleTimeout is { } timeout && timeout <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(closedStreamIdleTimeout), "The timeout must be positive.");
+        if (closedStreamIdleTimeout is { } timeout &&
+            (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1)))
+            throw new ArgumentOutOfRangeException(nameof(closedStreamIdleTimeout),
+                "The timeout must be positive and no longer than 4,294,967,294 milliseconds.");
 
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();

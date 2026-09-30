@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
@@ -15,10 +16,25 @@ public class YamuxProtocolTests
 {
     [TestCase(0)]
     [TestCase(-1)]
-    public void ClosedStreamIdleTimeoutMustBePositive(int seconds)
+    [TestCase(60 * 24 * 60 * 60)]
+    public void ClosedStreamIdleTimeoutMustFitTimerRange(int seconds)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new YamuxProtocol(
             closedStreamIdleTimeout: TimeSpan.FromSeconds(seconds)));
+    }
+
+    [Test]
+    public void ClosedStreamIdleTimeoutAcceptsMaximumTimerDuration()
+    {
+        Assert.DoesNotThrow(() => new YamuxProtocol(
+            closedStreamIdleTimeout: TimeSpan.FromMilliseconds(uint.MaxValue - 1)));
+    }
+
+    [Test]
+    public void ClosedStreamIdleTimeoutRejectsAboveMaximumTimerDuration()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new YamuxProtocol(
+            closedStreamIdleTimeout: TimeSpan.FromMilliseconds(uint.MaxValue)));
     }
 
     [Test]
@@ -74,6 +90,62 @@ public class YamuxProtocolTests
         }
         finally
         {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [TestCase(1, false)]
+    [TestCase(2, true)]
+    [TestCase(2, false)]
+    public async Task ClosedStreamWithBlockedOutboundWriteReleases(int blockedWrite, bool sendData)
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        TestChannel appChannel = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
+
+        StreamClosedLogger logger = new();
+        ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        ManualTimeProvider clock = new();
+        BlockingWriteChannel transport = new(blockedWrite);
+        Task yamux = new YamuxProtocol(loggerFactory: loggerFactory, timeProvider: clock,
+            closedStreamIdleTimeout: TimeSpan.FromMinutes(5)).DialAsync(transport, context);
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            IChannel app = appChannel.Reverse();
+            if (sendData)
+                Assert.That(await app.WriteAsync(new ReadOnlySequence<byte>(new byte[1]), timeout.Token), Is.EqualTo(IOResult.Ok));
+            if (blockedWrite == 2 && !sendData)
+                await app.CloseAsync();
+            await transport.WriteBlocked.Task.WaitAsync(timeout.Token);
+            if (blockedWrite == 1 || sendData)
+                await app.CloseAsync();
+            Assert.That(transport.BlockedWriteToken.CanBeCanceled, Is.True);
+
+            var drainTimer = await clock.NextTimerAsync(timeout.Token);
+            Assert.That(drainTimer.DueTime, Is.EqualTo(TimeSpan.FromMinutes(5)));
+            clock.Advance(TimeSpan.FromMinutes(5));
+            drainTimer.Callback(drainTimer.State);
+
+            await logger.Closed.Task.WaitAsync(timeout.Token);
+            Assert.That(transport.CancelledWriteCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            transport.Release();
             await transport.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -334,6 +406,47 @@ public class YamuxProtocolTests
             if (message.Contains("Stream 1: Ignored for closed stream", StringComparison.Ordinal))
                 Ignored.TrySetResult();
         }
+    }
+
+    private sealed class BlockingWriteChannel(int blockedWrite) : IChannel
+    {
+        private readonly TestChannel _inner = new();
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _writeCount;
+        private int _cancelledWriteCount;
+        private CancellationToken _blockedWriteToken;
+
+        public TaskCompletionSource WriteBlocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken BlockedWriteToken => _blockedWriteToken;
+        public int CancelledWriteCount => Volatile.Read(ref _cancelledWriteCount);
+
+        public TaskAwaiter GetAwaiter() => _inner.GetAwaiter();
+        public IChannel Reverse() => _inner.Reverse();
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default) => _inner.ReadAsync(length, blockingMode, token);
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => _inner.WriteEofAsync(token);
+        public ValueTask CloseAsync() => _inner.CloseAsync();
+
+        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            if (Interlocked.Increment(ref _writeCount) != blockedWrite)
+                return IOResult.Ok;
+
+            _blockedWriteToken = token;
+            WriteBlocked.TrySetResult();
+            try
+            {
+                await _release.Task.WaitAsync(token);
+                return IOResult.Ok;
+            }
+            catch (OperationCanceledException)
+            {
+                Interlocked.Increment(ref _cancelledWriteCount);
+                return IOResult.Cancelled;
+            }
+        }
+
+        public void Release() => _release.TrySetResult();
     }
 
     private sealed class ManualTimeProvider : TimeProvider
