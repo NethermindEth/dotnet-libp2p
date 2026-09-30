@@ -20,21 +20,26 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
-    private static readonly TimeSpan ClosedStreamDrainTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ResetWriteTimeout = TimeSpan.FromSeconds(10);
 
     private const string NoSession = "pending";
-    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null, YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null)
+    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
+        YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null, TimeSpan? closedStreamIdleTimeout = null)
     {
+        if (closedStreamIdleTimeout is { } timeout && timeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(closedStreamIdleTimeout), "The timeout must be positive.");
+
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
         _windowSettings = windowSettings ?? new YamuxWindowSettings();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _closedStreamIdleTimeout = closedStreamIdleTimeout;
     }
 
     private readonly ILogger? _logger;
     private readonly YamuxWindowSettings _windowSettings;
     private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan? _closedStreamIdleTimeout;
 
     public string Id => "/yamux/1.0.0";
 
@@ -257,6 +262,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 TaskCompletionSource channelClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 upChannel.GetAwaiter().OnCompleted(() => channelClosed.TrySetResult());
+                long lastOutboundProgressTimestamp = _closedStreamIdleTimeout is null ? 0 : _timeProvider.GetTimestamp();
 
                 Task outboundPump = Task.Run(async () =>
                 {
@@ -296,6 +302,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                         Length = sendingSize,
                                         StreamID = streamId
                                     }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()), state.OutboundCancellation);
+                                if (_closedStreamIdleTimeout is not null)
+                                    Volatile.Write(ref lastOutboundProgressTimestamp, _timeProvider.GetTimestamp());
                                 i += sendingSize;
                             }
                         }
@@ -345,32 +353,49 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     try
                     {
                         await channelClosed.Task;
-                        try
+                        if (_closedStreamIdleTimeout is not { } closedStreamIdleTimeout)
                         {
-                            await outboundPump.WaitAsync(ClosedStreamDrainTimeout, _timeProvider);
-                        }
-                        catch (TimeoutException) when (!outboundPump.IsCompleted)
-                        {
-                            _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Closed stream did not drain within {timeout}; resetting",
-                                contextId, streamId, ClosedStreamDrainTimeout);
-                            state.AbortOutbound();
                             await outboundPump;
-                            using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                            return;
+                        }
+
+                        TimeSpan remaining = closedStreamIdleTimeout;
+                        while (!outboundPump.IsCompleted)
+                        {
                             try
                             {
-                                await WriteHeaderAsync(contextId, channel,
-                                    new YamuxHeader
-                                    {
-                                        Flags = YamuxHeaderFlags.Rst,
-                                        Type = YamuxHeaderType.WindowUpdate,
-                                        StreamID = streamId
-                                    }, token: resetTimeout.Token);
+                                await outboundPump.WaitAsync(remaining, _timeProvider);
                             }
-                            catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                            catch (TimeoutException) when (!outboundPump.IsCompleted)
                             {
-                                _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset write timed out", contextId, streamId);
+                                remaining = closedStreamIdleTimeout -
+                                    _timeProvider.GetElapsedTime(Volatile.Read(ref lastOutboundProgressTimestamp));
+                                if (remaining > TimeSpan.Zero)
+                                    continue;
+
+                                _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Closed stream made no outbound progress for {timeout}; resetting",
+                                    contextId, streamId, closedStreamIdleTimeout);
+                                state.AbortOutbound();
+                                await outboundPump;
+                                using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                                try
+                                {
+                                    await WriteHeaderAsync(contextId, channel,
+                                        new YamuxHeader
+                                        {
+                                            Flags = YamuxHeaderFlags.Rst,
+                                            Type = YamuxHeaderType.WindowUpdate,
+                                            StreamID = streamId
+                                        }, token: resetTimeout.Token);
+                                }
+                                catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                                {
+                                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset write timed out", contextId, streamId);
+                                }
+                                break;
                             }
                         }
+                        await outboundPump;
                     }
                     catch (Exception e)
                     {

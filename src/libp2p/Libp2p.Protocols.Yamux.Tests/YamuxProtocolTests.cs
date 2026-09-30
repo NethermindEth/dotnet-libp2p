@@ -13,6 +13,14 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 [TestFixture]
 public class YamuxProtocolTests
 {
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void ClosedStreamIdleTimeoutMustBePositive(int seconds)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new YamuxProtocol(
+            closedStreamIdleTimeout: TimeSpan.FromSeconds(seconds)));
+    }
+
     [Test]
     public async Task ResetCancelsPumpWaitingForRemoteWindow()
     {
@@ -71,9 +79,11 @@ public class YamuxProtocolTests
         }
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public async Task ClosedStreamWithExhaustedRemoteWindowReleasesAfterDrainTimeout(bool remoteReadsReset)
+    [TestCase(true, false, false)]
+    [TestCase(false, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, false, true)]
+    public async Task ClosedStreamWithExhaustedRemoteWindowReleases(bool remoteReadsReset, bool grantsLateWindowCredit, bool closeConnection)
     {
         IProtocol protocol = Substitute.For<IProtocol>();
         protocol.Id.Returns("/test/1.0.0");
@@ -94,7 +104,8 @@ public class YamuxProtocolTests
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
         ManualTimeProvider clock = new();
         TestChannel transport = new();
-        Task yamux = new YamuxProtocol(loggerFactory: loggerFactory, timeProvider: clock).DialAsync(transport, context);
+        Task yamux = new YamuxProtocol(loggerFactory: loggerFactory, timeProvider: clock,
+            closedStreamIdleTimeout: closeConnection ? null : TimeSpan.FromMinutes(5)).DialAsync(transport, context);
 
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
         try
@@ -116,11 +127,50 @@ public class YamuxProtocolTests
 
             Assert.That(await upload, Is.EqualTo(IOResult.Ok));
             await app.CloseAsync();
+            if (closeConnection)
+            {
+                await transport.CloseAsync();
+                await logger.Closed.Task.WaitAsync(timeout.Token);
+                Assert.That(clock.CreatedTimerCount, Is.Zero);
+                return;
+            }
+
             var drainTimer = await clock.NextTimerAsync(timeout.Token);
             Assert.That(drainTimer.DueTime, Is.EqualTo(TimeSpan.FromMinutes(5)));
             Assert.That(logger.Closed.Task.IsCompleted, Is.False);
 
+            if (grantsLateWindowCredit)
+            {
+                clock.Advance(TimeSpan.FromMinutes(4));
+                byte[] grant = new byte[12];
+                YamuxHeader grantHeader = new() { Type = YamuxHeaderType.WindowUpdate, Length = 1, StreamID = 1 };
+                YamuxHeader.ToBytes(grant, ref grantHeader);
+                Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(grant), timeout.Token), Is.EqualTo(IOResult.Ok));
+                YamuxHeader data = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+                Assert.That(data.Type, Is.EqualTo(YamuxHeaderType.Data));
+                Assert.That(data.Length, Is.EqualTo(1));
+                await remote.ReadAsync(1, token: timeout.Token).OrThrow();
+                await clock.NextTimestampAtLeastAsync(TimeSpan.FromMinutes(4).Ticks, timeout.Token);
+                clock.Advance(TimeSpan.FromMinutes(1));
+            }
+            else
+            {
+                clock.Advance(TimeSpan.FromMinutes(5));
+            }
             drainTimer.Callback(drainTimer.State);
+            if (grantsLateWindowCredit)
+            {
+                var remainingTimer = await clock.NextTimerAsync(timeout.Token);
+                if (remainingTimer.DueTime != TimeSpan.FromMinutes(4))
+                {
+                    remainingTimer.Callback(remainingTimer.State);
+                    await logger.Closed.Task.WaitAsync(timeout.Token);
+                }
+                Assert.That(remainingTimer.DueTime, Is.EqualTo(TimeSpan.FromMinutes(4)));
+                Assert.That(logger.Closed.Task.IsCompleted, Is.False);
+                clock.Advance(TimeSpan.FromMinutes(4));
+                remainingTimer.Callback(remainingTimer.State);
+            }
             var resetTimer = await clock.NextTimerAsync(timeout.Token);
             Assert.That(resetTimer.DueTime, Is.EqualTo(TimeSpan.FromSeconds(10)));
             if (remoteReadsReset)
@@ -132,6 +182,7 @@ public class YamuxProtocolTests
             }
             else
             {
+                clock.Advance(TimeSpan.FromSeconds(10));
                 resetTimer.Callback(resetTimer.State);
             }
             await logger.Closed.Task.WaitAsync(timeout.Token);
@@ -289,14 +340,35 @@ public class YamuxProtocolTests
     {
         private readonly global::System.Threading.Channels.Channel<(TimerCallback Callback, object? State, TimeSpan DueTime)> _timers =
             global::System.Threading.Channels.Channel.CreateUnbounded<(TimerCallback, object?, TimeSpan)>();
+        private readonly global::System.Threading.Channels.Channel<long> _timestamps =
+            global::System.Threading.Channels.Channel.CreateUnbounded<long>();
+        private long _timestamp;
+        private int _createdTimerCount;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public int CreatedTimerCount => Volatile.Read(ref _createdTimerCount);
+        public override long GetTimestamp()
+        {
+            long timestamp = Volatile.Read(ref _timestamp);
+            _timestamps.Writer.TryWrite(timestamp);
+            return timestamp;
+        }
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _timestamp, by.Ticks);
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            Interlocked.Increment(ref _createdTimerCount);
             _timers.Writer.TryWrite((callback, state, dueTime));
             return Substitute.For<ITimer>();
         }
 
         public ValueTask<(TimerCallback Callback, object? State, TimeSpan DueTime)> NextTimerAsync(CancellationToken token) =>
             _timers.Reader.ReadAsync(token);
+
+        public async Task NextTimestampAtLeastAsync(long timestamp, CancellationToken token)
+        {
+            while (await _timestamps.Reader.ReadAsync(token) < timestamp) { }
+        }
     }
 }
