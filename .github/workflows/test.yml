@@ -62,6 +62,7 @@ jobs:
           dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}

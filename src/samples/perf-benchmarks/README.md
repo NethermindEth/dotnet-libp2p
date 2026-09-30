@@ -2,6 +2,8 @@
 
 A .NET libp2p performance testing application that measures upload/download throughput and latency between dialer and listener instances.
 
+The sample uses a minimal transport stack with only `/perf/1.0.0` at the application layer, so it can measure peers that do not serve Identify or Ping.
+
 ## Prerequisites
 
 This sample requires Redis for coordination between dialer and listener instances.
