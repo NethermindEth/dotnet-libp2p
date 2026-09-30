@@ -20,17 +20,21 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
+    private static readonly TimeSpan ClosedStreamDrainTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ResetWriteTimeout = TimeSpan.FromSeconds(10);
 
     private const string NoSession = "pending";
-    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null, YamuxWindowSettings? windowSettings = null)
+    public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null, YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null)
     {
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
         _windowSettings = windowSettings ?? new YamuxWindowSettings();
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     private readonly ILogger? _logger;
     private readonly YamuxWindowSettings _windowSettings;
+    private readonly TimeProvider _timeProvider;
 
     public string Id => "/yamux/1.0.0";
 
@@ -264,7 +268,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                        Flags = initiationFlag,
                                        Type = YamuxHeaderType.WindowUpdate,
                                        StreamID = streamId
-                                   });
+                                   }, token: state.OutboundCancellation);
 
                         if (initiationFlag == YamuxHeaderFlags.Syn)
                         {
@@ -291,7 +295,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                         Type = YamuxHeaderType.Data,
                                         Length = sendingSize,
                                         StreamID = streamId
-                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()));
+                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()), state.OutboundCancellation);
                                 i += sendingSize;
                             }
                         }
@@ -302,8 +306,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                 Flags = YamuxHeaderFlags.Fin,
                                 Type = YamuxHeaderType.WindowUpdate,
                                 StreamID = streamId
-                            });
+                            }, token: state.OutboundCancellation);
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Upchannel finished writing", contextId, streamId);
+                    }
+                    catch (ChannelClosedException) when (state.OutboundCancellation.IsCancellationRequested)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Outbound pump cancelled", contextId, streamId);
                     }
                     catch (ChannelClosedException e)
                     {
@@ -330,14 +338,51 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                 });
 
-                _ = Task.WhenAll(channelClosed.Task, outboundPump).ContinueWith(task =>
+                _ = CleanUpClosedStreamAsync();
+
+                async Task CleanUpClosedStreamAsync()
                 {
-                    if (task.Exception is not null)
-                        _logger?.LogDebug(task.Exception, "Ctx({ctx}), stream {stream id}: Outbound pump failed", contextId, streamId);
-                    channels.TryRemove(streamId, out ChannelState? _);
-                    state.Dispose();
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
-                });
+                    try
+                    {
+                        await channelClosed.Task;
+                        try
+                        {
+                            await outboundPump.WaitAsync(ClosedStreamDrainTimeout, _timeProvider);
+                        }
+                        catch (TimeoutException) when (!outboundPump.IsCompleted)
+                        {
+                            _logger?.LogWarning("Ctx({ctx}), stream {stream id}: Closed stream did not drain within {timeout}; resetting",
+                                contextId, streamId, ClosedStreamDrainTimeout);
+                            state.AbortOutbound();
+                            await outboundPump;
+                            using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                            try
+                            {
+                                await WriteHeaderAsync(contextId, channel,
+                                    new YamuxHeader
+                                    {
+                                        Flags = YamuxHeaderFlags.Rst,
+                                        Type = YamuxHeaderType.WindowUpdate,
+                                        StreamID = streamId
+                                    }, token: resetTimeout.Token);
+                            }
+                            catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                            {
+                                _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset write timed out", contextId, streamId);
+                            }
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        _logger?.LogDebug(e, "Ctx({ctx}), stream {stream id}: Closed stream cleanup failed", contextId, streamId);
+                    }
+                    finally
+                    {
+                        channels.TryRemove(streamId, out ChannelState? _);
+                        state.Dispose();
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
+                    }
+                }
 
                 return state;
             }
@@ -398,7 +443,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         return header;
     }
 
-    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header, ReadOnlySequence<byte> data = default)
+    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header,
+        ReadOnlySequence<byte> data = default, CancellationToken token = default)
     {
         byte[] headerBuffer = new byte[HeaderLength];
         if (header.Type == YamuxHeaderType.Data)
@@ -408,7 +454,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         YamuxHeader.ToBytes(headerBuffer, ref header);
 
         _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
-        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer)).OrThrow();
+        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer), token).OrThrow();
     }
 
     private Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code) =>
