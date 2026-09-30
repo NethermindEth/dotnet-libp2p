@@ -27,7 +27,8 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           dotnet sln Libp2p.slnx list |
-            awk 'NR > 2 && NF' > "$RUNNER_TEMP/ci-projects.txt"
+            awk 'NR > 2 && NF' |
+            grep -Eiv 'samples[/\\]maui-chat[/\\]MauiChat\.csproj' > "$RUNNER_TEMP/ci-projects.txt"
           cat "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Install dependencies
