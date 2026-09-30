@@ -38,55 +38,61 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             throw new PeerConnectionException("Malformed peer identity: the remote public key corresponds to a different peer id");
         }
 
-        VerifySignedPeerRecordOrThrow(identify.SignedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, out ulong seq);
+        ByteString? signedPeerRecord = identify.HasSignedPeerRecord ? identify.SignedPeerRecord : null;
+        bool verifiedPeerRecord = VerifySignedPeerRecordOrThrow(signedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, out ulong seq);
 
         if (_peerStore is not null)
         {
             PeerStore.PeerInfo peerInfo = _peerStore.GetPeerInfo(context.State.RemotePeerId);
 
-            if (identify.SignedPeerRecord is not null && peerInfo.Seq >= seq)
-            {
-                // do nothing if seq is for an older record
-                return;
-            }
             peerInfo.SupportedProtocols = identify.Protocols.ToArray();
-            peerInfo.SignedPeerRecord = identify.SignedPeerRecord;
-            peerInfo.Seq = seq;
-
-            // Extract and store peer's advertised addresses from signed peer record
-            if (identify.SignedPeerRecord is not null)
+            if (verifiedPeerRecord && (peerInfo.Seq is null || seq > peerInfo.Seq))
             {
-                _peerStore.Discover(identify.SignedPeerRecord);
+                peerInfo.SignedPeerRecord = signedPeerRecord;
+                peerInfo.Seq = seq;
+                // Extract and store peer's advertised addresses from signed peer record
+                _peerStore.Discover(signedPeerRecord!);
             }
         }
     }
 
-    private void VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, out ulong seq)
+    private bool VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, out ulong seq)
     {
         if (signedPeerRecordBytes is not null)
         {
-            if (!SigningHelper.VerifyPeerRecord(signedPeerRecordBytes, remotePublicKey, out seq))
+            bool verified;
+            try
+            {
+                verified = SigningHelper.VerifyPeerRecord(signedPeerRecordBytes, remotePublicKey, out seq);
+            }
+            catch (InvalidProtocolBufferException)
+            {
+                seq = 0;
+                verified = false;
+            }
+            if (!verified)
             {
                 if (_settings?.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
                 {
                     throw new PeerConnectionException("Malformed peer identity: peer record signature is not valid");
                 }
-                else
-                {
-                    _logger?.LogWarning("Malformed peer identity: peer record signature is not valid");
-                }
+                _logger?.LogWarning("Malformed peer identity: peer record signature is not valid");
+                return false;
             }
-            else
-            {
-                _logger?.LogDebug("Confirmed peer record: {peerId}", remotePeerId);
-            }
-        }
-        else if (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.DoesNotRequire)
-        {
-            throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
+            _logger?.LogDebug("Confirmed peer record: {peerId}", remotePeerId);
+            return true;
         }
 
         seq = 0;
+        if (_settings.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
+        {
+            throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
+        }
+        if (_settings.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireWithWarning)
+        {
+            _logger?.LogWarning("Peer identity has no signed peer record");
+        }
+        return false;
     }
 
     protected async Task SendIdentity(IChannel channel, ISessionContext context, ulong idVersion = 1)
