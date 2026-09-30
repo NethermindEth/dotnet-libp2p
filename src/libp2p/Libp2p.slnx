@@ -36,7 +36,6 @@
     <Project Path="Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj" />
     <Project Path="../samples/ai-server/AIServer.csproj" />
     <Project Path="../samples/chat/Chat.csproj" />
-    <Project Path="../samples/maui-chat/MauiChat.csproj" />
     <Project Path="../samples/perf-benchmarks/PerfBenchmarks.csproj" />
     <Project Path="../samples/pubsub-chat/PubsubChat.csproj" />
     <Project Path="../samples/transport-interop/TransportInterop.csproj" />
