@@ -168,8 +168,9 @@ internal class PeerLifecycleTests
         }
     }
 
-    [Test]
-    public async Task CallerJoiningAfterUpgradeKeepsSharedDialAlive()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CallerJoiningAfterUpgradeKeepsSharedDialAlive(bool usePeerId)
     {
         GateTransport transport = new();
         TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -181,7 +182,9 @@ internal class PeerLifecycleTests
         await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
         transport.CompleteDial.SetResult();
         Assert.That(SpinWait.SpinUntil(() => peer.Sessions.Count == 1, TimeSpan.FromSeconds(2)), Is.True);
-        Task<ISession> second = peer.DialAsync(remoteAddress);
+        Task<ISession> second = usePeerId
+            ? peer.DialAsync(remoteAddress.GetPeerId()!)
+            : peer.DialAsync(remoteAddress);
         cancellation.Cancel();
         Assert.CatchAsync<OperationCanceledException>(async () => await first.WaitAsync(TimeSpan.FromSeconds(2)));
         Assert.That(second.IsCompleted, Is.False);
