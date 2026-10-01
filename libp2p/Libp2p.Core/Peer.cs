@@ -278,23 +278,29 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
 
         Session? existingSession = FindSession(remotePeerId);
-
-        if (existingSession is not null)
-        {
-            return WaitForSessionAsync(existingSession, token);
-        }
-
-        PendingDial pending;
+        PendingDial? pending = null;
         lock (_pendingDialsLock)
         {
-            if (!_pendingDials.TryGetValue(remotePeerId, out pending!))
+            if (existingSession is null)
             {
-                pending = new PendingDial(this, addrs, remotePeerId);
-                _pendingDials.Add(remotePeerId, pending);
+                if (!_pendingDials.TryGetValue(remotePeerId, out pending))
+                {
+                    pending = new PendingDial(this, addrs, remotePeerId);
+                    _pendingDials.Add(remotePeerId, pending);
+                }
             }
-            pending.Waiters++;
+            else if (_pendingDials.TryGetValue(remotePeerId, out PendingDial? inProgress) && inProgress.Sessions.Contains(existingSession))
+            {
+                pending = inProgress;
+            }
+            if (pending is not null)
+            {
+                pending.Waiters++;
+            }
         }
-        return WaitForDialAsync(remotePeerId, pending, token);
+        return pending is null
+            ? WaitForSessionAsync(existingSession!, token)
+            : WaitForDialAsync(remotePeerId, pending, token);
     }
 
     private Session? FindSession(PeerId peerId)
@@ -348,15 +354,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     {
         public PendingDial(LocalPeer peer, Multiaddress[] addrs, PeerId peerId)
         {
-            Attempt = new(() => peer.DialAsyncDeduped(addrs, peerId, Cancellation.Token));
+            Attempt = new(() => peer.DialAsyncDeduped(addrs, peerId, Cancellation.Token, this));
         }
 
         public CancellationTokenSource Cancellation { get; } = new();
         public Lazy<Task<ISession>> Attempt { get; }
+        public HashSet<Session> Sessions { get; } = [];
         public int Waiters;
     }
 
-    private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token)
+    private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token, PendingDial pending)
     {
         Dictionary<Multiaddress, CancellationTokenSource> cancellations = [];
         Dictionary<Multiaddress, Task> transportDials = [];
@@ -392,7 +399,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             }
 
             firstSuccessTask = TaskHelper.FirstSuccess([.. resolvedAddrs.Select(addr =>
-                DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial))]);
+                DialAsyncCore(addr, cancellations[addr].Token, transportDial => transportDials[addr] = transportDial, pending))]);
 
             Task wait;
             try
@@ -433,7 +440,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
 
-    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token = default, Action<Task>? transportDialStarted = null)
+    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token, Action<Task> transportDialStarted, PendingDial pending)
     {
         Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
         dialActivity?.SetTag("parent", peerActivity?.DisplayName);
@@ -449,13 +456,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
 
         Session session = new(this, dialActivity);
+        lock (_pendingDialsLock)
+        {
+            pending.Sessions.Add(session);
+        }
         dialActivity?.SetTag("session.id", session.Id);
         dialActivity?.SetTag("local.peer.id", Identity.PeerId.ToString());
         dialActivity?.SetTag("remote.addr", addr.ToString());
         ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol, dialActivity);
 
         Task dialingTask = transportProtocol.DialAsync(ctx, addr, token);
-        transportDialStarted?.Invoke(dialingTask);
+        transportDialStarted(dialingTask);
 
         _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
 
@@ -466,6 +477,11 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            // A completed session may already be in use by another caller.
+            if (!session.Connected.IsCompletedSuccessfully)
+            {
+                await session.DisconnectAsync();
+            }
             Libp2pMetrics.DialFailures.Add(1);
             dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
             dialActivity?.Dispose();
@@ -474,6 +490,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
         if (dialingResult == dialingTask)
         {
+            await session.DisconnectAsync();
             Libp2pMetrics.DialFailures.Add(1);
             if (dialingResult.IsCanceled)
             {
@@ -496,7 +513,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw exception;
         }
 
-        await session.Connected;
+        try
+        {
+            await session.Connected;
+        }
+        catch (Exception ex)
+        {
+            Libp2pMetrics.DialFailures.Add(1);
+            dialActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            dialActivity?.Dispose();
+            throw;
+        }
 
         double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
         Libp2pMetrics.DialDuration.Record(elapsedMs);

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Metrics;
@@ -138,6 +139,126 @@ internal class PeerLifecycleTests
     }
 
     [Test]
+    public async Task CancelingLastWaiterAfterUpgradeDisconnectsPendingSession()
+    {
+        GateTransport transport = new();
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, () => initialization.Task);
+        using CancellationTokenSource cancellation = new();
+
+        Task<ISession> dial = peer.DialAsync(TestPeers.Multiaddr(2), cancellation.Token);
+        await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.CompleteDial.SetResult();
+        Assert.That(SpinWait.SpinUntil(() => peer.Sessions.Count == 1, TimeSpan.FromSeconds(2)), Is.True);
+
+        cancellation.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(TimeSpan.FromSeconds(2)));
+        try
+        {
+            await transport.ConnectionClosed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(peer.Sessions, Is.Empty);
+        }
+        finally
+        {
+            foreach (LocalPeer.Session session in peer.Sessions.ToArray())
+            {
+                await session.DisconnectAsync();
+            }
+            initialization.TrySetResult();
+        }
+    }
+
+    [Test]
+    public async Task CallerJoiningAfterUpgradeKeepsSharedDialAlive()
+    {
+        GateTransport transport = new();
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, () => initialization.Task);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        using CancellationTokenSource cancellation = new();
+
+        Task<ISession> first = peer.DialAsync(remoteAddress, cancellation.Token);
+        await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.CompleteDial.SetResult();
+        Assert.That(SpinWait.SpinUntil(() => peer.Sessions.Count == 1, TimeSpan.FromSeconds(2)), Is.True);
+        Task<ISession> second = peer.DialAsync(remoteAddress);
+        cancellation.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await first.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.That(second.IsCompleted, Is.False);
+
+        initialization.SetResult();
+        ISession session = await second.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(transport.DialCount, Is.EqualTo(1));
+        Assert.That(transport.PostUpgradeDialCanceled.Task.IsCompleted, Is.False);
+        await session.DisconnectAsync();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    [NonParallelizable]
+    public async Task InitializationFailureCountsFailedDial(bool canceled)
+    {
+        Activity? dialActivity = null;
+        using ActivitySource activitySource = new(nameof(InitializationFailureCountsFailedDial));
+        using ActivityListener activityListener = new()
+        {
+            ShouldListenTo = source => source == activitySource,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = activity =>
+            {
+                if (activity.OperationName.StartsWith("Dial ")) dialActivity = activity;
+            }
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        long attempts = 0;
+        long failures = 0;
+        using MeterListener listener = new();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument == Libp2pMetrics.DialAttempts || instrument == Libp2pMetrics.DialFailures)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+        {
+            if (instrument == Libp2pMetrics.DialAttempts) Interlocked.Add(ref attempts, value);
+            if (instrument == Libp2pMetrics.DialFailures) Interlocked.Add(ref failures, value);
+        });
+        listener.Start();
+
+        GateTransport transport = new(holdAfterConnectionClosed: true);
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, () => initialization.Task, activitySource);
+        Task<ISession> dial = peer.DialAsync(TestPeers.Multiaddr(2));
+        await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.CompleteDial.SetResult();
+        Assert.That(SpinWait.SpinUntil(() => peer.Sessions.Count == 1, TimeSpan.FromSeconds(2)), Is.True);
+
+        try
+        {
+            if (canceled)
+            {
+                initialization.SetCanceled();
+            }
+            else
+            {
+                initialization.SetException(new InvalidOperationException("initialization failed"));
+            }
+            Exception failure = Assert.CatchAsync<Exception>(async () => await dial.WaitAsync(TimeSpan.FromSeconds(2)))!;
+            Assert.That(failure, Is.Not.InstanceOf<TimeoutException>());
+            Assert.That(attempts, Is.EqualTo(1));
+            Assert.That(failures, Is.EqualTo(1));
+            Assert.That(dialActivity?.Status, Is.EqualTo(ActivityStatusCode.Error));
+        }
+        finally
+        {
+            transport.ReleaseAfterConnectionClosed.TrySetResult();
+        }
+    }
+
+    [Test]
     [NonParallelizable]
     public async Task RepeatedDisconnectAndRejectedDuplicateBalanceActiveMetrics()
     {
@@ -184,18 +305,21 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null)
-        : LocalPeer(identity, null, new ProtocolStackSettings())
+    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null)
+        : LocalPeer(identity, null, new ProtocolStackSettings(), activitySource)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => connectedTo?.Invoke() ?? Task.CompletedTask;
     }
 
-    private sealed class GateTransport : ITransportProtocol
+    private sealed class GateTransport(bool holdAfterConnectionClosed = false) : ITransportProtocol
     {
         public string Id => "gate";
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Canceled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ConnectionClosed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource PostUpgradeDialCanceled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseAfterConnectionClosed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource CompleteDial { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int DialCount;
 
@@ -218,12 +342,15 @@ internal class PeerLifecycleTests
             INewConnectionContext connection = context.CreateConnection();
             connection.State.RemoteAddress = remoteAddr;
             using INewSessionContext session = connection.UpgradeToSession();
+            using CancellationTokenRegistration registration = token.Register(() => PostUpgradeDialCanceled.TrySetResult());
             try
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, connection.Token);
             }
             catch (OperationCanceledException) when (connection.Token.IsCancellationRequested)
             {
+                ConnectionClosed.TrySetResult();
+                if (holdAfterConnectionClosed) await ReleaseAfterConnectionClosed.Task;
             }
         }
 
