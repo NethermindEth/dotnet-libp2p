@@ -9,7 +9,6 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
 using Nethermind.Libp2p.Core.Metrics;
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 
@@ -29,7 +28,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     protected readonly MultiaddrResolver _multiaddrResolver = new();
 
     private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
-    private readonly ConcurrentDictionary<PeerId, Task<ISession>> _pendingDials = new();
+    private readonly Lock _pendingDialsLock = new();
+    private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
     public ObservableCollection<Session> Sessions { get; } = [];
 
     public override string ToString()
@@ -161,8 +161,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         session ??= new(this, activity);
         activity?.SetTag("session.id", session.Id);
         activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
-        Libp2pMetrics.ConnectionsOpened.Add(1);
-        Libp2pMetrics.ConnectionsActive.Add(1);
+        session.RegisterConnection();
         return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
     }
 
@@ -179,7 +178,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 throw new SessionExistsException(remotePeerId);
             }
             _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
-            Sessions.Add(session);
+            session.RegisterSession();
+            try
+            {
+                Sessions.Add(session);
+            }
+            catch
+            {
+                _ = session.DisconnectAsync();
+                throw;
+            }
         }
 
         activity?.SetTag("session.id", session.Id);
@@ -187,21 +195,39 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         activity?.SetTag("remote.peer.id", remotePeerId.ToString());
         activity?.SetTag("remote.addr", session.RemoteAddress.ToString());
 
-        Libp2pMetrics.SessionsOpened.Add(1);
-        Libp2pMetrics.SessionsActive.Add(1);
-
-        Task initializeSession = ConnectedTo(session, !isListener);
-        initializeSession.ContinueWith(t =>
+        Task initializeSession;
+        try
         {
-            if (t.IsFaulted)
+            initializeSession = ConnectedTo(session, !isListener);
+        }
+        catch (Exception ex)
+        {
+            session.ConnectedTcs.TrySetException(ex);
+            _ = session.DisconnectAsync();
+            throw;
+        }
+
+        _ = initializeSession.ContinueWith(t =>
+        {
+            if (!t.IsCompletedSuccessfully)
             {
+                if (t.IsCanceled)
+                {
+                    session.ConnectedTcs.TrySetCanceled();
+                }
+                else
+                {
+                    session.ConnectedTcs.TrySetException(t.Exception!.InnerExceptions);
+                    _logger?.LogError(t.Exception.GetBaseException(), "Disconnecting due to exception");
+                }
                 _ = session.DisconnectAsync();
-                _logger?.LogError(t.Exception.InnerException, $"Disconnecting due to exception");
                 return;
             }
-            session.ConnectedTcs.TrySetResult();
-            OnConnected?.Invoke(session);
-        });
+            if (session.ConnectedTcs.TrySetResult())
+            {
+                OnConnected?.Invoke(session);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
     }
 
@@ -239,6 +265,11 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
+        if (token.IsCancellationRequested)
+        {
+            return Task.FromCanceled<ISession>(token);
+        }
+
         PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
 
         if (remotePeerId is null)
@@ -246,15 +277,83 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
         }
 
-        ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
+        Session? existingSession = FindSession(remotePeerId);
 
         if (existingSession is not null)
         {
-            return Task.FromResult(existingSession);
+            return WaitForSessionAsync(existingSession, token);
         }
 
-        // Deduplicate concurrent dials to the same peer
-        return _pendingDials.GetOrAdd(remotePeerId, _ => DialAsyncDeduped(addrs, remotePeerId, token));
+        PendingDial pending;
+        lock (_pendingDialsLock)
+        {
+            if (!_pendingDials.TryGetValue(remotePeerId, out pending!))
+            {
+                pending = new PendingDial(this, addrs, remotePeerId);
+                _pendingDials.Add(remotePeerId, pending);
+            }
+            pending.Waiters++;
+        }
+        return WaitForDialAsync(remotePeerId, pending, token);
+    }
+
+    private Session? FindSession(PeerId peerId)
+    {
+        lock (Sessions)
+        {
+            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId);
+        }
+    }
+
+    private static async Task<ISession> WaitForSessionAsync(Session session, CancellationToken token)
+    {
+        await session.Connected.WaitAsync(token);
+        session.ConnectionToken.ThrowIfCancellationRequested();
+        return session;
+    }
+
+    private async Task<ISession> WaitForDialAsync(PeerId peerId, PendingDial pending, CancellationToken token)
+    {
+        Task<ISession> attempt = pending.Attempt.Value;
+        try
+        {
+            return await attempt.WaitAsync(token);
+        }
+        finally
+        {
+            bool lastWaiter;
+            lock (_pendingDialsLock)
+            {
+                lastWaiter = --pending.Waiters == 0;
+                if (lastWaiter)
+                {
+                    _pendingDials.Remove(peerId);
+                }
+            }
+
+            if (lastWaiter)
+            {
+                if (!attempt.IsCompleted)
+                {
+                    pending.Cancellation.Cancel(false);
+                }
+                _ = attempt.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                    pending.Cancellation, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+        }
+    }
+
+    private sealed class PendingDial
+    {
+        public PendingDial(LocalPeer peer, Multiaddress[] addrs, PeerId peerId)
+        {
+            Attempt = new(() => peer.DialAsyncDeduped(addrs, peerId, Cancellation.Token));
+        }
+
+        public CancellationTokenSource Cancellation { get; } = new();
+        public Lazy<Task<ISession>> Attempt { get; }
+        public int Waiters;
     }
 
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token)
@@ -329,7 +428,6 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 DisposeCancellationAfterDialCompletes(c.Value, transportDials.GetValueOrDefault(c.Key), isConnectedAddress);
             }
 
-            _pendingDials.TryRemove(remotePeerId, out _);
         }
     }
 
@@ -398,6 +496,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw exception;
         }
 
+        await session.Connected;
+
         double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
         Libp2pMetrics.DialDuration.Record(elapsedMs);
 
@@ -454,11 +554,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default)
     {
-        ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId);
+        if (token.IsCancellationRequested)
+        {
+            return Task.FromCanceled<ISession>(token);
+        }
+
+        Session? existingSession = FindSession(peerId);
 
         if (existingSession is not null)
         {
-            return Task.FromResult(existingSession);
+            return WaitForSessionAsync(existingSession, token);
         }
 
         PeerStore.PeerInfo? existingPeerInfo = _peerStore?.GetPeerInfo(peerId);
