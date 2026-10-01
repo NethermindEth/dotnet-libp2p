@@ -36,16 +36,18 @@
     <Project Path="Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj" />
     <Project Path="../samples/ai-server/AIServer.csproj" />
     <Project Path="../samples/chat/Chat.csproj" />
-    <Project Path="../samples/maui-chat/MauiChat.csproj" />
+    <Project Path="../samples/maui-chat/MauiChat.csproj">
+      <Build Project="false" />
+    </Project>
     <Project Path="../samples/perf-benchmarks/PerfBenchmarks.csproj" />
     <Project Path="../samples/pubsub-chat/PubsubChat.csproj" />
     <Project Path="../samples/transport-interop/TransportInterop.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
-    <File Path="../../.github/workflows/format.yml" />
-    <File Path="../../.github/workflows/publish.yml" />
-    <File Path="../../.github/workflows/test.yml" />
-    <File Path="../../README.md" />
+    <File Path="../.github/workflows/format.yml" />
+    <File Path="../.github/workflows/publish.yml" />
+    <File Path="../.github/workflows/test.yml" />
+    <File Path="../README.md" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
   </Folder>

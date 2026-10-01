@@ -15,7 +15,7 @@
 
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
-The docs from the application developer perspective: [quick start](./docs/README.md), [sessions](./docs/sessions.md), [discovery](./docs/discovery.md), and [pubsub](./src/libp2p/Libp2p.Protocols.Pubsub/README.md).
+The docs from the application developer perspective: [quick start](./docs/README.md), [sessions](./docs/sessions.md), [discovery](./docs/discovery.md), and [pubsub](./libp2p/Libp2p.Protocols.Pubsub/README.md).
 As a libp2p protocol implementer, you may be interested in [more advanced tutorials](./docs/development/README.md). You can rewire and reconfigure the library in any way you want!
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
@@ -30,10 +30,12 @@ dotnet add package Nethermind.Libp2p
 
 ```sh
 git clone https://github.com/NethermindEth/dotnet-libp2p.git
-cd ./src/libp2p/
+cd ./dotnet-libp2p/libp2p/
 dotnet build
 dotnet test
 ```
+
+The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
 
 ## Roadmap
 
