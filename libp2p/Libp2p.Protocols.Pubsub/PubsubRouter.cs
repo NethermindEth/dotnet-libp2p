@@ -514,7 +514,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             ISession session = await peer.DialAsync(addrs, token);
             if (policy?.Suppressed == true)
             {
-                await session.DisconnectAsync();
                 return;
             }
 
@@ -543,19 +542,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else
                 {
-                    _ = session.DisconnectAsync();
                     return;
                 }
                 if (policy?.Suppressed == true)
                 {
-                    await session.DisconnectAsync();
                     return;
                 }
                 logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
-                if (peerState.TryGetValue(session.RemoteAddress.GetPeerId()!, out PubsubPeer? state) && state.InitiatedBy == ConnectionInitiation.Remote)
-                {
-                    _ = session.DisconnectAsync();
-                }
             }
         }
         catch (Exception e)
