@@ -345,7 +345,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private Task _loops = Task.CompletedTask;
     private readonly ConcurrentDictionary<Task, byte> _connects = new();
 
-    private record Reconnection(Multiaddress[] Addresses, int Attempts, ReconnectionPolicy? Policy);
+    private record Reconnection(Multiaddress[] Addresses, int AttemptsRemaining, ReconnectionPolicy? Policy);
 
     private ReconnectionPolicy GetReconnectionPolicy(PeerId peerId)
     {
@@ -387,6 +387,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegative(_settings.ReconnectionAttempts);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationMessages);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationBytes);
         if (_settings.PendingValidationTimeout <= TimeSpan.Zero)
@@ -502,7 +503,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _ = connect.ContinueWith(t => _connects.TryRemove(t, out _), TaskScheduler.Default);
     }
 
-    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null)
+    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null, int? attemptsRemaining = null)
     {
         PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
         ReconnectionPolicy? policy = reconnectingPolicy ?? (peerId is null ? null : GetReconnectionPolicy(peerId));
@@ -553,10 +554,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
         catch (Exception e)
         {
-            if (reconnect && !token.IsCancellationRequested && policy?.Suppressed != true)
+            int retries = attemptsRemaining ?? _settings.ReconnectionAttempts;
+            if (reconnect && retries > 0 && !token.IsCancellationRequested && policy?.Suppressed != true)
             {
                 logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
-                reconnections.Add(new Reconnection(addrs, _settings.ReconnectionAttempts, policy));
+                reconnections.Add(new Reconnection(addrs, retries, policy));
             }
         }
     }
@@ -617,23 +619,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
-    private void Reconnect(CancellationToken token)
+    internal void Reconnect(CancellationToken token)
     {
         const int MaxParallelReconnections = 5;
+        List<Reconnection> ready = new(MaxParallelReconnections);
+        while (ready.Count < MaxParallelReconnections && reconnections.TryTake(out Reconnection? rec))
+        {
+            ready.Add(rec);
+        }
 
-        for (int rCount = 0; rCount < MaxParallelReconnections && reconnections.TryTake(out Reconnection? rec); rCount++)
+        foreach (Reconnection rec in ready)
         {
             if (rec.Policy?.Suppressed == true) continue;
             logger?.LogDebug($"Reconnect to {string.Join(",", rec.Addresses.Select(a => a.ToString()))}");
-            Task connect = Connect(rec.Addresses, token, true, rec.Policy);
-            Track(connect);
-            _ = connect.ContinueWith(t =>
-            {
-                if (t.IsFaulted && rec.Attempts != 1 && rec.Policy?.Suppressed != true)
-                {
-                    reconnections.Add(rec with { Attempts = rec.Attempts - 1 });
-                }
-            }, token);
+            Track(Connect(rec.Addresses, token, true, rec.Policy, rec.AttemptsRemaining - 1));
         }
     }
 
@@ -937,7 +936,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
-                if (!peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
+                if (_settings.ReconnectionAttempts > 0 && !peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
                 {
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
                 }

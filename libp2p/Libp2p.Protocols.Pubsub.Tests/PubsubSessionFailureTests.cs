@@ -150,6 +150,66 @@ public class PubsubSessionFailureTests
         Assert.That(Volatile.Read(ref dialCount[0]), Is.EqualTo(1));
     }
 
+    [TestCase(0)]
+    [TestCase(2)]
+    public async Task ReconnectionAttempts_BoundsFailedDiscoveryRetries(int retries)
+    {
+        PeerStore store = new();
+        using PubsubRouter router = new(store, new PubsubSettings
+        {
+            ReconnectionAttempts = retries,
+            ReconnectionPeriod = int.MaxValue,
+        });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        int dialCount = 0;
+        localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            Interlocked.Increment(ref dialCount);
+            return Task.FromException<ISession>(new IOException("Dial failed"));
+        });
+        await router.StartAsync(localPeer);
+
+        store.Discover([TestPeers.Multiaddr(2)]);
+        Assert.That(dialCount, Is.EqualTo(1), "discovery still attempts the initial dial");
+
+        for (int i = 0; i <= retries; i++)
+        {
+            router.Reconnect(CancellationToken.None);
+            Assert.That(dialCount, Is.EqualTo(1 + Math.Min(i + 1, retries)), "only configured retries may dial");
+        }
+    }
+
+    [Test]
+    public async Task ZeroReconnectionAttempts_DoesNotRedialClosedPubsubStream()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            ReconnectionAttempts = 0,
+            ReconnectionPeriod = int.MaxValue,
+        });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        await router.StartAsync(localPeer);
+
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        TaskCompletionSource streamClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, streamClosed.Task, _ => { });
+        streamClosed.SetResult();
+        Assert.That(SpinWait.SpinUntil(() =>
+        {
+            lock (router)
+            {
+                return ((IRoutingStateContainer)router).ConnectedPeers.Count == 0;
+            }
+        }, TimeSpan.FromSeconds(2)), Is.True);
+
+        router.Reconnect(CancellationToken.None);
+        await localPeer.DidNotReceive().DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public async Task SuppressReconnection_DuringProtocolSetupPreservesSession()
     {
