@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Core.TestsBase;
 
@@ -135,6 +136,25 @@ internal class PeerLifecycleTests
         transport.CompleteDial.SetResult();
         ISession session = await retry.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(transport.DialCount, Is.EqualTo(2));
+        await session.DisconnectAsync();
+    }
+
+    [Test]
+    public async Task SynchronousDialFailureDoesNotCacheFailedAttempt()
+    {
+        GateTransport transport = new();
+        ControlledPeer peer = new(TestPeers.Identity(1), transport);
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+
+        Assert.ThrowsAsync<Libp2pException>(async () =>
+            await peer.DialAsync([remoteAddress, TestPeers.Multiaddr(3)], CancellationToken.None));
+
+        Task<ISession> retry = peer.DialAsync(remoteAddress);
+        Assert.That(retry.IsCompleted, Is.False, "the failed attempt must not be reused");
+        await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.CompleteDial.SetResult();
+        ISession session = await retry.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(transport.DialCount, Is.EqualTo(1));
         await session.DisconnectAsync();
     }
 
