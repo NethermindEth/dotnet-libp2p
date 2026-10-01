@@ -13,6 +13,7 @@ public class PubsubSettings
 
     public static PubsubSettings Default { get; } = new();
 
+    /// <summary>Automatic retries after a failed discovery dial or closed pubsub stream. Zero disables retries; direct peers have a separate reconnect loop.</summary>
     public int ReconnectionAttempts { get; set; } = 10;
     public int ReconnectionPeriod { get; set; } = 15_000;
 
