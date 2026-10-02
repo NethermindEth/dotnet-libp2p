@@ -7,6 +7,29 @@ on:
   workflow_dispatch:
 
 jobs:
+  macos-tcp-send:
+    name: macOS TCP send (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    defaults:
+      run:
+        working-directory: libp2p
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+
+      - name: Build TCP send probes
+        run: dotnet build Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Probe original TCP sends
+        run: dotnet test Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj -c Release --no-build -- --minimum-expected-tests 3
+
   test:
     name: Test
     runs-on: ubuntu-latest
