@@ -85,7 +85,7 @@ module.exports = async ({ github, context, core }) => {
     if (pull.head.repo?.full_name !== run.head_repository?.full_name) {
         return;
     }
-    if (candidates[0].head?.sha && candidates[0].head.sha !== pull.head.sha) {
+    if (run.head_sha !== pull.head.sha) {
         core.info('The pull request has a newer head; skipping the stale report.');
         return;
     }
