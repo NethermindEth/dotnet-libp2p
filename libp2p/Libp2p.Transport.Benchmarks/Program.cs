@@ -14,6 +14,7 @@ namespace Nethermind.Libp2p.Transport.Benchmarks;
 internal static class Program
 {
     private const ulong TransferBytes = 32 * 1024;
+    private const string StreamOpenExchangeMetric = "stream-open-exchange";
 
     private static readonly (string Name, string Security, string ListenAddress)[] Stacks =
     [
@@ -26,7 +27,7 @@ internal static class Program
     [
         ("upload", TransferBytes, 0),
         ("download", 0, TransferBytes),
-        ("latency", 1, 1)
+        (StreamOpenExchangeMetric, 1, 1)
     ];
 
     private static async Task Main(string[] args)
@@ -78,8 +79,8 @@ internal static class Program
         double seconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
         await session.DisconnectAsync().WaitAsync(timeout.Token);
 
-        double value = metric.Name is "latency" ? seconds * 1000 : TransferBytes / (1024d * 1024) / seconds;
-        return new(stack.Name, metric.Name, metric.Name is "latency" ? "ms" : "MiB/s", value, [value]);
+        double value = metric.Name is StreamOpenExchangeMetric ? seconds * 1000 : TransferBytes / (1024d * 1024) / seconds;
+        return new(stack.Name, metric.Name, metric.Name is StreamOpenExchangeMetric ? "ms" : "MiB/s", value, [value]);
     }
 
     private sealed record Measurement(string Stack, string Metric, string Unit, double Median, double[] Samples);

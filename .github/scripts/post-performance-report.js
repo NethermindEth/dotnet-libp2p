@@ -6,7 +6,8 @@ const path = require('path');
 
 const marker = '<!-- transport-performance-comparison -->';
 const stacks = ['tcp-noise-yamux', 'tcp-tls-yamux', 'quic-v1'];
-const metrics = ['upload', 'download', 'latency'];
+const streamOpenExchangeMetric = 'stream-open-exchange';
+const metrics = ['upload', 'download', streamOpenExchangeMetric];
 
 function median(values) {
     const ordered = [...values].sort((a, b) => a - b);
@@ -20,7 +21,7 @@ function readMeasurement(stack, revision, metric, sample) {
     const filename = `${stack}-${revision}-${metric}-${sample}.json`;
     try {
         const result = JSON.parse(fs.readFileSync(path.join('performance-results', filename), 'utf8'));
-        const unit = metric === 'latency' ? 'ms' : 'MiB/s';
+        const unit = metric === streamOpenExchangeMetric ? 'ms' : 'MiB/s';
         if (result.stack !== stack || result.metric !== metric || result.unit !== unit ||
             !Number.isFinite(result.median) || result.median <= 0 ||
             !Array.isArray(result.samples) || result.samples.length !== 1 ||
@@ -42,7 +43,7 @@ function reportTable() {
         for (const metric of metrics) {
             const values = {};
             const display = {};
-            const unit = metric === 'latency' ? 'ms' : 'MiB/s';
+            const unit = metric === streamOpenExchangeMetric ? 'ms' : 'MiB/s';
             for (const revision of ['base', 'head']) {
                 const samples = [1, 2, 3, 4, 5, 6].map(sample =>
                     readMeasurement(stack, revision, metric, sample)).filter(value => value !== null);
@@ -54,7 +55,10 @@ function reportTable() {
             const change = values.base === null || values.head === null
                 ? '—'
                 : `${values.head >= values.base ? '+' : ''}${((values.head / values.base - 1) * 100).toFixed(1)}%`;
-            rows.push(`| ${stack} | ${metric} | ${display.base} | ${display.head} | ${change} |`);
+            const measure = metric === streamOpenExchangeMetric
+                ? 'stream-open-and-exchange latency'
+                : metric;
+            rows.push(`| ${stack} | ${measure} | ${display.base} | ${display.head} | ${change} |`);
         }
     }
     return rows.join('\n');
@@ -96,7 +100,7 @@ module.exports = async ({ github, context, core }) => {
         try {
             body += `${reportTable()}\n\n`;
             body += 'Each number is the median of six independent runs on the same Ubuntu runner, with main and PR taking turns running first. '
-                + 'Upload and download use 32 KiB transfers; latency uses a one byte round trip. '
+                + 'Upload and download use 32 KiB transfers. Every measurement includes opening and negotiating a new application stream; stream-open-and-exchange latency also includes a one-byte exchange. '
                 + 'An incomplete result means at least one run failed or timed out. '
                 + 'Higher throughput and lower latency are better. Hosted runner variation makes these advisory measurements.\n\n';
         } catch {

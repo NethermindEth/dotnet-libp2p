@@ -82,7 +82,7 @@ jobs:
         run: |
           set -eu
           mkdir -p results
-          for metric in upload download latency; do
+          for metric in upload download stream-open-exchange; do
             for sample in 1 2 3 4 5 6; do
               if [ $((sample % 2)) -eq 0 ]; then
                 revisions='head base'
