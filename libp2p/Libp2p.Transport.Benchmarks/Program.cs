@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
+using System.Net.Quic;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
@@ -37,6 +38,10 @@ internal static class Program
 
         (string Name, string Security, string ListenAddress) stack = Stacks.Single(x => x.Name == stackName);
         (string Name, ulong Upload, ulong Download) metric = Metrics.Single(x => x.Name == metricName);
+        if (stack.Name is "quic-v1" && !QuicListener.IsSupported)
+        {
+            throw new PlatformNotSupportedException("QUIC is unavailable; install libmsquic before benchmarking");
+        }
         Measurement result = await RunAsync(stack, metric);
 
         File.WriteAllText(outputPath, JsonSerializer.Serialize(result,
