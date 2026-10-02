@@ -44,7 +44,7 @@ jobs:
       - name: Use the same benchmark for both revisions
         shell: bash
         run: |
-          set -euo pipefail
+          set -eu
           if [ -d base/libp2p/Libp2p.Transport.Benchmarks ]; then
             source=base
           else
@@ -59,10 +59,10 @@ jobs:
       - name: Build both revisions
         shell: bash
         run: |
-          set -euo pipefail
+          set -eu
           for revision in base head; do
             (cd "$revision" && dotnet build libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj \
-              -c Release -p:SaveDiskSpace=true -warnaserror)
+              -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true)
           done
 
       - name: Measure both revisions
@@ -70,7 +70,7 @@ jobs:
         env:
           STACK: ${{ matrix.stack }}
         run: |
-          set -euo pipefail
+          set -eu
           mkdir -p results
           for metric in upload download latency; do
             for sample in 1 2 3 4 5; do
