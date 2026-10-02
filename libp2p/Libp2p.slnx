@@ -4,6 +4,7 @@
     <Project Path="Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj" />
     <Project Path="Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj" />
+    <Project Path="Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj" />
     <Project Path="Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj" />
     <Project Path="Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj" />
     <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
