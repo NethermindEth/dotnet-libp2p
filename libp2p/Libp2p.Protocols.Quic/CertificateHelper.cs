@@ -3,14 +3,20 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using Org.BouncyCastle.Asn1;
+using Org.BouncyCastle.Asn1.Pkcs;
 using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Signers;
 using Org.BouncyCastle.Security;
+using Org.BouncyCastle.Security.Certificates;
 using Org.BouncyCastle.X509;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using AlgorithmIdentifier = Org.BouncyCastle.Asn1.X509.AlgorithmIdentifier;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Quic.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Tls")]
@@ -276,10 +282,14 @@ public class CertificateHelper
             parsedCertificate.Verify(parsedCertificate.GetPublicKey());
             return true;
         }
-        catch
+        catch (CertificateException e) when (e.InnerException is ArgumentException)
         {
             // BouncyCastle 2.7 rejects empty issuer Names before checking the signature.
             return HasValidSignatureWithEmptyIssuer(certificate);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -299,11 +309,11 @@ public class CertificateHelper
 
             AsnReader bodyReader = new(signedBody, AsnEncodingRules.DER);
             AsnReader body = bodyReader.ReadSequence();
-            if (body.PeekTag() is { TagClass: TagClass.ContextSpecific, TagValue: 0 })
+            AsnReader version = body.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0));
+            if (version.ReadInteger() != 2 || version.HasData || body.ReadInteger() <= 0)
             {
-                body.ReadEncodedValue();
+                return false;
             }
-            body.ReadEncodedValue(); // serialNumber
             if (!body.ReadEncodedValue().Span.SequenceEqual(signatureAlgorithm.Span))
             {
                 return false;
@@ -314,34 +324,128 @@ public class CertificateHelper
                 return false;
             }
 
-            AsnReader algorithmReader = new(signatureAlgorithm, AsnEncodingRules.DER);
-            AsnReader algorithm = algorithmReader.ReadSequence();
-            string signatureOid = algorithm.ReadObjectIdentifier();
-            if (signatureOid == "1.2.840.113549.1.1.10") // RSA-PSS parameters require special handling
+            AsnReader validity = body.ReadSequence();
+            for (int i = 0; i < 2; i++)
             {
-                return false;
-            }
-            if (algorithm.HasData)
-            {
-                if (!signatureOid.StartsWith("1.2.840.113549.1.1.", StringComparison.Ordinal))
+                Asn1Tag tag = validity.PeekTag();
+                if (tag.TagClass != TagClass.Universal)
                 {
                     return false;
                 }
-                algorithm.ReadNull();
+                switch ((UniversalTagNumber)tag.TagValue)
+                {
+                    case UniversalTagNumber.UtcTime: validity.ReadUtcTime(); break;
+                    case UniversalTagNumber.GeneralizedTime: validity.ReadGeneralizedTime(); break;
+                    default: return false;
+                }
             }
+            if (validity.HasData)
+            {
+                return false;
+            }
+
+            AsnReader subject = body.ReadSequence();
+            while (subject.HasData)
+            {
+                AsnReader relativeName = subject.ReadSetOf();
+                if (!relativeName.HasData)
+                {
+                    return false;
+                }
+                while (relativeName.HasData)
+                {
+                    AsnReader attribute = relativeName.ReadSequence();
+                    attribute.ReadObjectIdentifier();
+                    attribute.ReadEncodedValue();
+                    if (attribute.HasData)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            ReadOnlyMemory<byte> publicKeyInfo = body.ReadEncodedValue();
+            if (body.HasData)
+            {
+                AsnReader taggedExtensions = body.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 3));
+                AsnReader extensions = taggedExtensions.ReadSequence();
+                if (!extensions.HasData || taggedExtensions.HasData)
+                {
+                    return false;
+                }
+                while (extensions.HasData)
+                {
+                    AsnReader extension = extensions.ReadSequence();
+                    extension.ReadObjectIdentifier();
+                    if (extension.HasData && extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
+                    {
+                        extension.ReadBoolean();
+                    }
+                    extension.ReadOctetString();
+                    if (extension.HasData)
+                    {
+                        return false;
+                    }
+                }
+            }
+            if (body.HasData || bodyReader.HasData)
+            {
+                return false;
+            }
+
+            AsnReader algorithmReader = new(signatureAlgorithm, AsnEncodingRules.DER);
+            AsnReader algorithm = algorithmReader.ReadSequence();
+            string signatureOid = algorithm.ReadObjectIdentifier();
+            bool hasParameters = algorithm.HasData;
+            ReadOnlyMemory<byte> parameters = hasParameters ? algorithm.ReadEncodedValue() : default;
             if (algorithm.HasData || algorithmReader.HasData)
             {
                 return false;
             }
 
-            byte[]? publicKeyInfo = ReadSubjectPublicKeyInfo(certificate);
-            if (publicKeyInfo is null)
+            AsymmetricKeyParameter publicKey = PublicKeyFactory.CreateKey(publicKeyInfo.ToArray());
+            ISigner verifier;
+            if (signatureOid == "1.2.840.113549.1.1.10")
             {
-                return false;
+                if (!hasParameters)
+                {
+                    return false;
+                }
+                AlgorithmIdentifier signatureId = AlgorithmIdentifier.GetInstance(Asn1Object.FromByteArray(signatureAlgorithm.ToArray()));
+                RsassaPssParameters pss = RsassaPssParameters.GetInstance(signatureId.Parameters);
+                if (!pss.MaskGenAlgorithm.Algorithm.Equals(PkcsObjectIdentifiers.IdMgf1) ||
+                    pss.TrailerField.IntValueExact != 1)
+                {
+                    return false;
+                }
+                int saltLength = pss.SaltLength.IntValueExact;
+                if (saltLength < 0 || saltLength > signature.Length)
+                {
+                    return false;
+                }
+                AlgorithmIdentifier maskDigest = AlgorithmIdentifier.GetInstance(pss.MaskGenAlgorithm.Parameters);
+                verifier = new PssSigner(new RsaEngine(),
+                    DigestUtilities.GetDigest(pss.HashAlgorithm.Algorithm.Id),
+                    DigestUtilities.GetDigest(maskDigest.Algorithm.Id), saltLength);
+            }
+            else
+            {
+                if (hasParameters)
+                {
+                    if (!signatureOid.StartsWith("1.2.840.113549.1.1.", StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+                    AsnReader parameterReader = new(parameters, AsnEncodingRules.DER);
+                    parameterReader.ReadNull();
+                    if (parameterReader.HasData)
+                    {
+                        return false;
+                    }
+                }
+                verifier = SignerUtilities.GetSigner(signatureOid);
             }
 
-            AsymmetricKeyParameter publicKey = PublicKeyFactory.CreateKey(publicKeyInfo);
-            ISigner verifier = SignerUtilities.GetSigner(signatureOid);
             verifier.Init(false, publicKey);
             verifier.BlockUpdate(signedBody.Span);
             return verifier.VerifySignature(signature);
