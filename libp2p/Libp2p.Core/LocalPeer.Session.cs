@@ -67,27 +67,78 @@ public partial class LocalPeer
             }, token);
 
             object? result = await tcs.Task;
-            MarkAsConnected();
             return result;
         }
 
 
         private CancellationTokenSource connectionTokenSource = new();
+        private readonly Lock _lifecycleLock = new();
+        private bool _disconnected;
+        private bool _connectionCounted;
+        private bool _sessionCounted;
+
+        internal void RegisterConnection()
+        {
+            lock (_lifecycleLock)
+            {
+                if (_disconnected) throw new OperationCanceledException(ConnectionToken);
+                if (_connectionCounted) return;
+                _connectionCounted = true;
+                Libp2pMetrics.ConnectionsOpened.Add(1);
+                Libp2pMetrics.ConnectionsActive.Add(1);
+            }
+        }
+
+        internal void RegisterSession()
+        {
+            lock (_lifecycleLock)
+            {
+                if (_disconnected) throw new OperationCanceledException(ConnectionToken);
+                if (_sessionCounted) return;
+                _sessionCounted = true;
+                Libp2pMetrics.SessionsOpened.Add(1);
+                Libp2pMetrics.SessionsActive.Add(1);
+            }
+        }
 
         public Task DisconnectAsync()
         {
-            connectionTokenSource.Cancel();
-            peer.RemoveSession(this);
+            bool closeSession;
+            bool closeConnection;
+            lock (_lifecycleLock)
+            {
+                if (_disconnected) return Task.CompletedTask;
+                _disconnected = true;
+                closeSession = _sessionCounted;
+                closeConnection = _connectionCounted;
+            }
+
+            try
+            {
+                connectionTokenSource.Cancel();
+            }
+            finally
+            {
+                if (closeSession)
+                {
+                    ConnectedTcs.TrySetCanceled(ConnectionToken);
+                    Libp2pMetrics.SessionsClosed.Add(1);
+                    Libp2pMetrics.SessionsActive.Add(-1);
+                }
+                if (closeConnection)
+                {
+                    Libp2pMetrics.ConnectionsActive.Add(-1);
+                }
+                peer.RemoveSession(this);
+            }
             return Task.CompletedTask;
         }
 
         public CancellationToken ConnectionToken => connectionTokenSource.Token;
 
 
-        public TaskCompletionSource ConnectedTcs = new();
+        public TaskCompletionSource ConnectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Connected => ConnectedTcs.Task;
-
-        internal void MarkAsConnected() => ConnectedTcs?.TrySetResult();
 
         internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
     }
@@ -98,8 +149,5 @@ public partial class LocalPeer
         {
             Sessions.Remove(session);
         }
-        Libp2pMetrics.SessionsClosed.Add(1);
-        Libp2pMetrics.SessionsActive.Add(-1);
-        Libp2pMetrics.ConnectionsActive.Add(-1);
     }
 }
