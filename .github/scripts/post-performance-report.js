@@ -10,7 +10,10 @@ const metrics = ['upload', 'download', 'latency'];
 
 function median(values) {
     const ordered = [...values].sort((a, b) => a - b);
-    return ordered[Math.floor(ordered.length / 2)];
+    const middle = Math.floor(ordered.length / 2);
+    return ordered.length % 2 === 0
+        ? (ordered[middle - 1] + ordered[middle]) / 2
+        : ordered[middle];
 }
 
 function readMeasurement(stack, revision, metric, sample) {
@@ -41,12 +44,12 @@ function reportTable() {
             const display = {};
             const unit = metric === 'latency' ? 'ms' : 'MiB/s';
             for (const revision of ['base', 'head']) {
-                const samples = [1, 2, 3, 4, 5].map(sample =>
+                const samples = [1, 2, 3, 4, 5, 6].map(sample =>
                     readMeasurement(stack, revision, metric, sample)).filter(value => value !== null);
-                values[revision] = samples.length === 5 ? median(samples) : null;
-                display[revision] = samples.length === 5
+                values[revision] = samples.length === 6 ? median(samples) : null;
+                display[revision] = samples.length === 6
                     ? `${values[revision].toFixed(2)} ${unit}`
-                    : `incomplete (${samples.length}/5)`;
+                    : `incomplete (${samples.length}/6)`;
             }
             const change = values.base === null || values.head === null
                 ? '—'
@@ -92,7 +95,7 @@ module.exports = async ({ github, context, core }) => {
     if (run.conclusion === 'success') {
         try {
             body += `${reportTable()}\n\n`;
-            body += 'Each number is the median of five independent runs on the same Ubuntu runner. '
+            body += 'Each number is the median of six independent runs on the same Ubuntu runner, with main and PR taking turns running first. '
                 + 'Upload and download use 32 KiB transfers; latency uses a one byte round trip. '
                 + 'An incomplete result means at least one run failed or timed out. '
                 + 'Higher throughput and lower latency are better. Hosted runner variation makes these advisory measurements.\n\n';

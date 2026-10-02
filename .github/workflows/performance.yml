@@ -83,8 +83,13 @@ jobs:
           set -eu
           mkdir -p results
           for metric in upload download latency; do
-            for sample in 1 2 3 4 5; do
-              for revision in base head; do
+            for sample in 1 2 3 4 5 6; do
+              if [ $((sample % 2)) -eq 0 ]; then
+                revisions='head base'
+              else
+                revisions='base head'
+              fi
+              for revision in $revisions; do
                 if ! (cd "$revision" && timeout 15s dotnet run --no-build \
                     --project libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj \
                     -c Release -- "$GITHUB_WORKSPACE/results/$STACK-$revision-$metric-$sample.json" "$STACK" "$metric"); then
