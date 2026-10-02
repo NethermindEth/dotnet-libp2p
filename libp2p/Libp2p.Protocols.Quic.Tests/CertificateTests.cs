@@ -38,6 +38,18 @@ public class CertificateTests
     public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
         CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
 
+    [Test]
+    public void RejectsInvalidSelfSignatureWithEmptyIssuer()
+    {
+        TestCaseData fixture = CertificatesSerialized().First();
+        byte[] certificateBytes = ((byte[])fixture.Arguments[0]!).ToArray();
+        certificateBytes[^1] ^= 0x01;
+
+        using X509Certificate2 certificate = X509CertificateLoader.LoadCertificate(certificateBytes);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, (string)fixture.Arguments[1]!, out string? failureReason), Is.False);
+        Assert.That(failureReason, Is.EqualTo("certificate self-signature is invalid"));
+    }
+
     public static IEnumerable<TestCaseData> CertificatesSerialized()
     {
         yield return new TestCaseData(
