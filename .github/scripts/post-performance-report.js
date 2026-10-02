@@ -59,6 +59,9 @@ function reportTable() {
 
 module.exports = async ({ github, context, core }) => {
     const run = context.payload.workflow_run;
+    if (run.path !== '.github/workflows/performance.yml') {
+        return;
+    }
     const { owner, repo } = context.repo;
     let candidates = run.pull_requests || [];
     if (candidates.length === 0) {
@@ -74,6 +77,9 @@ module.exports = async ({ github, context, core }) => {
     const pullNumber = candidates[0].number;
     const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number: pullNumber });
     if (pull.state !== 'open' || !pull.labels.some(label => label.name === 'performance is good')) {
+        return;
+    }
+    if (pull.head.repo?.full_name !== run.head_repository?.full_name) {
         return;
     }
     if (candidates[0].head?.sha && candidates[0].head.sha !== pull.head.sha) {
