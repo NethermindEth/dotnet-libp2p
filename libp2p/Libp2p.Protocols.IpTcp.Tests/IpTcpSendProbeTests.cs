@@ -17,7 +17,7 @@ namespace Nethermind.Libp2p.Protocols.IpTcp.Tests;
 public class IpTcpSendProbeTests
 {
     [Test]
-    public async Task OriginalSendCompletesMultiSegmentPayloadUnderBackpressure()
+    public async Task OriginalSendCompletesMultiSegmentPayloadWithSmallSendBuffer()
     {
         (Socket sender, Socket receiver) = await ConnectedSocketsAsync();
         using (sender)
