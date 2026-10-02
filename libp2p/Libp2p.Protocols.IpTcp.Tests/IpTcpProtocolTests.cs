@@ -40,6 +40,43 @@ public class IpTcpProtocolTests
         Assert.That(received, Is.EqualTo(expected));
     }
 
+    [Test]
+    public async Task SendAllAsyncRetainsOriginalBytesWhenLaterSegmentChanges()
+    {
+        using Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
+        listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        listener.Listen();
+
+        using Socket sender = new(SocketType.Stream, ProtocolType.Tcp);
+        await sender.ConnectAsync((IPEndPoint)listener.LocalEndPoint!);
+        using Socket receiver = await listener.AcceptAsync();
+        sender.SendBufferSize = 1024;
+
+        const int segmentLength = 1024 * 1024;
+        const int segmentCount = 16;
+        SequenceSegment firstSegment = new(new byte[segmentLength]);
+        SequenceSegment lastSegment = firstSegment;
+        for (int i = 1; i < segmentCount - 1; i++)
+        {
+            lastSegment = lastSegment.Append(new byte[segmentLength]);
+        }
+
+        byte[] lastBytes = new byte[segmentLength];
+        Array.Fill(lastBytes, (byte)0x22);
+        lastSegment = lastSegment.Append(lastBytes);
+        ReadOnlySequence<byte> payload = new(firstSegment, 0, lastSegment, lastBytes.Length);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(60));
+        ValueTask<bool> send = IpTcpProtocol.SendAllAsync(sender, payload, timeout.Token);
+
+        Array.Fill(lastBytes, (byte)0x33);
+
+        Task<byte[]> received = ReceiveExactlyAsync(receiver, segmentLength * segmentCount, timeout.Token);
+        Assert.That(await send, Is.True);
+        byte[] expectedLast = new byte[segmentLength];
+        Array.Fill(expectedLast, (byte)0x22);
+        Assert.That((await received).AsSpan()[(segmentLength * (segmentCount - 1))..].ToArray(), Is.EqualTo(expectedLast));
+    }
+
     private static async Task<byte[]> ReceiveAfterDelayAsync(Socket socket, int length, CancellationToken token)
     {
         await Task.Delay(100, token);

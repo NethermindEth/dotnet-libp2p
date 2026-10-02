@@ -26,9 +26,17 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
     internal static async ValueTask<bool> SendAllAsync(Socket socket, ReadOnlySequence<byte> data, CancellationToken token = default)
     {
-        foreach (ReadOnlyMemory<byte> segment in data)
+        int length = checked((int)data.Length);
+        if (length is 0)
         {
-            ReadOnlyMemory<byte> remaining = segment;
+            return socket.Connected;
+        }
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            data.CopyTo(buffer);
+            ReadOnlyMemory<byte> remaining = buffer.AsMemory(0, length);
             while (!remaining.IsEmpty)
             {
                 int sent = await socket.SendAsync(remaining, SocketFlags.None, token);
@@ -39,9 +47,13 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
                 remaining = remaining[sent..];
             }
-        }
 
-        return socket.Connected;
+            return socket.Connected;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
 
