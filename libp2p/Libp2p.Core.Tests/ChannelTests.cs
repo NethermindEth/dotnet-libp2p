@@ -28,6 +28,18 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task CloseWithUnreadInboundWriteAbortsOutboundRead()
+    {
+        Channel channel = new();
+        Task<IOResult> inboundWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+        await channel.CloseAsync();
+
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
     public async Task CloseEndsAPendingReadAndIsIdempotent()
     {
         Channel channel = new();
@@ -42,7 +54,7 @@ public class ChannelTests
     }
 
     [Test]
-    public async Task CloseEndsQueuedReadsAndWrites()
+    public async Task CloseWithQueuedReadsAndWritesAbortsReaders()
     {
         Channel channel = new();
         Task<ReadResult> firstRead = channel.ReadAsync(1).AsTask();
@@ -52,8 +64,8 @@ public class ChannelTests
 
         await channel.CloseAsync();
 
-        Assert.That((await firstRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Ended));
-        Assert.That((await secondRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That((await firstRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await secondRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That(await firstWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
         Assert.That(await secondWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
     }

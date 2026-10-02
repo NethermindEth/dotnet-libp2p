@@ -62,8 +62,13 @@ public class Channel : IChannel
 
     public ValueTask CloseAsync()
     {
-        _reader.Abort();
-        _writer.Abort();
+        bool aborted = _reader.MarkClosed() | _writer.MarkClosed();
+        if (aborted)
+        {
+            _reader.MarkAborted();
+        }
+        _reader.CompleteAbort();
+        _writer.CompleteAbort();
         Completion.TrySetResult();
         return ValueTask.CompletedTask;
     }
@@ -106,13 +111,27 @@ public class Channel : IChannel
         private ReadResult ClosedReadResult => Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Ended;
         private IOResult ClosedIoResult => Volatile.Read(ref _aborted) != 0 ? IOResult.Aborted : IOResult.Ended;
 
-        internal void Abort()
+        internal bool MarkClosed()
         {
             int previous = Interlocked.Or(ref _state, Closed);
-            if ((previous & (PendingWrite | PendingRead)) != 0)
+            return (previous & (PendingWrite | PendingRead)) != 0;
+        }
+
+        internal void MarkAborted()
+        {
+            if (_externalCompletionMonitor is { } channel)
+            {
+                Interlocked.Exchange(ref channel._reader._aborted, 1);
+                Interlocked.Exchange(ref channel._writer._aborted, 1);
+            }
+            else
             {
                 Interlocked.Exchange(ref _aborted, 1);
             }
+        }
+
+        internal void CompleteAbort()
+        {
             _eow = true;
             _closed.Cancel();
             _externalCompletionMonitor?.TryComplete();
@@ -201,7 +220,7 @@ public class Channel : IChannel
                         {
                             if ((Interlocked.Or(ref _state, PendingRead) & Closed) != 0)
                             {
-                                Interlocked.Exchange(ref _aborted, 1);
+                                MarkAborted();
                             }
                         }
                         Interlocked.And(ref _state, ~PendingWrite);
