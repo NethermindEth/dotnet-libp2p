@@ -26,6 +26,7 @@ public interface IReader
             {
                 case { Result: IOResult.Ok, Data: ReadOnlySequence<byte> data }: yield return data; break;
                 case { Result: IOResult.Ended }: yield break;
+                case { Result: IOResult.Aborted }: throw new IOException("Channel aborted before all bytes were delivered.");
                 default: throw new Exception();
             }
         }

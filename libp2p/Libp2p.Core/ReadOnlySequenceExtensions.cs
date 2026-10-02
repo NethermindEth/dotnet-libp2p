@@ -15,24 +15,11 @@ public static class ReadOnlySequenceExtensions
         }
 
         MemorySegment<byte> left = new(with);
-        if (self.IsSingleSegment)
-        {
-            left.Append(self.First);
-            return new ReadOnlySequence<byte>(left, 0, left.Next!, left.Next!.Memory.Length);
-        }
-
-        ReadOnlySequenceSegment<byte> right = (ReadOnlySequenceSegment<byte>)self.Start.GetObject()!;
         ReadOnlySequenceSegment<byte> startSegment = left;
-        do
+        foreach (ReadOnlyMemory<byte> segment in self)
         {
-            left = left.Append(right.Memory);
-            if (right.Next is null)
-            {
-                break;
-            }
-
-            right = right.Next;
-        } while (true);
+            left = left.Append(segment);
+        }
 
         return new ReadOnlySequence<byte>(startSegment, 0, left, left.Memory.Length);
     }
@@ -44,25 +31,14 @@ public static class ReadOnlySequenceExtensions
             return new ReadOnlySequence<byte>(with);
         }
 
-        MemorySegment<byte> left = new(self.First);
-        if (self.IsSingleSegment)
-        {
-            left.Append(with);
-            return new ReadOnlySequence<byte>(left, 0, left.Next!, left.Next!.Memory.Length);
-        }
-
-        ReadOnlySequenceSegment<byte> right = ((ReadOnlySequenceSegment<byte>)self.Start.GetObject()!).Next!;
+        ReadOnlySequence<byte>.Enumerator enumerator = self.GetEnumerator();
+        enumerator.MoveNext();
+        MemorySegment<byte> left = new(enumerator.Current);
         ReadOnlySequenceSegment<byte> startSegment = left;
-        do
+        while (enumerator.MoveNext())
         {
-            left = left.Append(right.Memory);
-            if (right.Next is null)
-            {
-                break;
-            }
-
-            right = right.Next;
-        } while (true);
+            left = left.Append(enumerator.Current);
+        }
 
         left = left.Append(with);
         return new ReadOnlySequence<byte>(startSegment, 0, left, left.Memory.Length);

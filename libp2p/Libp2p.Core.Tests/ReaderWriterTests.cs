@@ -52,6 +52,74 @@ public class ReaderWriterTests
     }
 
     [Test]
+    public async Task WaitAllPreservesEverySegmentAcrossWrites()
+    {
+        Channel.ReaderWriter readerWriter = new();
+        Task<ReadResult> read = readerWriter.ReadAsync(3).AsTask();
+        Task<IOResult> firstWrite = readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+        MemorySegment<byte> firstSegment = new(new byte[] { 2 });
+        MemorySegment<byte> lastSegment = firstSegment.Append(new byte[] { 3 });
+        Task<IOResult> secondWrite = readerWriter.WriteAsync(
+            new ReadOnlySequence<byte>(firstSegment, 0, lastSegment, 1)).AsTask();
+
+        ReadResult result = await read.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(result.Data.Length, Is.EqualTo(3));
+            Assert.That(result.Data.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3 }));
+        });
+        Assert.That(await firstWrite, Is.EqualTo(IOResult.Ok));
+        Assert.That(await secondWrite, Is.EqualTo(IOResult.Ok));
+    }
+
+    [Test]
+    public async Task WaitAllPreservesSlicedSegmentsAcrossThreeWrites()
+    {
+        Channel.ReaderWriter readerWriter = new();
+        Task<ReadResult> read = readerWriter.ReadAsync(4).AsTask();
+        Task<IOResult> firstWrite = readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+        MemorySegment<byte> firstSegment = new(new byte[] { 2, 3 });
+        MemorySegment<byte> lastSegment = firstSegment.Append(new byte[] { 4, 5 });
+        ReadOnlySequence<byte> middle = new ReadOnlySequence<byte>(firstSegment, 0, lastSegment, 2).Slice(1, 2);
+        Task<IOResult> middleWrite = readerWriter.WriteAsync(middle).AsTask();
+        Task<IOResult> lastWrite = readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 6 })).AsTask();
+
+        ReadResult result = await read.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(result.Result, Is.EqualTo(IOResult.Ok));
+        Assert.That(result.Data.ToArray(), Is.EqualTo(new byte[] { 1, 3, 4, 6 }));
+        Assert.That(await firstWrite, Is.EqualTo(IOResult.Ok));
+        Assert.That(await middleWrite, Is.EqualTo(IOResult.Ok));
+        Assert.That(await lastWrite, Is.EqualTo(IOResult.Ok));
+    }
+
+    [Test]
+    public void NegativeReadLengthIsRejectedBeforeWaitingForData()
+    {
+        Channel.ReaderWriter readerWriter = new();
+
+        Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
+            await readerWriter.ReadAsync(-1).AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public async Task CancelledEofReturnsCancelledAndLeavesChannelWritable()
+    {
+        Channel.ReaderWriter readerWriter = new();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+
+        Assert.That(await readerWriter.WriteEofAsync(cancellation.Token), Is.EqualTo(IOResult.Cancelled));
+
+        Task<IOResult> write = readerWriter.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        ReadResult read = await readerWriter.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(read.Data.ToArray(), Is.EqualTo(new byte[] { 1 }));
+        Assert.That(await write, Is.EqualTo(IOResult.Ok));
+    }
+
+    [Test]
     public async Task Test_ChannelReads_SequentialChunks()
     {
         Channel.ReaderWriter readerWriter = new();

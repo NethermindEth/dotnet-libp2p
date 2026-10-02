@@ -42,4 +42,19 @@ public class ReadOnlySequenceExtensionsTests
         Assert.That(prepended2.Length, Is.EqualTo(5));
         Assert.That(prepended2.ToArray(), Is.EquivalentTo(new byte[] { 1, 2, 3, 0, 42 }));
     }
+
+    [Test]
+    public void SlicedSequencePreservesOnlyItsLogicalBytes()
+    {
+        MemorySegment<byte> first = new(new byte[] { 1, 2 });
+        MemorySegment<byte> middle = first.Append(new byte[] { 3, 4 });
+        _ = middle.Append(new byte[] { 5, 6 });
+        ReadOnlySequence<byte> slice = new ReadOnlySequence<byte>(first, 0, middle, 2).Slice(1, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(slice.Prepend(new byte[] { 0 }).ToArray(), Is.EqualTo(new byte[] { 0, 2, 3 }));
+            Assert.That(slice.Append(new byte[] { 7 }).ToArray(), Is.EqualTo(new byte[] { 2, 3, 7 }));
+        });
+    }
 }

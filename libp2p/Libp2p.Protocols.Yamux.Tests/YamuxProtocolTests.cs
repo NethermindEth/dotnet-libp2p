@@ -38,6 +38,55 @@ public class YamuxProtocolTests
     }
 
     [Test]
+    public async Task AbortedOutboundChannelSendsResetInsteadOfFin()
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+
+        TestChannel appChannel = new();
+        TaskCompletionSource upgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        {
+            upgraded.TrySetResult();
+            return appChannel;
+        });
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            await upgraded.Task.WaitAsync(timeout.Token);
+            Task<IOResult> pendingWrite = appChannel.Reverse().WriteAsync(
+                new ReadOnlySequence<byte>(new byte[] { 1 }), timeout.Token).AsTask();
+            await appChannel.CloseAsync();
+            Assert.That(await pendingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Ended));
+
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            YamuxHeader reset = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+
+            Assert.That(syn.Flags, Is.EqualTo(YamuxHeaderFlags.Syn));
+            Assert.That(reset.Flags, Is.EqualTo(YamuxHeaderFlags.Rst));
+            Assert.That(reset.StreamID, Is.EqualTo(syn.StreamID));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
     public async Task ResetCancelsPumpWaitingForRemoteWindow()
     {
         IProtocol protocol = Substitute.For<IProtocol>();

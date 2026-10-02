@@ -66,6 +66,10 @@ public class ChannelStream : Stream
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
+            if (result.Result != IOResult.Ended)
+            {
+                throw new IOException($"Channel read failed: {result.Result}.");
+            }
             return 0;
         }
 
@@ -84,6 +88,7 @@ public class ChannelStream : Stream
         if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
         {
             _canWrite = false;
+            throw new IOException("Channel is closed for writing.");
         }
     }
 
@@ -119,6 +124,7 @@ public class ChannelStream : Stream
         if (result != IOResult.Ok)
         {
             _canWrite = false;
+            throw new IOException("Channel is closed for writing.");
         }
     }
 
@@ -170,6 +176,10 @@ public class ChannelStream : Stream
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
+            if (result.Result != IOResult.Ended)
+            {
+                throw new IOException($"Channel read failed: {result.Result}.");
+            }
             return 0;
         }
 
