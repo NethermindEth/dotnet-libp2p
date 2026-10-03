@@ -349,11 +349,6 @@ public class Channel : IChannel
                     throw;
                 }
 
-                if (_closed.IsCancellationRequested)
-                {
-                    return IOResult.Ended;
-                }
-
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);
                 Libp2pMetrics.DataSentPackets.Add(1);
                 return IOResult.Ok;

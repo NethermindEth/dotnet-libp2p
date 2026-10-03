@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -21,7 +22,7 @@ public class ChannelTests
 
         Assert.That(writeResult, Is.EqualTo(IOResult.Ended));
         Assert.That(readResult.Result, Is.EqualTo(IOResult.Aborted));
-        Assert.CatchAsync<IOException>(async () =>
+        Assert.CatchAsync<ChannelAbortedException>(async () =>
         {
             await foreach (ReadOnlySequence<byte> _ in channel.Reverse.ReadAllAsync()) { }
         });
@@ -37,6 +38,22 @@ public class ChannelTests
 
         Assert.That(await inboundWrite, Is.EqualTo(IOResult.Ended));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CloseAfterReadAcknowledgesWriteDoesNotFailTheWrite()
+    {
+        for (int i = 0; i < 1000; i++)
+        {
+            Channel channel = new();
+            Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+            ReadResult read = await channel.Reverse.ReadAsync(1);
+            await channel.CloseAsync();
+
+            Assert.That(read.Data.ToArray(), Is.EqualTo(new byte[] { 1 }));
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok), $"Iteration {i}");
+        }
     }
 
     [Test]
@@ -91,8 +108,10 @@ public class ChannelTests
         using Stream stream = channel.AsStream();
         await channel.WriteEofAsync();
 
-        Assert.CatchAsync<IOException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory()));
-        Assert.Throws<IOException>(() => stream.Write(new byte[] { 1 }, 0, 1));
+        IOException? asyncError = Assert.CatchAsync<IOException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory()));
+        IOException? syncError = Assert.Throws<IOException>(() => stream.Write(new byte[] { 1 }, 0, 1));
+        Assert.That(asyncError!.Message, Is.EqualTo("Channel write failed: Ended."));
+        Assert.That(syncError!.Message, Is.EqualTo("Channel write failed: Ended."));
     }
 
     [Test]

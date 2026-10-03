@@ -85,10 +85,11 @@ public class ChannelStream : Stream
         ThrowIfDisposed();
         if (source.IsEmpty) return;
 
-        if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
+        IOResult result = _chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult();
+        if (result != IOResult.Ok)
         {
             _canWrite = false;
-            throw new IOException("Channel is closed for writing.");
+            throw new IOException($"Channel write failed: {result}.");
         }
     }
 
@@ -124,7 +125,7 @@ public class ChannelStream : Stream
         if (result != IOResult.Ok)
         {
             _canWrite = false;
-            throw new IOException("Channel is closed for writing.");
+            throw new IOException($"Channel write failed: {result}.");
         }
     }
 
