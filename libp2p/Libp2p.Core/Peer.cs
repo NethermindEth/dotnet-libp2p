@@ -706,11 +706,13 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         upgradeActivity?.SetTag("parent", activity?.DisplayName);
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
         CancellationTokenRegistration cancellationRegistration = default;
+        static ValueTask AbortChannelAsync(IChannel channel) =>
+            channel is Channel coreChannel ? coreChannel.AbortAsync() : channel.CloseAsync();
 
         if (options?.CancellationToken.IsCancellationRequested == true)
         {
             options.CompletionSource?.TrySetCanceled(options.CancellationToken);
-            _ = downChannel.CloseAsync();
+            _ = AbortChannelAsync(downChannel);
             upgradeActivity?.Dispose();
             return Task.FromCanceled(options.CancellationToken);
         }
@@ -720,7 +722,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             cancellationRegistration = options.CancellationToken.Register(() =>
             {
                 options.CompletionSource?.TrySetCanceled(options.CancellationToken);
-                _ = downChannel.CloseAsync();
+                _ = AbortChannelAsync(downChannel);
             });
         }
 
@@ -776,10 +778,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
             {
-                _ = upgradeTask.ContinueWith(async t =>
+                _ = upgradeTask.ContinueWith(t =>
                 {
                     MapToTaskCompletionSource(t, options.CompletionSource);
-                    await downChannel.CloseAsync();
                 });
             }
 
@@ -797,7 +798,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         _logger?.LogError($"Upgrade task failed with {t.Exception}");
                     }
                 }
-                _ = downChannel.CloseAsync();
+                _ = t.IsCompletedSuccessfully && downChannel is Channel completedChannel
+                    ? completedChannel.CompleteProtocolAsync()
+                    : AbortChannelAsync(downChannel);
                 _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
                 upgradeActivity?.Dispose();
             });
