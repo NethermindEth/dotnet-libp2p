@@ -18,26 +18,27 @@ internal class RemoteDataWindow(int defaultWindowSize = YamuxProtocol.ProtocolIn
     /// Extends window, according to remote informing for extension
     /// </summary>
     /// <param name="length">Requested extension</param>
-    /// <returns>Requested extension</returns>
-    public int Extend(int length)
+    /// <param name="available">Available credit after extension</param>
+    /// <returns>Whether the extension fits in the credit counter</returns>
+    public bool TryExtend(int length, out int available)
     {
-        if (length == 0)
+        while (true)
         {
-            return 0;
-        }
+            int current = Volatile.Read(ref _available);
+            if (length < 0 || length > int.MaxValue - current)
+            {
+                available = current;
+                return false;
+            }
 
-        if (length < 0)
-        {
-            throw new ArgumentException("Cannot be negative", nameof(length));
-        }
+            available = current + length;
+            if (Interlocked.CompareExchange(ref _available, available, current) != current)
+                continue;
 
-        int updatedAvailable = Interlocked.Add(ref _available, length);
-        if (updatedAvailable > 0)
-        {
-            tcs.TrySetResult();
+            if (available > 0)
+                Volatile.Read(ref tcs).TrySetResult();
+            return true;
         }
-
-        return length;
     }
 
     /// <summary>
@@ -47,23 +48,23 @@ internal class RemoteDataWindow(int defaultWindowSize = YamuxProtocol.ProtocolIn
     /// <returns>Spent size in range of [<c>1</c>, <paramref name="requestedSize"/>]</returns>
     public async Task<int> SpendOrWait(int requestedSize, CancellationToken token = default)
     {
-        int updatedAvailable = Interlocked.Add(ref _available, -requestedSize);
-
-        if (updatedAvailable >= 0)
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedSize);
+        while (true)
         {
-            return requestedSize;
-        }
-        else if (updatedAvailable > -requestedSize)
-        {
-            int spent = requestedSize + updatedAvailable;
-            Interlocked.Add(ref _available, -updatedAvailable);
-            return spent;
-        }
+            int available = Volatile.Read(ref _available);
+            if (available > 0)
+            {
+                int spent = Math.Min(requestedSize, available);
+                if (Interlocked.CompareExchange(ref _available, available - spent, available) == available)
+                    return spent;
+                continue;
+            }
 
-        Interlocked.Add(ref _available, requestedSize);
-        await tcs.Task.WaitAsync(token);
-        Interlocked.CompareExchange(ref tcs, new TaskCompletionSource(), tcs);
-
-        return await SpendOrWait(requestedSize, token);
+            TaskCompletionSource signal = Volatile.Read(ref tcs);
+            if (Volatile.Read(ref _available) > 0)
+                continue;
+            await signal.Task.WaitAsync(token);
+            Interlocked.CompareExchange(ref tcs, new TaskCompletionSource(), signal);
+        }
     }
 }

@@ -59,6 +59,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
                 _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
             }
 
+            await channel.WriteEofAsync().OrThrow();
             await channel.CloseAsync();
         }
         catch (Exception ex)

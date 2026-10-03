@@ -93,11 +93,24 @@ public class DataWindowTests
             await Task.Delay(bytesToSend % 5);
             for (int i = 0; i < windowUpdatesNeeded; i++)
             {
-                int val = w.Extend(WindowSize);
+                Assert.That(w.TryExtend(WindowSize, out _), Is.True);
             }
 
             await spendingTask;
             Assert.That(w.Available, Is.EqualTo(finalAvailable));
         }
+    }
+
+    [Test]
+    public async Task RemoteWindowRejectsCreditOverflowWithoutLosingAvailableCredit()
+    {
+        RemoteDataWindow window = new();
+        Assert.That(window.TryExtend(int.MaxValue, out int available), Is.False);
+        Assert.That(available, Is.EqualTo(YamuxProtocol.ProtocolInitialWindowSize));
+        Assert.That(await window.SpendOrWait(1), Is.EqualTo(1));
+        Assert.That(window.TryExtend(int.MaxValue - window.Available + 1, out _), Is.False);
+        Assert.That(window.TryExtend(int.MaxValue - window.Available, out available), Is.True);
+        Assert.That(available, Is.EqualTo(int.MaxValue));
+        Assert.That(await window.SpendOrWait(1), Is.EqualTo(1));
     }
 }
