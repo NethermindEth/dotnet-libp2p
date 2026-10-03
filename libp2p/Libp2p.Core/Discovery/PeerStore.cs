@@ -98,6 +98,11 @@ public class PeerStore
         return _store.GetOrAdd(peerId, id => new PeerInfo());
     }
 
+    public bool TryGetPeerInfo(PeerId peerId, out PeerInfo? peerInfo)
+    {
+        return _store.TryGetValue(peerId, out peerInfo);
+    }
+
     public class PeerInfo
     {
         public ByteString? SignedPeerRecord { get; set; }
