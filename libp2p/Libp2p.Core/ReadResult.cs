@@ -9,6 +9,7 @@ public readonly struct ReadResult
 {
     public static ReadResult Ended = new() { Result = IOResult.Ended };
     public static ReadResult Cancelled = new() { Result = IOResult.Cancelled };
+    public static ReadResult Aborted = new() { Result = IOResult.Aborted };
 
     public static ReadResult Empty = new() { Result = IOResult.Ok, Data = new ReadOnlySequence<byte>() };
     public IOResult Result { get; init; }
@@ -16,4 +17,3 @@ public readonly struct ReadResult
 
     internal static ReadResult Ok(ReadOnlySequence<byte> data) => new() { Result = IOResult.Ok, Data = data };
 }
-
