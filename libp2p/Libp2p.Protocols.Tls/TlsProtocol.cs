@@ -209,6 +209,10 @@ public class TlsProtocol : IConnectionProtocol
                         $"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
                 }
             }
+            catch (ChannelAbortedException)
+            {
+                logger?.LogDebug("TLS outgoing channel aborted");
+            }
             catch (Exception ex)
             {
                 logger?.LogError(ex, "Error while writing to sslStream");

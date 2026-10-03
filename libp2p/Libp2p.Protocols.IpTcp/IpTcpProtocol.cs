@@ -161,6 +161,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                         connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
                         connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
                     }
+                    catch (ChannelAbortedException)
+                    {
+                        _logger?.LogDebug("Ctx({Id}): outgoing channel aborted", connectionCtx.Id);
+                    }
                 });
 
                 _ = Task.WhenAny(readTask, writeTask).ContinueWith((t) => { _ = upChannel.CloseAsync(); connectionCtx.Dispose(); });
@@ -264,6 +268,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             catch (SocketException e)
             {
                 _logger?.LogDebug("Ctx({0}): end sending, socket exception {1}", connectionCtx.Id, e.Message);
+            }
+            catch (ChannelAbortedException)
+            {
+                _logger?.LogDebug("Ctx({Id}): outgoing channel aborted", connectionCtx.Id);
             }
             finally
             {

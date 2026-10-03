@@ -5,6 +5,7 @@ using Google.Protobuf;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -26,6 +27,7 @@ public interface IReader
             {
                 case { Result: IOResult.Ok, Data: ReadOnlySequence<byte> data }: yield return data; break;
                 case { Result: IOResult.Ended }: yield break;
+                case { Result: IOResult.Aborted }: throw new ChannelAbortedException();
                 default: throw new Exception();
             }
         }

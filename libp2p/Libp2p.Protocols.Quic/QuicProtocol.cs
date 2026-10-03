@@ -377,13 +377,18 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             }
             catch (Exception) when (pumpCancellation.IsCancellationRequested)
             {
-                await CloseChannelAsync(upChannel);
+                await upChannel.CloseAsync();
+            }
+            catch (ChannelAbortedException)
+            {
+                pumpCancellation.Cancel();
+                await upChannel.CloseAsync();
             }
             catch (Exception ex)
             {
                 _logger?.LogDebug(ex, "QUIC stream {streamId} outgoing data failed", stream.Id);
                 pumpCancellation.Cancel();
-                await CloseChannelAsync(upChannel);
+                await upChannel.CloseAsync();
             }
         });
 
@@ -408,13 +413,13 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
             }
             catch (Exception) when (pumpCancellation.IsCancellationRequested)
             {
-                await CloseChannelAsync(upChannel);
+                await upChannel.CloseAsync();
             }
             catch (Exception ex)
             {
                 _logger?.LogDebug(ex, "QUIC stream {streamId} incoming data failed", stream.Id);
                 pumpCancellation.Cancel();
-                await CloseChannelAsync(upChannel);
+                await upChannel.CloseAsync();
             }
         });
 
@@ -461,22 +466,6 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 _logger?.LogDebug(ex, "QUIC stream {streamId} close failed", stream.Id);
             }
             _logger?.LogDebug("Stream {stream id}: Closed", stream.Id);
-        }
-    }
-
-    private static async Task CloseChannelAsync(IChannel channel)
-    {
-        // Drain a pending write so it releases the semaphore needed by CloseAsync.
-        Task close = channel.CloseAsync().AsTask();
-        try
-        {
-            await foreach (ReadOnlySequence<byte> _ in channel.ReadAllAsync())
-            {
-            }
-        }
-        finally
-        {
-            await close;
         }
     }
 }

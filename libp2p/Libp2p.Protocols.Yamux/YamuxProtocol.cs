@@ -344,7 +344,14 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         _ = upChannel.CloseAsync();
                         channels.TryRemove(streamId, out ChannelState? _);
 
-                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Unexpected error, closing: {error}", contextId, streamId, e.Message);
+                        if (e is ChannelAbortedException)
+                        {
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Upchannel aborted, resetting", contextId, streamId);
+                        }
+                        else
+                        {
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Unexpected error, closing: {error}", contextId, streamId, e.Message);
+                        }
                     }
                 });
 

@@ -166,6 +166,10 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
         }
+        catch (ChannelAbortedException)
+        {
+            logger?.LogDebug("WebSocket outgoing channel aborted");
+        }
         finally
         {
             await CloseWebSocketAsync(webSocket, CancellationToken.None);

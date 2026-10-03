@@ -23,6 +23,8 @@ public class ChannelClosedException : Libp2pException
     public ChannelClosedException(IOResult result) : base($"Channel closed. IOResult: {result}") { }
 }
 
+public class ChannelAbortedException() : IOException("Channel aborted before all bytes were delivered.");
+
 /// <summary>
 /// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
 /// </summary>
