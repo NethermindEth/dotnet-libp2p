@@ -222,7 +222,7 @@ public class IdentifyExposureTests
     }
 
     [Test]
-    public async Task StrictRecordPolicyRejectsRecordlessPushWithoutPriorRecord()
+    public async Task StrictRecordPolicyRejectsPushWithoutSignedOrPriorRecord()
     {
         Identity sender = TestPeers.Identity(100);
         PeerStore receiverStore = new();
