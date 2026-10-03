@@ -25,6 +25,6 @@ public class IdentifyPushProtocol(IProtocolStackSettings protocolStackSettings, 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogDebug("Receiving identity update");
-        await ReadAndVerifyIdentity(channel, context);
+        await ReadAndVerifyIdentity(channel, context, isPush: true);
     }
 }
