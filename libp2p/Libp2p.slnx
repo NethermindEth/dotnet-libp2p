@@ -4,6 +4,7 @@
     <Project Path="Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj" />
     <Project Path="Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj" />
+    <Project Path="Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj" />
     <Project Path="Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj" />
     <Project Path="Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj" />
     <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
@@ -45,6 +46,8 @@
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path="../.github/workflows/format.yml" />
+    <File Path="../.github/workflows/performance.yml" />
+    <File Path="../.github/workflows/performance-report.yml" />
     <File Path="../.github/workflows/publish.yml" />
     <File Path="../.github/workflows/test.yml" />
     <File Path="../README.md" />
@@ -52,6 +55,7 @@
     <File Path="Directory.Packages.props" />
   </Folder>
   <Project Path="Libp2p.Core.Benchmarks/Libp2p.Core.Benchmarks.csproj" />
+  <Project Path="Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj" />
   <Project Path="Libp2p.Core.Tests/Libp2p.Core.Tests.csproj" />
   <Project Path="Libp2p.Core.TestsBase/Libp2p.Core.TestsBase.csproj" />
   <Project Path="Libp2p.Core/Libp2p.Core.csproj" />

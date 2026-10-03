@@ -15,6 +15,7 @@ using System.Runtime.CompilerServices;
 using System.Diagnostics;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Pubsub.E2eTests")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.IpTcp.Tests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -22,6 +23,38 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
     private static Multiaddress ToTcpMultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}");
+
+    internal static async ValueTask<bool> SendAllAsync(Socket socket, ReadOnlySequence<byte> data, CancellationToken token = default)
+    {
+        int length = checked((int)data.Length);
+        if (length is 0)
+        {
+            return socket.Connected;
+        }
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            data.CopyTo(buffer);
+            ReadOnlyMemory<byte> remaining = buffer.AsMemory(0, length);
+            while (!remaining.IsEmpty)
+            {
+                int sent = await socket.SendAsync(remaining, SocketFlags.None, token);
+                if (sent is 0)
+                {
+                    return false;
+                }
+
+                remaining = remaining[sent..];
+            }
+
+            return socket.Connected;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
 
 
     public string Id => "ip-tcp";
@@ -116,8 +149,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                     {
                         await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
                         {
-                            int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
-                            if (sent is 0 || !client.Connected)
+                            if (!await SendAllAsync(client, data, token))
                             {
                                 await upChannel.CloseAsync();
                                 break;
@@ -225,8 +257,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
                 {
                     _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
-                    int sent = await client.SendAsync(data.ToArray(), SocketFlags.None);
-                    if (sent is 0 || !client.Connected)
+                    if (!await SendAllAsync(client, data, token))
                     {
                         break;
                     }

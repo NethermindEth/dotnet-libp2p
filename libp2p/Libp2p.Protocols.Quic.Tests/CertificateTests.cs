@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
+using System.Formats.Asn1;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -37,6 +39,61 @@ public class CertificateTests
     [TestCaseSource(nameof(CertificatesSerialized))]
     public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
         CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
+
+    [Test]
+    public void RejectsInvalidSelfSignatureWithEmptyIssuer()
+    {
+        TestCaseData fixture = CertificatesSerialized().First();
+        byte[] certificateBytes = ((byte[])fixture.Arguments[0]!).ToArray();
+        certificateBytes[^1] ^= 0x01;
+
+        using X509Certificate2 certificate = X509CertificateLoader.LoadCertificate(certificateBytes);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, (string)fixture.Arguments[1]!, out string? failureReason), Is.False);
+        Assert.That(failureReason, Is.EqualTo("certificate self-signature is invalid"));
+    }
+
+    [Test]
+    public void AcceptsPssSelfSignatureWithEmptyIssuer()
+    {
+        Identity identity = new();
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss);
+
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString(), out string? failureReason),
+            Is.True, failureReason);
+
+        byte[] tampered = certificate.GetRawCertData();
+        tampered[^1] ^= 1;
+        using X509Certificate2 invalid = X509CertificateLoader.LoadCertificate(tampered);
+        Assert.That(CertificateHelper.ValidateCertificate(invalid, identity.PeerId.ToString()), Is.False);
+    }
+
+    [TestCase(0)]
+    [TestCase(3)]
+    public void RejectsSignedEmptyIssuerCertificateWithInvalidVersion(byte version)
+    {
+        Identity identity = new();
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pkcs1);
+        AsnReader reader = new(certificate.RawData, AsnEncodingRules.DER);
+        AsnReader outer = reader.ReadSequence();
+        byte[] signedBody = outer.ReadEncodedValue().ToArray();
+        ReadOnlyMemory<byte> signatureAlgorithm = outer.ReadEncodedValue();
+        ReadOnlySpan<byte> versionPattern = [0xA0, 0x03, 0x02, 0x01, 0x02];
+        int versionOffset = signedBody.AsSpan().IndexOf(versionPattern);
+        Assert.That(versionOffset, Is.GreaterThanOrEqualTo(0));
+        signedBody[versionOffset + 4] = version;
+
+        AsnWriter malformed = new(AsnEncodingRules.DER);
+        malformed.PushSequence();
+        malformed.WriteEncodedValue(signedBody);
+        malformed.WriteEncodedValue(signatureAlgorithm.Span);
+        malformed.WriteBitString(certificateKey.SignData(signedBody, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+        malformed.PopSequence();
+
+        using X509Certificate2 invalid = X509CertificateLoader.LoadCertificate(malformed.Encode());
+        Assert.That(CertificateHelper.ValidateCertificate(invalid, identity.PeerId.ToString()), Is.False);
+    }
 
     public static IEnumerable<TestCaseData> CertificatesSerialized()
     {
@@ -102,5 +159,22 @@ public class CertificateTests
         using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(certificateKey, identity);
         return lease.Certificate.GetRawCertData();
+    }
+
+    private static X509Certificate2 CreateRsaCertificate(RSA certificateKey, Identity identity, RSASignaturePadding padding)
+    {
+        byte[] publicKeyInfo = certificateKey.ExportSubjectPublicKeyInfo();
+        byte[] signature = identity.Sign([.. "libp2p-tls-handshake:"u8, .. publicKeyInfo]);
+        AsnWriter extension = new(AsnEncodingRules.DER);
+        extension.PushSequence();
+        extension.WriteOctetString(identity.PublicKey.ToByteArray());
+        extension.WriteOctetString(signature);
+        extension.PopSequence();
+
+        CertificateRequest request = new("CN=libp2p", certificateKey, HashAlgorithmName.SHA256, padding);
+        request.CertificateExtensions.Add(new X509Extension(new Oid("1.3.6.1.4.1.53594.1.1"), extension.Encode(), critical: false));
+        return request.Create(new X500DistinguishedName([0x30, 0x00]),
+            X509SignatureGenerator.CreateForRSA(certificateKey, padding),
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1), [1]);
     }
 }
