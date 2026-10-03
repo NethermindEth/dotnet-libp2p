@@ -42,6 +42,7 @@ internal class LocalDataWindow
     }
 
     public int Available => Volatile.Read(ref _available);
+    public int InitialWindowSize => _initialWindowSize;
 
     /// <summary>
     /// Records that <paramref name="bytes"/> have been consumed (handed to the application).

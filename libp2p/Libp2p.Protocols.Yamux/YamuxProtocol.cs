@@ -31,6 +31,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             throw new ArgumentOutOfRangeException(nameof(closedStreamIdleTimeout),
                 "The timeout must be positive and no longer than 4,294,967,294 milliseconds.");
 
+        if (windowSettings is { InitialWindowSize: < ProtocolInitialWindowSize })
+            throw new ArgumentOutOfRangeException(nameof(windowSettings),
+                "The initial receive window cannot be smaller than the 256 KiB Yamux default.");
+
         multiplexerSettings?.Add(this);
         _logger = loggerFactory?.CreateLogger<YamuxProtocol>();
         _windowSettings = windowSettings ?? new YamuxWindowSettings();
@@ -99,16 +103,25 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, channel.CancellationToken);
                 ReadOnlySequence<byte> data = default;
 
-                if (header.Type > YamuxHeaderType.GoAway)
+                if (header.Version != 0 || header.Type > YamuxHeaderType.GoAway)
                 {
-                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, type: {}", session?.Id ?? NoSession, header.Type);
-                    _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
+                    _logger?.LogWarning("Ctx({ctx}): Bad packet received, version: {version}, type: {type}",
+                        session?.Id ?? NoSession, header.Version, header.Type);
+                    await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
                     return;
                 }
 
                 if ((header.Type == YamuxHeaderType.Data &&
                      (header.Length < 0 || header.Length > _windowSettings.MaxWindowSize)) ||
                     (header.Type == YamuxHeaderType.WindowUpdate && header.Length < 0))
+                {
+                    await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
+                    return;
+                }
+
+                if ((header.StreamID == 0) != (header.Type is YamuxHeaderType.Ping or YamuxHeaderType.GoAway) ||
+                    ((header.Flags & YamuxHeaderFlags.Syn) != 0 && header.StreamID != 0 &&
+                     (header.StreamID & 1) != (isListener ? 1 : 0)))
                 {
                     await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
                     return;
@@ -287,7 +300,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                    {
                                        Flags = initiationFlag,
                                        Type = YamuxHeaderType.WindowUpdate,
-                                       StreamID = streamId
+                                       StreamID = streamId,
+                                       Length = state.LocalWindow.InitialWindowSize - ProtocolInitialWindowSize
                                    }, token: state.OutboundCancellation);
 
                         if (initiationFlag == YamuxHeaderFlags.Syn)
