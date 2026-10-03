@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using Nethermind.Libp2p.Core.Extensions;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -53,6 +54,24 @@ public class ChannelTests
 
         Assert.That(bytesRead, Is.EqualTo(data.Length));
         Assert.That(buffer, Is.EqualTo(data));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Test_AsStream_WrittenBufferRemainsStableAfterWriteCompletes(bool synchronous)
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        byte[] source = [1, 2, 3, 4];
+
+        Task write = synchronous
+            ? Task.Run(() => stream.Write(source, 0, source.Length))
+            : stream.WriteAsync(source.AsMemory()).AsTask();
+        ReadOnlySequence<byte> received = (await channel.Reverse.ReadAsync(source.Length)).Data;
+        await write;
+        source.AsSpan().Fill(0xAB);
+
+        Assert.That(received.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
     }
 
     [Test]

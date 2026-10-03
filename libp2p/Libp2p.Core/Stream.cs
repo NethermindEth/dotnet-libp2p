@@ -81,7 +81,7 @@ public class ChannelStream : Stream
         ThrowIfDisposed();
         if (source.IsEmpty) return;
 
-        if (_chan.WriteAsync(new ReadOnlySequence<byte>(source)).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
+        if (_chan.WriteAsync(new ReadOnlySequence<byte>(source.ToArray())).ConfigureAwait(false).GetAwaiter().GetResult() != IOResult.Ok)
         {
             _canWrite = false;
         }
@@ -110,7 +110,9 @@ public class ChannelStream : Stream
 
     private async ValueTask WriteAsyncCore(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
-        IOResult result = await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer), cancellationToken).ConfigureAwait(false);
+        // Channel writes complete when the reader takes the sequence, before it finishes using it.
+        // Keep the bytes stable if the stream caller reuses its buffer after this write completes.
+        IOResult result = await _chan.WriteAsync(new ReadOnlySequence<byte>(buffer.ToArray()), cancellationToken).ConfigureAwait(false);
         if (result == IOResult.Cancelled)
         {
             throw CreateOperationCanceledException(cancellationToken);
