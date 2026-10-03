@@ -22,7 +22,7 @@ public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogInformation("Dial");
-        await ReadAndVerifyIdentity(channel, context, isPush: false);
+        await ReadAndVerifyIdentity(channel, context);
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)

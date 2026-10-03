@@ -24,6 +24,8 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     private readonly IdentifyProtocolSettings _settings = settings ?? new IdentifyProtocolSettings();
 
+    protected Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context) => ReadAndVerifyIdentity(channel, context, isPush: false);
+
     protected async Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context, bool isPush)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
