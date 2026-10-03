@@ -195,7 +195,7 @@ public class YamuxUnreadRequestTests
             {
                 Assert.That((await channel.ReadAsync(256)).Result, Is.EqualTo(IOResult.Ok));
                 Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(reply.AsMemory(0, 7))), Is.EqualTo(IOResult.Ok));
-                await ((Channel)channel).AbortAsync();
+                await channel.AbortAsync();
                 return;
             }
             Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(reply)), Is.EqualTo(IOResult.Ok));

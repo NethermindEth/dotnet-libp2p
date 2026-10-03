@@ -25,6 +25,7 @@ internal class DataChannelOverIChannel : IChannel
     private byte[]? _currentBuffer;
     private int _currentOffset;
     private int _closed;
+    private int _aborted;
 
     public DataChannelOverIChannel(RTCDataChannel dataChannel)
     {
@@ -39,6 +40,9 @@ internal class DataChannelOverIChannel : IChannel
 
     public async ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
     {
+        if (Volatile.Read(ref _aborted) != 0)
+            return ReadResult.Aborted;
+
         try
         {
             if (_currentBuffer is null || _currentOffset >= _currentBuffer.Length)
@@ -47,7 +51,7 @@ internal class DataChannelOverIChannel : IChannel
                 {
                     if (blockingMode == ReadBlockingMode.DoNotWait)
                     {
-                        return ReadResult.Empty;
+                        return Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Empty;
                     }
 
                     _currentBuffer = await _incoming.Reader.ReadAsync(token);
@@ -58,7 +62,7 @@ internal class DataChannelOverIChannel : IChannel
 
             if (_currentBuffer is null)
             {
-                return ReadResult.Ended;
+                return Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Ended;
             }
 
             int available = _currentBuffer.Length - _currentOffset;
@@ -73,20 +77,25 @@ internal class DataChannelOverIChannel : IChannel
 
             ReadOnlySequence<byte> result = new(new ReadOnlyMemory<byte>(_currentBuffer, _currentOffset, toRead));
             _currentOffset += toRead;
-            return new ReadResult { Result = IOResult.Ok, Data = result };
+            return Volatile.Read(ref _aborted) != 0
+                ? ReadResult.Aborted
+                : new ReadResult { Result = IOResult.Ok, Data = result };
         }
         catch (ChannelClosedException)
         {
-            return ReadResult.Ended;
+            return Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Ended;
         }
         catch (OperationCanceledException)
         {
-            return ReadResult.Cancelled;
+            return Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Cancelled;
         }
     }
 
     public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
     {
+        if (Volatile.Read(ref _aborted) != 0)
+            return ValueTask.FromResult(IOResult.Aborted);
+
         if (_completion.Task.IsCompleted)
         {
             return ValueTask.FromResult(IOResult.Ended);
@@ -112,12 +121,22 @@ internal class DataChannelOverIChannel : IChannel
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
     {
+        if (Volatile.Read(ref _aborted) != 0)
+            return ValueTask.FromResult(IOResult.Aborted);
+
         Complete();
         return ValueTask.FromResult(IOResult.Ok);
     }
 
     public ValueTask CloseAsync()
     {
+        Complete();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask AbortAsync()
+    {
+        Interlocked.Exchange(ref _aborted, 1);
         Complete();
         return ValueTask.CompletedTask;
     }

@@ -197,9 +197,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
                 {
                     stream.AbortOutbound();
-                    _ = stream.Channel is Channel resetChannel
-                        ? resetChannel.AbortAsync()
-                        : stream.Channel?.CloseAsync();
+                    if (stream.Channel is { } resetChannel)
+                        _ = resetChannel.AbortAsync();
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset", session.Id, header.StreamID);
                     if (header.Type == YamuxHeaderType.Data && header.Length > 0)
                         await channel.ReadAsync(header.Length).OrThrow();
@@ -363,7 +362,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         {
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset write timed out", contextId, streamId);
                         }
-                        _ = upChannel.CloseAsync();
+                        _ = upChannel.AbortAsync();
                         channels.TryRemove(streamId, out ChannelState? _);
 
                         if (e is ChannelAbortedException)

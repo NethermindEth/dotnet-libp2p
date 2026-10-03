@@ -55,6 +55,11 @@ public class PubsubSessionFailureTests
         public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => throw new NotSupportedException();
         public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => throw new NotSupportedException();
         public ValueTask CloseAsync() => ValueTask.CompletedTask;
+        public ValueTask AbortAsync()
+        {
+            _read.TrySetResult(ReadResult.Aborted);
+            return ValueTask.CompletedTask;
+        }
         public TaskAwaiter GetAwaiter() => Task.CompletedTask.GetAwaiter();
     }
 
