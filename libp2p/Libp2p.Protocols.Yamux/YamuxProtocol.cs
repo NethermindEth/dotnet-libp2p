@@ -22,6 +22,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     private const int PingDelay = 30_000;
     private static readonly TimeSpan ControlWriteTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Maximum number of concurrently tracked streams per session. Bounds the
+    /// state a peer can force us to allocate: the libp2p spec asks peers to
+    /// keep the unacknowledged backlog at 256, and rust-yamux caps streams at
+    /// 512 by default. Locally initiated streams bypass the cap; only inbound
+    /// SYNs are rejected with RST once the table is full.
+    /// </summary>
+    private const int MaxStreamCount = 512;
+
     private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
         YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null, TimeSpan? closedStreamIdleTimeout = null)
@@ -186,6 +195,18 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
+                    if (channels.Count >= MaxStreamCount)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Rejected, stream table is full", session.Id, header.StreamID);
+                        await WriteHeaderAsync(session.Id, channel,
+                            new YamuxHeader
+                            {
+                                Flags = YamuxHeaderFlags.Rst,
+                                Type = YamuxHeaderType.WindowUpdate,
+                                StreamID = header.StreamID
+                            });
+                        continue;
+                    }
                     CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
                 }
 
