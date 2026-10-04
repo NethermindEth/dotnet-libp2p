@@ -304,6 +304,56 @@ public class YamuxFaultInjectionTests
         }
     }
 
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task FullStreamTable_IncompleteRejectedDataTerminatesOnTimeout(int payloadBytes)
+    {
+        (IConnectionContext ctx, _) = Mocks.Listener();
+        ManualClock clock = new();
+        TestChannel transport = new();
+        List<FuzzObservation> outbound = [];
+        Task yamux = new YamuxProtocol(timeProvider: clock).ListenAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        IChannel remote = transport.Reverse();
+        Task drain = DrainAsync(remote, outbound, timeout.Token);
+        try
+        {
+            byte[] opens = new byte[512 * 12];
+            for (int i = 0; i < 512; i++)
+            {
+                YamuxHeader syn = new() { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Syn, StreamID = 1 + 2 * i };
+                YamuxHeader.ToBytes(opens.AsSpan(i * 12, 12), ref syn);
+            }
+            await remote.WriteAsync(new ReadOnlySequence<byte>(opens), timeout.Token).OrThrow();
+            await WriteHeaderAsync(remote, new YamuxHeader
+            {
+                Type = YamuxHeaderType.Data,
+                Flags = YamuxHeaderFlags.Syn,
+                StreamID = 1025,
+                Length = 3
+            }, timeout.Token);
+            if (payloadBytes > 0)
+                await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0xAB }), timeout.Token).OrThrow();
+            Assert.That(await WaitForFlagAsync(outbound, YamuxHeaderFlags.Rst, 1025, timeout.Token), Is.Not.Null);
+
+            // The reset write's timer is already disposed; the next timer bounds
+            // the incomplete payload read, after which framing cannot continue.
+            _ = await clock.NextTimerAsync(timeout.Token);
+            (TimerCallback callback, object? state, TimeSpan dueTime) = await clock.NextTimerAsync(timeout.Token);
+            Assert.That(dueTime, Is.EqualTo(TimeSpan.FromSeconds(10)));
+            clock.Advance(dueTime);
+            callback(state);
+            await yamux.WaitAsync(timeout.Token);
+            Assert.That(yamux.IsFaulted, Is.False);
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+            await drain;
+        }
+    }
+
     [Test]
     public async Task RedundantSessionUpgrade_ReturnsCleanly()
     {

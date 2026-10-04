@@ -20,7 +20,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
-    private static readonly TimeSpan ControlWriteTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Maximum number of concurrently tracked streams per session. Bounds the
@@ -198,7 +198,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     if (channels.Count >= MaxStreamCount)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Rejected, stream table is full", session.Id, header.StreamID);
-                        using CancellationTokenSource resetTimeout = new(ControlWriteTimeout, _timeProvider);
+                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                         try
                         {
                             await WriteHeaderAsync(session.Id, channel,
@@ -214,7 +214,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reject write timed out", session.Id, header.StreamID);
                         }
                         if (header.Type == YamuxHeaderType.Data && header.Length > 0)
-                            await channel.ReadAsync(header.Length).OrThrow();
+                        {
+                            // A peer that omits rejected DATA bytes cannot hold the
+                            // session's serial frame reader indefinitely.
+                            using CancellationTokenSource payloadTimeout = new(ControlTimeout, _timeProvider);
+                            await channel.ReadAsync(header.Length, token: payloadTimeout.Token).OrThrow();
+                        }
                         continue;
                     }
                     CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
@@ -393,7 +398,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                     catch (Exception e)
                     {
-                        using CancellationTokenSource resetTimeout = new(ControlWriteTimeout, _timeProvider);
+                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                         try
                         {
                             await WriteHeaderAsync(contextId, channel,
@@ -431,7 +436,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         (await upChannel.ReadAsync(0, ReadBlockingMode.DoNotWait)).Result != IOResult.Aborted)
                         return;
 
-                    using CancellationTokenSource resetTimeout = new(ControlWriteTimeout, _timeProvider);
+                    using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                     await WriteHeaderAsync(contextId, channel,
                         new YamuxHeader
                         {
@@ -471,7 +476,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                     contextId, streamId, closedStreamIdleTimeout);
                                 state.AbortOutbound();
                                 await outboundPump;
-                                using CancellationTokenSource resetTimeout = new(ControlWriteTimeout, _timeProvider);
+                                using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                                 try
                                 {
                                     await WriteHeaderAsync(contextId, channel,
@@ -581,7 +586,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     {
         // Best effort: the session is going down, so a dead transport must never
         // fail the farewell write and fault the session task.
-        using CancellationTokenSource timeout = new(ControlWriteTimeout, _timeProvider);
+        using CancellationTokenSource timeout = new(ControlTimeout, _timeProvider);
         try
         {
             await WriteHeaderAsync(contextId, channel, new YamuxHeader

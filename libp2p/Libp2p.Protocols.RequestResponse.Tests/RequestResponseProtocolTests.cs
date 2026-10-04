@@ -149,6 +149,32 @@ public class RequestResponseProtocolTests
         await listener.WaitAsync(timeout.Token);
     }
 
+    [Test]
+    public async Task OneWayListenerPropagatesCoreChannelAbort()
+    {
+        TaskCompletionSource handlerEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource finishHandler = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", async (_, _) =>
+            {
+                handlerEntered.TrySetResult();
+                await finishHandler.Task;
+                return new StringValue();
+            }, expectsResponse: _ => false);
+        Channel channel = new();
+        Task listener = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+        await handlerEntered.Task.WaitAsync(timeout.Token);
+        await channel.AbortAsync();
+        finishHandler.TrySetResult();
+
+        ChannelClosedException? failure = Assert.ThrowsAsync<ChannelClosedException>(
+            async () => await listener.WaitAsync(timeout.Token));
+        Assert.That(failure!.Message, Does.Contain(nameof(IOResult.Aborted)));
+    }
+
     [TestCase(IOResult.Aborted)]
     [TestCase(IOResult.Cancelled)]
     [TestCase(IOResult.InternalError)]

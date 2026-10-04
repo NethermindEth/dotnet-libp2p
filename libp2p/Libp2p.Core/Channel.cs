@@ -406,7 +406,7 @@ public class Channel : IChannel
                 if (_eow)
                 {
                     _canWrite.Release();
-                    return IOResult.Ended;
+                    return ClosedIoResult;
                 }
                 _eow = true;
                 _externalCompletionMonitor?.TryComplete();
@@ -416,7 +416,7 @@ public class Channel : IChannel
             }
             catch (OperationCanceledException)
             {
-                return _closed.IsCancellationRequested ? IOResult.Ended : IOResult.Cancelled;
+                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
             }
         }
 
