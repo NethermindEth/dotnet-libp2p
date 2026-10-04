@@ -7,7 +7,6 @@ using Google.Protobuf.WellKnownTypes;
 using Nethermind.Libp2p.Core;
 using NUnit.Framework;
 using NSubstitute;
-using System.Buffers;
 using ChannelClosedException = Nethermind.Libp2p.Core.Exceptions.ChannelClosedException;
 
 namespace Nethermind.Libp2p.Protocols.Tests;
@@ -154,6 +153,17 @@ public class RequestResponseProtocolTests
     }
 
     [Test]
+    public void Constructor_AcceptsPositionalDefaultLogger()
+    {
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0",
+            (request, _) => Task.FromResult(request),
+            default);
+
+        Assert.That(protocol.Id, Is.EqualTo("/test/1.0.0"));
+    }
+
+    [Test]
     public async Task SetsPropertiesCorrectly()
     {
         const string protocolId = "test-protocol";
@@ -192,7 +202,7 @@ public class RequestResponseProtocolTests
         var channel = new Channel();
         var context = Substitute.For<ISessionContext>();
         Task listen = protocol.ListenAsync(channel.Reverse, context);
-        Task write = channel.WriteAsync(new ReadOnlySequence<byte>(frame)).AsTask();
+        Task write = channel.WriteAsync(new System.Buffers.ReadOnlySequence<byte>(frame)).AsTask();
 
         Assert.ThrowsAsync(expectedExceptionType, async () =>
             await listen.WaitAsync(TimeSpan.FromSeconds(2)));
@@ -219,7 +229,7 @@ public class RequestResponseProtocolTests
     private static async Task WriteResponseFrameAsync(IChannel channel, byte[] frame)
     {
         await channel.ReadPrefixedProtobufAsync(StringValue.Parser);
-        await channel.WriteAsync(new ReadOnlySequence<byte>(frame)).OrThrow();
+        await channel.WriteAsync(new System.Buffers.ReadOnlySequence<byte>(frame)).OrThrow();
     }
 
     private static byte[] EncodeVarint(ulong value)
@@ -236,6 +246,23 @@ public class RequestResponseProtocolTests
 [TestFixture]
 public class RequestResponseExtensionsTests
 {
+    [Test]
+    public void AddRequestResponseProtocol_AcceptsPositionalDefaultExposure()
+    {
+        const string protocolId = "test-extension-protocol";
+        var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
+        mockBuilder.AddProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
+
+        mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
+            protocolId,
+            (_, _) => Task.FromResult(new TestResponse()),
+            default);
+
+        mockBuilder.Received(1).AddProtocol(
+            Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
+            false);
+    }
+
     [Test]
     public void AddRequestResponseProtocol_RegistersProtocolCorrectly()
     {

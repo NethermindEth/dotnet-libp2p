@@ -24,17 +24,8 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
         ILoggerFactory? loggerFactory = null,
-        Func<TRequest, bool>? expectsResponse = null)
-        : this(protocolId, handler, int.MaxValue, loggerFactory, expectsResponse)
-    {
-    }
-
-    public RequestResponseProtocol(
-        string protocolId,
-        Func<TRequest, ISessionContext, Task<TResponse>> handler,
-        int maxMessageSize,
-        ILoggerFactory? loggerFactory = null,
-        Func<TRequest, bool>? expectsResponse = null)
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
 
