@@ -62,15 +62,31 @@ public class Channel : IChannel
 
     public ValueTask CloseAsync()
     {
-        bool aborted = _reader.MarkClosed() | _writer.MarkClosed();
-        if (aborted)
-        {
+        bool inboundIncomplete = _reader.MarkClosed();
+        bool outboundIncomplete = _writer.MarkClosed();
+        if (inboundIncomplete || outboundIncomplete)
             _reader.MarkAborted();
-        }
+        // Discarded inbound data must not abort an already completed outbound reply.
+        if (outboundIncomplete || (inboundIncomplete && !_writer._eow))
+            _writer.MarkAborted();
         _reader.CompleteAbort();
         _writer.CompleteAbort();
         Completion.TrySetResult();
         return ValueTask.CompletedTask;
+    }
+
+    internal ValueTask CompleteProtocolAsync()
+    {
+        // Do not wait for an unfinished write from a protocol that has already returned.
+        _writer.TryWriteEof();
+        return CloseAsync();
+    }
+
+    public ValueTask AbortAsync()
+    {
+        _reader.MarkAborted();
+        _writer.MarkAborted();
+        return CloseAsync();
     }
 
     private void TryComplete()
@@ -119,14 +135,27 @@ public class Channel : IChannel
 
         internal void MarkAborted()
         {
-            if (_externalCompletionMonitor is { } channel)
+            Interlocked.Exchange(ref _aborted, 1);
+        }
+
+        internal bool TryWriteEof()
+        {
+            if (!_canWrite.Wait(0))
+                return false;
+
+            try
             {
-                Interlocked.Exchange(ref channel._reader._aborted, 1);
-                Interlocked.Exchange(ref channel._writer._aborted, 1);
+                if (_eow)
+                    return true;
+
+                _eow = true;
+                _externalCompletionMonitor?.TryComplete();
+                _canRead.Release();
+                return true;
             }
-            else
+            finally
             {
-                Interlocked.Exchange(ref _aborted, 1);
+                _canWrite.Release();
             }
         }
 

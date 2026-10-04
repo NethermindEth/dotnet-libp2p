@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.Protocols.Yamux;
 using NSubstitute;
 
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
@@ -35,6 +36,16 @@ public class YamuxProtocolTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new YamuxProtocol(
             closedStreamIdleTimeout: TimeSpan.FromMilliseconds(uint.MaxValue)));
+    }
+
+    [Test]
+    public void ReceiveWindowCannotBeSmallerThanProtocolDefault()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new YamuxProtocol(
+            windowSettings: new YamuxWindowSettings
+            {
+                InitialWindowSize = YamuxProtocol.ProtocolInitialWindowSize - 1
+            }));
     }
 
     [Test]
@@ -138,6 +149,252 @@ public class YamuxProtocolTests
         }
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ResetTakesPrecedenceOverFinInOneFrame(bool includesData)
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        Channel appChannel = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Task<ReadResult> read = appChannel.Reverse.ReadAsync(1, token: timeout.Token).AsTask();
+            byte[] frame = new byte[includesData ? 13 : 12];
+            YamuxHeader reset = new()
+            {
+                Type = includesData ? YamuxHeaderType.Data : YamuxHeaderType.WindowUpdate,
+                Flags = YamuxHeaderFlags.Fin | YamuxHeaderFlags.Rst,
+                Length = includesData ? 1 : 0,
+                StreamID = syn.StreamID
+            };
+            YamuxHeader.ToBytes(frame.AsSpan(0, 12), ref reset);
+            if (includesData)
+                frame[12] = 42;
+
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That((await read.WaitAsync(timeout.Token)).Result, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
+    public async Task ResetAbortsBeforeItsDataPayloadArrives()
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        Channel appChannel = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Task<ReadResult> read = appChannel.Reverse.ReadAsync(1, token: timeout.Token).AsTask();
+            byte[] header = new byte[12];
+            YamuxHeader reset = new() { Type = YamuxHeaderType.Data, Flags = YamuxHeaderFlags.Rst, Length = 1, StreamID = syn.StreamID };
+            YamuxHeader.ToBytes(header, ref reset);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(header), timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That((await read.WaitAsync(timeout.Token)).Result, Is.EqualTo(IOResult.Aborted));
+
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 42 }), timeout.Token), Is.EqualTo(IOResult.Ok));
+            YamuxHeader ping = new() { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = 7 };
+            YamuxHeader.ToBytes(header, ref ping);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(header), timeout.Token), Is.EqualTo(IOResult.Ok));
+            YamuxHeader ack;
+            do
+            {
+                ack = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+                if (ack.Type != YamuxHeaderType.Ping)
+                {
+                    Assert.That(ack.Flags, Is.EqualTo(YamuxHeaderFlags.Rst));
+                    Assert.That(ack.StreamID, Is.EqualTo(syn.StreamID));
+                }
+            } while (ack.Type != YamuxHeaderType.Ping);
+            Assert.That(ack.Type, Is.EqualTo(YamuxHeaderType.Ping));
+            Assert.That(ack.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
+            Assert.That(ack.Length, Is.EqualTo(7));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [TestCase((int)YamuxHeaderType.Data, 262145, true, true)]
+    [TestCase((int)YamuxHeaderType.Data, -1, false, true)]
+    [TestCase((int)YamuxHeaderType.Data, -1, true, true)]
+    [TestCase((int)YamuxHeaderType.Data, -1, false, false)]
+    [TestCase((int)YamuxHeaderType.Data, 16 * 1024 * 1024 + 1, false, false)]
+    [TestCase((int)YamuxHeaderType.WindowUpdate, -1, false, true)]
+    [TestCase((int)YamuxHeaderType.WindowUpdate, int.MaxValue, false, true)]
+    [TestCase(4, 0, false, true)]
+    public async Task MalformedFrameLengthClosesSessionWithProtocolError(
+        int type, int length, bool reset, bool knownStream)
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        Channel appChannel = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            byte[] frame = new byte[12];
+            YamuxHeader malformed = new()
+            {
+                Type = (YamuxHeaderType)type,
+                Flags = reset ? YamuxHeaderFlags.Rst : 0,
+                Length = length,
+                StreamID = knownStream ? syn.StreamID : syn.StreamID + 2
+            };
+            YamuxHeader.ToBytes(frame, ref malformed);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token), Is.EqualTo(IOResult.Ok));
+            YamuxHeader goAway = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.That(goAway.Type, Is.EqualTo(YamuxHeaderType.GoAway));
+            Assert.That(goAway.StreamID, Is.Zero);
+            Assert.That(goAway.Length, Is.EqualTo((int)SessionTerminationCode.ProtocolError));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [TestCase(0, (int)YamuxHeaderType.Data, 0, 0, 12)]
+    [TestCase(0, (int)YamuxHeaderType.WindowUpdate, 0, 0, 0)]
+    [TestCase(0, (int)YamuxHeaderType.Ping, 2, (int)YamuxHeaderFlags.Syn, 1)]
+    [TestCase(0, (int)YamuxHeaderType.GoAway, 2, 0, 0)]
+    [TestCase(0, (int)YamuxHeaderType.WindowUpdate, 3, (int)YamuxHeaderFlags.Syn, 0)]
+    [TestCase(1, (int)YamuxHeaderType.Ping, 0, (int)YamuxHeaderFlags.Syn, 0)]
+    public async Task MalformedHeaderClosesSessionWithProtocolError(int version, int type, int streamId, int flags, int length)
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(new TestChannel());
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            await remote.ReadAsync(12, token: timeout.Token).OrThrow();
+            byte[] frame = new byte[12];
+            YamuxHeader invalid = new()
+            {
+                Version = (byte)version,
+                Type = (YamuxHeaderType)type,
+                Flags = (YamuxHeaderFlags)flags,
+                StreamID = streamId,
+                Length = length
+            };
+            YamuxHeader.ToBytes(frame, ref invalid);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token), Is.EqualTo(IOResult.Ok));
+            YamuxHeader goAway = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.That(goAway.Type, Is.EqualTo(YamuxHeaderType.GoAway));
+            Assert.That(goAway.Length, Is.EqualTo((int)SessionTerminationCode.ProtocolError));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
+    public async Task ResetAfterWrappedChannelHalfCloseRemainsAborted()
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        TestChannel wrapped = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(wrapped);
+
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            IChannel application = wrapped.Reverse();
+            Assert.That(await application.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+            YamuxHeader fin = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.That(fin.Flags, Is.EqualTo(YamuxHeaderFlags.Fin));
+            Assert.That(fin.StreamID, Is.EqualTo(syn.StreamID));
+
+            byte[] frame = new byte[12];
+            YamuxHeader reset = new() { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Rst, StreamID = syn.StreamID };
+            YamuxHeader.ToBytes(frame, ref reset);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That((await application.ReadAsync(1, token: timeout.Token)).Result, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     [Test]
     public async Task ResetCancelsPumpWaitingForRemoteWindow()
     {
@@ -191,6 +448,54 @@ public class YamuxProtocolTests
         }
         finally
         {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
+    public async Task BlockedResetWriteDoesNotRetainClosedStream()
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        Channel appChannel = new();
+        TaskCompletionSource upgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        {
+            upgraded.TrySetResult();
+            return appChannel;
+        });
+
+        StreamClosedLogger logger = new();
+        ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        ManualTimeProvider clock = new();
+        BlockingWriteChannel transport = new(2);
+        Task yamux = new YamuxProtocol(loggerFactory: loggerFactory, timeProvider: clock).DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            await upgraded.Task.WaitAsync(timeout.Token);
+            await appChannel.AbortAsync();
+            await transport.WriteBlocked.Task.WaitAsync(timeout.Token);
+            var resetTimer = await clock.NextTimerAsync(timeout.Token);
+            Assert.That(resetTimer.DueTime, Is.EqualTo(TimeSpan.FromSeconds(10)));
+            clock.Advance(TimeSpan.FromSeconds(10));
+            resetTimer.Callback(resetTimer.State);
+            await logger.Closed.Task.WaitAsync(timeout.Token);
+            Assert.That(transport.CancelledWriteCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            transport.Release();
             await transport.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -434,6 +739,63 @@ public class YamuxProtocolTests
         }
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task EnlargedInitialReceiveWindowIsAdvertisedToPeer(bool enlargeDialer)
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        INewSessionContext dialerSession = Substitute.For<INewSessionContext>();
+        dialerContext.UpgradeToSession().Returns(dialerSession);
+        dialerContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        dialerSession.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        dialerSession.Id.Returns("dialer");
+        dialerSession.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        dialerSession.SubProtocols.Returns([protocol]);
+        TestChannel dialerAppChannel = new();
+        dialerSession.Upgrade(Arg.Any<UpgradeOptions>()).Returns(dialerAppChannel);
+
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        INewSessionContext listenerSession = Substitute.For<INewSessionContext>();
+        listenerContext.UpgradeToSession().Returns(listenerSession);
+        listenerContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
+        listenerSession.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
+        listenerSession.Id.Returns("listener");
+        listenerSession.SubProtocols.Returns([protocol]);
+        TestChannel listenerAppChannel = new();
+        listenerSession.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerAppChannel);
+
+        TestChannel transport = new();
+        YamuxWindowSettings settings = new()
+        {
+            InitialWindowSize = 1024 * 1024,
+            UseDynamicWindow = false
+        };
+        YamuxProtocol dialer = enlargeDialer ? new(windowSettings: settings) : new();
+        YamuxProtocol listener = enlargeDialer ? new() : new(windowSettings: settings);
+        Task listen = listener.ListenAsync(transport.Reverse(), listenerContext);
+        Task dial = dialer.DialAsync(transport, dialerContext);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        try
+        {
+            byte[] request = new byte[512 * 1024];
+            new Random(12345).NextBytes(request);
+            IChannel sender = enlargeDialer ? listenerAppChannel.Reverse() : dialerAppChannel.Reverse();
+            IChannel receiver = enlargeDialer ? dialerAppChannel.Reverse() : listenerAppChannel.Reverse();
+            Task<IOResult> send = sender.WriteAsync(new ReadOnlySequence<byte>(request), timeout.Token).AsTask();
+            ReadOnlySequence<byte> received = await receiver.ReadAsync(request.Length, token: timeout.Token).OrThrow();
+            Assert.That(received.ToArray(), Is.EqualTo(request));
+            Assert.That(await send.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await Task.WhenAll(listen, dial).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     // TODO:
     // Implement the following test cases:
     // Establish connection, expect 0 stream
@@ -516,6 +878,7 @@ public class YamuxProtocolTests
 
         public TaskAwaiter GetAwaiter() => _inner.GetAwaiter();
         public ValueTask CloseAsync() => _inner.CloseAsync();
+        public ValueTask AbortAsync() => _inner.AbortAsync();
         public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
             CancellationToken token = default) => _inner.ReadAsync(length, blockingMode, token);
         public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
@@ -545,6 +908,7 @@ public class YamuxProtocolTests
             CancellationToken token = default) => _inner.ReadAsync(length, blockingMode, token);
         public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => _inner.WriteEofAsync(token);
         public ValueTask CloseAsync() => _inner.CloseAsync();
+        public ValueTask AbortAsync() => _inner.AbortAsync();
 
         public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
         {

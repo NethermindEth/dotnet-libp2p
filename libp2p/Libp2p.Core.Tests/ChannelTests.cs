@@ -41,6 +41,36 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task CompletedOutboundRemainsEndedWhenInboundWriteIsDiscarded()
+    {
+        Channel channel = new();
+        Task<IOResult> inboundWrite = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })).AsTask();
+        Task<IOResult> outboundWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 3, 4 })).AsTask();
+
+        Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 3, 4 }));
+        Assert.That(await outboundWrite, Is.EqualTo(IOResult.Ok));
+        await channel.CompleteProtocolAsync();
+
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
+    [Test]
+    public async Task ExplicitAbortIsDistinctFromEndWithoutPendingIo()
+    {
+        Channel channel = new();
+        Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2, 3 })).AsTask();
+        Assert.That((await channel.Reverse.ReadAsync(3)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3 }));
+        Assert.That(await write, Is.EqualTo(IOResult.Ok));
+
+        await channel.AbortAsync();
+
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
     public async Task CloseAfterReadAcknowledgesWriteDoesNotFailTheWrite()
     {
         for (int i = 0; i < 1000; i++)

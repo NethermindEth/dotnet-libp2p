@@ -710,7 +710,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         if (options?.CancellationToken.IsCancellationRequested == true)
         {
             options.CompletionSource?.TrySetCanceled(options.CancellationToken);
-            _ = downChannel.CloseAsync();
+            _ = downChannel.AbortAsync();
             upgradeActivity?.Dispose();
             return Task.FromCanceled(options.CancellationToken);
         }
@@ -720,7 +720,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             cancellationRegistration = options.CancellationToken.Register(() =>
             {
                 options.CompletionSource?.TrySetCanceled(options.CancellationToken);
-                _ = downChannel.CloseAsync();
+                _ = downChannel.AbortAsync();
             });
         }
 
@@ -776,10 +776,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
             {
-                _ = upgradeTask.ContinueWith(async t =>
+                _ = upgradeTask.ContinueWith(t =>
                 {
                     MapToTaskCompletionSource(t, options.CompletionSource);
-                    await downChannel.CloseAsync();
                 });
             }
 
@@ -797,7 +796,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         _logger?.LogError($"Upgrade task failed with {t.Exception}");
                     }
                 }
-                _ = downChannel.CloseAsync();
+                if (t.IsCompletedSuccessfully)
+                {
+                    _ = downChannel is Channel completedChannel
+                        ? completedChannel.CompleteProtocolAsync()
+                        : downChannel.CloseAsync();
+                }
+                else
+                {
+                    _ = downChannel.AbortAsync();
+                }
                 _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
                 upgradeActivity?.Dispose();
             });

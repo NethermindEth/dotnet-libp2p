@@ -12,8 +12,8 @@ namespace Nethermind.Libp2p.Protocols.Yamux;
 public class YamuxWindowSettings
 {
     /// <summary>
-    /// Initial receive window size per stream (bytes). Default 256 KB per libp2p yamux spec.
-    /// Must be positive; validation occurs when the protocol uses these settings.
+    /// Initial receive window size per stream (bytes). Default 256 KiB per libp2p yamux spec.
+    /// Must be at least 256 KiB, the Yamux wire-protocol default.
     /// </summary>
     public int InitialWindowSize { get; set; } = YamuxProtocol.ProtocolInitialWindowSize;
 

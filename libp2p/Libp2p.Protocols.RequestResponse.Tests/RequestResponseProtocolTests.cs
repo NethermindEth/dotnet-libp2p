@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
@@ -82,6 +83,67 @@ public class RequestResponseProtocolTests
         await listen.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.That(response.Value, Is.EqualTo("hello!"));
+    }
+
+    [Test]
+    public async Task ReplyRemainsReadableWithTrailingRequestBytes()
+    {
+        TaskCompletionSource requestParsed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource sendReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0", async (request, _) =>
+            {
+                requestParsed.TrySetResult();
+                await sendReply.Task;
+                return new StringValue { Value = request.Value + "!" };
+            });
+        Channel channel = new();
+        ISessionContext context = Substitute.For<ISessionContext>();
+        Task listener = protocol.ListenAsync(channel.Reverse, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "hello" }.ToByteArray()).OrThrow();
+        await requestParsed.Task.WaitAsync(timeout.Token);
+        Task<IOResult> trailingWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0xA5 })).AsTask();
+        sendReply.TrySetResult();
+
+        using MemoryStream received = new();
+        while (true)
+        {
+            ReadResult result = await channel.ReadAsync(1, token: timeout.Token);
+            if (result.Result == IOResult.Ended)
+                break;
+            Assert.That(result.Result, Is.EqualTo(IOResult.Ok));
+            received.Write(result.Data.FirstSpan);
+        }
+
+        byte[] response = new StringValue { Value = "hello!" }.ToByteArray();
+        byte[] expected = [(byte)response.Length, .. response];
+        Assert.That(received.ToArray(), Is.EqualTo(expected));
+        await listener.WaitAsync(timeout.Token);
+        Assert.That(await trailingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Ended));
+    }
+
+    [Test]
+    public async Task TruncatedRequestDoesNotReachHandler()
+    {
+        bool handled = false;
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0", (_, _) =>
+            {
+                handled = true;
+                return Task.FromResult(new StringValue());
+            });
+        Channel channel = new();
+        Task listener = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 5, 0x0A, 0x01 }), timeout.Token),
+            Is.EqualTo(IOResult.Ok));
+        Assert.That(await channel.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+
+        Assert.CatchAsync<ChannelClosedException>(async () => await listener.WaitAsync(timeout.Token));
+        Assert.That(handled, Is.False);
     }
 
     [Test]
