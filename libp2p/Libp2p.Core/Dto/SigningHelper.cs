@@ -20,6 +20,7 @@ public static class SigningHelper
     {
         ReadOnlySpan<byte> payloadType = signedEnvelope.PayloadType.Span;
 
+        // Signed-envelope payload types may append arbitrary bytes after the multicodec; the signature covers the full type.
         if (!payloadType.StartsWith(PayloadType) ||
             !PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey).Equals(publicKey))
         {

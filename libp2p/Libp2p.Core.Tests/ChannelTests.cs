@@ -57,6 +57,19 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task ProtocolCompletionAbortsAnUnfinishedOutboundWrite()
+    {
+        Channel channel = new();
+        Task<IOResult> unfinishedWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False);
+
+        await channel.CompleteProtocolAsync();
+
+        Assert.That(await unfinishedWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
     public async Task ExplicitAbortIsDistinctFromEndWithoutPendingIo()
     {
         Channel channel = new();

@@ -125,6 +125,30 @@ public class RequestResponseProtocolTests
     }
 
     [Test]
+    public async Task OneWayListenerCompletesWhenSenderHasAlreadyClosed()
+    {
+        TaskCompletionSource handlerEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource finishHandler = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", async (_, _) =>
+            {
+                handlerEntered.TrySetResult();
+                await finishHandler.Task;
+                return new StringValue();
+            }, expectsResponse: _ => false);
+        Channel channel = new();
+        Task listener = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+        await handlerEntered.Task.WaitAsync(timeout.Token);
+        await channel.CloseAsync();
+        finishHandler.TrySetResult();
+
+        await listener.WaitAsync(timeout.Token);
+    }
+
+    [Test]
     public async Task TruncatedRequestDoesNotReachHandler()
     {
         bool handled = false;
