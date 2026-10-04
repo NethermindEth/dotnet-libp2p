@@ -234,7 +234,8 @@ public class YamuxOrderingFuzzTests
                     Is.EqualTo(IOResult.Ok));
             }
             Assert.That(await collect.WaitAsync(timeout.Token), Is.EqualTo(payload));
-            int grants;            lock (outbound)
+            int grants;
+            lock (outbound)
             {
                 grants = outbound.Count(o =>
                     o.Header.Type == YamuxHeaderType.WindowUpdate && o.Header.Length > 0);
@@ -333,6 +334,14 @@ public class YamuxOrderingFuzzTests
             int lastRejectedId = 1 + 2 * (overCap - 1);
             Assert.That(await WaitForFlagAsync(outbound, YamuxHeaderFlags.Rst, lastRejectedId, timeout.Token),
                 Is.Not.Null, "Over-cap SYN must be rejected with RST.");
+            int rejectedDataId = 1 + 2 * overCap;
+            YamuxHeader dataSyn = DataFor(rejectedDataId, 3);
+            dataSyn.Flags = YamuxHeaderFlags.Syn;
+            await WriteHeaderAsync(remote, dataSyn, timeout.Token);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0xAA, 0xBB, 0xCC }), timeout.Token),
+                Is.EqualTo(IOResult.Ok));
+            Assert.That(await WaitForFlagAsync(outbound, YamuxHeaderFlags.Rst, rejectedDataId, timeout.Token),
+                Is.Not.Null, "Over-cap DATA|SYN must be rejected with RST.");
             TestContext.Out.WriteLine($"SynFlood: {CountUps(ups)} streams held, GC heap delta {(after - before) / 1024} KiB.");
             await WriteHeaderAsync(remote, FuzzPingSyn(45), timeout.Token);
             Assert.That(await WaitForPingAckAsync(outbound, 45, timeout.Token), Is.Not.Null,
@@ -443,7 +452,8 @@ public class YamuxOrderingFuzzTests
     }
 
     private static (IConnectionContext Ctx, List<TestChannel> Ups) DialerWithOneRequest()
-    {        IProtocol protocol = Mocks.TestProtocol();
+    {
+        IProtocol protocol = Mocks.TestProtocol();
         IConnectionContext context = Substitute.For<IConnectionContext>();
         INewSessionContext session = Substitute.For<INewSessionContext>();
         context.UpgradeToSession().Returns(session);

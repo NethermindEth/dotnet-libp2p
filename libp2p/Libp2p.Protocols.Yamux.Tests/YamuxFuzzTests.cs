@@ -854,6 +854,7 @@ public class YamuxFuzzTests
         private readonly Task _protocolTask;
         private readonly CancellationTokenSource _drainCts = new();
         private readonly List<TestChannel> _upchannels;
+        private Task? _drainTask;
 
         public CancellationTokenSource Timeout { get; } = new(TimeSpan.FromSeconds(5));
         public IChannel Remote { get; }
@@ -947,7 +948,7 @@ public class YamuxFuzzTests
         public List<FuzzObservation> StartDraining()
         {
             List<FuzzObservation> outbound = [];
-            _ = Task.Run(async () =>
+            _drainTask = Task.Run(async () =>
             {
                 try
                 {
@@ -1035,6 +1036,8 @@ public class YamuxFuzzTests
                 }
                 if (_protocolTask.IsCompleted)
                 {
+                    if (_drainTask is { } drainTask)
+                        await drainTask.WaitAsync(token);
                     break;
                 }
                 await Task.Delay(50, token);

@@ -181,15 +181,18 @@ public class YamuxFaultInjectionTests
         await drain;
     }
 
-    [Test]
-    public async Task TransportReadAndWriteFailure_SessionTerminatesWithoutFault()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task TransportReadAndWriteFailure_SessionTerminatesWithoutFault(bool channelClosed)
     {
         // Both directions are dead: the farewell GoAway write itself fails, and
         // that failure must be swallowed instead of faulting the session task.
         (IConnectionContext ctx, _) = Mocks.Dialer([]);
         FaultTransport transport = new(
             failReadsWith: _ => new InvalidOperationException("transport read blew up"),
-            failWritesWith: _ => new ChannelClosedException(IOResult.Ended));
+            failWritesWith: _ => channelClosed
+                ? new ChannelClosedException(IOResult.Ended)
+                : new IOException("transport write blew up"));
         Task yamux = new YamuxProtocol().DialAsync(transport, ctx);
         try
         {
@@ -239,6 +242,65 @@ public class YamuxFaultInjectionTests
             transport.Release();
             await transport.Inner.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
+    public async Task FullStreamTable_BlockedResetDoesNotStallSession()
+    {
+        (IConnectionContext ctx, _) = Mocks.Listener();
+        ManualClock clock = new();
+        GatedTransport transport = new(blockedWriteIndex: 513);
+        List<FuzzObservation> outbound = [];
+        Task yamux = new YamuxProtocol(timeProvider: clock).ListenAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        IChannel remote = transport.Reverse();
+        Task drain = DrainAsync(remote, outbound, timeout.Token);
+        try
+        {
+            byte[] opens = new byte[512 * 12];
+            for (int i = 0; i < 512; i++)
+            {
+                YamuxHeader syn = new() { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Syn, StreamID = 1 + 2 * i };
+                YamuxHeader.ToBytes(opens.AsSpan(i * 12, 12), ref syn);
+            }
+            await remote.WriteAsync(new ReadOnlySequence<byte>(opens), timeout.Token).OrThrow();
+            for (int i = 0; i < 400; i++)
+            {
+                lock (outbound)
+                {
+                    if (outbound.Count(o => o.Header.Type == YamuxHeaderType.WindowUpdate &&
+                        (o.Header.Flags & YamuxHeaderFlags.Ack) != 0) == 512)
+                        break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+            lock (outbound)
+                Assert.That(outbound.Count(o => (o.Header.Flags & YamuxHeaderFlags.Ack) != 0), Is.EqualTo(512));
+
+            await WriteHeaderAsync(remote, new YamuxHeader
+            {
+                Type = YamuxHeaderType.WindowUpdate,
+                Flags = YamuxHeaderFlags.Syn,
+                StreamID = 1025
+            }, timeout.Token);
+            await transport.WriteBlocked.Task.WaitAsync(timeout.Token);
+            (TimerCallback callback, object? state, TimeSpan dueTime) = await clock.NextTimerAsync(timeout.Token);
+            Assert.That(dueTime, Is.EqualTo(TimeSpan.FromSeconds(10)));
+            clock.Advance(dueTime);
+            callback(state);
+
+            await WriteHeaderAsync(remote, FuzzPingSyn(46), timeout.Token);
+            Assert.That(await WaitForPingAckAsync(outbound, 46, timeout.Token), Is.Not.Null);
+            Assert.That(transport.CancelledWriteCount, Is.EqualTo(1));
+            Assert.That(yamux.IsFaulted, Is.False);
+        }
+        finally
+        {
+            transport.Release();
+            await transport.Inner.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+            await drain;
         }
     }
 

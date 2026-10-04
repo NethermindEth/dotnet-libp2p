@@ -81,7 +81,7 @@ public class DataWindowFuzzTests
     }
 
     [Test]
-    public void LocalWindow_NonPositiveSpend_IsRejectedWithoutSideEffects(
+    public void LocalWindow_NegativeSpend_IsRejectedWithoutSideEffects(
         [Values(-1, -100, int.MinValue)] int badSpend)
     {
         LocalDataWindow window = new(new YamuxWindowSettings
