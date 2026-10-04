@@ -569,6 +569,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private async Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code)
     {
+        // Best effort: the session is going down, so a dead transport must never
+        // fail the farewell write and fault the session task.
         using CancellationTokenSource timeout = new(ControlWriteTimeout, _timeProvider);
         try
         {
@@ -579,9 +581,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 StreamID = 0,
             }, token: timeout.Token);
         }
-        catch (ChannelClosedException) when (timeout.IsCancellationRequested)
+        catch (ChannelClosedException)
         {
-            _logger?.LogDebug("Ctx({ctx}): GoAway write timed out", contextId);
+            _logger?.LogDebug("Ctx({ctx}): GoAway write failed, transport is gone", contextId);
         }
     }
 }
