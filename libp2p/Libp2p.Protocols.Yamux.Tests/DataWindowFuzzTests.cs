@@ -232,7 +232,7 @@ public class DataWindowFuzzTests
                 }
             }
         });
-        // A lost wakeup or deadlock would surface here as a timeout instead of a hung suite.
+        // A lost wake-up or deadlock would surface here as a timeout instead of a hung suite.
         await Task.WhenAll(spender, extender).WaitAsync(TimeSpan.FromSeconds(20));
         Assert.That(window.Available, Is.GreaterThanOrEqualTo(0));
     }

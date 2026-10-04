@@ -195,7 +195,7 @@ public class YamuxStreamRegistrationTests
         // App EOF sends FIN; a later local abort must surface as RST (covers the
         // half-closed abort path), and the session must stay alive.
         (IConnectionContext ctx, List<TestChannel> ups) =
-            DialerWithRequests(1, "dialer-halfclose");
+            DialerWithRequests(1, "dialer-half-close");
         TestChannel transport = new();
         List<FuzzObservation> outbound = [];
         Task yamux = new YamuxProtocol().DialAsync(transport, ctx);

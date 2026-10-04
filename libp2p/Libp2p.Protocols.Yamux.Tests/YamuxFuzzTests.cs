@@ -285,7 +285,7 @@ public class YamuxFuzzTests
         FuzzObservation? pingAck = await session.WaitForPingAckAsync(outbound, opaque: 9, session.Timeout.Token);
         Assert.That(pingAck, Is.Not.Null, "Session must survive a duplicate SYN.");
         Assert.That(session.FirstGoAway(outbound), Is.Null, "Duplicate SYN must not produce a GoAway.");
-        Assert.That(session.Upchannels, Has.Count.EqualTo(1), "Duplicate SYN must not open a second stream.");
+        Assert.That(session.UpstreamChannels, Has.Count.EqualTo(1), "Duplicate SYN must not open a second stream.");
         await session.ShutdownAsync();
     }
 
@@ -307,7 +307,7 @@ public class YamuxFuzzTests
         FuzzObservation? pingAck = await session.WaitForPingAckAsync(outbound, opaque: 11, session.Timeout.Token);
         Assert.That(pingAck, Is.Not.Null, "Session must survive frames for unknown streams.");
         Assert.That(session.FirstGoAway(outbound), Is.Null);
-        Assert.That(session.Upchannels, Is.Empty);
+        Assert.That(session.UpstreamChannels, Is.Empty);
         await session.ShutdownAsync();
     }
 
@@ -449,7 +449,7 @@ public class YamuxFuzzTests
         {
             Assert.That(goAway.Header.Length, Is.EqualTo((int)SessionTerminationCode.Ok));
         }
-        foreach (TestChannel up in session.Upchannels)
+        foreach (TestChannel up in session.UpstreamChannels)
         {
             Assert.That((await up.ReadAsync(1, token: session.Timeout.Token)).Result,
                 Is.Not.EqualTo(IOResult.Ok), "Open streams must be closed after GoAway.");
@@ -548,7 +548,7 @@ public class YamuxFuzzTests
         FuzzObservation? pingAck = await session.WaitForPingAckAsync(outbound, opaque: 77, session.Timeout.Token);
         Assert.That(pingAck, Is.Not.Null, "Session must survive interleaved single-byte partial frames.");
         Assert.That(session.FirstGoAway(outbound), Is.Null);
-        Assert.That(session.Upchannels, Has.Count.EqualTo(4));
+        Assert.That(session.UpstreamChannels, Has.Count.EqualTo(4));
         await session.ShutdownAsync();
     }
 
@@ -580,12 +580,12 @@ public class YamuxFuzzTests
     {
         IProtocol protocol = Substitute.For<IProtocol>();
         protocol.Id.Returns("/test/1.0.0");
-        (IConnectionContext ctx, INewSessionContext sess, List<TestChannel> ups) =
+        (IConnectionContext ctx, INewSessionContext sessionContext, List<TestChannel> ups) =
             FuzzSession.MockDialer("race", [new UpgradeOptions { SelectedProtocol = protocol }]);
-        sess.SubProtocols.Returns([protocol]);
+        sessionContext.SubProtocols.Returns([protocol]);
         TestChannel appChannel = new();
         int upgrades = 0;
-        sess.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        sessionContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
         {
             Interlocked.Increment(ref upgrades);
             return appChannel;
@@ -853,22 +853,22 @@ public class YamuxFuzzTests
         private readonly TestChannel _transport;
         private readonly Task _protocolTask;
         private readonly CancellationTokenSource _drainCts = new();
-        private readonly List<TestChannel> _upchannels;
+        private readonly List<TestChannel> _upstreamChannels;
         private Task? _drainTask;
 
         public CancellationTokenSource Timeout { get; } = new(TimeSpan.FromSeconds(5));
         public IChannel Remote { get; }
         public int FramesFed { get; private set; }
 
-        /// <summary>Upchannels created via the mocked session (live list, lock before iterating).</summary>
-        public List<TestChannel> Upchannels => _upchannels;
+        /// <summary>Upstream channels created via the mocked session (live list, lock before iterating).</summary>
+        public List<TestChannel> UpstreamChannels => _upstreamChannels;
 
-        private FuzzSession(TestChannel transport, IChannel remote, Task protocolTask, List<TestChannel> upchannels)
+        private FuzzSession(TestChannel transport, IChannel remote, Task protocolTask, List<TestChannel> upstreamChannels)
         {
             _transport = transport;
             Remote = remote;
             _protocolTask = protocolTask;
-            _upchannels = upchannels;
+            _upstreamChannels = upstreamChannels;
         }
 
         public static FuzzSession CreateDialer(IEnumerable<UpgradeOptions>? dialRequests = null)
@@ -1087,10 +1087,10 @@ public class YamuxFuzzTests
                     (int)SessionTerminationCode.InternalError),
                     $"Illegal GoAway code {obs.Header.Length}.");
             }
-            lock (Upchannels)
+            lock (UpstreamChannels)
             {
-                Assert.That(Upchannels.Count, Is.LessThanOrEqualTo(maxNewStreams + 1),
-                    $"Stream count blew past the bound: {Upchannels.Count} upchannels.");
+                Assert.That(UpstreamChannels.Count, Is.LessThanOrEqualTo(maxNewStreams + 1),
+                    $"Stream count blew past the bound: {UpstreamChannels.Count} upstream channels.");
             }
         }
 

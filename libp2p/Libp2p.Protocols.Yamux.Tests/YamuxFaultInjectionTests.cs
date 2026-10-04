@@ -13,7 +13,7 @@ namespace Nethermind.Libp2p.Protocols.Yamux.Tests;
 
 /// <summary>
 /// Fault-injection tests for <see cref="YamuxProtocol"/> control paths:
-/// failing transports and upchannels, blocked control writes, redundant
+/// failing transports and upstream channels, blocked control writes, redundant
 /// session upgrades, and small uncovered API-surface gaps. Deterministic;
 /// no new dependencies.
 /// </summary>

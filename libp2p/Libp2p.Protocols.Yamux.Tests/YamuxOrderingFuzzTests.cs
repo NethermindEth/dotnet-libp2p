@@ -252,7 +252,7 @@ public class YamuxOrderingFuzzTests
     }
 
     [Test]
-    public async Task PingFlood_AllAcked()
+    public async Task PingFlood_AllAcknowledged()
     {
         (IConnectionContext ctx, _) = Mocks.Dialer([]);
         TestChannel transport = new();
@@ -268,8 +268,8 @@ public class YamuxOrderingFuzzTests
             {
                 await WriteHeaderAsync(remote, FuzzPingSyn(i), timeout.Token);
             }
-            HashSet<int> acked = [];
-            for (int i = 0; i < 600 && acked.Count < count; i++)
+            HashSet<int> acknowledged = [];
+            for (int i = 0; i < 600 && acknowledged.Count < count; i++)
             {
                 await Task.Delay(25, timeout.Token);
                 lock (outbound)
@@ -279,15 +279,15 @@ public class YamuxOrderingFuzzTests
                         if (o.Header.Type == YamuxHeaderType.Ping &&
                             (o.Header.Flags & YamuxHeaderFlags.Ack) != 0)
                         {
-                            acked.Add(o.Header.Length);
+                            acknowledged.Add(o.Header.Length);
                         }
                     }
                 }
             }
-            Assert.That(acked.Count, Is.EqualTo(count), "Every ping must be acknowledged.");
+            Assert.That(acknowledged.Count, Is.EqualTo(count), "Every ping must be acknowledged.");
             for (int i = 0; i < count; i++)
             {
-                Assert.That(acked, Does.Contain(i), $"Ping {i} was not acknowledged.");
+                Assert.That(acknowledged, Does.Contain(i), $"Ping {i} was not acknowledged.");
             }
             Assert.That(FirstGoAway(outbound), Is.Null);
         }
@@ -491,7 +491,7 @@ public class YamuxOrderingFuzzTests
             }
             await Task.Delay(25, token);
         }
-        throw new TimeoutException($"Only {CountUps(ups)}/{count} upchannels created.");
+        throw new TimeoutException($"Only {CountUps(ups)}/{count} upstream channels created.");
     }
 
     private static async Task<YamuxHeader> WaitForSynAsync(
