@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
@@ -148,6 +149,27 @@ public class RequestResponseProtocolTests
         await listener.WaitAsync(timeout.Token);
     }
 
+    [TestCase(IOResult.Aborted)]
+    [TestCase(IOResult.Cancelled)]
+    [TestCase(IOResult.InternalError)]
+    public async Task OneWayListenerPropagatesEofFailure(IOResult eofResult)
+    {
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", (_, _) => Task.FromResult(new StringValue()), expectsResponse: _ => false);
+        Channel channel = new();
+        EofResultChannel listenerChannel = new(channel.Reverse, eofResult);
+        Task listener = protocol.ListenAsync(listenerChannel, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+
+        ChannelClosedException? failure = Assert.ThrowsAsync<ChannelClosedException>(
+            async () => await listener.WaitAsync(timeout.Token));
+        Assert.That(failure!.Message, Does.Contain(eofResult.ToString()));
+        Assert.That(listenerChannel.CloseCalled, Is.False);
+        await channel.CloseAsync();
+    }
+
     [Test]
     public async Task TruncatedRequestDoesNotReachHandler()
     {
@@ -217,6 +239,29 @@ public class RequestResponseProtocolTests
 
         Assert.That(result.Echo, Is.EqualTo("hi"));
         Assert.That(result.ProcessedValue, Is.EqualTo(10));
+    }
+
+    private sealed class EofResultChannel(IChannel inner, IOResult eofResult) : IChannel
+    {
+        public bool CloseCalled { get; private set; }
+
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default) => inner.ReadAsync(length, blockingMode, token);
+
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+            => inner.WriteAsync(bytes, token);
+
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => ValueTask.FromResult(eofResult);
+
+        public ValueTask CloseAsync()
+        {
+            CloseCalled = true;
+            return inner.CloseAsync();
+        }
+
+        public ValueTask AbortAsync() => inner.AbortAsync();
+
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 
     // ToDo : Add more tests.

@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -59,7 +60,9 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
                 _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
             }
 
-            await channel.WriteEofAsync();
+            IOResult eofResult = await channel.WriteEofAsync();
+            if (eofResult is not IOResult.Ok and not IOResult.Ended)
+                throw new ChannelClosedException(eofResult);
             await channel.CloseAsync();
         }
         catch (Exception ex)
