@@ -112,12 +112,29 @@ internal class LocalDataWindow
 
     /// <summary>
     /// Spends window when we receive data from the remote.
+    /// Never drives the window negative: overspending fails without side effects.
     /// </summary>
     /// <param name="requestedSize">Bytes received</param>
     /// <returns><see langword="true"/> if spending is within the allowed window</returns>
     public bool TrySpend(int requestedSize)
     {
-        int result = Interlocked.Add(ref _available, -requestedSize);
-        return result >= 0;
+        if (requestedSize < 0)
+        {
+            return false;
+        }
+
+        while (true)
+        {
+            int current = Volatile.Read(ref _available);
+            if (requestedSize > current)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref _available, current - requestedSize, current) == current)
+            {
+                return true;
+            }
+        }
     }
 }

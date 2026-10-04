@@ -22,6 +22,15 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     private const int PingDelay = 30_000;
     private static readonly TimeSpan ControlWriteTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Maximum number of concurrently tracked streams per session. Bounds the
+    /// state a peer can force us to allocate: the libp2p spec asks peers to
+    /// keep the unacknowledged backlog at 256, and rust-yamux caps streams at
+    /// 512 by default. Locally initiated streams bypass the cap; only inbound
+    /// SYNs are rejected with RST once the table is full.
+    /// </summary>
+    private const int MaxStreamCount = 512;
+
     private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
         YamuxWindowSettings? windowSettings = null, TimeProvider? timeProvider = null, TimeSpan? closedStreamIdleTimeout = null)
@@ -186,6 +195,28 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
+                    if (channels.Count >= MaxStreamCount)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Rejected, stream table is full", session.Id, header.StreamID);
+                        using CancellationTokenSource resetTimeout = new(ControlWriteTimeout, _timeProvider);
+                        try
+                        {
+                            await WriteHeaderAsync(session.Id, channel,
+                                new YamuxHeader
+                                {
+                                    Flags = YamuxHeaderFlags.Rst,
+                                    Type = YamuxHeaderType.WindowUpdate,
+                                    StreamID = header.StreamID
+                                }, token: resetTimeout.Token);
+                        }
+                        catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                        {
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reject write timed out", session.Id, header.StreamID);
+                        }
+                        if (header.Type == YamuxHeaderType.Data && header.Length > 0)
+                            await channel.ReadAsync(header.Length).OrThrow();
+                        continue;
+                    }
                     CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
                 }
 
@@ -266,7 +297,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             }
 
-            _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
+            await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
             void CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
@@ -548,6 +579,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private async Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code)
     {
+        // Best effort: the session is going down, so a dead transport must never
+        // fail the farewell write and fault the session task.
         using CancellationTokenSource timeout = new(ControlWriteTimeout, _timeProvider);
         try
         {
@@ -558,9 +591,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 StreamID = 0,
             }, token: timeout.Token);
         }
-        catch (ChannelClosedException) when (timeout.IsCancellationRequested)
+        catch (Exception e)
         {
-            _logger?.LogDebug("Ctx({ctx}): GoAway write timed out", contextId);
+            _logger?.LogDebug(e, "Ctx({ctx}): GoAway write did not complete", contextId);
         }
     }
 }
