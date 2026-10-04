@@ -100,6 +100,82 @@ public class IdentifyPeerRecordTests
         Assert.That(exception?.Message, Does.Contain("there is no peer record"));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void StrictPolicyRejectsPeerRecordWithDifferentEnvelopeKey(bool push)
+    {
+        Identity remote = TestPeers.Identity(87);
+        PeerStore peerStore = new();
+        SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(SigningHelper.CreateSignedEnvelope(remote, [], 1));
+        envelope.PublicKey = TestPeers.Identity(88).PublicKey.ToByteString();
+        Identify identify = new()
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            SignedPeerRecord = envelope.ToByteString()
+        };
+
+        Assert.ThrowsAsync<PeerConnectionException>(async () =>
+            await ReadIdentifyAsync(remote, peerStore, identify, PeerRecordsVerificationPolicy.RequireCorrect, push));
+        Assert.That(peerStore.TryGetPeerInfo(remote.PeerId, out _), Is.False);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void StrictPolicyRejectsPeerRecordWithAlteredPayloadType(bool push)
+    {
+        Identity remote = TestPeers.Identity(89);
+        PeerStore peerStore = new();
+        SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(SigningHelper.CreateSignedEnvelope(remote, [], 1));
+        byte[] payloadType = envelope.PayloadType.ToByteArray();
+        envelope.PayloadType = ByteString.CopyFrom([.. payloadType, 0x01]);
+        Identify identify = new()
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            SignedPeerRecord = envelope.ToByteString()
+        };
+
+        Assert.ThrowsAsync<PeerConnectionException>(async () =>
+            await ReadIdentifyAsync(remote, peerStore, identify, PeerRecordsVerificationPolicy.RequireCorrect, push));
+        Assert.That(peerStore.TryGetPeerInfo(remote.PeerId, out _), Is.False);
+    }
+
+    [Test]
+    public async Task SignedPayloadTypeSuffixIsAcceptedWhenSignatureMatches()
+    {
+        Identity remote = TestPeers.Identity(90);
+        PeerStore peerStore = new();
+        SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(SigningHelper.CreateSignedEnvelope(remote, [], 7));
+        byte[] payloadType = [.. envelope.PayloadType.Span, 0x01];
+        envelope.PayloadType = ByteString.CopyFrom(payloadType);
+
+        byte[] domain = "libp2p-peer-record"u8.ToArray();
+        byte[] signingData = new byte[
+            VarInt.GetSizeInBytes(domain.Length) + domain.Length +
+            VarInt.GetSizeInBytes(payloadType.Length) + payloadType.Length +
+            VarInt.GetSizeInBytes(envelope.Payload.Length) + envelope.Payload.Length];
+        int offset = 0;
+        VarInt.Encode(domain.Length, signingData.AsSpan(), ref offset);
+        domain.CopyTo(signingData.AsSpan(offset));
+        offset += domain.Length;
+        VarInt.Encode(payloadType.Length, signingData.AsSpan(), ref offset);
+        payloadType.CopyTo(signingData.AsSpan(offset));
+        offset += payloadType.Length;
+        VarInt.Encode(envelope.Payload.Length, signingData.AsSpan(), ref offset);
+        envelope.Payload.Span.CopyTo(signingData.AsSpan(offset));
+        envelope.Signature = ByteString.CopyFrom(remote.Sign(signingData));
+
+        ByteString signedRecord = envelope.ToByteString();
+        await ReadIdentifyAsync(remote, peerStore, new Identify
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            SignedPeerRecord = signedRecord
+        }, PeerRecordsVerificationPolicy.RequireCorrect);
+
+        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        Assert.That(peerInfo.SignedPeerRecord, Is.EqualTo(signedRecord));
+        Assert.That(peerInfo.Seq, Is.EqualTo(7UL));
+    }
+
     [Test]
     public async Task OlderOrInvalidPeerRecordDoesNotReplaceNewerRecord()
     {
@@ -134,13 +210,13 @@ public class IdentifyPeerRecordTests
     }
 
     private static async Task ReadIdentifyAsync(Identity remote, PeerStore peerStore, Identify identify,
-        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning)
+        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false)
     {
         IProtocolStackSettings stack = Substitute.For<IProtocolStackSettings>();
-        IdentifyProtocol protocol = new(stack, new IdentifyProtocolSettings
+        IdentifyProtocolSettings settings = new()
         {
             PeerRecordsVerificationPolicy = policy
-        }, peerStore);
+        };
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State
         {
@@ -148,7 +224,9 @@ public class IdentifyPeerRecordTests
             RemotePublicKey = remote.PublicKey
         });
         Channel channel = new();
-        Task read = protocol.DialAsync(channel, context);
+        Task read = push
+            ? new IdentifyPushProtocol(stack, settings, peerStore).ListenAsync(channel, context)
+            : new IdentifyProtocol(stack, settings, peerStore).DialAsync(channel, context);
         await channel.Reverse.WriteSizeAndProtobufAsync(identify);
         await read;
     }

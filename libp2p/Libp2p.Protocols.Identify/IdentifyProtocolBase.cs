@@ -24,7 +24,9 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     private readonly IdentifyProtocolSettings _settings = settings ?? new IdentifyProtocolSettings();
 
-    protected async Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context)
+    protected Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context) => ReadAndVerifyIdentity(channel, context, isPush: false);
+
+    protected async Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context, bool isPush)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
@@ -33,19 +35,27 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         _logger?.LogInformation("Received peer info: {identify}", identify);
 
-        if (context.State.RemotePublicKey.ToByteString() != identify.PublicKey)
+        if ((!isPush || identify.HasPublicKey) && context.State.RemotePublicKey.ToByteString() != identify.PublicKey)
         {
             throw new PeerConnectionException("Malformed peer identity: the remote public key corresponds to a different peer id");
         }
 
         ByteString? signedPeerRecord = identify.HasSignedPeerRecord ? identify.SignedPeerRecord : null;
-        bool verifiedPeerRecord = VerifySignedPeerRecordOrThrow(signedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, out ulong seq);
+        bool mayOmitPeerRecord = isPush && signedPeerRecord is null &&
+            (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.RequireCorrect ||
+                _peerStore is not null && _peerStore.TryGetPeerInfo(context.State.RemotePeerId, out PeerStore.PeerInfo? priorInfo) &&
+                priorInfo?.SignedPeerRecord is not null);
+        bool verifiedPeerRecord = VerifySignedPeerRecordOrThrow(signedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, mayOmitPeerRecord, out ulong seq);
 
         if (_peerStore is not null)
         {
             PeerStore.PeerInfo peerInfo = _peerStore.GetPeerInfo(context.State.RemotePeerId);
 
-            peerInfo.SupportedProtocols = identify.Protocols.ToArray();
+            // Repeated fields have no presence bit, so an empty Push must not erase known protocols.
+            if (!isPush || identify.Protocols.Count > 0)
+            {
+                peerInfo.SupportedProtocols = identify.Protocols.ToArray();
+            }
             if (verifiedPeerRecord && (peerInfo.Seq is null || seq > peerInfo.Seq))
             {
                 peerInfo.SignedPeerRecord = signedPeerRecord;
@@ -56,7 +66,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         }
     }
 
-    private bool VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, out ulong seq)
+    private bool VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, bool mayOmitPeerRecord, out ulong seq)
     {
         if (signedPeerRecordBytes is not null)
         {
@@ -84,6 +94,10 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         }
 
         seq = 0;
+        if (mayOmitPeerRecord)
+        {
+            return false;
+        }
         if (_settings.PeerRecordsVerificationPolicy == PeerRecordsVerificationPolicy.RequireCorrect)
         {
             throw new PeerConnectionException("Malformed peer identity: there is no peer record which is required");
@@ -110,7 +124,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
             ListenAddrs = { },
             ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress.GetEndpointPart().ToBytes()),
-            Protocols = { _protocolStackSettings.Protocols.Select(r => r.Key.Protocol).OfType<ISessionListenerProtocol>().Select(p => p.Id) },
+            Protocols = { _protocolStackSettings.Protocols.Keys.Where(r => r.IsExposed && r.Protocol is ISessionListenerProtocol).Select(r => r.Id).Distinct() },
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, advertisedAddresses, idVersion),
         };
 

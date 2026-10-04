@@ -18,25 +18,19 @@ public static class SigningHelper
 
     public static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey, out ulong seq)
     {
+        ReadOnlySpan<byte> payloadType = signedEnvelope.PayloadType.Span;
+
+        if (!payloadType.StartsWith(PayloadType) ||
+            !PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey).Equals(publicKey))
+        {
+            seq = 0;
+            return false;
+        }
+
         Identity identity = new(publicKey);
-
-        if (signedEnvelope.PayloadType?.Take(2).SequenceEqual(PayloadType) is not true)
-        {
-            seq = 0;
-            return false;
-        }
-
-        PeerRecord pr = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload);
-
-        if (identity.PeerId != new PeerId(pr.PeerId.ToByteArray()))
-        {
-            seq = 0;
-            return false;
-        }
-
         byte[] signedData = new byte[
             VarInt.GetSizeInBytes(Domain.Length) + Domain.Length +
-            VarInt.GetSizeInBytes(PayloadType.Length) + PayloadType.Length +
+            VarInt.GetSizeInBytes(payloadType.Length) + payloadType.Length +
             VarInt.GetSizeInBytes(signedEnvelope.Payload.Length) + signedEnvelope.Payload.Length];
 
         int offset = 0;
@@ -45,14 +39,21 @@ public static class SigningHelper
         Array.Copy(Domain, 0, signedData, offset, Domain.Length);
         offset += Domain.Length;
 
-        VarInt.Encode(PayloadType.Length, signedData.AsSpan(), ref offset);
-        Array.Copy(PayloadType, 0, signedData, offset, PayloadType.Length);
-        offset += PayloadType.Length;
+        VarInt.Encode(payloadType.Length, signedData.AsSpan(), ref offset);
+        payloadType.CopyTo(signedData.AsSpan(offset));
+        offset += payloadType.Length;
 
         VarInt.Encode(signedEnvelope.Payload.Length, signedData.AsSpan(), ref offset);
-        Array.Copy(signedEnvelope.Payload.ToByteArray(), 0, signedData, offset, signedEnvelope.Payload.Length);
+        signedEnvelope.Payload.Span.CopyTo(signedData.AsSpan(offset));
 
         if (!identity.VerifySignature(signedData, signedEnvelope.Signature.ToByteArray()))
+        {
+            seq = 0;
+            return false;
+        }
+
+        PeerRecord pr = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload);
+        if (identity.PeerId != new PeerId(pr.PeerId.ToByteArray()))
         {
             seq = 0;
             return false;
