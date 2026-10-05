@@ -344,11 +344,14 @@ public class ChannelModelFuzzTests
     }
 
     [Test]
-    public async Task CancelledWriter_ThenClose_Completes()
+    public async Task CancelledWrite_RollbackThenClose_Completes()
     {
-        // A writer cancelled after a partial take consumed its signal waits
-        // (without cancellation) for an acknowledgement that can only come
-        // from a take that will not happen. Teardown must still release it.
+        // Partial take, writer cancel, then close. Note what this covers: the
+        // partial take re-releases the signal, so cancellation takes the
+        // rollback branch (not the acknowledgement wait, which needs a
+        // microsecond take/cancel interleave to engage and therefore has no
+        // deterministic test). The rollback retracts the remainder, the close
+        // terminates everything, and no read ever observes the retracted bytes.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Task<IOResult> write = channel.WriteAsync(
@@ -356,8 +359,10 @@ public class ChannelModelFuzzTests
         Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
             Is.EqualTo(new byte[] { 1, 2, 3 }));
         cancel.Cancel();
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Cancelled));
         await channel.CloseAsync();
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That((await channel.Reverse.ReadAsync(8).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result,
+            Is.EqualTo(IOResult.Ended));
     }
 
     [Test]
