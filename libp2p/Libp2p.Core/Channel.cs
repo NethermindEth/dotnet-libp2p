@@ -364,9 +364,11 @@ public class Channel : IChannel
                     // data-available signal yet, reclaim it and roll the publish back so the
                     // cancelled bytes are never delivered to a later read. Otherwise a reader
                     // is already committed to consuming: wait for it to finish and acknowledge
-                    // on _read, keeping the channel consistent. Unlike the publish wait above,
-                    // this wait observes teardown: a close must release a writer stranded here
-                    // by a take/release race, instead of parking it past teardown.
+                    // on _read, keeping the channel consistent. This wait observes teardown
+                    // only, not the caller token that was already handled above: waiting on
+                    // the spent caller token would release the write lock while the reader
+                    // is still committed, while waiting without cancellation would park the
+                    // writer past teardown.
                     if (_canRead.Wait(0))
                     {
                         Interlocked.And(ref _state, ~PendingWrite);
@@ -374,7 +376,7 @@ public class Channel : IChannel
                     }
                     else
                     {
-                        await _read.WaitAsync(waitToken).ConfigureAwait(false);
+                        await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
                     }
 
                     throw;
