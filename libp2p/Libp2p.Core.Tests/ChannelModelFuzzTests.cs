@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -341,6 +342,44 @@ public class ChannelModelFuzzTests
         Assert.That((await readerWriter.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
             Is.EqualTo(new byte[] { 1 }));
         Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ok));
+    }
+
+    [Test]
+    public async Task CancelledWrite_AwaitingAcknowledgement_CompletesOnClose()
+    {
+        // Deterministic coverage for the acknowledgement wait: reflection (test
+        // only, no production hook) simulates a reader that claimed the
+        // data-available signal without acknowledging it. With a tokenless wait
+        // the writer parks past teardown and this times out; observing teardown
+        // releases it with Ended once the channel closes.
+        Channel channel = new();
+        using CancellationTokenSource cancel = new();
+        Channel.ReaderWriter writer = (Channel.ReaderWriter)channel.Writer;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        SemaphoreSlim canRead = (SemaphoreSlim)typeof(Channel.ReaderWriter)
+            .GetField("_canRead", flags)!.GetValue(writer)!;
+        SemaphoreSlim acknowledged = (SemaphoreSlim)typeof(Channel.ReaderWriter)
+            .GetField("_read", flags)!.GetValue(writer)!;
+
+        Task<IOResult> write = channel.WriteAsync(
+            new ReadOnlySequence<byte>(new byte[] { 1 }), cancel.Token).AsTask();
+        try
+        {
+            // Simulate a reader that claimed the signal but has not acknowledged.
+            Assert.That(canRead.Wait(0), Is.True);
+            cancel.Cancel();
+            await channel.CloseAsync();
+
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)),
+                Is.EqualTo(IOResult.Ended));
+        }
+        finally
+        {
+            await channel.CloseAsync();
+            // Also release the old implementation after a failed assertion.
+            acknowledged.Release();
+            await write.WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Test]

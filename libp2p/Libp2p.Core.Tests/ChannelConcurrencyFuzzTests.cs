@@ -60,33 +60,44 @@ public class ChannelConcurrencyFuzzTests
             Channel channel = new();
             using CancellationTokenSource cancel = new();
             cancel.CancelAfter(TimeSpan.FromMilliseconds(rng.Next(0, 10)));
-            int op = rng.Next(5);
-            switch (op)
+            try
             {
-                case 0:
-                    Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), cancel.Token),
-                        Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
-                    break;
-                case 1:
-                    // Empty open channel: the read can only be cancelled.
-                    Assert.That((await channel.Reverse.ReadAsync(1, token: cancel.Token)).Result,
-                        Is.EqualTo(IOResult.Cancelled), $"iter {i}");
-                    break;
-                case 2:
-                    Assert.That(await channel.WriteEofAsync(cancel.Token),
-                        Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
-                    break;
-                case 3:
-                    Assert.That((await channel.Reverse.ReadAsync(0, ReadBlockingMode.DoNotWait, token: cancel.Token)).Result,
-                        Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
-                    break;
-                default:
-                    Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 }), cancel.Token),
-                        Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
-                    break;
+                int op = rng.Next(5);
+                switch (op)
+                {
+                    case 0:
+                        Assert.That(await Bounded(channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), cancel.Token)),
+                            Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
+                        break;
+                    case 1:
+                        // Empty open channel: the read can only be cancelled.
+                        Assert.That((await Bounded(channel.Reverse.ReadAsync(1, token: cancel.Token))).Result,
+                            Is.EqualTo(IOResult.Cancelled), $"iter {i}");
+                        break;
+                    case 2:
+                        Assert.That(await Bounded(channel.WriteEofAsync(cancel.Token)),
+                            Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
+                        break;
+                    case 3:
+                        Assert.That((await Bounded(channel.Reverse.ReadAsync(0, ReadBlockingMode.DoNotWait, token: cancel.Token))).Result,
+                            Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
+                        break;
+                    default:
+                        Assert.That(await Bounded(channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 }), cancel.Token)),
+                            Is.AnyOf(IOResult.Ok, IOResult.Cancelled), $"iter {i}");
+                        break;
+                }
+            }
+            finally
+            {
+                cancel.Cancel();
+                await channel.CloseAsync();
             }
             suiteTimeout.Token.ThrowIfCancellationRequested();
         }
+
+        async Task<T> Bounded<T>(ValueTask<T> operation) =>
+            await operation.AsTask().WaitAsync(suiteTimeout.Token);
 
         // A channel that was only ever cancelled stays fully reusable.
         Channel reusable = new();
@@ -290,11 +301,12 @@ public class ChannelConcurrencyFuzzTests
         List<Task> tasks = [];
         for (int w = 0; w < writers; w++)
         {
+            int writer = w;
             tasks.Add(Task.Run(async () =>
             {
                 try
                 {
-                    Random local = new(seed * 131 + w);
+                    Random local = new(seed * 131 + writer);
                     for (int i = 0; i < 200; i++)
                     {
                         byte[] payload = new byte[local.Next(0, 128)];
@@ -304,7 +316,7 @@ public class ChannelConcurrencyFuzzTests
                         if (result == IOResult.InternalError)
                         {
                             faults.Enqueue(new InvalidDataException(
-                                $"Spurious InternalError on an occupied buffer (writer {w}, seed {seed})."));
+                                $"Spurious InternalError on an occupied buffer (writer {writer}, seed {seed})."));
                             return;
                         }
                     }
