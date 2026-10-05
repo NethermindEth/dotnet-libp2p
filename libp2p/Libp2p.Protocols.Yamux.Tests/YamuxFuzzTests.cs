@@ -522,9 +522,9 @@ public class YamuxFuzzTests
         });
 
         TestChannel transport = new();
-        TaskCompletionSource releaseSyns = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        SynGateChannel dialerTransport = new(transport, streamId: 3, releaseSyns.Task);
-        SynGateChannel listenerTransport = new(transport.Reverse(), streamId: 2, releaseSyns.Task);
+        TaskCompletionSource releaseOpeningFrames = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        SynGateChannel dialerTransport = new(transport, streamId: 3, releaseOpeningFrames.Task);
+        SynGateChannel listenerTransport = new(transport.Reverse(), streamId: 2, releaseOpeningFrames.Task);
         YamuxProtocol yamux = new();
         Task listen = yamux.ListenAsync(listenerTransport, listenerCtx);
         Task dial = yamux.DialAsync(dialerTransport, dialerCtx);
@@ -534,11 +534,11 @@ public class YamuxFuzzTests
         {
             TestChannel dialerBootstrapUp = await dialerBootstrap.Task.WaitAsync(timeout.Token);
             TestChannel listenerBootstrapUp = await listenerBootstrap.Task.WaitAsync(timeout.Token);
-            YamuxHeader[] syns = await Task.WhenAll(dialerTransport.SynSeen.Task,
+            YamuxHeader[] openingHeaders = await Task.WhenAll(dialerTransport.SynSeen.Task,
                 listenerTransport.SynSeen.Task).WaitAsync(timeout.Token);
-            Assert.That(syns[0].StreamID, Is.EqualTo(3));
-            Assert.That(syns[1].StreamID, Is.EqualTo(2));
-            releaseSyns.TrySetResult();
+            Assert.That(openingHeaders[0].StreamID, Is.EqualTo(3));
+            Assert.That(openingHeaders[1].StreamID, Is.EqualTo(2));
+            releaseOpeningFrames.TrySetResult();
 
             TestChannel dialerLocalUp = await dialerLocal.Task.WaitAsync(timeout.Token);
             TestChannel dialerRemoteUp = await dialerRemote.Task.WaitAsync(timeout.Token);
@@ -555,7 +555,7 @@ public class YamuxFuzzTests
         }
         finally
         {
-            releaseSyns.TrySetResult();
+            releaseOpeningFrames.TrySetResult();
             await transport.CloseAsync();
             await Task.WhenAll(listen, dial).WaitAsync(TimeSpan.FromSeconds(10));
         }
