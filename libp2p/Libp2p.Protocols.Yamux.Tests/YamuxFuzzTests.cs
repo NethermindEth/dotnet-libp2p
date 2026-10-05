@@ -479,7 +479,22 @@ public class YamuxFuzzTests
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
         try
         {
-            Assert.That(dialerUps, Has.Count.EqualTo(1));
+            // The dial-request pump creates the upchannel asynchronously.
+            TestChannel? dialerUp = null;
+            using CancellationTokenSource dialerSpin = new(TimeSpan.FromSeconds(5));
+            while (!dialerSpin.IsCancellationRequested)
+            {
+                lock (dialerUps)
+                {
+                    if (dialerUps.Count > 0)
+                    {
+                        dialerUp = dialerUps[0];
+                        break;
+                    }
+                }
+                await Task.Delay(5, timeout.Token);
+            }
+            Assert.That(dialerUp, Is.Not.Null, "Dialer must open its requested stream.");
             // Listener side creates its upchannel once the dialer's SYN arrives.
             TestChannel? listenerUp = null;
             using CancellationTokenSource spin = new(TimeSpan.FromSeconds(5));
@@ -500,13 +515,13 @@ public class YamuxFuzzTests
             // Exchange data in both directions at once.
             byte[] toListener = [10, 20, 30];
             byte[] toDialer = [40, 50];
-            Assert.That(await dialerUps[0].Reverse().WriteAsync(new ReadOnlySequence<byte>(toListener), timeout.Token),
+            Assert.That(await dialerUp!.Reverse().WriteAsync(new ReadOnlySequence<byte>(toListener), timeout.Token),
                 Is.EqualTo(IOResult.Ok));
             Assert.That(await listenerUp!.Reverse().WriteAsync(new ReadOnlySequence<byte>(toDialer), timeout.Token),
                 Is.EqualTo(IOResult.Ok));
             Assert.That((await listenerUp.Reverse().ReadAsync(toListener.Length, token: timeout.Token).OrThrow()).ToArray(),
                 Is.EqualTo(toListener));
-            Assert.That((await dialerUps[0].Reverse().ReadAsync(toDialer.Length, token: timeout.Token).OrThrow()).ToArray(),
+            Assert.That((await dialerUp.Reverse().ReadAsync(toDialer.Length, token: timeout.Token).OrThrow()).ToArray(),
                 Is.EqualTo(toDialer));
         }
         finally
