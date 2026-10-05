@@ -349,9 +349,9 @@ public class ChannelModelFuzzTests
     {
         // Deterministic coverage for the acknowledgement wait: reflection (test
         // only, no production hook) simulates a reader that claimed the
-        // data-available signal without acknowledging it. With a tokenless wait
-        // the writer parks past teardown and this times out; observing teardown
-        // releases it with Ended once the channel closes.
+        // data-available signal without acknowledging it. With a wait that
+        // ignores cancellation the writer parks past teardown and this times
+        // out; observing teardown releases it with Ended once the channel closes.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Channel.ReaderWriter writer = (Channel.ReaderWriter)channel.Writer;
