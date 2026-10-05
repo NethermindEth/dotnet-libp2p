@@ -16,6 +16,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
     private readonly Func<TRequest, ISessionContext, Task<TResponse>> _handler;
     private readonly Func<TRequest, bool>? _expectsResponse;
     private readonly ILogger<RequestResponseProtocol<TRequest, TResponse>>? _logger;
+    private readonly int _maxMessageSize;
 
     private readonly MessageParser<TRequest> _requestParser;
     private readonly MessageParser<TResponse> _responseParser;
@@ -24,12 +25,16 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
         ILoggerFactory? loggerFactory = null,
-        Func<TRequest, bool>? expectsResponse = null)
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
+
         _protocolId = protocolId ?? throw new ArgumentNullException(nameof(protocolId));
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
         _expectsResponse = expectsResponse;
         _logger = loggerFactory?.CreateLogger<RequestResponseProtocol<TRequest, TResponse>>();
+        _maxMessageSize = maxMessageSize;
         _requestParser = new MessageParser<TRequest>(() => new TRequest());
         _responseParser = new MessageParser<TResponse>(() => new TResponse());
     }
@@ -43,7 +48,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             _logger?.LogDebug("Starting ListenAsync for protocol {ProtocolId} from peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            TRequest request = await channel.ReadPrefixedProtobufAsync(_requestParser);
+            TRequest request = await channel.ReadPrefixedProtobufAsync(_requestParser, _maxMessageSize, default);
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TRequest).Name);
 
             _logger?.LogDebug("Successfully deserialized the response");
@@ -87,7 +92,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
             _logger?.LogDebug("Request sent, waiting for response");
 
-            TResponse response = await channel.ReadPrefixedProtobufAsync(_responseParser);
+            TResponse response = await channel.ReadPrefixedProtobufAsync(_responseParser, _maxMessageSize, default);
 
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TResponse).Name);
             _logger?.LogDebug("Successfully deserialized the response");

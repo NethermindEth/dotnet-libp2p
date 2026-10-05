@@ -72,6 +72,7 @@ public static class KadDhtProtocolExtensions
                     _ => new Message()
                 };
             },
+            maxMessageSize: dhtOptions.MaxMessageSize,
             isExposed: isExposed,
             expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider);
 
