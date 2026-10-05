@@ -33,6 +33,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     }
 
                     RemoveExpiredPendingValidations();
+
+                    // Gossipsub v1.1: every RPC from a peer scored below GraylistThreshold is
+                    // ignored, not only its messages. Direct peers are exempt from scoring.
+                    if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
+                    {
+                        logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
+                        return;
+                    }
+
                     HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
                     if (rpc.Publish.Count != 0)
