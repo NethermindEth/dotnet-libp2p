@@ -364,8 +364,8 @@ public class ChannelModelFuzzTests
     public async Task CancelledWrite_RollsBackRemainder()
     {
         // Partial take, then writer cancel: the re-released signal lets the
-        // rollback retract even the untaken remainder, so a later EOF finds
-        // nothing to discard and reads end empty.
+        // rollback retract even the still-buffered remainder, so a later EOF
+        // finds nothing to discard and reads end empty.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Task<IOResult> write = channel.WriteAsync(

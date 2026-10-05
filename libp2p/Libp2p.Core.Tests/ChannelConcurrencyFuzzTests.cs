@@ -237,7 +237,7 @@ public class ChannelConcurrencyFuzzTests
             // BEFORE any EOF. Rationale: an EOF racing buffered or partially
             // taken data discards it (WaitAll exactness cannot return partial
             // data, so EOF reports the terminal instead). EOF-first would make
-            // exact conservation unassertable by construction.
+            // exact conservation impossible to assert by construction.
             await Task.WhenAll(writersTasks).WaitAsync(timeout.Token);
             for (int i = 0; i < 200 && Volatile.Read(ref receivedCount) < totalTokens; i++)
             {
