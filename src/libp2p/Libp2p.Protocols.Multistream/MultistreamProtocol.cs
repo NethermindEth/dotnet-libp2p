@@ -25,11 +25,21 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
         {
             if (!await DialSelectedProtocolOptimistically(channel, selectedProtocol))
             {
+                context.UpgradeOptions?.CompletionSource?.TrySetException(
+                    new Libp2pException($"Remote peer does not support protocol {selectedProtocol.Id}."));
+                await channel.CloseAsync();
                 _logger?.LogDebug("Negotiation failed");
                 return;
             }
 
             _logger?.LogDebug("Protocol selected during dialing: {Id}", selectedProtocol.Id);
+            if (context.UpgradeOptions?.StopAfterProtocolSelection == true)
+            {
+                context.UpgradeOptions.CompletionSource?.TrySetResult(channel);
+                await channel;
+                return;
+            }
+
             await context.Upgrade(channel, selectedProtocol);
             return;
         }

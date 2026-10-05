@@ -41,6 +41,9 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
     public INewConnectionContext CreateConnection()
         => localPeer.CreateConnection(protocol, null, isListener, Activity);
 
+    public INewConnectionContext CreateConnection<TProtocol>() where TProtocol : IProtocol
+        => localPeer.CreateConnection(localPeer.GetProtocolRef<TProtocol>(), null, isListener, Activity);
+
     public INewSessionContext UpgradeToSession()
         => localPeer.UpgradeToSession(session, protocol, isListener, Activity);
 

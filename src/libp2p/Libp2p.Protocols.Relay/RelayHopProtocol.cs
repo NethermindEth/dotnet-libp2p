@@ -124,29 +124,43 @@ public class RelayHopProtocol : ISessionProtocol<HopMessage, HopMessage>
             Limit = request.Limit
         };
 
+        IChannel? stopChannel = null;
+        bool hopStatusSent = false;
+
         try
         {
-            _stopProtocol.RegisterPendingBridge(entry.SessionContext, initiatorPeerId, channel);
+            CancellationToken token = context.UpgradeOptions?.CancellationToken ?? CancellationToken.None;
+            stopChannel = await entry.SessionContext.OpenStreamAsync<RelayStopProtocol>(token).ConfigureAwait(false);
 
-            StopMessage stopResponse = await entry.SessionContext
-                .DialAsync<RelayStopProtocol, StopMessage, StopMessage>(connectStop)
-                .ConfigureAwait(false);
+            await stopChannel.WriteSizeAndProtobufAsync(connectStop).ConfigureAwait(false);
+            StopMessage stopResponse = await stopChannel.ReadPrefixedProtobufAsync(StopMessage.Parser, token).ConfigureAwait(false);
 
             if (stopResponse.Status != Status.Ok)
             {
                 _logger?.LogDebug("Hop: CONNECT to {Target} - stop returned {Status}", targetPeerId, stopResponse.Status);
                 await SendHopStatusAsync(channel, stopResponse.Status).ConfigureAwait(false);
+                hopStatusSent = true;
+                await CloseChannelQuietlyAsync(stopChannel).ConfigureAwait(false);
                 return;
             }
 
             _logger?.LogDebug("Hop: CONNECT to {Target} - OK", targetPeerId);
             await SendHopStatusAsync(channel, Status.Ok, request.Limit).ConfigureAwait(false);
-            // TODO: Bridge hop channel and stop stream for full relayed connection (requires access to stop channel from DialAsync)
+            hopStatusSent = true;
+            await _stopProtocol.BridgeAsync(channel, stopChannel).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Hop: CONNECT to {Target} failed", targetPeerId);
-            await SendHopStatusAsync(channel, Status.ConnectionFailed).ConfigureAwait(false);
+            if (stopChannel is not null)
+            {
+                await CloseChannelQuietlyAsync(stopChannel).ConfigureAwait(false);
+            }
+
+            if (!hopStatusSent)
+            {
+                await SendHopStatusAsync(channel, Status.ConnectionFailed).ConfigureAwait(false);
+            }
         }
     }
 
@@ -159,5 +173,16 @@ public class RelayHopProtocol : ISessionProtocol<HopMessage, HopMessage>
             Limit = limit
         };
         await channel.WriteSizeAndProtobufAsync(msg).ConfigureAwait(false);
+    }
+
+    private static async Task CloseChannelQuietlyAsync(IChannel channel)
+    {
+        try
+        {
+            await channel.CloseAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
     }
 }

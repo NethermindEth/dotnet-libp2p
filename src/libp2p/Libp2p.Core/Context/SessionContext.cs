@@ -26,6 +26,16 @@ public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, Prot
         return session.DialAsync<TProtocol, TRequest, TResponse>(request, token);
     }
 
+    public Task<IChannel> OpenStreamAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionListenerProtocol
+    {
+        return session.OpenStreamAsync<TProtocol>(token);
+    }
+
+    public Task<IChannel> OpenStreamAsync(ISessionListenerProtocol protocol, CancellationToken token = default)
+    {
+        return session.OpenStreamAsync(protocol, token);
+    }
+
     public Task DisconnectAsync()
     {
         return session.DisconnectAsync();

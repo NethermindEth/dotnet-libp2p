@@ -17,6 +17,7 @@ public interface IChannelFactory
 public record UpgradeOptions
 {
     public IProtocol? SelectedProtocol { get; init; }
+    public bool StopAfterProtocolSelection { get; init; }
     public UpgradeModeOverride ModeOverride { get; init; }
     public TaskCompletionSource<object?>? CompletionSource { get; init; }
     public CancellationToken CancellationToken { get; init; }

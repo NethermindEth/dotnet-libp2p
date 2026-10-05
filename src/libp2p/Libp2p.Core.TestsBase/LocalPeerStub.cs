@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Dto;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 
@@ -65,12 +66,23 @@ public class TestRemotePeer : ISession
     public Multiaddress Address { get; set; }
 
     public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
+    public PublicKey? RemotePublicKey => Identity.PublicKey;
 
     public Activity? Activity => throw new NotImplementedException();
 
     public Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
     {
         return Task.CompletedTask;
+    }
+
+    public Task<IChannel> OpenStreamAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionListenerProtocol
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<IChannel> OpenStreamAsync(ISessionListenerProtocol protocol, CancellationToken token = default)
+    {
+        throw new NotImplementedException();
     }
 
     public Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>

@@ -33,7 +33,7 @@ public class YamuxProtocolTests
         dialerSessionContext.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
         dialerSessionContext.Id.Returns("dialer");
 
-        dialerSessionContext.DialRequests.Returns([new UpgradeOptions() { SelectedProtocol = proto1 }]);
+        dialerSessionContext.DialRequests.Returns(ToAsyncEnumerable(new UpgradeOptions() { SelectedProtocol = proto1 }));
 
         TestChannel dialerDownChannel = new();
         dialerSessionContext.SubProtocols.Returns([proto1]);
@@ -66,5 +66,14 @@ public class YamuxProtocolTests
         await listenerUpChannel.CloseAsync();
 
         Assert.That(res, Is.EqualTo("hello"));
+    }
+
+    private static async IAsyncEnumerable<UpgradeOptions> ToAsyncEnumerable(params UpgradeOptions[] requests)
+    {
+        foreach (UpgradeOptions request in requests)
+        {
+            yield return request;
+            await Task.Yield();
+        }
     }
 }

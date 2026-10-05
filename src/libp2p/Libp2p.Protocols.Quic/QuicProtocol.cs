@@ -189,7 +189,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         _ = Task.Run(async () =>
         {
-            foreach (UpgradeOptions upgradeOptions in session.DialRequests)
+            await foreach (UpgradeOptions upgradeOptions in session.DialRequests)
             {
                 QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
                 IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });

@@ -12,7 +12,7 @@ public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, P
 {
     private readonly ILogger? logger = loggerFactory?.CreateLogger<NewSessionContext>();
 
-    public IEnumerable<UpgradeOptions> DialRequests => session.GetRequestQueue();
+    public IAsyncEnumerable<UpgradeOptions> DialRequests => session.GetRequestQueue();
 
     public CancellationToken Token => session.ConnectionToken;
 

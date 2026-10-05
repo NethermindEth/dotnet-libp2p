@@ -4,7 +4,7 @@
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Metrics;
-using System.Collections.Concurrent;
+using Nethermind.Libp2p.Core.Dto;
 using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
@@ -20,8 +20,10 @@ public partial class LocalPeer
         public Activity? Activity { get; }
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
+        public PublicKey? RemotePublicKey => State.RemotePublicKey;
 
-        private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
+        private readonly System.Threading.Channels.Channel<UpgradeOptions> SubDialRequests =
+            System.Threading.Channels.Channel.CreateUnbounded<UpgradeOptions>();
 
         /// <inheritdoc />
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
@@ -40,6 +42,16 @@ public partial class LocalPeer
             await DialAsyncCore(protocol, null, token);
         }
 
+        public Task<IChannel> OpenStreamAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionListenerProtocol
+        {
+            return OpenStreamAsyncCore(peer.GetProtocolInstance<TProtocol>(), token);
+        }
+
+        public Task<IChannel> OpenStreamAsync(ISessionListenerProtocol protocol, CancellationToken token = default)
+        {
+            return OpenStreamAsyncCore(protocol, token);
+        }
+
         /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
@@ -54,7 +66,7 @@ public partial class LocalPeer
             TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
             using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
 
-            SubDialRequests.Add(new UpgradeOptions()
+            await SubDialRequests.Writer.WriteAsync(new UpgradeOptions()
             {
                 CompletionSource = tcs,
                 SelectedProtocol = protocol,
@@ -67,11 +79,36 @@ public partial class LocalPeer
             return result;
         }
 
+        private async Task<IChannel> OpenStreamAsyncCore(IProtocol? protocol, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (protocol is null)
+            {
+                throw new Libp2pSetupException("Protocol is not added.");
+            }
+
+            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+
+            await SubDialRequests.Writer.WriteAsync(new UpgradeOptions()
+            {
+                CompletionSource = tcs,
+                SelectedProtocol = protocol,
+                StopAfterProtocolSelection = true,
+                CancellationToken = token
+            }, token);
+
+            object? result = await tcs.Task;
+            MarkAsConnected();
+            return (IChannel)result!;
+        }
+
 
         private CancellationTokenSource connectionTokenSource = new();
 
         public Task DisconnectAsync()
         {
+            SubDialRequests.Writer.TryComplete();
             connectionTokenSource.Cancel();
             peer.RemoveSession(this);
             return Task.CompletedTask;
@@ -85,7 +122,7 @@ public partial class LocalPeer
 
         internal void MarkAsConnected() => ConnectedTcs?.TrySetResult();
 
-        internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
+        internal IAsyncEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.Reader.ReadAllAsync(ConnectionToken);
     }
 
     private void RemoveSession(Session session)

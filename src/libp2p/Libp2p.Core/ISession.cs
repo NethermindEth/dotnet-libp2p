@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Dto;
 using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
@@ -9,6 +10,7 @@ namespace Nethermind.Libp2p.Core;
 public interface ISession
 {
     Multiaddress RemoteAddress { get; }
+    PublicKey? RemotePublicKey { get; }
     Activity? Activity { get; }
 
     /// <summary>
@@ -18,6 +20,9 @@ public interface ISession
     /// <param name="token">Cancellation token used while queueing the dial request.</param>
     /// <returns>A task that completes when the dial request has been handled.</returns>
     Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol;
+
+    Task<IChannel> OpenStreamAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionListenerProtocol;
+    Task<IChannel> OpenStreamAsync(ISessionListenerProtocol protocol, CancellationToken token = default);
 
     /// <summary>
     /// Dials a session protocol with a request payload and returns the protocol response.

@@ -15,7 +15,6 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 
 internal static class WebRtcDirectNoiseHandshake
 {
-    private static readonly Protocol NoiseProt = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
     public static async Task<(IChannel Encrypted, PublicKey RemoteKey)> HandshakeAsync(
@@ -25,8 +24,24 @@ internal static class WebRtcDirectNoiseHandshake
         bool isInitiator,
         CancellationToken token)
     {
+        if (OperatingSystem.IsBrowser())
+        {
+            return await ManagedWebRtcDirectNoiseHandshake.HandshakeAsync(channel, localIdentity, prologue, isInitiator, token);
+        }
+
+        return await HandshakeWithNoiseNetAsync(channel, localIdentity, prologue, isInitiator, token);
+    }
+
+    private static async Task<(IChannel Encrypted, PublicKey RemoteKey)> HandshakeWithNoiseNetAsync(
+        IChannel channel,
+        Identity localIdentity,
+        byte[] prologue,
+        bool isInitiator,
+        CancellationToken token)
+    {
+        Protocol noiseProt = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
         KeyPair staticKey = KeyPair.Generate();
-        using HandshakeState hs = NoiseProt.Create(isInitiator, prologue: prologue, s: staticKey.PrivateKey);
+        using HandshakeState hs = noiseProt.Create(isInitiator, prologue: prologue, s: staticKey.PrivateKey);
 
         PublicKey remoteKey;
         Transport transport;
@@ -69,7 +84,7 @@ internal static class WebRtcDirectNoiseHandshake
         return (new NoiseEncryptedChannel(channel, transport), remoteKey);
     }
 
-    private static byte[] BuildIdentityPayload(Identity identity, ReadOnlySpan<byte> staticPublicKey)
+    internal static byte[] BuildIdentityPayload(Identity identity, ReadOnlySpan<byte> staticPublicKey)
     {
         byte[] sigInput = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. staticPublicKey.ToArray()];
         NoiseHandshakePayload payload = new()
@@ -110,7 +125,7 @@ internal static class WebRtcDirectNoiseHandshake
         return remoteKey;
     }
 
-    private static async Task WriteFramedAsync(IChannel channel, byte[] buffer, int length, CancellationToken token)
+    internal static async Task WriteFramedAsync(IChannel channel, byte[] buffer, int length, CancellationToken token)
     {
         if (length > ushort.MaxValue)
         {
@@ -127,7 +142,7 @@ internal static class WebRtcDirectNoiseHandshake
         }
     }
 
-    private static async Task<byte[]> ReadFramedAsync(IChannel channel, CancellationToken token)
+    internal static async Task<byte[]> ReadFramedAsync(IChannel channel, CancellationToken token)
     {
         ReadResult lenResult = await channel.ReadAsync(2, ReadBlockingMode.WaitAll, token);
         if (lenResult.Result != IOResult.Ok)

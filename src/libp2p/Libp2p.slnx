@@ -33,6 +33,7 @@
     <Project Path="Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="../samples/browser-chat/BrowserChat.csproj" />
     <Project Path="../samples/chat/Chat.csproj" />
     <Project Path="../samples/perf-benchmarks/PerfBenchmarks.csproj" />
     <Project Path="../samples/pubsub-chat/PubsubChat.csproj" />

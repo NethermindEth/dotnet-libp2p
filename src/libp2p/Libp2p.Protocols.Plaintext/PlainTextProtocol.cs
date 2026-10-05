@@ -4,6 +4,8 @@
 using System.Buffers;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -33,6 +35,21 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
         int structSize = await channel.ReadVarintAsync();
         buf = (await channel.ReadAsync(structSize).OrThrow()).ToArray();
         Exchange? dest = Exchange.Parser.ParseFrom(buf);
+        if (dest?.Pubkey is not null)
+        {
+            PublicKey remotePublicKey = PublicKey.Parser.ParseFrom(dest.Pubkey);
+            context.State.RemotePublicKey = remotePublicKey;
+            PeerId remotePeerId = new(remotePublicKey);
+            if (context.State.RemoteAddress is not null && context.State.RemoteAddress.GetPeerId() is PeerId expectedPeerId && expectedPeerId != remotePeerId)
+            {
+                throw new Libp2pException($"Plaintext remote peer id {remotePeerId} does not match address peer id {expectedPeerId}.");
+            }
+
+            if (context.State.RemoteAddress is not null && context.State.RemoteAddress.GetPeerId() is null)
+            {
+                context.State.RemoteAddress = context.State.RemoteAddress.Add<Multiformats.Address.Protocols.P2P>(remotePeerId.ToString());
+            }
+        }
 
         await context.Upgrade(channel);
     }

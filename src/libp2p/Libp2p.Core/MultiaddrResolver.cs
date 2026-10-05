@@ -5,7 +5,6 @@ using System.Net;
 using DnsClient;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
-using Multiformats.Hash;
 
 namespace Nethermind.Libp2p.Core;
 
@@ -25,10 +24,10 @@ public class MultiaddrResolver
     /// <returns>Resolved addresses</returns>
     public async IAsyncEnumerable<Multiaddress> Resolve(Multiaddress addr)
     {
-        Multihash? p2p = addr.Get<P2P>().Value as Multihash;
-
         if (addr.Has<DnsAddr>())
         {
+            DnsaddrResolutionContext resolutionContext = GetDnsaddrResolutionContext(addr);
+
             async IAsyncEnumerable<string> GetRecords(string dnsAddr)
             {
                 IEnumerable<string> records = await _dns.QueryTxtAsync(dnsAddr);
@@ -38,10 +37,10 @@ public class MultiaddrResolver
 
                     if (text.StartsWith(prefix))
                     {
-                        Multiaddress addr = text[prefix.Length..];
-                        if (p2p is null || (addr.Has<P2P>() && addr.Get<P2P>().Value.Equals(p2p)))
+                        Multiaddress resolvedAddr = text[prefix.Length..];
+                        if (resolutionContext.ExpectedPeerId is null || resolvedAddr.GetPeerId() == resolutionContext.ExpectedPeerId)
                         {
-                            yield return text[prefix.Length..];
+                            yield return $"{text[prefix.Length..]}{resolutionContext.Suffix}";
                         }
                     }
                 }
@@ -105,4 +104,40 @@ public class MultiaddrResolver
             }
         }
     }
+
+    private static DnsaddrResolutionContext GetDnsaddrResolutionContext(Multiaddress addr)
+    {
+        string[] segments = addr.ToString().Split('/', StringSplitOptions.RemoveEmptyEntries);
+        int dnsaddrIndex = Array.FindIndex(segments, p => p.Equals("dnsaddr", StringComparison.OrdinalIgnoreCase));
+        if (dnsaddrIndex < 0)
+        {
+            return new DnsaddrResolutionContext(null, string.Empty);
+        }
+
+        int suffixStart = dnsaddrIndex + 2;
+        int circuitIndex = Array.FindIndex(segments, suffixStart, p => p.Equals("p2p-circuit", StringComparison.OrdinalIgnoreCase));
+        if (circuitIndex >= 0)
+        {
+            PeerId? relayPeerId = GetLastPeerId(segments, suffixStart, circuitIndex);
+            string circuitSuffix = "/" + string.Join('/', segments.Skip(circuitIndex));
+            return new DnsaddrResolutionContext(relayPeerId, circuitSuffix);
+        }
+
+        return new DnsaddrResolutionContext(GetLastPeerId(segments, suffixStart, segments.Length), string.Empty);
+    }
+
+    private static PeerId? GetLastPeerId(string[] segments, int startIndex, int endIndex)
+    {
+        for (int i = endIndex - 2; i >= startIndex; i--)
+        {
+            if (segments[i].Equals("p2p", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PeerId(segments[i + 1]);
+            }
+        }
+
+        return null;
+    }
+
+    private sealed record DnsaddrResolutionContext(PeerId? ExpectedPeerId, string Suffix);
 }

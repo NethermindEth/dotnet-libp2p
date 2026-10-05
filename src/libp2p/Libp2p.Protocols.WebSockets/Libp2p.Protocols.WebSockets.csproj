@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <RestoreEnablePackagePruning>false</RestoreEnablePackagePruning>
     <AssemblyName>Nethermind.$(MSBuildProjectName)</AssemblyName>
     <RootNamespace>Nethermind.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
   </PropertyGroup>
@@ -13,13 +14,23 @@
     <PackageTags>libp2p network websocket wss</PackageTags>
   </PropertyGroup>
 
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' Or '$(NethermindLibp2pBrowser)' == 'true'">
+    <DefineConstants>$(DefineConstants);BROWSER</DefineConstants>
+    <OutputPath>bin\$(Configuration)\browser\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\browser\$(TargetFramework)\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != 'browser-wasm' And '$(NethermindLibp2pBrowser)' != 'true'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" PrivateAssets="all" />
+    <ProjectReference Include="..\Libp2p.Protocols.AutoTls\Libp2p.Protocols.AutoTls.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
-    <ProjectReference Include="..\Libp2p.Protocols.AutoTls\Libp2p.Protocols.AutoTls.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>

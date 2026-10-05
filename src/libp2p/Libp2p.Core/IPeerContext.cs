@@ -12,6 +12,7 @@ public interface ITransportContext
     ILocalPeer Peer { get; }
     void ListenerReady(Multiaddress addr);
     INewConnectionContext CreateConnection();
+    INewConnectionContext CreateConnection<TProtocol>() where TProtocol : IProtocol;
     Activity? Activity { get; }
 }
 
@@ -33,6 +34,8 @@ public interface ISessionContext : IConnectionContext
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol protocol);
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
+    Task<IChannel> OpenStreamAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionListenerProtocol;
+    Task<IChannel> OpenStreamAsync(ISessionListenerProtocol protocol, CancellationToken token = default);
 }
 
 
@@ -46,7 +49,7 @@ public interface INewConnectionContext : IDisposable, IChannelFactory, IContextS
 
 public interface INewSessionContext : IDisposable, INewConnectionContext
 {
-    IEnumerable<UpgradeOptions> DialRequests { get; }
+    IAsyncEnumerable<UpgradeOptions> DialRequests { get; }
 }
 
 public class State

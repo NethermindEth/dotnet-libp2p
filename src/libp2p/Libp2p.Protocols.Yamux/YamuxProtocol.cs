@@ -73,7 +73,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
                 }, null, PingDelay, PingDelay);
 
-                foreach (UpgradeOptions request in session.DialRequests)
+                await foreach (UpgradeOptions request in session.DialRequests)
                 {
                     int streamId = streamIdCounter;
                     Interlocked.Add(ref streamIdCounter, 2);

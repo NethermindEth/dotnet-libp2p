@@ -3,6 +3,7 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Relay.Dto;
 using System.Buffers;
@@ -38,8 +39,27 @@ public class RelayStopProtocol : ISessionProtocol<StopMessage, StopMessage>
         }
 
         _logger?.LogDebug("Stop Listen: CONNECT from initiator {PeerId}", request.Peer?.Id != null ? Convert.ToHexString(request.Peer.Id.ToByteArray()) : "?");
+        if (request.Peer?.Id is null || request.Peer.Id.IsEmpty)
+        {
+            await SendStatusAsync(channel, Status.MalformedMessage).ConfigureAwait(false);
+            return;
+        }
+
+        PeerId initiatorPeerId = new(request.Peer.Id.ToByteArray());
         await SendStatusAsync(channel, Status.Ok).ConfigureAwait(false);
         _logger?.LogDebug("Stop Listen: STATUS OK sent, stream is now relayed connection");
+
+        INewConnectionContext relayedConnection = context.CreateConnection();
+        relayedConnection.State.RemoteAddress = Multiaddress.Decode($"/p2p-circuit/p2p/{initiatorPeerId}");
+
+        try
+        {
+            await relayedConnection.Upgrade(channel).ConfigureAwait(false);
+        }
+        finally
+        {
+            relayedConnection.Dispose();
+        }
     }
 
     public async Task<StopMessage> DialAsync(IChannel channel, ISessionContext context, StopMessage request)
@@ -89,7 +109,7 @@ public class RelayStopProtocol : ISessionProtocol<StopMessage, StopMessage>
         _pendingBridges[key] = hopChannel;
     }
 
-    private Task BridgeAsync(IChannel hopChannel, IChannel stopChannel)
+    internal Task BridgeAsync(IChannel hopChannel, IChannel stopChannel)
     {
         return Task.Run(async () =>
         {

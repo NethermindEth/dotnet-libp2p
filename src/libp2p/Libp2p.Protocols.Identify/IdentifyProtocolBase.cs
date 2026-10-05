@@ -103,7 +103,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             AgentVersion = _settings.AgentVersion,
             PublicKey = context.Peer.Identity.PublicKey.ToByteString(),
             ListenAddrs = { },
-            ObservedAddr = ByteString.CopyFrom(context.State.RemoteAddress.GetEndpointPart().ToBytes()),
+            ObservedAddr = ByteString.CopyFrom(GetEndpointPartOrSelf(context.State.RemoteAddress).ToBytes()),
             Protocols = { _protocolStackSettings.Protocols.Select(r => r.Key.Protocol).OfType<ISessionListenerProtocol>().Select(p => p.Id) },
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, advertisedAddresses, idVersion),
         };
@@ -112,14 +112,10 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         // and unspecified (0.0.0.0/::). Private/LAN addresses (192.168.x.x, 10.x.x.x, etc.)
         // are kept because they are routable within the local network.
         ByteString[] endpoints = advertisedAddresses
-            .Where(a =>
-            {
-                IPAddress ip = a.ToEndPoint().Address;
-                return !IPAddress.IsLoopback(ip)
-                    && !ip.Equals(IPAddress.Any)
-                    && !ip.Equals(IPAddress.IPv6Any);
-            })
-            .Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto))
+            .Where(a => TryGetEndpoint(a, out IPEndPoint? endpoint, out _)
+                && !IPAddress.IsLoopback(endpoint.Address)
+                && !endpoint.Address.Equals(IPAddress.Any)
+                && !endpoint.Address.Equals(IPAddress.IPv6Any))
             .Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
 
         identify.ListenAddrs.AddRange(endpoints);
@@ -136,18 +132,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     {
         foreach (Multiaddress addr in addresses)
         {
-            IPEndPoint? endpoint = null;
-            ProtocolType proto = default;
-            try
-            {
-                endpoint = addr.ToEndPoint(out proto);
-            }
-            catch
-            {
-                // Can't parse endpoint
-            }
-
-            if (endpoint is null)
+            if (!TryGetEndpoint(addr, out IPEndPoint? endpoint, out _))
             {
                 yield return addr;
                 continue;
@@ -160,7 +145,6 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             }
 
             bool expanded = false;
-            PeerId? peerId = addr.GetPeerId();
             AddressFamily targetFamily = endpoint.AddressFamily;
 
             foreach (NetworkInterface iface in NetworkInterface.GetAllNetworkInterfaces())
@@ -173,11 +157,9 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
                     if (unicast.Address.AddressFamily != targetFamily) continue;
                     if (IPAddress.IsLoopback(unicast.Address)) continue;
 
-                    Multiaddress newAddr = new IPEndPoint(unicast.Address, endpoint.Port).ToMultiaddress(proto);
-                    if (peerId is not null)
-                    {
-                        newAddr = newAddr.Add<P2P>(peerId.ToString());
-                    }
+                    Multiaddress newAddr = addr.Has<IP4>()
+                        ? addr.ReplaceOrAdd<IP4>(unicast.Address.ToString())
+                        : addr.ReplaceOrAdd<IP6>(unicast.Address.ToString());
 
                     yield return newAddr;
                     expanded = true;
@@ -189,5 +171,52 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
                 yield return addr;
             }
         }
+    }
+
+    private static Multiaddress GetEndpointPartOrSelf(Multiaddress address)
+    {
+        if (TryGetEndpoint(address, out IPEndPoint? endpoint, out ProtocolType proto))
+        {
+            return endpoint.ToMultiaddress(proto);
+        }
+
+        return address;
+    }
+
+    private static bool TryGetEndpoint(Multiaddress address, out IPEndPoint endpoint, out ProtocolType proto)
+    {
+        IPAddress ip;
+        if (address.Has<IP4>())
+        {
+            ip = IPAddress.Parse(address.Get<IP4>().ToString());
+        }
+        else if (address.Has<IP6>())
+        {
+            ip = IPAddress.Parse(address.Get<IP6>().ToString());
+        }
+        else
+        {
+            endpoint = null!;
+            proto = default;
+            return false;
+        }
+
+        if (address.Has<TCP>())
+        {
+            endpoint = new IPEndPoint(ip, int.Parse(address.Get<TCP>().ToString()));
+            proto = ProtocolType.Tcp;
+            return true;
+        }
+
+        if (address.Has<UDP>())
+        {
+            endpoint = new IPEndPoint(ip, int.Parse(address.Get<UDP>().ToString()));
+            proto = ProtocolType.Udp;
+            return true;
+        }
+
+        endpoint = null!;
+        proto = default;
+        return false;
     }
 }

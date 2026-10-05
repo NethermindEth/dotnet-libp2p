@@ -89,9 +89,9 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
 
         string logPrefix = $"{context.Peer.Identity.PeerId}<>{remotePeerId}";
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
-            foreach (UpgradeOptions item in session.DialRequests)
+            await foreach (UpgradeOptions item in session.DialRequests)
             {
                 uint chanId = Interlocked.Add(ref counter, 2);
                 logger?.LogDebug($"{context.Peer.Identity.PeerId}({chanId}): Sub-request {item.SelectedProtocol} {item.CompletionSource is not null} to call {connection.State.RemoteAddress.GetPeerId()}");
@@ -109,7 +109,6 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
                 _ = downChannel.WriteSizeAndProtobufAsync(response);
             }
             logger?.LogDebug($"{context.Peer.Identity.PeerId}: SubDialRequests End");
-            return Task.CompletedTask;
         });
 
         while (true)

@@ -1,0 +1,201 @@
+@inject ChatClient Client
+@inject NavigationManager Navigation
+
+<main class="shell">
+    <section class="topbar">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <div>
+                <h1>libp2p browser chat</h1>
+                <p>@StatusText</p>
+            </div>
+        </div>
+        <div class="status @StatusClass">@StatusLabel</div>
+    </section>
+
+    <section class="connect-row">
+        <label for="remote">Remote multiaddr</label>
+        <input id="remote" autocomplete="off" spellcheck="false" @bind="remoteAddress" @bind:event="oninput" disabled="@busy" />
+        <button type="button" @onclick="ConnectAsync" disabled="@(!CanConnect)">Connect</button>
+    </section>
+
+    <section class="connect-row">
+        <label for="relay">Relay multiaddr</label>
+        <input id="relay" autocomplete="off" spellcheck="false" @bind="relayAddress" @bind:event="oninput" disabled="@busy" />
+        <button type="button" @onclick="ListenAsync" disabled="@(!CanListen)">Listen</button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(Client.ListenAddress))
+    {
+        <section class="listen-row">
+            <span>Advertised address</span>
+            <code id="listen-address">@Client.ListenAddress</code>
+        </section>
+    }
+
+    <section class="chat-surface" aria-live="polite">
+        <div class="messages">
+            @foreach (ChatLine line in messages)
+            {
+                <div class="message @line.Kind">
+                    <span>@line.Source</span>
+                    <p>@line.Text</p>
+                </div>
+            }
+        </div>
+
+        <form class="composer" @onsubmit="SendAsync" @onsubmit:preventDefault>
+            <input aria-label="Message" autocomplete="off" @bind="draft" @bind:event="oninput" disabled="@(!Client.IsConnected || busy)" />
+            <button type="submit" disabled="@(!CanSend)">Send</button>
+        </form>
+    </section>
+</main>
+
+@code {
+    private readonly List<ChatLine> messages = [];
+    private string remoteAddress = string.Empty;
+    private string relayAddress = string.Empty;
+    private string draft = "hello from browser";
+    private string status = "Ready";
+    private bool busy;
+    private bool autoListen;
+
+    private bool CanConnect => !busy && !string.IsNullOrWhiteSpace(remoteAddress);
+    private bool CanListen => !busy && !string.IsNullOrWhiteSpace(relayAddress);
+    private bool CanSend => !busy && Client.IsConnected && !string.IsNullOrWhiteSpace(draft);
+    private string StatusLabel => Client.IsConnected ? "Connected" : Client.IsListening ? "Listening" : busy ? "Working" : "Idle";
+    private string StatusClass => Client.IsConnected || Client.IsListening ? "connected" : busy ? "working" : "idle";
+    private string StatusText => status;
+
+    protected override void OnInitialized()
+    {
+        remoteAddress = ReadQueryValue("addr") ?? string.Empty;
+        relayAddress = ReadQueryValue("listen") ?? ReadQueryValue("relay") ?? string.Empty;
+        autoListen = !string.IsNullOrWhiteSpace(ReadQueryValue("listen"));
+        messages.Add(new ChatLine("system", "Session", "Connect to a remote /ws, /webrtc-direct, or /p2p-circuit/webrtc multiaddr, or listen through a relay."));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && autoListen && CanListen)
+        {
+            await ListenAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (!CanConnect)
+        {
+            return;
+        }
+
+        busy = true;
+        status = "Dialing remote peer";
+        messages.Add(new ChatLine("system", "Dial", remoteAddress));
+
+        try
+        {
+            await Client.ConnectAsync(remoteAddress, CancellationToken.None);
+            status = "Remote peer connected";
+            messages.Add(new ChatLine("system", "Connected", Client.RemoteAddress ?? remoteAddress));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            status = "Connection failed";
+            messages.Add(new ChatLine("error", "Error", ex.Message));
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ListenAsync()
+    {
+        if (!CanListen)
+        {
+            return;
+        }
+
+        busy = true;
+        status = "Reserving relay slot";
+        messages.Add(new ChatLine("system", "Relay", relayAddress));
+
+        try
+        {
+            string listenAddress = await Client.ListenThroughRelayAsync(relayAddress, CancellationToken.None);
+            status = "Relay listener ready";
+            messages.Add(new ChatLine("system", "Listening", listenAddress));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            status = "Relay listen failed";
+            messages.Add(new ChatLine("error", "Error", ex.Message));
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (!CanSend)
+        {
+            return;
+        }
+
+        string text = draft;
+        draft = string.Empty;
+        busy = true;
+        status = "Waiting for echo";
+        messages.Add(new ChatLine("out", "You", text));
+
+        try
+        {
+            string response = await Client.SendAsync(text, CancellationToken.None);
+            status = "Echo received";
+            messages.Add(new ChatLine("in", "Echo", response));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            status = "Send failed";
+            messages.Add(new ChatLine("error", "Error", ex.Message));
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private string? ReadQueryValue(string key)
+    {
+        string query = new Uri(Navigation.Uri).Query;
+        if (string.IsNullOrEmpty(query))
+        {
+            return null;
+        }
+
+        foreach (string part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] pair = part.Split('=', 2);
+            if (Uri.UnescapeDataString(pair[0]).Equals(key, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Length == 2 ? Uri.UnescapeDataString(pair[1].Replace("+", " ")) : string.Empty;
+            }
+        }
+
+        return null;
+    }
+
+    private sealed record ChatLine(string Kind, string Source, string Text);
+}

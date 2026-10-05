@@ -51,7 +51,50 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
         }
 
-        return _protocolStackSettings.TopProtocols.First(p => ITransportProtocol.IsAddressMatch(p.Protocol, addr));
+        string[] segments = GetAddressSegments(addr);
+        ProtocolRef[] matches = [.. _protocolStackSettings.TopProtocols.Where(p => ITransportProtocol.IsAddressMatch(p.Protocol, addr))];
+        if (matches.Length == 0)
+        {
+            if (IsRelayedWebRtcAddress(segments))
+            {
+                throw new Libp2pSetupException($"No WebRTC transport matches relayed WebRTC address {addr}. Configure WithWebRtc().");
+            }
+
+            throw new Libp2pSetupException($"No transport protocol matches address {addr}");
+        }
+
+        if (IsRelayedWebRtcAddress(segments))
+        {
+            ProtocolRef? webrtc = matches.FirstOrDefault(p => p.Protocol.Id == "webrtc");
+            if (webrtc is not null)
+            {
+                return webrtc;
+            }
+
+            throw new Libp2pSetupException($"No WebRTC transport matches relayed WebRTC address {addr}. Configure WithWebRtc().");
+        }
+
+        if (ContainsProtocol(segments, "p2p-circuit"))
+        {
+            ProtocolRef? relayCircuit = matches.FirstOrDefault(p => p.Protocol.Id == "p2p-circuit");
+            if (relayCircuit is not null)
+            {
+                return relayCircuit;
+            }
+
+            throw new Libp2pSetupException($"No circuit relay transport matches address {addr}. Configure WithRelay().");
+        }
+
+        if (ContainsProtocol(segments, "webrtc") && !ContainsProtocol(segments, "webrtc-direct"))
+        {
+            ProtocolRef? webrtc = matches.FirstOrDefault(p => p.Protocol.Id == "webrtc");
+            if (webrtc is not null)
+            {
+                return webrtc;
+            }
+        }
+
+        return matches[0];
     }
 
     protected virtual Multiaddress[] GetDefaultAddresses()
@@ -171,7 +214,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
         lock (Sessions)
         {
-            if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
+            Multiaddress remoteAddress = session.State.RemoteAddress ??
+                throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
+
+            if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId && IsSameAddressShape(s.State.RemoteAddress!, remoteAddress)))
             {
                 _ = session.DisconnectAsync();
                 throw new SessionExistsException(remotePeerId);
@@ -220,6 +266,18 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
+    internal ProtocolRef GetProtocolRef<TProtocol>() where TProtocol : IProtocol
+    {
+        ProtocolRef? topProtocol = _protocolStackSettings.TopProtocols?.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol));
+        if (topProtocol is not null)
+        {
+            return topProtocol;
+        }
+
+        ProtocolRef? protocolRef = _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol));
+        return protocolRef ?? throw new Libp2pSetupException($"{typeof(TProtocol).Name} is not added.");
+    }
+
     /// <summary>
     /// Get a protocol instance by type.
     /// </summary>
@@ -239,11 +297,27 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
         }
 
-        ISession? existingSession = Sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId);
+        if (addrs.All(addr => IsRelayedWebRtcAddress(GetAddressSegments(addr))) &&
+            _protocolStackSettings.TopProtocols?.Any(p => p.Protocol.Id == "webrtc") != true)
+        {
+            throw new Libp2pSetupException($"No WebRTC transport matches relayed WebRTC address {addrs.First(addr => IsRelayedWebRtcAddress(GetAddressSegments(addr)))}. Configure WithWebRtc().");
+        }
+
+        HashSet<DialAddressShape> requestedShapes = [.. addrs.Select(GetDialAddressShape)];
+        bool requiresShapedDial = requestedShapes.Any(shape => shape is not DialAddressShape.Direct);
+        ISession? existingSession = Sessions.FirstOrDefault(s =>
+            s.State.RemotePeerId == remotePeerId &&
+            s.State.RemoteAddress is not null &&
+            requestedShapes.Contains(GetDialAddressShape(s.State.RemoteAddress)));
 
         if (existingSession is not null)
         {
             return Task.FromResult(existingSession);
+        }
+
+        if (requiresShapedDial)
+        {
+            return DialAsyncDeduped(addrs, remotePeerId, token);
         }
 
         // Deduplicate concurrent dials to the same peer
@@ -317,6 +391,61 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     }
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
+
+    private static bool IsCircuitAddress(Multiaddress addr)
+        => GetDialAddressShape(addr) is DialAddressShape.Circuit or DialAddressShape.RelayedWebRtc;
+
+    private static bool IsSameAddressShape(Multiaddress left, Multiaddress right)
+        => GetDialAddressShape(left) == GetDialAddressShape(right);
+
+    private static DialAddressShape GetDialAddressShape(Multiaddress addr)
+    {
+        string[] segments = GetAddressSegments(addr);
+        if (IsRelayedWebRtcAddress(segments))
+        {
+            return DialAddressShape.RelayedWebRtc;
+        }
+
+        if (ContainsProtocol(segments, "p2p-circuit"))
+        {
+            return DialAddressShape.Circuit;
+        }
+
+        if (ContainsProtocol(segments, "webrtc-direct"))
+        {
+            return DialAddressShape.WebRtcDirect;
+        }
+
+        if (ContainsProtocol(segments, "webrtc"))
+        {
+            return DialAddressShape.WebRtc;
+        }
+
+        return DialAddressShape.Direct;
+    }
+
+    private static string[] GetAddressSegments(Multiaddress addr)
+        => addr.ToString().Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+    private static bool ContainsProtocol(string[] segments, string protocol)
+        => segments.Contains(protocol, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsRelayedWebRtcAddress(string[] segments)
+    {
+        int circuitIndex = Array.FindIndex(segments, p => p.Equals("p2p-circuit", StringComparison.OrdinalIgnoreCase));
+        return circuitIndex >= 0 &&
+               circuitIndex + 1 < segments.Length &&
+               segments[circuitIndex + 1].Equals("webrtc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private enum DialAddressShape
+    {
+        Direct,
+        Circuit,
+        RelayedWebRtc,
+        WebRtcDirect,
+        WebRtc,
+    }
 
     private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token = default, Action<Task>? transportDialStarted = null)
     {
@@ -484,9 +613,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             _protocolStackSettings.Protocols.Add(new ProtocolRef(upgradeProtocol, false), []);
         }
 
-        ProtocolRef top = upgradeProtocol is not null ?
-            _protocolStackSettings.Protocols[parentProtocol].FirstOrDefault(p => p.Protocol == upgradeProtocol, _protocolStackSettings.Protocols.Keys.First(k => k.Protocol == upgradeProtocol)) :
-            _protocolStackSettings.Protocols[parentProtocol].Single();
+        ProtocolRef top;
+        if (upgradeProtocol is not null)
+        {
+            top = _protocolStackSettings.Protocols[parentProtocol].FirstOrDefault(p => p.Protocol == upgradeProtocol)
+                ?? _protocolStackSettings.Protocols.Keys.First(k => k.Protocol == upgradeProtocol);
+        }
+        else
+        {
+            top = _protocolStackSettings.Protocols[parentProtocol].Single();
+        }
 
         isListener = options?.ModeOverride switch { UpgradeModeOverride.Dial => false, UpgradeModeOverride.Listen => true, _ => isListener };
 

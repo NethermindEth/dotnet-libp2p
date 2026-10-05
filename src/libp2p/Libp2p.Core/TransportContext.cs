@@ -33,6 +33,11 @@ public class TransportContext : ITransportContext
     {
         return _peer.CreateConnection(_proto, null, IsListener, Activity);
     }
+
+    public virtual INewConnectionContext CreateConnection<TProtocol>() where TProtocol : IProtocol
+    {
+        return _peer.CreateConnection(_peer.GetProtocolRef<TProtocol>(), null, IsListener, Activity);
+    }
 }
 
 public class DialerTransportContext : TransportContext
@@ -54,5 +59,12 @@ public class DialerTransportContext : TransportContext
     public override INewConnectionContext CreateConnection()
     {
         return _peer.CreateConnection(_proto, _session, false, _activity);
+    }
+
+    public override INewConnectionContext CreateConnection<TProtocol>()
+    {
+        ProtocolRef proto = _peer.GetProtocolRef<TProtocol>();
+        LocalPeer.Session? session = ReferenceEquals(proto.Protocol, _proto.Protocol) ? _session : null;
+        return _peer.CreateConnection(proto, session, false, _activity);
     }
 }

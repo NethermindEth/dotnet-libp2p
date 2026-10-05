@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+#if !BROWSER
 using System.Net;
 using System.Net.Sockets;
+#endif
 using System.Net.WebSockets;
+#if !BROWSER
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -13,33 +16,51 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
+#endif
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+#if !BROWSER
 using Nethermind.Libp2p.Core.Utils;
 using Nethermind.Libp2p.Protocols.AutoTls;
+#endif
 using MultiaddrWebSocket = Multiformats.Address.Protocols.WebSocket;
 using SocketWebSocket = System.Net.WebSockets.WebSocket;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITlsCertificateProvider? certificateProvider = null) : ITransportProtocol
+public sealed class WebSocketProtocol(
+    ILoggerFactory? loggerFactory = null
+#if !BROWSER
+    , ITlsCertificateProvider? certificateProvider = null
+#endif
+    ) : ITransportProtocol
 {
     private const int BufferSize = 16 * 1024;
     private readonly ILogger<WebSocketProtocol>? _logger = loggerFactory?.CreateLogger<WebSocketProtocol>();
 
     public string Id => "websocket";
 
-    public static Multiaddress[] GetDefaultAddresses(PeerId peerId) =>
-        [.. IpHelper.GetListenerAddresses().Select(a => ToWebSocketMultiAddress(a, peerId))];
+    public static Multiaddress[] GetDefaultAddresses(PeerId peerId)
+    {
+#if BROWSER
+        return [];
+#else
+        return [.. IpHelper.GetListenerAddresses().Select(a => ToWebSocketMultiAddress(a, peerId))];
+#endif
+    }
 
     public static bool IsAddressMatch(Multiaddress addr) =>
         addr.Has<TCP>() && (addr.Has<MultiaddrWebSocket>() || addr.Has<WebSocketSecure>());
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
+#if BROWSER
+        await Task.Yield();
+        throw new PlatformNotSupportedException("Browser WebSocket transport can dial peers, but browsers cannot accept libp2p WebSocket listeners.");
+#else
         bool secure = listenAddr.Has<WebSocketSecure>();
         IPEndPoint endpoint = ToListenEndpoint(listenAddr);
 
@@ -113,12 +134,16 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         {
             await app.StopAsync(CancellationToken.None);
         }
+#endif
     }
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         using ClientWebSocket webSocket = new();
-        webSocket.Options.Proxy = null;
+        if (!OperatingSystem.IsBrowser())
+        {
+            webSocket.Options.Proxy = null;
+        }
         Uri uri = ToUri(remoteAddr);
 
         _logger?.LogDebug("Dialling WebSocket {Uri}", uri);
@@ -140,6 +165,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         }
     }
 
+#if !BROWSER
     private async Task<X509Certificate2> GetCertificateAsync(CancellationToken token)
     {
         if (certificateProvider is null)
@@ -149,6 +175,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
         return certificateProvider.Current ?? await certificateProvider.WaitForCertificateAsync(token);
     }
+#endif
 
     private static async Task ExchangeAsync(SocketWebSocket webSocket, IChannel upChannel, ILogger? logger, CancellationToken token)
     {
@@ -223,6 +250,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         }
     }
 
+#if !BROWSER
     private static Multiaddress ToWebSocketMultiAddress(IPAddress address, PeerId peerId) =>
         Multiaddress.Decode($"/{(address.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{address}/tcp/0/ws/p2p/{peerId}");
 
@@ -260,6 +288,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
         return listenAddr.ReplaceOrAdd<TCP>(new Uri(boundAddress).Port);
     }
+#endif
 
     private static Uri ToUri(Multiaddress address)
     {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 
@@ -97,6 +98,38 @@ public class MultistreamProtocolTests
         Assert.That(extraWrite.Data.Length, Is.Zero);
         _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
         await downChannel.CloseAsync();
+    }
+
+    [Test]
+    public async Task Test_SpecificRequest_UnsupportedProtocol_CompletesRequestWithException()
+    {
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+
+        IProtocol? proto1 = Substitute.For<IProtocol>();
+        proto1.Id.Returns("proto1");
+        TaskCompletionSource<object?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions
+        {
+            SelectedProtocol = proto1,
+            StopAfterProtocolSelection = true,
+            CompletionSource = completion
+        });
+
+        MultistreamProtocol proto = new();
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
+
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto.Id));
+        Assert.That(await downChannel.ReadLineAsync(), Is.EqualTo(proto1.Id));
+
+        await downChannel.WriteLineAsync(proto.Id);
+        await downChannel.WriteLineAsync("na");
+        await dialTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Libp2pException? exception = Assert.ThrowsAsync<Libp2pException>(async () => await completion.Task);
+        Assert.That(exception?.Message, Does.Contain("proto1"));
+        _ = peerContext.DidNotReceiveWithAnyArgs().Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>());
     }
 
     [Test]

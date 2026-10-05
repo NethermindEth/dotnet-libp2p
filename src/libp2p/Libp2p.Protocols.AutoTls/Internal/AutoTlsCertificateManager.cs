@@ -17,6 +17,8 @@ namespace Nethermind.Libp2p.Protocols.AutoTls.Internal;
 /// </summary>
 public sealed class AutoTlsCertificateManager : IHostedService, ITlsCertificateProvider, IDisposable
 {
+    private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromDays(14);
+
     private readonly AutoTlsOptions _options;
     private readonly FileCertificateStore _store;
     private readonly AcmeFlow _acme;
@@ -115,7 +117,7 @@ public sealed class AutoTlsCertificateManager : IHostedService, ITlsCertificateP
                     PublishCertificate(cached);
                     TimeSpan untilRenew = cached.NotAfter - DateTime.UtcNow - _options.RenewBefore;
                     _logger?.LogInformation("Loaded cached AutoTLS certificate; next renewal in {Delay}", untilRenew);
-                    await Task.Delay(untilRenew, ct);
+                    await DelayAsync(untilRenew, ct);
                     continue;
                 }
 
@@ -128,7 +130,7 @@ public sealed class AutoTlsCertificateManager : IHostedService, ITlsCertificateP
                 {
                     delay = TimeSpan.FromMinutes(1);
                 }
-                await Task.Delay(delay, ct);
+                await DelayAsync(delay, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -141,6 +143,16 @@ public sealed class AutoTlsCertificateManager : IHostedService, ITlsCertificateP
                 catch (OperationCanceledException) { return; }
                 retry = TimeSpan.FromTicks(Math.Min(retry.Ticks * 2, _options.MaxRetryDelay.Ticks));
             }
+        }
+    }
+
+    private static async Task DelayAsync(TimeSpan delay, CancellationToken ct)
+    {
+        while (delay > TimeSpan.Zero)
+        {
+            TimeSpan chunk = delay > MaxTimerDelay ? MaxTimerDelay : delay;
+            await Task.Delay(chunk, ct);
+            delay -= chunk;
         }
     }
 

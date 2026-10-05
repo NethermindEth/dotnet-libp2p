@@ -11,7 +11,23 @@ namespace Nethermind.Libp2p.Core;
 public static class MultiaddressExtensions
 {
     public static PeerId? GetPeerId(this Multiaddress? addr)
-        => addr is not null && addr.Has<P2P>() ? new PeerId(addr.Get<P2P>().ToString()) : default;
+    {
+        if (addr is null)
+        {
+            return default;
+        }
+
+        string[] segments = addr.ToString().Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = segments.Length - 2; i >= 0; i--)
+        {
+            if (segments[i].Equals("p2p", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PeerId(segments[i + 1]);
+            }
+        }
+
+        return default;
+    }
 
     public static Multiaddress GetEndpointPart(this Multiaddress multiaddress)
         => multiaddress.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto);

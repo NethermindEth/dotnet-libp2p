@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.WebSockets\Libp2p.Protocols.WebSockets.csproj" />
   </ItemGroup>

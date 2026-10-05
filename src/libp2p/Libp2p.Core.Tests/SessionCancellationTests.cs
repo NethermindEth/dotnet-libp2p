@@ -137,7 +137,7 @@ class Transport(Channel p2p) : ITransportProtocol
         conCtx.State.RemoteAddress = remoteAddr;
         var ses = conCtx.UpgradeToSession();
 
-        foreach (var req in ses.DialRequests)
+        await foreach (var req in ses.DialRequests)
         {
             IChannel upChan = conCtx.Upgrade(req);
 
