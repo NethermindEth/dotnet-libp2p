@@ -15,7 +15,8 @@ public static class RequestResponseExtensions
         string protocolId,
         Func<TRequest, ISessionContext, Task<TResponse>> handler,
         bool isExposed = true,
-        Func<TRequest, bool>? expectsResponse = null)
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue)
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
     {
@@ -23,7 +24,8 @@ public static class RequestResponseExtensions
             protocolId,
             handler,
             builder.ServiceProvider.GetService<ILoggerFactory>(),
-            expectsResponse);
+            expectsResponse,
+            maxMessageSize);
 
         return builder.AddProtocol(protocol, isExposed);
     }
