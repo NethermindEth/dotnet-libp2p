@@ -39,7 +39,7 @@ public class GraylistTests
     }
 
     [Test]
-    public void Unsubscriptions_AreIgnoredFromGraylistedPeers()
+    public void Subscriptions_CannotBeRemovedByGraylistedPeers()
     {
         using PubsubRouter router = CreateRouter();
         IRoutingStateContainer state = router;
