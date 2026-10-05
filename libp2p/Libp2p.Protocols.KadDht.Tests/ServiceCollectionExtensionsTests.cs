@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -248,6 +249,25 @@ public class ServiceCollectionExtensionsTests
         var registeredProtocolIds = builder.Protocols.Select(p => p.Id).ToArray();
         Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
         Assert.That(registeredProtocolIds[0], Is.EqualTo("/test/kad/1.0.0"));
+    }
+
+    [Test]
+    public async Task WithKadDht_UsesConfiguredMaxMessageSize()
+    {
+        _services.AddKadDht(options => options.MaxMessageSize = 1);
+        using var serviceProvider = _services.BuildServiceProvider();
+        var builder = new TestPeerFactoryBuilder(serviceProvider);
+        builder.WithKadDht();
+        var protocol = builder.Protocols.OfType<RequestResponseProtocol<Message, Message>>().Single();
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State());
+        Task listen = protocol.ListenAsync(channel.Reverse, context);
+        Task write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 })).AsTask();
+
+        Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await listen.WaitAsync(TimeSpan.FromSeconds(2)));
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [Test]

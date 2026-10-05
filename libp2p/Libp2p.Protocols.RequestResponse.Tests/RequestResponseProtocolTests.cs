@@ -67,6 +67,8 @@ public class TestResponse : IMessage<TestResponse>
 
 public class RequestResponseProtocolTests
 {
+    private const int MaxMessageSize = 1_024;
+
     [Test]
     public async Task DialAndListen_ReturnResponseByDefault()
     {
@@ -243,6 +245,59 @@ public class RequestResponseProtocolTests
     }
 
     [Test]
+    public async Task ListenAsync_RejectsOversizedRequestBeforeReadingBody()
+    {
+        await AssertListenRejectsFrameAsync(
+            EncodeVarint(MaxMessageSize + 1),
+            typeof(InvalidDataException));
+    }
+
+    [Test]
+    public async Task ListenAsync_RejectsOverflowingRequestLengthBeforeReadingBody()
+    {
+        await AssertListenRejectsFrameAsync(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02],
+            typeof(FormatException));
+    }
+
+    [Test]
+    public async Task DialAsync_RejectsOversizedResponseBeforeReadingBody()
+    {
+        await AssertDialRejectsFrameAsync(
+            EncodeVarint(MaxMessageSize + 1),
+            typeof(InvalidDataException));
+    }
+
+    [Test]
+    public async Task DialAsync_RejectsOverflowingResponseLengthBeforeReadingBody()
+    {
+        await AssertDialRejectsFrameAsync(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02],
+            typeof(FormatException));
+    }
+
+    [Test]
+    public void Constructor_RejectsNegativeMaxMessageSize()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RequestResponseProtocol<StringValue, StringValue>(
+                "/test/1.0.0",
+                (_, _) => Task.FromResult(new StringValue()),
+                maxMessageSize: -1));
+    }
+
+    [Test]
+    public void Constructor_AcceptsPositionalDefaultLogger()
+    {
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0",
+            (request, _) => Task.FromResult(request),
+            default);
+
+        Assert.That(protocol.Id, Is.EqualTo("/test/1.0.0"));
+    }
+
+    [Test]
     public async Task SetsPropertiesCorrectly()
     {
         const string protocolId = "test-protocol";
@@ -290,12 +345,81 @@ public class RequestResponseProtocolTests
         public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 
+    private static async Task AssertListenRejectsFrameAsync(byte[] frame, System.Type expectedExceptionType)
+    {
+        bool handlerCalled = false;
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0",
+            (request, _) =>
+            {
+                handlerCalled = true;
+                return Task.FromResult(request);
+            },
+            maxMessageSize: MaxMessageSize);
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        Task listen = protocol.ListenAsync(channel.Reverse, context);
+        Task write = channel.WriteAsync(new System.Buffers.ReadOnlySequence<byte>(frame)).AsTask();
+
+        Assert.ThrowsAsync(expectedExceptionType, async () =>
+            await listen.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.That(handlerCalled, Is.False);
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    private static async Task AssertDialRejectsFrameAsync(byte[] frame, System.Type expectedExceptionType)
+    {
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(
+            "/test/1.0.0",
+            (request, _) => Task.FromResult(request),
+            maxMessageSize: MaxMessageSize);
+        var channel = new Channel();
+        var context = Substitute.For<ISessionContext>();
+        Task<StringValue> dial = protocol.DialAsync(channel, context, new StringValue { Value = "request" });
+        Task response = WriteResponseFrameAsync(channel.Reverse, frame);
+
+        Assert.ThrowsAsync(expectedExceptionType, async () =>
+            await dial.WaitAsync(TimeSpan.FromSeconds(2)));
+        await response.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    private static async Task WriteResponseFrameAsync(IChannel channel, byte[] frame)
+    {
+        await channel.ReadPrefixedProtobufAsync(StringValue.Parser);
+        await channel.WriteAsync(new System.Buffers.ReadOnlySequence<byte>(frame)).OrThrow();
+    }
+
+    private static byte[] EncodeVarint(ulong value)
+    {
+        byte[] bytes = new byte[VarInt.GetSizeInBytes(value)];
+        int offset = 0;
+        VarInt.Encode(value, bytes, ref offset);
+        return bytes;
+    }
+
     // ToDo : Add more tests.
 }
 
 [TestFixture]
 public class RequestResponseExtensionsTests
 {
+    [Test]
+    public void AddRequestResponseProtocol_AcceptsPositionalDefaultExposure()
+    {
+        const string protocolId = "test-extension-protocol";
+        var mockBuilder = Substitute.For<IPeerFactoryBuilder>();
+        mockBuilder.AddProtocol(Arg.Any<IProtocol>(), Arg.Any<bool>()).Returns(mockBuilder);
+
+        mockBuilder.AddRequestResponseProtocol<TestRequest, TestResponse>(
+            protocolId,
+            (_, _) => Task.FromResult(new TestResponse()),
+            default);
+
+        mockBuilder.Received(1).AddProtocol(
+            Arg.Is<RequestResponseProtocol<TestRequest, TestResponse>>(p => p.Id == protocolId),
+            false);
+    }
+
     [Test]
     public void AddRequestResponseProtocol_RegistersProtocolCorrectly()
     {

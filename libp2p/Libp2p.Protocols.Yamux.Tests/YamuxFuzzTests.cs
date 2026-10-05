@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Yamux;
@@ -61,7 +62,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_UnknownType_ClosesSessionWithProtocolError(
         [Values(4, 5, 100, 255)] byte badType)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         FuzzFrame frame = new()
         {
@@ -84,7 +85,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_NonZeroVersion_ClosesSessionWithProtocolError(
         [Values(1, 2, 255)] byte badVersion)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync([new FuzzFrame
         {
@@ -108,7 +109,7 @@ public class YamuxFuzzTests
     [TestCase((byte)YamuxHeaderType.WindowUpdate, int.MaxValue)]
     public async Task Fuzz_BadLengthPerType_ClosesSessionWithProtocolError(byte type, int length)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         // Open a stream first so the malformed frame targets a known stream.
         List<FuzzFrame> frames =
@@ -136,7 +137,7 @@ public class YamuxFuzzTests
     {
         // A big delta that does not overflow the int counter only grants send credit;
         // it must not kill the session (only int overflow is a protocol error).
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -162,7 +163,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_PingWithoutSyn_OnStreamZero_IsIgnored()
     {
         // Ping on stream 0 is legal with any flags; without SYN there is nothing to answer.
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -189,7 +190,7 @@ public class YamuxFuzzTests
     {
         // Any GoAway on stream 0 (even with an unknown code) is a legal session
         // termination; the session answers with GoAway/Ok and closes the streams.
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -214,7 +215,7 @@ public class YamuxFuzzTests
     [TestCase((byte)YamuxHeaderType.WindowUpdate, 0)]
     public async Task Fuzz_StreamZeroWithNonPingOrGoAway_ClosesSessionWithProtocolError(byte type, int streamId)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync([new FuzzFrame
         {
@@ -235,7 +236,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_WrongSynParity_ClosesSessionWithProtocolError(
         [Values(true, false)] bool isListener)
     {
-        using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
+        await using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         // Dialer side expects even stream ids for SYN, listener side expects odd ones.
         int badId = isListener ? 2 : 1;
@@ -250,7 +251,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_UnknownFlagBits_AreIgnored(
         [Values((short)0x10, (short)0x20, (short)0x100, (short)-0x8000)] short unknownFlags)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -274,7 +275,7 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_DuplicateSyn_OnExistingStream_IsTolerated()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -292,7 +293,7 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_FramesOnUnknownOrClosedStreams_AreIgnored()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         byte[] data = [1, 2, 3, 4];
         await session.FeedFramesAsync(
@@ -314,7 +315,7 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_DataAboveReceiveWindow_ClosesSessionWithProtocolError()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -339,7 +340,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_WindowUpdateOverflow_ClosesSessionWithProtocolError(
         [Values(int.MaxValue, int.MaxValue - 10)] int delta)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -365,7 +366,7 @@ public class YamuxFuzzTests
         [Values(4, 8)] short terminalFlag) // Fin = 4, Rst = 8
     {
         YamuxHeaderFlags terminal = (YamuxHeaderFlags)terminalFlag;
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -400,7 +401,7 @@ public class YamuxFuzzTests
     public async Task Fuzz_PingOpaqueLengths_AreTolerated(
         [Values(0, 1, 999, int.MaxValue, -1, int.MinValue)] int opaque)
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -424,7 +425,7 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_GoAwayMidStream_ClosesStreamsAndEndsSession()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
         [
@@ -459,82 +460,129 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_CrossingSyn_SimultaneousOpen()
     {
-        // Both ends open a stream at the same time over one transport pair.
+        // The listener needs an inbound stream to create its session. After that
+        // bootstrap stream, hold both newly initiated SYNs until each is ready.
         IProtocol protocol = Substitute.For<IProtocol>();
         protocol.Id.Returns("/test/1.0.0");
 
-        (IConnectionContext dialerCtx, INewSessionContext dialerSession, List<TestChannel> dialerUps) =
-            FuzzSession.MockDialer("dialer", [new UpgradeOptions { SelectedProtocol = protocol }]);
-        (IConnectionContext listenerCtx, INewSessionContext listenerSession, List<TestChannel> listenerUps) =
+        (IConnectionContext dialerCtx, INewSessionContext dialerSession, _) =
+            FuzzSession.MockDialer("dialer",
+            [
+                new UpgradeOptions { SelectedProtocol = protocol, Argument = "bootstrap" },
+                new UpgradeOptions { SelectedProtocol = protocol, Argument = "crossing" }
+            ]);
+        (IConnectionContext listenerCtx, INewSessionContext listenerSession, _) =
             FuzzSession.MockListener();
 
         dialerSession.SubProtocols.Returns([protocol]);
         listenerSession.SubProtocols.Returns([protocol]);
+        listenerSession.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+
+        TaskCompletionSource<TestChannel> dialerBootstrap = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<TestChannel> dialerLocal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<TestChannel> dialerRemote = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<TestChannel> listenerLocal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<TestChannel> listenerBootstrap = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<TestChannel> listenerRemote = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        dialerSession.Upgrade(Arg.Any<UpgradeOptions>()).Returns(call =>
+        {
+            UpgradeOptions options = call.Arg<UpgradeOptions>();
+            TestChannel up = new();
+            if (options.ModeOverride == UpgradeModeOverride.Listen)
+                dialerRemote.TrySetResult(up);
+            else if (options.ModeOverride == UpgradeModeOverride.Dial && Equals(options.Argument, "bootstrap"))
+                dialerBootstrap.TrySetResult(up);
+            else if (options.ModeOverride == UpgradeModeOverride.Dial && Equals(options.Argument, "crossing"))
+                dialerLocal.TrySetResult(up);
+            else
+                throw new InvalidOperationException("Unexpected dialer stream upgrade.");
+            return up;
+        });
+        int listenerRemoteCount = 0;
+        listenerSession.Upgrade(Arg.Any<UpgradeOptions>()).Returns(call =>
+        {
+            UpgradeOptions options = call.Arg<UpgradeOptions>();
+            TestChannel up = new();
+            if (options.ModeOverride == UpgradeModeOverride.Dial)
+                listenerLocal.TrySetResult(up);
+            else if (options.ModeOverride == UpgradeModeOverride.Listen)
+            {
+                // The second dialer SYN remains gated until the first was accepted.
+                int remoteCount = Interlocked.Increment(ref listenerRemoteCount);
+                if (remoteCount == 1)
+                    listenerBootstrap.TrySetResult(up);
+                else if (remoteCount == 2)
+                    listenerRemote.TrySetResult(up);
+                else
+                    throw new InvalidOperationException("Unexpected listener stream upgrade.");
+            }
+            else
+                throw new InvalidOperationException("Unexpected listener stream upgrade direction.");
+            return up;
+        });
 
         TestChannel transport = new();
+        TaskCompletionSource releaseOpeningFrames = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        SynGateChannel dialerTransport = new(transport, streamId: 3, releaseOpeningFrames.Task);
+        SynGateChannel listenerTransport = new(transport.Reverse(), streamId: 2, releaseOpeningFrames.Task);
         YamuxProtocol yamux = new();
-        Task listen = yamux.ListenAsync(transport.Reverse(), listenerCtx);
-        Task dial = yamux.DialAsync(transport, dialerCtx);
+        Task listen = yamux.ListenAsync(listenerTransport, listenerCtx);
+        Task dial = yamux.DialAsync(dialerTransport, dialerCtx);
 
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
         try
         {
-            // The dial-request pump creates the upchannel asynchronously.
-            TestChannel? dialerUp = null;
-            using CancellationTokenSource dialerSpin = new(TimeSpan.FromSeconds(5));
-            while (!dialerSpin.IsCancellationRequested)
-            {
-                lock (dialerUps)
-                {
-                    if (dialerUps.Count > 0)
-                    {
-                        dialerUp = dialerUps[0];
-                        break;
-                    }
-                }
-                await Task.Delay(5, timeout.Token);
-            }
-            Assert.That(dialerUp, Is.Not.Null, "Dialer must open its requested stream.");
-            // Listener side creates its upchannel once the dialer's SYN arrives.
-            TestChannel? listenerUp = null;
-            using CancellationTokenSource spin = new(TimeSpan.FromSeconds(5));
-            while (!spin.IsCancellationRequested)
-            {
-                lock (listenerUps)
-                {
-                    if (listenerUps.Count > 0)
-                    {
-                        listenerUp = listenerUps[0];
-                        break;
-                    }
-                }
-                await Task.Delay(5, timeout.Token);
-            }
-            Assert.That(listenerUp, Is.Not.Null, "Listener must accept the dialer's stream.");
+            TestChannel dialerBootstrapUp = await dialerBootstrap.Task.WaitAsync(timeout.Token);
+            TestChannel listenerBootstrapUp = await listenerBootstrap.Task.WaitAsync(timeout.Token);
+            YamuxHeader[] openingHeaders = await Task.WhenAll(dialerTransport.SynSeen.Task,
+                listenerTransport.SynSeen.Task).WaitAsync(timeout.Token);
+            Assert.That(openingHeaders[0].StreamID, Is.EqualTo(3));
+            Assert.That(openingHeaders[1].StreamID, Is.EqualTo(2));
+            releaseOpeningFrames.TrySetResult();
 
-            // Exchange data in both directions at once.
-            byte[] toListener = [10, 20, 30];
-            byte[] toDialer = [40, 50];
-            Assert.That(await dialerUp!.Reverse().WriteAsync(new ReadOnlySequence<byte>(toListener), timeout.Token),
-                Is.EqualTo(IOResult.Ok));
-            Assert.That(await listenerUp!.Reverse().WriteAsync(new ReadOnlySequence<byte>(toDialer), timeout.Token),
-                Is.EqualTo(IOResult.Ok));
-            Assert.That((await listenerUp.Reverse().ReadAsync(toListener.Length, token: timeout.Token).OrThrow()).ToArray(),
-                Is.EqualTo(toListener));
-            Assert.That((await dialerUp.Reverse().ReadAsync(toDialer.Length, token: timeout.Token).OrThrow()).ToArray(),
-                Is.EqualTo(toDialer));
+            TestChannel dialerLocalUp = await dialerLocal.Task.WaitAsync(timeout.Token);
+            TestChannel dialerRemoteUp = await dialerRemote.Task.WaitAsync(timeout.Token);
+            TestChannel listenerLocalUp = await listenerLocal.Task.WaitAsync(timeout.Token);
+            TestChannel listenerRemoteUp = await listenerRemote.Task.WaitAsync(timeout.Token);
+
+            await Task.WhenAll(
+                TransferAsync(dialerBootstrapUp, listenerBootstrapUp, [10, 20, 30]),
+                TransferAsync(listenerBootstrapUp, dialerBootstrapUp, [40, 50]),
+                TransferAsync(dialerLocalUp, listenerRemoteUp, [60, 70, 80, 90]),
+                TransferAsync(listenerRemoteUp, dialerLocalUp, [100]),
+                TransferAsync(listenerLocalUp, dialerRemoteUp, [110, 120]),
+                TransferAsync(dialerRemoteUp, listenerLocalUp, [130, 140, 150])).WaitAsync(timeout.Token);
         }
         finally
         {
+            releaseOpeningFrames.TrySetResult();
             await transport.CloseAsync();
             await Task.WhenAll(listen, dial).WaitAsync(TimeSpan.FromSeconds(10));
         }
+
+        async Task TransferAsync(TestChannel sender, TestChannel receiver, byte[] payload)
+        {
+            Assert.That(await sender.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token),
+                Is.EqualTo(IOResult.Ok));
+            Assert.That((await receiver.Reverse().ReadAsync(payload.Length, token: timeout.Token).OrThrow()).ToArray(),
+                Is.EqualTo(payload));
+        }
+    }
+
+    [Test]
+    public async Task FuzzSession_DisposeClosesAndJoinsWithoutExplicitShutdown()
+    {
+        FuzzSession session = FuzzSession.CreateDialer();
+        session.StartDraining();
+
+        await session.DisposeAsync();
+        await session.WaitForCompletionAsync();
     }
 
     [Test]
     public async Task Fuzz_InterleavedPartialFrames_MultiStream()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         Random rng = new(301);
         List<FuzzFrame> frames = [];
@@ -570,7 +618,7 @@ public class YamuxFuzzTests
     [Test]
     public async Task Fuzz_TruncatedDataFrame_TerminatesWithoutFaultOrHang()
     {
-        using FuzzSession session = FuzzSession.CreateDialer();
+        await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync([FuzzFrame.Syn(streamId: 2)], seed: 401);
         // Header promises 100 payload bytes; deliver 10, then half-close the writer.
@@ -644,19 +692,49 @@ public class YamuxFuzzTests
 
     private static async Task RunMixedFrameFuzz(int seed, bool isListener)
     {
-        using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
+        await using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         List<FuzzFrame> frames = FrameGenerator.MixedFrames(new Random(seed), isListener, count: 48);
-        await session.FeedFramesAsync(frames, seed);
+        // Establish a known stream before the generated frames so every seed
+        // exercises stream handling and has an observable response to verify.
+        await session.FeedFramesAsync([frames[0]], seed);
+        FuzzObservation? openingAck = null;
+        for (int i = 0; i < 100 && openingAck is null; i++)
+        {
+            lock (outbound)
+                openingAck = outbound.FirstOrDefault(o => o.Header.StreamID == frames[0].StreamId &&
+                    (o.Header.Flags & YamuxHeaderFlags.Ack) != 0);
+            if (openingAck is null)
+                await Task.Delay(50, session.Timeout.Token);
+        }
+        Assert.That(openingAck, Is.Not.Null, $"seed {seed}: opening SYN was not acknowledged");
+        Assert.That(openingAck!.Header.Type, Is.EqualTo(YamuxHeaderType.WindowUpdate));
+        await session.FeedFramesAsync(frames.Skip(1).ToArray(), seed);
         // Let the session settle, then check the universal invariants.
         await Task.Delay(250, session.Timeout.Token);
         session.AssertUniversalInvariants(outbound, frames.Count);
+        HashSet<int> streamIds = frames.Select(f => f.StreamId).Where(id => id != 0).ToHashSet();
+        HashSet<int> pingOpaque = frames.Where(f => f.Type == (byte)YamuxHeaderType.Ping &&
+            (f.Flags & (short)YamuxHeaderFlags.Syn) != 0 && f.StreamId == 0).Select(f => f.Length).ToHashSet();
+        lock (outbound)
+        {
+            foreach (FuzzObservation response in outbound)
+            {
+                if (response.Header.Type == YamuxHeaderType.Ping &&
+                    (response.Header.Flags & YamuxHeaderFlags.Ack) != 0)
+                    Assert.That(pingOpaque, Does.Contain(response.Header.Length), "Ping ACK must echo an input ping.");
+                if (response.Header.Type == YamuxHeaderType.WindowUpdate &&
+                    (response.Header.Flags & (YamuxHeaderFlags.Ack | YamuxHeaderFlags.Rst)) != 0)
+                    Assert.That(streamIds, Does.Contain(response.Header.StreamID),
+                        "Stream ACK or reset must refer to an input stream.");
+            }
+        }
         await session.ShutdownAsync();
     }
 
     private static async Task RunRawByteFuzz(int seed, bool isListener)
     {
-        using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
+        await using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         Random rng = new(seed);
         int total = rng.Next(64, 2048);
@@ -671,6 +749,9 @@ public class YamuxFuzzTests
         await session.FeedBytesAsync(blob, seed);
         await Task.Delay(250, session.Timeout.Token);
         session.AssertUniversalInvariants(outbound, maxNewStreams: total / 12 + 1);
+        FuzzObservation? goAway = await session.WaitForGoAwayAsync(outbound, session.Timeout.Token);
+        Assert.That(goAway, Is.Not.Null, $"seed {seed}: malformed raw bytes must terminate the session");
+        Assert.That(goAway!.Header.Length, Is.EqualTo((int)SessionTerminationCode.ProtocolError));
         await session.ShutdownAsync();
     }
 
@@ -737,15 +818,16 @@ public class YamuxFuzzTests
 
         public static List<FuzzFrame> MixedFrames(Random rng, bool isListener, int count)
         {
-            List<FuzzFrame> frames = [];
-            List<int> openStreams = [];
-            int nextStreamId = isListener ? 1 : 2;
+            int firstStreamId = isListener ? 1 : 2;
+            List<FuzzFrame> frames = [FuzzFrame.Syn(firstStreamId)];
+            List<int> openStreams = [firstStreamId];
+            int nextStreamId = firstStreamId + 2;
             int[] specialIds = [0, -1, -2, int.MinValue, int.MaxValue, int.MaxValue - 1];
 
-            for (int i = 0; i < count; i++)
+            for (int i = 1; i < count; i++)
             {
                 int pick = rng.Next(100);
-                if ((pick < 25 && openStreams.Count < 6) || openStreams.Count == 0)
+                if (pick < 25 && openStreams.Count < 6)
                 {
                     // Open a new stream (usually with valid parity, sometimes not).
                     int id = nextStreamId;
@@ -863,7 +945,7 @@ public class YamuxFuzzTests
     }
 
     /// <summary>A single live yamux session under test with helpers to feed and observe it.</summary>
-    internal sealed class FuzzSession : IDisposable
+    internal sealed class FuzzSession : IAsyncDisposable
     {
         private readonly TestChannel _transport;
         private readonly Task _protocolTask;
@@ -1123,11 +1205,56 @@ public class YamuxFuzzTests
                 $"Unhandled exception escaped the protocol: {_protocolTask.Exception?.GetBaseException().Message}");
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            _drainCts.Cancel();
-            Timeout.Dispose();
-            _drainCts.Dispose();
+            try
+            {
+                await _transport.CloseAsync();
+                await _protocolTask.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            finally
+            {
+                try
+                {
+                    _drainCts.Cancel();
+                    if (_drainTask is not null)
+                        await _drainTask.WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                finally
+                {
+                    Timeout.Dispose();
+                    _drainCts.Dispose();
+                }
+            }
         }
+    }
+
+    private sealed class SynGateChannel(IChannel inner, int streamId, Task release) : IChannel
+    {
+        public TaskCompletionSource<YamuxHeader> SynSeen { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default) => inner.ReadAsync(length, blockingMode, token);
+
+        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            if (bytes.Length >= 12)
+            {
+                YamuxHeader header = YamuxHeader.FromBytes(bytes.Slice(0, 12).ToArray());
+                if (header.Type == YamuxHeaderType.WindowUpdate &&
+                    (header.Flags & YamuxHeaderFlags.Syn) != 0 && header.StreamID == streamId)
+                {
+                    SynSeen.TrySetResult(header);
+                    await release.WaitAsync(token);
+                }
+            }
+            return await inner.WriteAsync(bytes, token);
+        }
+
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => inner.WriteEofAsync(token);
+        public ValueTask CloseAsync() => inner.CloseAsync();
+        public ValueTask AbortAsync() => inner.AbortAsync();
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 }

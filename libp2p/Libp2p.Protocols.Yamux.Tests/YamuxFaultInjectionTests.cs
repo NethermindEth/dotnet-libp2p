@@ -654,6 +654,7 @@ public class YamuxFaultInjectionTests
         private int _cancelled;
 
         public TaskCompletionSource WriteBlocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource WriteCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int CancelledWriteCount => Volatile.Read(ref _cancelled);
 
         public IChannel Reverse() => Inner.Reverse();
@@ -673,6 +674,7 @@ public class YamuxFaultInjectionTests
             catch (OperationCanceledException)
             {
                 Interlocked.Increment(ref _cancelled);
+                WriteCancelled.TrySetResult();
                 return IOResult.Cancelled;
             }
         }
