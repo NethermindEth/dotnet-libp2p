@@ -632,10 +632,40 @@ public class YamuxFuzzTests
         using FuzzSession session = isListener ? FuzzSession.CreateListener() : FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         List<FuzzFrame> frames = FrameGenerator.MixedFrames(new Random(seed), isListener, count: 48);
-        await session.FeedFramesAsync(frames, seed);
+        // Establish a known stream before the generated frames so every seed
+        // exercises stream handling and has an observable response to verify.
+        await session.FeedFramesAsync([frames[0]], seed);
+        FuzzObservation? openingAck = null;
+        for (int i = 0; i < 100 && openingAck is null; i++)
+        {
+            lock (outbound)
+                openingAck = outbound.FirstOrDefault(o => o.Header.StreamID == frames[0].StreamId &&
+                    (o.Header.Flags & YamuxHeaderFlags.Ack) != 0);
+            if (openingAck is null)
+                await Task.Delay(50, session.Timeout.Token);
+        }
+        Assert.That(openingAck, Is.Not.Null, $"seed {seed}: opening SYN was not acknowledged");
+        Assert.That(openingAck!.Header.Type, Is.EqualTo(YamuxHeaderType.WindowUpdate));
+        await session.FeedFramesAsync(frames.Skip(1).ToArray(), seed);
         // Let the session settle, then check the universal invariants.
         await Task.Delay(250, session.Timeout.Token);
         session.AssertUniversalInvariants(outbound, frames.Count);
+        HashSet<int> streamIds = frames.Select(f => f.StreamId).Where(id => id != 0).ToHashSet();
+        HashSet<int> pingOpaque = frames.Where(f => f.Type == (byte)YamuxHeaderType.Ping &&
+            (f.Flags & (short)YamuxHeaderFlags.Syn) != 0 && f.StreamId == 0).Select(f => f.Length).ToHashSet();
+        lock (outbound)
+        {
+            foreach (FuzzObservation response in outbound)
+            {
+                if (response.Header.Type == YamuxHeaderType.Ping &&
+                    (response.Header.Flags & YamuxHeaderFlags.Ack) != 0)
+                    Assert.That(pingOpaque, Does.Contain(response.Header.Length), "Ping ACK must echo an input ping.");
+                if (response.Header.Type == YamuxHeaderType.WindowUpdate &&
+                    (response.Header.Flags & (YamuxHeaderFlags.Ack | YamuxHeaderFlags.Rst)) != 0)
+                    Assert.That(streamIds, Does.Contain(response.Header.StreamID),
+                        "Stream ACK or reset must refer to an input stream.");
+            }
+        }
         await session.ShutdownAsync();
     }
 
@@ -656,6 +686,9 @@ public class YamuxFuzzTests
         await session.FeedBytesAsync(blob, seed);
         await Task.Delay(250, session.Timeout.Token);
         session.AssertUniversalInvariants(outbound, maxNewStreams: total / 12 + 1);
+        FuzzObservation? goAway = await session.WaitForGoAwayAsync(outbound, session.Timeout.Token);
+        Assert.That(goAway, Is.Not.Null, $"seed {seed}: malformed raw bytes must terminate the session");
+        Assert.That(goAway!.Header.Length, Is.EqualTo((int)SessionTerminationCode.ProtocolError));
         await session.ShutdownAsync();
     }
 
@@ -722,15 +755,16 @@ public class YamuxFuzzTests
 
         public static List<FuzzFrame> MixedFrames(Random rng, bool isListener, int count)
         {
-            List<FuzzFrame> frames = [];
-            List<int> openStreams = [];
-            int nextStreamId = isListener ? 1 : 2;
+            int firstStreamId = isListener ? 1 : 2;
+            List<FuzzFrame> frames = [FuzzFrame.Syn(firstStreamId)];
+            List<int> openStreams = [firstStreamId];
+            int nextStreamId = firstStreamId + 2;
             int[] specialIds = [0, -1, -2, int.MinValue, int.MaxValue, int.MaxValue - 1];
 
-            for (int i = 0; i < count; i++)
+            for (int i = 1; i < count; i++)
             {
                 int pick = rng.Next(100);
-                if ((pick < 25 && openStreams.Count < 6) || openStreams.Count == 0)
+                if (pick < 25 && openStreams.Count < 6)
                 {
                     // Open a new stream (usually with valid parity, sometimes not).
                     int id = nextStreamId;

@@ -125,23 +125,32 @@ public class YamuxOrderingFuzzTests
     [Test]
     public async Task PumpBlockedInDataWrite_RstCancelsPump()
     {
-        // No reader: the pump blocks in its first write; an RST must cancel it
-        // (cancelled-write path) and the session must terminate on close.
+        // Observe the SYN before sending RST, then hold the DATA write at the
+        // transport so the reset must cancel an established stream's pump.
         (IConnectionContext ctx, List<TestChannel> ups) = DialerWithOneRequest();
-        TestChannel transport = new();
+        GatedTransport transport = new(blockedWriteIndex: 2);
         Task yamux = new YamuxProtocol().DialAsync(transport, ctx);
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
         try
         {
             IChannel remote = transport.Reverse();
-            await WriteHeaderAsync(remote, RstFor(1), timeout.Token);
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.That(syn.StreamID, Is.EqualTo(1));
+            Assert.That(syn.Flags, Is.EqualTo(YamuxHeaderFlags.Syn));
             TestChannel app = await WaitForUpsAsync(ups, 1, timeout.Token);
+            Assert.That(await app.Reverse().WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0xA5 }), timeout.Token),
+                Is.EqualTo(IOResult.Ok));
+            await transport.WriteBlocked.Task.WaitAsync(timeout.Token);
+            await WriteHeaderAsync(remote, RstFor(syn.StreamID), timeout.Token);
             Assert.That((await app.Reverse().ReadAsync(1, token: timeout.Token)).Result,
                 Is.EqualTo(IOResult.Aborted));
+            await transport.WriteCancelled.Task.WaitAsync(timeout.Token);
+            Assert.That(transport.CancelledWriteCount, Is.EqualTo(1));
         }
         finally
         {
-            await transport.CloseAsync();
+            transport.Release();
+            await transport.Inner.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.That(yamux.IsFaulted, Is.False);
         }

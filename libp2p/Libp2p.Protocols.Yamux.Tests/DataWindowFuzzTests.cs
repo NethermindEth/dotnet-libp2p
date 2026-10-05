@@ -157,18 +157,21 @@ public class DataWindowFuzzTests
             }
             else
             {
-                using CancellationTokenSource opTimeout = new(TimeSpan.FromSeconds(2));
-                try
+                int requested = rng.Next(1, 2000);
+                if (window.Available == 0)
                 {
-                    int requested = rng.Next(1, 2000);
-                    int spent = await window.SpendOrWait(requested, opTimeout.Token);
+                    using CancellationTokenSource cancellation = new();
+                    Task<int> pending = window.SpendOrWait(requested, cancellation.Token);
+                    Assert.That(pending.IsCompleted, Is.False, "No credit must leave the spend pending.");
+                    cancellation.Cancel();
+                    Assert.CatchAsync<OperationCanceledException>(async () => await pending);
+                    Assert.That(window.Available, Is.Zero);
+                }
+                else
+                {
+                    int spent = await window.SpendOrWait(requested);
                     Assert.That(spent, Is.InRange(1, requested));
                     Assert.That(window.Available, Is.GreaterThanOrEqualTo(0));
-                }
-                catch (OperationCanceledException)
-                {
-                    // No credit available within the budget: must cancel, never hang.
-                    Assert.That(window.Available, Is.EqualTo(0));
                 }
             }
         }
