@@ -44,6 +44,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
+                    // A repeated extensions message is penalized above, which may take the peer
+                    // below the threshold: nothing else in that RPC is processed either.
+                    if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
+                    {
+                        logger?.LogDebug("Ignoring the rest of the RPC from graylisted peer {peerId}", peerId);
+                        return;
+                    }
+
                     if (rpc.Publish.Count != 0)
                     {
                         HandleNewMessages(peerId, rpc.Publish, peerMessages, idontwantMessages, receivedMessages, deferredMessages);
