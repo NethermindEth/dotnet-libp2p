@@ -20,7 +20,16 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private const int HeaderLength = 12;
     private const int PingDelay = 30_000;
-    private static readonly TimeSpan ResetWriteTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Maximum number of concurrently tracked streams per session. Bounds the
+    /// state a peer can force us to allocate: the libp2p spec asks peers to
+    /// keep the unacknowledged backlog at 256, and rust-yamux caps streams at
+    /// 512 by default. Locally initiated streams bypass the cap; only inbound
+    /// SYNs are rejected with RST once the table is full.
+    /// </summary>
+    private const int MaxStreamCount = 512;
 
     private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
@@ -94,7 +103,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     Interlocked.Add(ref streamIdCounter, 2);
 
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Dialing with protocol {proto}", session.Id, streamId, request.SelectedProtocol?.Id);
-                    channels[streamId] = CreateUpchannel(session.Id, streamId, YamuxHeaderFlags.Syn, request);
+                    CreateUpchannel(session.Id, streamId, YamuxHeaderFlags.Syn, request);
                 }
             });
 
@@ -186,7 +195,34 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
                 {
-                    channels[header.StreamID] = CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
+                    if (channels.Count >= MaxStreamCount)
+                    {
+                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Rejected, stream table is full", session.Id, header.StreamID);
+                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
+                        try
+                        {
+                            await WriteHeaderAsync(session.Id, channel,
+                                new YamuxHeader
+                                {
+                                    Flags = YamuxHeaderFlags.Rst,
+                                    Type = YamuxHeaderType.WindowUpdate,
+                                    StreamID = header.StreamID
+                                }, token: resetTimeout.Token);
+                        }
+                        catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                        {
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reject write timed out", session.Id, header.StreamID);
+                        }
+                        if (header.Type == YamuxHeaderType.Data && header.Length > 0)
+                        {
+                            // A peer that omits rejected DATA bytes cannot hold the
+                            // session's serial frame reader indefinitely.
+                            using CancellationTokenSource payloadTimeout = new(ControlTimeout, _timeProvider);
+                            await channel.ReadAsync(header.Length, token: payloadTimeout.Token).OrThrow();
+                        }
+                        continue;
+                    }
+                    CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
                 }
 
                 if (!channels.TryGetValue(header.StreamID, out ChannelState? stream))
@@ -266,13 +302,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             }
 
-            _ = WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
+            await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
-            ChannelState CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
+            void CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
                 bool isListenerChannel = isListener ^ (streamId % 2 == 0);
 
-                _logger?.LogDebug("Stream {stream id}: Create up channel, {mode}", streamId, isListenerChannel ? "listen" : "dial");
                 IChannel upChannel;
 
                 if (isListenerChannel)
@@ -285,6 +320,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
 
                 ChannelState state = new(upChannel, _windowSettings);
+                // A peer may reply to SYN before the outbound pump finishes its first write.
+                channels[streamId] = state;
 
                 TaskCompletionSource channelClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 upChannel.GetAwaiter().OnCompleted(() => channelClosed.TrySetResult());
@@ -361,7 +398,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                     catch (Exception e)
                     {
-                        using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                         try
                         {
                             await WriteHeaderAsync(contextId, channel,
@@ -399,7 +436,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         (await upChannel.ReadAsync(0, ReadBlockingMode.DoNotWait)).Result != IOResult.Aborted)
                         return;
 
-                    using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                    using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                     await WriteHeaderAsync(contextId, channel,
                         new YamuxHeader
                         {
@@ -439,7 +476,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                     contextId, streamId, closedStreamIdleTimeout);
                                 state.AbortOutbound();
                                 await outboundPump;
-                                using CancellationTokenSource resetTimeout = new(ResetWriteTimeout, _timeProvider);
+                                using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
                                 try
                                 {
                                     await WriteHeaderAsync(contextId, channel,
@@ -472,7 +509,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                 }
 
-                return state;
+                _logger?.LogDebug("Stream {stream id}: Create up channel, {mode}", streamId, isListenerChannel ? "listen" : "dial");
             }
         }
         catch (ChannelClosedException)
@@ -545,11 +582,23 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer), token).OrThrow();
     }
 
-    private Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code) =>
-        WriteHeaderAsync(contextId, channel, new YamuxHeader
+    private async Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code)
+    {
+        // Best effort: the session is going down, so a dead transport must never
+        // fail the farewell write and fault the session task.
+        using CancellationTokenSource timeout = new(ControlTimeout, _timeProvider);
+        try
         {
-            Type = YamuxHeaderType.GoAway,
-            Length = (int)code,
-            StreamID = 0,
-        });
+            await WriteHeaderAsync(contextId, channel, new YamuxHeader
+            {
+                Type = YamuxHeaderType.GoAway,
+                Length = (int)code,
+                StreamID = 0,
+            }, token: timeout.Token);
+        }
+        catch (Exception e)
+        {
+            _logger?.LogDebug(e, "Ctx({ctx}): GoAway write did not complete", contextId);
+        }
+    }
 }

@@ -49,6 +49,67 @@ public class YamuxProtocolTests
     }
 
     [Test]
+    public async Task ImmediateReplyIsDeliveredWhileLocalStreamCreationIsPending()
+    {
+        IProtocol protocol = Substitute.For<IProtocol>();
+        protocol.Id.Returns("/test/1.0.0");
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([new UpgradeOptions { SelectedProtocol = protocol }]);
+        session.SubProtocols.Returns([protocol]);
+        TestChannel appChannel = new();
+        session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
+
+        BlockingCreationLogger logger = new();
+        ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol(loggerFactory: loggerFactory).DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        try
+        {
+            await logger.CreationReached.Task.WaitAsync(timeout.Token);
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+
+            byte[] frame = new byte[12];
+            YamuxHeader ack = new() { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Ack, StreamID = syn.StreamID };
+            YamuxHeader.ToBytes(frame, ref ack);
+            await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
+
+            byte[] reply = [1, 2, 3, 4, 5, 6, 7, 8];
+            frame = new byte[12 + reply.Length];
+            YamuxHeader data = new() { Type = YamuxHeaderType.Data, StreamID = syn.StreamID, Length = reply.Length };
+            YamuxHeader.ToBytes(frame, ref data);
+            reply.CopyTo(frame, 12);
+            await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
+
+            ReadOnlySequence<byte> received = await appChannel.Reverse().ReadAsync(reply.Length, token: timeout.Token).OrThrow();
+            Assert.That(received.ToArray(), Is.EqualTo(reply));
+
+            await appChannel.CloseAsync();
+            await remote.ReadAsync(12, token: timeout.Token).OrThrow();
+            await logger.Closed.Task.WaitAsync(timeout.Token);
+            logger.Release();
+
+            YamuxHeader lateUpdate = new() { Type = YamuxHeaderType.WindowUpdate, StreamID = syn.StreamID };
+            YamuxHeader.ToBytes(frame.AsSpan(0, 12), ref lateUpdate);
+            await remote.WriteAsync(new ReadOnlySequence<byte>(frame, 0, 12), timeout.Token).OrThrow();
+            await logger.Ignored.Task.WaitAsync(timeout.Token);
+        }
+        finally
+        {
+            logger.Release();
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
     public async Task AbortedOutboundChannelSendsResetInsteadOfFin()
     {
         IProtocol protocol = Substitute.For<IProtocol>();
@@ -348,6 +409,45 @@ public class YamuxProtocolTests
         }
         finally
         {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Test]
+    public async Task MalformedFrameCannotHoldSessionOpenByBlockingGoAway()
+    {
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
+        session.DialRequests.Returns([]);
+
+        ManualTimeProvider clock = new();
+        BlockingWriteChannel transport = new(1);
+        Task yamux = new YamuxProtocol(timeProvider: clock).DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(3));
+        try
+        {
+            byte[] frame = new byte[12];
+            YamuxHeader invalid = new() { Version = 1, Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn };
+            YamuxHeader.ToBytes(frame, ref invalid);
+            await transport.Reverse().WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
+            await transport.WriteBlocked.Task.WaitAsync(timeout.Token);
+
+            var timer = await clock.NextTimerAsync(timeout.Token);
+            Assert.That(timer.DueTime, Is.EqualTo(TimeSpan.FromSeconds(10)));
+            clock.Advance(TimeSpan.FromSeconds(10));
+            timer.Callback(timer.State);
+
+            await yamux.WaitAsync(timeout.Token);
+            Assert.That(transport.CancelledWriteCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            transport.Release();
             await transport.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -869,6 +969,33 @@ public class YamuxProtocolTests
             if (message.Contains("Stream 1: Ignored for closed stream", StringComparison.Ordinal))
                 Ignored.TrySetResult();
         }
+    }
+
+    private sealed class BlockingCreationLogger : ILogger
+    {
+        private readonly ManualResetEventSlim _release = new();
+        public TaskCompletionSource CreationReached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Closed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Ignored { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            string message = formatter(state, exception);
+            if (message.Contains("Stream 1: Create up channel", StringComparison.Ordinal))
+            {
+                CreationReached.TrySetResult();
+                _release.Wait(TimeSpan.FromSeconds(10));
+            }
+            if (message.EndsWith("stream 1: Closed", StringComparison.Ordinal))
+                Closed.TrySetResult();
+            if (message.Contains("Stream 1: Ignored for closed stream", StringComparison.Ordinal))
+                Ignored.TrySetResult();
+        }
+
+        public void Release() => _release.Set();
     }
 
     private sealed class ObservedInboundChannel : IChannel

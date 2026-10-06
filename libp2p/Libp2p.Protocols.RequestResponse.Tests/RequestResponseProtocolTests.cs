@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
@@ -127,6 +128,77 @@ public class RequestResponseProtocolTests
     }
 
     [Test]
+    public async Task OneWayListenerCompletesWhenSenderHasAlreadyClosed()
+    {
+        TaskCompletionSource handlerEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource finishHandler = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", async (_, _) =>
+            {
+                handlerEntered.TrySetResult();
+                await finishHandler.Task;
+                return new StringValue();
+            }, expectsResponse: _ => false);
+        Channel channel = new();
+        Task listener = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+        await handlerEntered.Task.WaitAsync(timeout.Token);
+        await channel.CloseAsync();
+        finishHandler.TrySetResult();
+
+        await listener.WaitAsync(timeout.Token);
+    }
+
+    [Test]
+    public async Task OneWayListenerPropagatesCoreChannelAbort()
+    {
+        TaskCompletionSource handlerEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource finishHandler = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", async (_, _) =>
+            {
+                handlerEntered.TrySetResult();
+                await finishHandler.Task;
+                return new StringValue();
+            }, expectsResponse: _ => false);
+        Channel channel = new();
+        Task listener = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+        await handlerEntered.Task.WaitAsync(timeout.Token);
+        await channel.AbortAsync();
+        finishHandler.TrySetResult();
+
+        ChannelClosedException? failure = Assert.ThrowsAsync<ChannelClosedException>(
+            async () => await listener.WaitAsync(timeout.Token));
+        Assert.That(failure!.Message, Does.Contain(nameof(IOResult.Aborted)));
+    }
+
+    [TestCase(IOResult.Aborted)]
+    [TestCase(IOResult.Cancelled)]
+    [TestCase(IOResult.InternalError)]
+    public async Task OneWayListenerPropagatesEofFailure(IOResult eofResult)
+    {
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", (_, _) => Task.FromResult(new StringValue()), expectsResponse: _ => false);
+        Channel channel = new();
+        EofResultChannel listenerChannel = new(channel.Reverse, eofResult);
+        Task listener = protocol.ListenAsync(listenerChannel, Substitute.For<ISessionContext>());
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "one-way" }.ToByteArray()).OrThrow();
+
+        ChannelClosedException? failure = Assert.ThrowsAsync<ChannelClosedException>(
+            async () => await listener.WaitAsync(timeout.Token));
+        Assert.That(failure!.Message, Does.Contain(eofResult.ToString()));
+        Assert.That(listenerChannel.CloseCalled, Is.False);
+        await channel.CloseAsync();
+    }
+
+    [Test]
     public async Task TruncatedRequestDoesNotReachHandler()
     {
         bool handled = false;
@@ -248,6 +320,29 @@ public class RequestResponseProtocolTests
 
         Assert.That(result.Echo, Is.EqualTo("hi"));
         Assert.That(result.ProcessedValue, Is.EqualTo(10));
+    }
+
+    private sealed class EofResultChannel(IChannel inner, IOResult eofResult) : IChannel
+    {
+        public bool CloseCalled { get; private set; }
+
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default) => inner.ReadAsync(length, blockingMode, token);
+
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+            => inner.WriteAsync(bytes, token);
+
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => ValueTask.FromResult(eofResult);
+
+        public ValueTask CloseAsync()
+        {
+            CloseCalled = true;
+            return inner.CloseAsync();
+        }
+
+        public ValueTask AbortAsync() => inner.AbortAsync();
+
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 
     private static async Task AssertListenRejectsFrameAsync(byte[] frame, System.Type expectedExceptionType)

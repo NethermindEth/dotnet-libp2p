@@ -57,6 +57,19 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task ProtocolCompletionAbortsAnUnfinishedOutboundWrite()
+    {
+        Channel channel = new();
+        Task<IOResult> unfinishedWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False);
+
+        await channel.CompleteProtocolAsync();
+
+        Assert.That(await unfinishedWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
     public async Task ExplicitAbortIsDistinctFromEndWithoutPendingIo()
     {
         Channel channel = new();
@@ -68,6 +81,27 @@ public class ChannelTests
 
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task WriteEofAfterAbortReportsAborted(bool pendingWrite)
+    {
+        Channel channel = new();
+        Task<IOResult>? write = null;
+        Task<IOResult>? eof = null;
+        if (pendingWrite)
+        {
+            write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+            eof = channel.WriteEofAsync().AsTask();
+        }
+
+        await channel.AbortAsync();
+
+        Assert.That(await (eof ?? channel.WriteEofAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(2)),
+            Is.EqualTo(IOResult.Aborted));
+        if (write is not null)
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
     }
 
     [Test]
