@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Collections.ObjectModel;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -109,6 +110,59 @@ public class GraylistTests
         Assert.That(sent, Is.Empty, "No IWANT may be sent in response to a graylisted peer's IHAVE.");
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Iwant_IsNotAnsweredForGraylistedPeers(bool graylisted)
+    {
+        // Keep the gossip threshold out of the way so that only the graylist gate can drop the IWANT.
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            GossipThreshold = -1_000,
+            GraylistThreshold = -100,
+        });
+        using CancellationTokenSource cancellation = new();
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(2));
+        localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        await router.StartAsync(localPeer, cancellation.Token);
+        _ = router.GetTopic(Topic);
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, TestPeers.Multiaddr(1), sent.Add, PubsubRouter.GossipsubProtocolVersionV12);
+        router.OnRpc(peerId, new Rpc().WithTopics([Topic], []));
+        router.Publish(Topic, [1, 2, 3]);
+        MessageId messageId = PubsubSettings.ConcatFromAndSeqno(sent.Last().Publish.Single());
+        if (graylisted)
+        {
+            router.SetAppSpecificScore(peerId, GraylistedAppScore);
+        }
+        sent.Clear();
+
+        Rpc iwant = new() { Control = new ControlMessage() };
+        iwant.Control.Iwant.Add(new ControlIWant { MessageIDs = { ByteString.CopyFrom(messageId.Bytes) } });
+        router.OnRpc(peerId, iwant);
+        cancellation.Cancel();
+
+        Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(graylisted ? 0 : 1));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ExtensionPenalty_AppliesToTheRestOfTheRpc(bool isFirstRpc)
+    {
+        // A single repeated-extensions penalty takes the peer below the default GraylistThreshold (-100).
+        using PubsubRouter router = CreateRouter(new PubsubSettings { BehaviorPenaltyWeight = -200 });
+        IRoutingStateContainer state = router;
+        PeerId peerId = Connect(router, TestPeers.Multiaddr(1), _ => { }, PubsubRouter.GossipsubProtocolVersionV13);
+
+        Rpc rpc = new Rpc().WithTopics([Topic], []);
+        rpc.Control = new ControlMessage { Extensions = new ControlExtensions() };
+        router.OnRpc(peerId, rpc, isFirstRpc: isFirstRpc);
+
+        bool subscribed = state.GossipsubPeers.TryGetValue(Topic, out HashSet<PeerId>? peers) && peers.Contains(peerId);
+        Assert.That(subscribed, Is.EqualTo(isFirstRpc));
+    }
+
     [Test]
     public void DirectPeers_AreExemptFromTheGraylist()
     {
@@ -126,9 +180,9 @@ public class GraylistTests
     private static PubsubRouter CreateRouter(PubsubSettings? settings = null)
         => new(new PeerStore(), settings ?? new PubsubSettings());
 
-    private static PeerId Connect(PubsubRouter router, Multiaddress address, Action<Rpc> send)
+    private static PeerId Connect(PubsubRouter router, Multiaddress address, Action<Rpc> send, string protocol = PubsubRouter.GossipsubProtocolVersionV11)
     {
-        router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, send);
+        router.OutboundConnection(address, protocol, new TaskCompletionSource().Task, send);
         return address.GetPeerId()!;
     }
 
