@@ -103,11 +103,10 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
             throw new Libp2pException("Plaintext exchange public key is malformed.", e);
         }
 
-        // Protobuf does not enforce proto2 required fields here, so an empty or unknown-type key parses fine.
-        if (!publicKey.HasType || !Enum.IsDefined(publicKey.Type) || publicKey.Data.IsEmpty)
-        {
-            throw new Libp2pException("Plaintext exchange public key is malformed.");
-        }
+        // Protobuf does not enforce proto2 required fields, and a key that is
+        // merely non-empty is still unusable: verification throws rather than
+        // returning false. Parse the material for the declared key type.
+        publicKey.EnsureUsable();
 
         return publicKey;
     }

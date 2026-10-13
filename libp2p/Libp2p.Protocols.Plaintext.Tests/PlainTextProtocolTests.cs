@@ -86,6 +86,34 @@ public class PlainTextProtocolTests
         AssertHandshakeRejected(new State(), exchange);
     }
 
+    [TestCase(1, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsOneByte")]
+    [TestCase(31, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsTruncated")]
+    [TestCase(33, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsOverlong")]
+    public void Test_Handshake_Fails_WhenEd25519KeyMaterialIsWrongLength(int length)
+    {
+        PublicKey key = new()
+        {
+            Type = KeyType.Ed25519,
+            Data = ByteString.CopyFrom(new byte[length]),
+        };
+
+        AssertHandshakeRejected(new State(), SelfConsistentExchange(key));
+    }
+
+    [TestCase(KeyType.Secp256K1)]
+    [TestCase(KeyType.Rsa)]
+    [TestCase(KeyType.Ecdsa)]
+    public void Test_Handshake_Fails_WhenKeyMaterialDoesNotParse(KeyType keyType)
+    {
+        PublicKey key = new()
+        {
+            Type = keyType,
+            Data = ByteString.CopyFrom([1, 2, 3, 4]),
+        };
+
+        AssertHandshakeRejected(new State(), SelfConsistentExchange(key));
+    }
+
     [Test]
     public void Test_Handshake_Fails_WhenPublicKeyIsMissing()
     {
@@ -142,6 +170,16 @@ public class PlainTextProtocolTests
     {
         Id = ByteString.CopyFrom(identity.PeerId.Bytes),
         Pubkey = identity.PublicKey.ToByteString(),
+    };
+
+    /// <summary>
+    /// Build an exchange whose id is derived from the given key, so the id
+    /// check cannot reject it and only the key material can.
+    /// </summary>
+    private static Exchange SelfConsistentExchange(PublicKey publicKey) => new()
+    {
+        Id = ByteString.CopyFrom(new PeerId(publicKey).Bytes),
+        Pubkey = publicKey.ToByteString(),
     };
 
     private static void AssertHandshakeRejected(State state, Exchange exchange, bool isListener = false) =>
