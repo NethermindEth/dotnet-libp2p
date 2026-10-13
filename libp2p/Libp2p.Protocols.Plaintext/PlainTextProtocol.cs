@@ -5,6 +5,7 @@ using System.Buffers;
 using Google.Protobuf;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
@@ -65,7 +66,7 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
             throw new Libp2pException("Plaintext exchange does not contain a public key.");
         }
 
-        PublicKey remotePublicKey = ParsePublicKey(remote.Pubkey);
+        PublicKey remotePublicKey = PublicKeyDecoder.Decode(remote.Pubkey);
         PeerId remotePeerId = new(remotePublicKey);
 
         if (!remote.HasId || !remote.Id.Span.SequenceEqual(remotePeerId.Bytes))
@@ -89,25 +90,5 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
         {
             remoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
-    }
-
-    private static PublicKey ParsePublicKey(ByteString pubkey)
-    {
-        PublicKey publicKey;
-        try
-        {
-            publicKey = PublicKey.Parser.ParseFrom(pubkey);
-        }
-        catch (InvalidProtocolBufferException e)
-        {
-            throw new Libp2pException("Plaintext exchange public key is malformed.", e);
-        }
-
-        // Protobuf does not enforce proto2 required fields, and a key that is
-        // merely non-empty is still unusable: verification throws rather than
-        // returning false. Parse the material for the declared key type.
-        publicKey.EnsureUsable();
-
-        return publicKey;
     }
 }

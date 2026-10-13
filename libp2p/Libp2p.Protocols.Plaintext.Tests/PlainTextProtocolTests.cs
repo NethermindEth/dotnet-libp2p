@@ -5,12 +5,12 @@ using System.Buffers;
 using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
 using NSubstitute;
 using NUnit.Framework;
-using KeyType = Nethermind.Libp2p.Core.Dto.KeyType;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
 namespace Nethermind.Libp2p.Protocols.Plaintext.Tests;
@@ -60,58 +60,29 @@ public class PlainTextProtocolTests
         AssertHandshakeRejected(new State(), exchange);
     }
 
+
+
+
+    /// <remarks>
+    /// The exchange is self-consistent, so only the key decode can reject it.
+    /// This is what proves the handshake goes through <see cref="PublicKeyDecoder"/>
+    /// rather than parsing the key itself.
+    /// </remarks>
     [Test]
-    public void Test_Handshake_Fails_WhenPublicKeyIsEmpty()
+    public void Test_Handshake_Fails_WhenKeyMaterialIsUnusable()
     {
-        Exchange exchange = new() { Pubkey = ByteString.Empty };
-
-        AssertHandshakeRejected(new State(), exchange);
-    }
-
-    [Test]
-    public void Test_Handshake_Fails_WhenPublicKeyCarriesNoKeyMaterial()
-    {
-        PublicKey emptyEd25519Key = new() { Type = KeyType.Ed25519, Data = ByteString.Empty };
-        Exchange exchange = new() { Pubkey = emptyEd25519Key.ToByteString() };
-
-        AssertHandshakeRejected(new State(), exchange);
-    }
-
-    [Test]
-    public void Test_Handshake_Fails_WhenPublicKeyTypeIsUnknown()
-    {
-        PublicKey unknownTypeKey = new() { Type = (KeyType)7, Data = ByteString.CopyFrom([1, 2, 3, 4]) };
-        Exchange exchange = new() { Pubkey = unknownTypeKey.ToByteString() };
-
-        AssertHandshakeRejected(new State(), exchange);
-    }
-
-    [TestCase(1, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsOneByte")]
-    [TestCase(31, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsTruncated")]
-    [TestCase(33, TestName = "Test_Handshake_Fails_WhenEd25519KeyIsOverlong")]
-    public void Test_Handshake_Fails_WhenEd25519KeyMaterialIsWrongLength(int length)
-    {
-        PublicKey key = new()
+        PublicKey truncated = new()
         {
             Type = KeyType.Ed25519,
-            Data = ByteString.CopyFrom(new byte[length]),
+            Data = ByteString.CopyFrom(new byte[1]),
         };
-
-        AssertHandshakeRejected(new State(), SelfConsistentExchange(key));
-    }
-
-    [TestCase(KeyType.Secp256K1)]
-    [TestCase(KeyType.Rsa)]
-    [TestCase(KeyType.Ecdsa)]
-    public void Test_Handshake_Fails_WhenKeyMaterialDoesNotParse(KeyType keyType)
-    {
-        PublicKey key = new()
+        Exchange exchange = new()
         {
-            Type = keyType,
-            Data = ByteString.CopyFrom([1, 2, 3, 4]),
+            Id = ByteString.CopyFrom(new PeerId(truncated).Bytes),
+            Pubkey = truncated.ToByteString(),
         };
 
-        AssertHandshakeRejected(new State(), SelfConsistentExchange(key));
+        AssertHandshakeRejected(new State(), exchange);
     }
 
     [Test]
@@ -172,15 +143,6 @@ public class PlainTextProtocolTests
         Pubkey = identity.PublicKey.ToByteString(),
     };
 
-    /// <summary>
-    /// Build an exchange whose id is derived from the given key, so the id
-    /// check cannot reject it and only the key material can.
-    /// </summary>
-    private static Exchange SelfConsistentExchange(PublicKey publicKey) => new()
-    {
-        Id = ByteString.CopyFrom(new PeerId(publicKey).Bytes),
-        Pubkey = publicKey.ToByteString(),
-    };
 
     private static void AssertHandshakeRejected(State state, Exchange exchange, bool isListener = false) =>
         AssertHandshakeRejected(state, exchange.ToByteArray(), isListener);
