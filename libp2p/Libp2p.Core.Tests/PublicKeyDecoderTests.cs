@@ -113,4 +113,52 @@ public class PublicKeyDecoderTests
 
         Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(key.ToByteString()));
     }
+
+    /// <remarks>
+    /// The invariant this class exists to hold: material the decoder accepts can
+    /// be used. Shape-by-shape cases only cover the shapes we thought of, and all
+    /// three bugs found here so far — padded Ed25519, DER trailing bytes and the
+    /// secp256k1 point at infinity — are the same invariant breaking.
+    /// </remarks>
+    [Test]
+    public void Test_AcceptedKeysVerifyWithoutThrowing()
+    {
+        byte[] message = [1, 2, 3];
+        byte[] signature = new byte[64];
+        List<(string Name, PublicKey Key)> shapes = [];
+
+        foreach (KeyType keyType in Enum.GetValues<KeyType>())
+        {
+            PublicKey valid = new Identity(keyType: keyType).PublicKey;
+            shapes.Add(($"{keyType}", valid));
+            shapes.Add(($"{keyType} with a trailing byte", Key(keyType, [.. valid.Data.ToByteArray(), 0x00])));
+            shapes.Add(($"{keyType} with no data", Key(keyType, [])));
+            shapes.Add(($"{keyType} as a single zero byte", Key(keyType, [0x00])));
+            shapes.Add(($"{keyType} truncated by one byte", Key(keyType, valid.Data.ToByteArray()[..^1])));
+        }
+
+        Assert.Multiple(() =>
+        {
+            foreach ((string name, PublicKey key) in shapes)
+            {
+                PublicKey decoded;
+
+                try
+                {
+                    decoded = PublicKeyDecoder.Decode(key.ToByteString());
+                }
+                catch (Libp2pException)
+                {
+                    continue;
+                }
+
+                Assert.DoesNotThrow(
+                    () => new Identity(decoded).VerifySignature(message, signature),
+                    $"{name} was accepted by the decoder but cannot be used to verify.");
+            }
+        });
+    }
+
+    private static PublicKey Key(KeyType keyType, byte[] data) =>
+        new() { Type = keyType, Data = ByteString.CopyFrom(data) };
 }

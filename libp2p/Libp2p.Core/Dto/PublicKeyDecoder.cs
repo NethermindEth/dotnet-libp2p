@@ -11,9 +11,10 @@ using System.Security.Cryptography;
 namespace Nethermind.Libp2p.Core.Dto;
 
 /// <summary>
-/// The single way to turn wire bytes into a <see cref="PublicKey"/>. Decoding
-/// and validation happen together so a caller cannot hold a key that parsed
-/// but cannot be used.
+/// Turns wire bytes into a <see cref="PublicKey"/>, decoding and validating
+/// together so a caller cannot hold a key that parsed but cannot be used.
+/// Intended as the only entry point for untrusted material; the remaining
+/// <c>PublicKey.Parser.ParseFrom</c> call sites still need migrating.
 /// </summary>
 public static class PublicKeyDecoder
 {
@@ -57,7 +58,13 @@ public static class PublicKeyDecoder
                     break;
                 case KeyType.Secp256K1:
                     X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
-                    curve.Curve.DecodePoint(publicKey.Data.ToByteArray());
+                    // A single zero byte is a valid encoding of the point at
+                    // infinity, which decodes but cannot verify anything.
+                    if (curve.Curve.DecodePoint(publicKey.Data.ToByteArray()).IsInfinity)
+                    {
+                        throw new Libp2pException("Secp256k1 public key is the point at infinity.");
+                    }
+
                     break;
                 case KeyType.Rsa:
                     // No key size bounds: identities generated here use 1024-bit
