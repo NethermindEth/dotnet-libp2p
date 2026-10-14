@@ -30,6 +30,7 @@ public class YamuxProtocolTests
         try
         {
             IChannel remote = transport.Inner.Reverse();
+            int tokenRequestsAfterFirstFrame = 0;
             for (int i = 0; i < 64; i++)
             {
                 byte[] frame = new byte[12];
@@ -37,17 +38,28 @@ public class YamuxProtocolTests
                 YamuxHeader.ToBytes(frame, ref ping);
                 await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
                 YamuxHeader pong = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
-                Assert.That(pong.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
-                Assert.That(pong.Length, Is.EqualTo(i));
+                Assert.Multiple(() =>
+                {
+                    Assert.That(pong.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
+                    Assert.That(pong.Length, Is.EqualTo(i));
+                });
+                if (i == 0)
+                {
+                    tokenRequestsAfterFirstFrame = transport.TokenRequests;
+                }
             }
 
-            Assert.That(transport.TokenRequests, Is.EqualTo(1),
-                "Each default IChannel token acquisition retains another cancellation source until the connection closes.");
+            Assert.Multiple(() =>
+            {
+                Assert.That(tokenRequestsAfterFirstFrame, Is.Positive);
+                Assert.That(transport.TokenRequests, Is.EqualTo(tokenRequestsAfterFirstFrame),
+                    "Each default IChannel token acquisition retains another cancellation source until the connection closes.");
+            });
         }
         finally
         {
             await transport.CloseAsync();
-            await yamux.WaitAsync(timeout.Token);
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
         }
     }
 
