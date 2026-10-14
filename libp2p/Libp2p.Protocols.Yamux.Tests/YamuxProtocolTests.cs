@@ -15,6 +15,65 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 [TestFixture]
 public class YamuxProtocolTests
 {
+    [Test]
+    public async Task ReceivedFramesReuseTheChannelLifetimeToken()
+    {
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        INewSessionContext session = Substitute.For<INewSessionContext>();
+        context.UpgradeToSession().Returns(session);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.DialRequests.Returns(Array.Empty<UpgradeOptions>());
+
+        TokenCountingChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, context);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        try
+        {
+            IChannel remote = transport.Inner.Reverse();
+            for (int i = 0; i < 64; i++)
+            {
+                byte[] frame = new byte[12];
+                YamuxHeader ping = new() { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = i };
+                YamuxHeader.ToBytes(frame, ref ping);
+                await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
+                YamuxHeader pong = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+                Assert.That(pong.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
+                Assert.That(pong.Length, Is.EqualTo(i));
+            }
+
+            Assert.That(transport.TokenRequests, Is.EqualTo(1),
+                "Each default IChannel token acquisition retains another cancellation source until the connection closes.");
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(timeout.Token);
+        }
+    }
+
+    private sealed class TokenCountingChannel : IChannel
+    {
+        public TestChannel Inner { get; } = new();
+        private int _tokenRequests;
+        public int TokenRequests => Volatile.Read(ref _tokenRequests);
+        public CancellationToken CancellationToken
+        {
+            get
+            {
+                Interlocked.Increment(ref _tokenRequests);
+                return ((IChannel)Inner).CancellationToken;
+            }
+        }
+
+        public TaskAwaiter GetAwaiter() => Inner.GetAwaiter();
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            => Inner.ReadAsync(length, blockingMode, token);
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => Inner.WriteAsync(bytes, token);
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Inner.WriteEofAsync(token);
+        public ValueTask CloseAsync() => Inner.CloseAsync();
+        public ValueTask AbortAsync() => Inner.AbortAsync();
+    }
+
     [TestCase(0)]
     [TestCase(-1)]
     [TestCase(60 * 24 * 60 * 60)]
