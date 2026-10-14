@@ -18,6 +18,9 @@ namespace Nethermind.Libp2p.Core.Dto;
 /// </summary>
 public static class PublicKeyDecoder
 {
+    private const int Secp256k1CompressedLength = 33;
+    private const int Secp256k1UncompressedLength = 65;
+
     /// <summary>
     /// Decode a protobuf-encoded public key and verify it carries usable
     /// material for its declared type.
@@ -57,14 +60,9 @@ public static class PublicKeyDecoder
                     }
                     break;
                 case KeyType.Secp256K1:
+                    RejectNonSec1Encoding(publicKey);
                     X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
-                    // A single zero byte is a valid encoding of the point at
-                    // infinity, which decodes but cannot verify anything.
-                    if (curve.Curve.DecodePoint(publicKey.Data.ToByteArray()).IsInfinity)
-                    {
-                        throw new Libp2pException("Secp256k1 public key is the point at infinity.");
-                    }
-
+                    curve.Curve.DecodePoint(publicKey.Data.ToByteArray());
                     break;
                 case KeyType.Rsa:
                     // No key size bounds: identities generated here use 1024-bit
@@ -103,6 +101,35 @@ public static class PublicKeyDecoder
         {
             throw new Libp2pException(
                 $"{publicKey.Type} public key has {publicKey.Data.Length - bytesRead} trailing byte(s).");
+        }
+    }
+
+    /// <summary>
+    /// Accept only the SEC1 compressed and uncompressed forms. BouncyCastle
+    /// also decodes the hybrid prefixes and a single zero byte for the point
+    /// at infinity, both of which go-libp2p and rust-libp2p reject.
+    /// </summary>
+    /// <remarks>
+    /// Compressed and uncompressed spellings of one key still hash to two peer
+    /// IDs here, where go-libp2p serializes to compressed before hashing.
+    /// Whether to reject or canonicalize that is left to a follow-up.
+    /// </remarks>
+    private static void RejectNonSec1Encoding(PublicKey publicKey)
+    {
+        int length = publicKey.Data.Length;
+        if (length == 0)
+        {
+            throw new Libp2pException("Secp256k1 public key is empty.");
+        }
+
+        byte prefix = publicKey.Data.Span[0];
+        bool compressed = length == Secp256k1CompressedLength && prefix is 0x02 or 0x03;
+        bool uncompressed = length == Secp256k1UncompressedLength && prefix is 0x04;
+
+        if (!compressed && !uncompressed)
+        {
+            throw new Libp2pException(
+                $"Secp256k1 public key is not a SEC1 compressed or uncompressed point: {length} bytes starting 0x{prefix:x2}.");
         }
     }
 }

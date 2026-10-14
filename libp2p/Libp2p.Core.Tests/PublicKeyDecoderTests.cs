@@ -5,6 +5,9 @@ using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
 using NUnit.Framework;
+using Org.BouncyCastle.Asn1.X9;
+using Org.BouncyCastle.Crypto.EC;
+using Org.BouncyCastle.Math.EC;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -115,31 +118,32 @@ public class PublicKeyDecoderTests
     }
 
     /// <remarks>
-    /// The invariant this class exists to hold: material the decoder accepts can
-    /// be used. Shape-by-shape cases only cover the shapes we thought of, and all
-    /// three bugs found here so far — padded Ed25519, DER trailing bytes and the
-    /// secp256k1 point at infinity — are the same invariant breaking.
+    /// The invariant this class exists to hold, in both directions: a generated
+    /// key decodes, and anything the decoder accepts can be used. Shape-by-shape
+    /// cases only cover the shapes we thought of, and every material bug found
+    /// here so far — padded Ed25519, DER trailing bytes, the secp256k1 point at
+    /// infinity — is this one invariant breaking.
     /// </remarks>
     [Test]
     public void Test_AcceptedKeysVerifyWithoutThrowing()
     {
         byte[] message = [1, 2, 3];
         byte[] signature = new byte[64];
-        List<(string Name, PublicKey Key)> shapes = [];
+        List<(string Name, PublicKey Key, bool MustDecode)> shapes = [];
 
         foreach (KeyType keyType in Enum.GetValues<KeyType>())
         {
             PublicKey valid = new Identity(keyType: keyType).PublicKey;
-            shapes.Add(($"{keyType}", valid));
-            shapes.Add(($"{keyType} with a trailing byte", Key(keyType, [.. valid.Data.ToByteArray(), 0x00])));
-            shapes.Add(($"{keyType} with no data", Key(keyType, [])));
-            shapes.Add(($"{keyType} as a single zero byte", Key(keyType, [0x00])));
-            shapes.Add(($"{keyType} truncated by one byte", Key(keyType, valid.Data.ToByteArray()[..^1])));
+            shapes.Add(($"{keyType}", valid, true));
+            shapes.Add(($"{keyType} with a trailing byte", Key(keyType, [.. valid.Data.ToByteArray(), 0x00]), false));
+            shapes.Add(($"{keyType} with no data", Key(keyType, []), false));
+            shapes.Add(($"{keyType} as a single zero byte", Key(keyType, [0x00]), false));
+            shapes.Add(($"{keyType} truncated by one byte", Key(keyType, valid.Data.ToByteArray()[..^1]), false));
         }
 
         Assert.Multiple(() =>
         {
-            foreach ((string name, PublicKey key) in shapes)
+            foreach ((string name, PublicKey key, bool mustDecode) in shapes)
             {
                 PublicKey decoded;
 
@@ -147,8 +151,9 @@ public class PublicKeyDecoderTests
                 {
                     decoded = PublicKeyDecoder.Decode(key.ToByteString());
                 }
-                catch (Libp2pException)
+                catch (Libp2pException e)
                 {
+                    Assert.That(mustDecode, Is.False, $"{name} is a usable key but was rejected: {e.Message}");
                     continue;
                 }
 
@@ -156,6 +161,33 @@ public class PublicKeyDecoderTests
                     () => new Identity(decoded).VerifySignature(message, signature),
                     $"{name} was accepted by the decoder but cannot be used to verify.");
             }
+        });
+    }
+
+    /// <remarks>
+    /// Verification succeeds for all three spellings of one point, so the
+    /// invariant above cannot see this; what differs is the peer ID.
+    /// </remarks>
+    [Test]
+    public void Test_Decode_Fails_WhenSecp256k1PointIsHybridEncoded()
+    {
+        Identity identity = new(keyType: KeyType.Secp256K1);
+        X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
+        ECPoint point = curve.Curve.DecodePoint(identity.PublicKey.Data.ToByteArray()).Normalize();
+        byte[] hybrid = point.GetEncoded(false);
+        hybrid[0] = (byte)(0x06 | (point.AffineYCoord.ToBigInteger().TestBit(0) ? 1 : 0));
+
+        Assert.Multiple(() =>
+        {
+            Assert.DoesNotThrow(
+                () => PublicKeyDecoder.Decode(Key(KeyType.Secp256K1, point.GetEncoded(true)).ToByteString()),
+                "compressed is a valid SEC1 encoding");
+            Assert.DoesNotThrow(
+                () => PublicKeyDecoder.Decode(Key(KeyType.Secp256K1, point.GetEncoded(false)).ToByteString()),
+                "uncompressed is a valid SEC1 encoding");
+            Assert.Throws<Libp2pException>(
+                () => PublicKeyDecoder.Decode(Key(KeyType.Secp256K1, hybrid).ToByteString()),
+                "hybrid encodes the same point under a different peer ID");
         });
     }
 
