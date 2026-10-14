@@ -13,6 +13,12 @@ public interface IChannel : IReader, IWriter
     ValueTask AbortAsync();
     TaskAwaiter GetAwaiter();
 
+    /// <summary>Gets a token canceled when this channel completes.</summary>
+    /// <remarks>
+    /// The default implementation allocates a cancellation source and completion registration on each access.
+    /// Both the source and the captured execution context are retained until the channel completes.
+    /// Acquire the token once and reuse it for the channel lifetime.
+    /// </remarks>
     CancellationToken CancellationToken
     {
         get

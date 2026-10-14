@@ -107,9 +107,11 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             });
 
+            // The default getter registers a cancellation source until this channel closes.
+            CancellationToken transportClosedToken = channel.CancellationToken;
             while (!downChannelAwaiter.IsCompleted)
             {
-                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, channel.CancellationToken);
+                YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, transportClosedToken);
                 ReadOnlySequence<byte> data = default;
 
                 if (header.Version != 0 || header.Type > YamuxHeaderType.GoAway)
