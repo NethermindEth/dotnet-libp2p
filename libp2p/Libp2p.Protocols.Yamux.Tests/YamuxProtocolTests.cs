@@ -22,6 +22,8 @@ public class YamuxProtocolTests
         INewSessionContext session = Substitute.For<INewSessionContext>();
         context.UpgradeToSession().Returns(session);
         context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        session.Id.Returns("dialer");
         session.DialRequests.Returns(Array.Empty<UpgradeOptions>());
 
         TokenCountingChannel transport = new();
@@ -54,6 +56,8 @@ public class YamuxProtocolTests
                 Assert.That(tokenRequestsAfterFirstFrame, Is.Positive);
                 Assert.That(transport.TokenRequests, Is.EqualTo(tokenRequestsAfterFirstFrame),
                     "Each default IChannel token acquisition retains another cancellation source until the connection closes.");
+                Assert.That(transport.InvalidReadTokens, Is.Zero,
+                    "Header reads must receive the cancellable token returned by the channel.");
             });
         }
         finally
@@ -67,19 +71,28 @@ public class YamuxProtocolTests
     {
         public TestChannel Inner { get; } = new();
         private int _tokenRequests;
+        private int _invalidReadTokens;
+        private CancellationToken _lifetimeToken;
         public int TokenRequests => Volatile.Read(ref _tokenRequests);
+        public int InvalidReadTokens => Volatile.Read(ref _invalidReadTokens);
         public CancellationToken CancellationToken
         {
             get
             {
                 Interlocked.Increment(ref _tokenRequests);
-                return ((IChannel)Inner).CancellationToken;
+                return _lifetimeToken = ((IChannel)Inner).CancellationToken;
             }
         }
 
         public TaskAwaiter GetAwaiter() => Inner.GetAwaiter();
         public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
-            => Inner.ReadAsync(length, blockingMode, token);
+        {
+            if (!token.CanBeCanceled || token != _lifetimeToken)
+            {
+                Interlocked.Increment(ref _invalidReadTokens);
+            }
+            return Inner.ReadAsync(length, blockingMode, token);
+        }
         public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => Inner.WriteAsync(bytes, token);
         public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Inner.WriteEofAsync(token);
         public ValueTask CloseAsync() => Inner.CloseAsync();

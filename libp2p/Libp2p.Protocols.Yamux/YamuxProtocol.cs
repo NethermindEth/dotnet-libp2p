@@ -64,8 +64,6 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         _logger?.LogInformation("Ctx({ctx}): {mode} {peer}", context.Id, isListener ? "Listen" : "Dial", context.State.RemoteAddress);
 
         TaskAwaiter downChannelAwaiter = channel.GetAwaiter();
-        // The default getter registers a cancellation source until this channel closes.
-        CancellationToken transportClosedToken = channel.CancellationToken;
         channel.GetAwaiter().OnCompleted(() => context.Activity?.AddEvent(new ActivityEvent("channel closed")));
 
         ConcurrentDictionary<int, ChannelState> channels = [];
@@ -109,6 +107,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 }
             });
 
+            // The default getter registers a cancellation source until this channel closes.
+            CancellationToken transportClosedToken = channel.CancellationToken;
             while (!downChannelAwaiter.IsCompleted)
             {
                 YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, transportClosedToken);
