@@ -11,6 +11,12 @@ public interface IChannel : IReader, IWriter
 
     /// <summary>Aborts both directions, including any data pending on the channel.</summary>
     ValueTask AbortAsync();
+
+    /// <summary>
+    /// Stops reading: pending and future writes from the other side fail, while data already
+    /// written to it stays readable. Implementations without half-close close both directions.
+    /// </summary>
+    ValueTask CloseReadAsync() => CloseAsync();
     TaskAwaiter GetAwaiter();
 
     /// <summary>Gets a token canceled when this channel completes.</summary>
