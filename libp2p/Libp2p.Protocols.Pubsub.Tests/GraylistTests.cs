@@ -146,6 +146,70 @@ public class GraylistTests
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(graylisted ? 0 : 1));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Messages_AreIgnoredFromGraylistedPeers(bool graylisted)
+    {
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()),
+        });
+        List<byte[]> deliveries = [];
+        router.GetTopic(Topic).OnMessage += (_, data) => deliveries.Add(data);
+        router.VerifyMessage = (_, _) => MessageValidity.Accepted;
+        PeerId peerId = Connect(router, TestPeers.Multiaddr(1), _ => { });
+        if (graylisted)
+        {
+            router.SetAppSpecificScore(peerId, GraylistedAppScore);
+        }
+
+        Rpc publish = new();
+        publish.Publish.Add(new Message { Topic = Topic, Data = ByteString.CopyFrom([1]) });
+        router.OnRpc(peerId, publish);
+
+        Assert.That(deliveries, Has.Count.EqualTo(graylisted ? 0 : 1));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Idontwant_IsIgnoredFromGraylistedPeers(bool graylisted)
+    {
+        // Keep the gossip and publish thresholds out of the way so that a graylisted peer still
+        // receives the local publish, and only the graylist gate decides whether its IDONTWANT counts.
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            GossipThreshold = -1_000,
+            PublishThreshold = -1_000,
+            GraylistThreshold = -100,
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()),
+        });
+        using CancellationTokenSource cancellation = new();
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(2));
+        localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        await router.StartAsync(localPeer, cancellation.Token);
+        _ = router.GetTopic(Topic);
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, TestPeers.Multiaddr(1), sent.Add, PubsubRouter.GossipsubProtocolVersionV12);
+        router.OnRpc(peerId, new Rpc().WithTopics([Topic], []));
+        if (graylisted)
+        {
+            router.SetAppSpecificScore(peerId, GraylistedAppScore);
+        }
+
+        Rpc idontwant = new() { Control = new ControlMessage() };
+        idontwant.Control.Idontwant.Add(new ControlIDontWant { MessageIDs = { ByteString.CopyFrom([1, 2, 3]) } });
+        router.OnRpc(peerId, idontwant);
+        sent.Clear();
+
+        router.Publish(Topic, [1, 2, 3]);
+        cancellation.Cancel();
+
+        Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(graylisted ? 1 : 0));
+    }
+
     [TestCase(true)]
     [TestCase(false)]
     public void ExtensionPenalty_AppliesToTheRestOfTheRpc(bool isFirstRpc)
