@@ -36,17 +36,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     // Gossipsub v1.1: every RPC from a peer scored below GraylistThreshold is
                     // ignored, not only its messages. Direct peers are exempt from scoring.
-                    if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
+                    bool isDirectPeer = IsDirectPeer(peerId);
+                    if (!isDirectPeer && ShouldGraylistPeer(peerId))
                     {
                         logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
                         return;
                     }
 
-                    HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
+                    bool penalized = HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
                     // A repeated extensions message is penalized above, which may take the peer
-                    // below the threshold: nothing else in that RPC is processed either.
-                    if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
+                    // below the threshold: nothing else in that RPC is processed either. The score
+                    // only needs recomputing when that penalty was applied.
+                    if (penalized && !isDirectPeer && ShouldGraylistPeer(peerId))
                     {
                         logger?.LogDebug("Ignoring the rest of the RPC from graylisted peer {peerId}", peerId);
                         return;
@@ -334,11 +336,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     internal void LogSubscriberError(Exception ex, string topic)
         => logger?.LogWarning(ex, "Pubsub message subscriber failed for topic {topic}", topic);
 
-    private void HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
+    /// <returns><see langword="true"/> if a behavior penalty was applied to the peer.</returns>
+    private bool HandleExtensions(PeerId peerId, Rpc rpc, string? protocolId, bool isFirstRpc)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
-            return;
+            return false;
         }
 
         ControlExtensions? extensions = rpc.Control?.Extensions;
@@ -349,18 +352,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 logger?.LogDebug("Ignoring Gossipsub v1.3 extensions from {peerId} on {protocol}", peerId, peer.Protocol);
             }
 
-            return;
+            return false;
         }
 
         if (!isFirstRpc && extensions is not null)
         {
             ApplyBehaviorPenalty(peerId, 1.0);
             logger?.LogDebug("Ignoring repeated Gossipsub v1.3 extensions from {peerId}", peerId);
+            return true;
         }
         if (isFirstRpc && extensions?.PartialMessages == true)
         {
             peer.SupportsPartialMessagesExtension = true;
         }
+
+        return false;
     }
 
     private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
@@ -418,13 +424,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages,
         List<PendingValidation> deferredMessages)
     {
-        // Check if peer is graylisted (Gossipsub v1.1)
-        if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId))
-        {
-            logger?.LogDebug("Ignoring messages from graylisted peer {peerId}", peerId);
-            return;
-        }
-
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {
             int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId =>
