@@ -19,12 +19,43 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         List<PendingValidation> deferredMessages = [];
         try
         {
-            // GetMessageId is configurable and can be expensive: Ethereum beacon gossip decompresses
-            // Snappy and hashes the uncompressed payload. Computing it under the router lock stalls
-            // every other peer and the heartbeat, so compute it here, before the lock is taken.
-            MessageId[]? publishIds = rpc.Publish.Count != 0 && !_stopped.IsCancellationRequested
-                ? ComputeMessageIds(rpc.Publish)
-                : null;
+            // GetMessageId is supplied by the host and can be expensive: Ethereum beacon gossip
+            // decompresses Snappy and hashes the uncompressed payload, up to 10 MiB. Running it
+            // under the router lock stalls every other peer and the heartbeat. Admit the RPC under
+            // a short lock, calculate outside it, then take the lock again to update state. The
+            // admission check keeps a stopped router and graylisted peers away from the
+            // calculation; it is advisory, and the authoritative check runs under the second lock.
+            bool admitted = false;
+            PubsubPeer? admittedPeer = null;
+            if (rpc.Publish.Count != 0)
+            {
+                lock (this)
+                {
+                    if (_stopped.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
+                    peerState.TryGetValue(peerId, out admittedPeer);
+                }
+            }
+
+            MessageId[]? publishIds = null;
+            if (admitted)
+            {
+                // The router lock used to serialize these calculations. Bound them explicitly now
+                // that it does not, so the transient memory does not scale with peer count.
+                _messageIdCalculations.Wait();
+                try
+                {
+                    publishIds = ComputeMessageIds(rpc.Publish);
+                }
+                finally
+                {
+                    _messageIdCalculations.Release();
+                }
+            }
 
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             Dictionary<PeerId, Rpc> idontwantMessages = [];
@@ -42,7 +73,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     RemoveExpiredPendingValidations();
                     HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
-                    if (rpc.Publish.Count != 0)
+                    // A peer that was connected when the RPC was admitted must still be the same
+                    // one: it can disconnect while the ids are calculated, and a reconnection must
+                    // not inherit that work.
+                    if (publishIds is not null && (admittedPeer is null ||
+                        (peerState.TryGetValue(peerId, out PubsubPeer? sender) && ReferenceEquals(sender, admittedPeer))))
                     {
                         HandleNewMessages(peerId, rpc.Publish, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages);
                     }
@@ -418,7 +453,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
 
-    private void HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[]? messageIds,
+    private void HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
         ConcurrentDictionary<PeerId, Rpc> peerMessages,
         Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages,
         List<PendingValidation> deferredMessages)
@@ -429,9 +464,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             logger?.LogDebug("Ignoring messages from graylisted peer {peerId}", peerId);
             return;
         }
-
-        // Only reached without precomputed ids if the router was stopping when the RPC arrived.
-        messageIds ??= ComputeMessageIds(messages);
 
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {

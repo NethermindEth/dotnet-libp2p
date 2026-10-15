@@ -32,7 +32,9 @@ public class MessageIdLockTests
             if (message.Data.Span[0] == 1)
             {
                 calculating.Set();
-                release.Wait(Timeout);
+                // No timeout: only the explicit release below lets this finish, so the assertions
+                // cannot be satisfied by the calculation quietly completing on its own.
+                release.Wait();
             }
 
             return new MessageId(message.Data.ToByteArray());
@@ -42,15 +44,25 @@ public class MessageIdLockTests
         ConnectPeers(router);
 
         Task slowPeer = Task.Run(() => router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1))));
-        Assert.That(calculating.Wait(Timeout), Is.True, "The message id calculation never started.");
+        try
+        {
+            Assert.That(calculating.Wait(Timeout), Is.True, "The message id calculation never started.");
 
-        Task otherPeer = Task.Run(() => router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics([Topic], [])));
+            Task otherPeer = Task.Run(() => router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics([Topic], [])));
 
-        Assert.That(otherPeer.Wait(Timeout), Is.True,
-            "A control-only RPC from another peer must not wait on an unrelated peer's message id calculation.");
-
-        release.Set();
-        Assert.That(slowPeer.Wait(Timeout), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(otherPeer.Wait(Timeout), Is.True,
+                    "A control-only RPC from another peer must not wait on an unrelated peer's message id calculation.");
+                Assert.That(release.IsSet, Is.False,
+                    "It must complete while the calculation is still running, not after it was released.");
+            });
+        }
+        finally
+        {
+            release.Set();
+            Assert.That(slowPeer.Wait(Timeout), Is.True);
+        }
     }
 
     [Test]
@@ -98,7 +110,137 @@ public class MessageIdLockTests
         router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1)));
 
         Assert.That(calculations - afterFirst, Is.EqualTo(1),
-            "A duplicate costs one calculation to recognise it, and nothing more.");
+            "A duplicate costs one calculation to recognize it, and nothing more.");
+    }
+
+    [Test]
+    public void AGraylistedPeerDoesNotReachTheCalculation()
+    {
+        int calculations = 0;
+        PubsubSettings settings = Settings();
+        // One rejected delivery scores -0.5, so graylist just above it rather than driving the
+        // score down to the -100 default.
+        settings.GraylistThreshold = -0.25;
+        settings.GetMessageId = message =>
+        {
+            Interlocked.Increment(ref calculations);
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        using PubsubRouter router = CreateRouter(settings);
+        ConnectPeers(router);
+
+        router.VerifyMessage = (_, _) => MessageValidity.Rejected;
+        router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1)));
+        int afterRejection = calculations;
+
+        router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(2)));
+
+        Assert.That(calculations, Is.EqualTo(afterRejection),
+            "A graylisted peer must be rejected before the expensive message id calculation runs.");
+    }
+
+    [Test]
+    public void APeerThatDisconnectsDuringTheCalculationIsNotAccepted()
+    {
+        using ManualResetEventSlim calculating = new(false);
+        using ManualResetEventSlim release = new(false);
+        PubsubSettings settings = Settings();
+        settings.GetMessageId = message =>
+        {
+            calculating.Set();
+            release.Wait();
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        using PubsubRouter router = CreateRouter(settings);
+        TaskCompletionSource closed = new();
+        Multiaddress address = TestPeers.Multiaddr(1);
+        router.OutboundConnection(address, PubsubRouter.FloodsubProtocolVersion, closed.Task, _ => { });
+        router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([Topic], []));
+        List<byte[]> deliveries = [];
+        router.GetTopic(Topic).OnMessage += (_, data) => deliveries.Add(data);
+
+        Task sender = Task.Run(() => router.OnRpc(address.GetPeerId()!, RpcWith(NewMessage(1))));
+        try
+        {
+            Assert.That(calculating.Wait(Timeout), Is.True, "The message id calculation never started.");
+
+            closed.SetResult();
+            Assert.That(
+                SpinWait.SpinUntil(
+                    () => !((IRoutingStateContainer)router).ConnectedPeers.Contains(address.GetPeerId()!), Timeout),
+                Is.True,
+                "The peer was never removed.");
+        }
+        finally
+        {
+            release.Set();
+            Assert.That(sender.Wait(Timeout), Is.True);
+        }
+
+        Assert.That(deliveries, Is.Empty,
+            "A message whose sender disconnected while its id was being calculated must not be accepted.");
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public void ConcurrentCalculationsStayWithinTheConfiguredBound(int bound)
+    {
+        const int peers = 6;
+        using CountdownEvent entered = new(bound);
+        using ManualResetEventSlim release = new(false);
+        int active = 0;
+        int peak = 0;
+        PubsubSettings settings = Settings();
+        settings.MaxConcurrentMessageIdCalculations = bound;
+        settings.GetMessageId = message =>
+        {
+            int running = Interlocked.Increment(ref active);
+            InterlockedMax(ref peak, running);
+            if (!entered.IsSet)
+            {
+                entered.Signal();
+            }
+
+            release.Wait(Timeout);
+            Interlocked.Decrement(ref active);
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        using PubsubRouter router = CreateRouter(settings);
+        ConnectPeers(router, peers);
+
+        Task[] rpcs = [.. Enumerable.Range(1, peers).Select(peer => Task.Factory.StartNew(
+            () => router.OnRpc(TestPeers.PeerId(peer), RpcWith(NewMessage((byte)peer))),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default))];
+
+        try
+        {
+            Assert.That(entered.Wait(Timeout), Is.True, "The calculations never reached the bound.");
+            Assert.That(Volatile.Read(ref peak), Is.LessThanOrEqualTo(bound),
+                "More message id calculations ran at once than the configured bound allows.");
+        }
+        finally
+        {
+            release.Set();
+            Task.WaitAll(rpcs);
+        }
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int seen = Volatile.Read(ref target);
+        while (value > seen)
+        {
+            int previous = Interlocked.CompareExchange(ref target, value, seen);
+            if (previous == seen)
+            {
+                return;
+            }
+
+            seen = previous;
+        }
     }
 
     private static PubsubSettings Settings() => new()
@@ -109,10 +251,10 @@ public class MessageIdLockTests
 
     private static PubsubRouter CreateRouter(PubsubSettings settings) => new(new PeerStore(), settings);
 
-    private static void ConnectPeers(PubsubRouter router)
+    private static void ConnectPeers(PubsubRouter router, int count = 2)
     {
         TaskCompletionSource closed = new();
-        foreach (int index in (int[])[1, 2])
+        foreach (int index in Enumerable.Range(1, count))
         {
             Multiaddress address = TestPeers.Multiaddr(index);
             router.OutboundConnection(address, PubsubRouter.FloodsubProtocolVersion, closed.Task, _ => { });
@@ -129,3 +271,4 @@ public class MessageIdLockTests
         return rpc;
     }
 }
+
