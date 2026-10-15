@@ -89,6 +89,17 @@ public class Channel : IChannel
         return CloseAsync();
     }
 
+    public ValueTask CloseReadAsync()
+    {
+        // Stop reading: the other side's pending and future writes fail, while what this side
+        // already wrote stays readable. Completion still waits for this side's write half to end,
+        // so a channel half-closed this way completes only once that EOF is consumed.
+        _reader.MarkClosed();
+        _reader.MarkAborted();
+        _reader.CompleteAbort();
+        return ValueTask.CompletedTask;
+    }
+
     private void TryComplete()
     {
         if (_reader._eow && _writer._eow)
