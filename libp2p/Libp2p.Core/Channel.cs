@@ -115,6 +115,9 @@ public class Channel : IChannel
         private const int PendingWrite = 2;
         private const int PendingRead = 4;
 
+        /// <summary>The reader released a published chunk by discarding it at teardown, not by consuming it.</summary>
+        private const int WriteDiscarded = 8;
+
         internal protected ReaderWriter(Channel tryComplete)
         {
             _externalCompletionMonitor = tryComplete;
@@ -221,6 +224,7 @@ public class Channel : IChannel
                     if (!_bytes.IsEmpty)
                     {
                         Interlocked.And(ref _state, ~PendingWrite);
+                        Interlocked.Or(ref _state, WriteDiscarded);
                         _bytes = default;
                         _read.Release();
                     }
@@ -244,6 +248,7 @@ public class Channel : IChannel
                         if (!_bytes.IsEmpty)
                         {
                             Interlocked.And(ref _state, ~PendingWrite);
+                            Interlocked.Or(ref _state, WriteDiscarded);
                             _bytes = default;
                             _read.Release();
                         }
@@ -382,15 +387,27 @@ public class Channel : IChannel
                     // writer past teardown.
                     if (_canRead.Wait(0))
                     {
-                        Interlocked.And(ref _state, ~PendingWrite);
-                        _bytes = default;
-                    }
-                    else
-                    {
-                        await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
+                        if (_bytes.Length == bytes.Length)
+                        {
+                            Interlocked.And(ref _state, ~PendingWrite);
+                            _bytes = default;
+                            throw;
+                        }
+
+                        // A partial read already delivered the head of the chunk downstream, so
+                        // the rest must still follow or the byte stream is corrupted.
+                        _canRead.Release();
                     }
 
-                    throw;
+                    // Wait for the reader to release the chunk. Releasing means consumed on the
+                    // normal path, but teardown releases by discarding what is left, so only the
+                    // former counts as delivered: reporting a cancellation for bytes that did
+                    // arrive invites a retry, and a retry here duplicates them.
+                    await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
+                    if ((Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0)
+                    {
+                        return ClosedIoResult;
+                    }
                 }
 
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);

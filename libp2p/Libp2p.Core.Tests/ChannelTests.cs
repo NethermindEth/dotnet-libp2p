@@ -188,6 +188,27 @@ public class ChannelTests
     }
 
     [Test]
+    public async Task StreamWriteCancelledAfterPartialReadEndsOnDispose()
+    {
+        // The head is already downstream, so the token cannot retract the rest. Disposing is the
+        // caller's way out: it closes the channel and ends the write without delivering it.
+        Channel channel = new();
+        Stream stream = channel.AsStream();
+        using CancellationTokenSource cancel = new();
+        Task write = stream.WriteAsync(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }.AsMemory(), cancel.Token).AsTask();
+        Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
+            Is.EqualTo(new byte[] { 1, 2, 3 }));
+
+        cancel.Cancel();
+        Assert.That(await Task.WhenAny(write, Task.Delay(TimeSpan.FromMilliseconds(200))), Is.Not.SameAs(write),
+            "Cancellation cannot retract a write whose head was already read.");
+
+        stream.Dispose();
+        Assert.That(Assert.CatchAsync<IOException>(async () => await write.WaitAsync(TimeSpan.FromSeconds(5)))!.Message,
+            Is.EqualTo("Channel write failed: Ended."));
+    }
+
+    [Test]
     public async Task StreamWriteAfterEofThrows()
     {
         Channel channel = new();
