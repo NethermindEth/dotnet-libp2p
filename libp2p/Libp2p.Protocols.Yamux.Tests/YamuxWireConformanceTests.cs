@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
@@ -12,9 +13,10 @@ namespace Nethermind.Libp2p.Protocols.Yamux.Tests;
 /// <summary>
 /// Wire-level conformance against the specification and the go-yamux and
 /// rust-yamux reference implementations, driven by a raw frame peer:
-/// bounded outbound DATA frames, stream outcomes after session loss or a late
-/// RST, the window advertised in SYN/ACK, FIN carried on DATA, zero-length
-/// DATA and headers split across transport reads.
+/// bounded outbound DATA frames, frames kept whole when a write is cancelled,
+/// stream outcomes after session loss or a late RST, the window advertised in
+/// SYN/ACK, FIN carried on DATA, zero-length DATA and headers split across
+/// transport reads.
 /// </summary>
 [TestFixture]
 public class YamuxWireConformanceTests
@@ -64,6 +66,55 @@ public class YamuxWireConformanceTests
             Assert.That(yamux.IsFaulted, Is.False);
         }
         await drain;
+    }
+
+    [Test]
+    public async Task ResetDuringPartiallyConsumedFrameKeepsFramingIntact()
+    {
+        // A secure channel reads a frame in pieces; an RST that cancels the pump midway
+        // must not drop the tail of a frame whose head already left for the wire.
+        (IConnectionContext ctx, List<Channel> ups) = Dialer();
+        TestChannel transport = new();
+        MessageLogger logger = new("stream 1: Reset");
+        Task yamux = new YamuxProtocol(loggerFactory: logger.Factory).DialAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = await ReadOutboundHeaderAsync(remote, timeout.Token);
+            IChannel application = (await WaitForUpchannelAsync(ups, timeout.Token)).Reverse;
+            byte[] payload = new byte[2 * YamuxProtocol.MaxDataFrameLength];
+            new Random(5).NextBytes(payload);
+            Assert.That(await application.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
+
+            const int head = 65000;
+            YamuxHeader first = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.That(first.Length, Is.EqualTo(YamuxProtocol.MaxDataFrameLength));
+            Assert.That((await remote.ReadAsync(head, token: timeout.Token).OrThrow()).ToArray(), Is.EqualTo(payload[..head]));
+
+            await WriteHeaderAsync(remote, new YamuxHeader { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Rst, StreamID = syn.StreamID }, timeout.Token);
+            await logger.Seen.Task.WaitAsync(timeout.Token);
+            // Give a faulty implementation time to retract the tail; a correct one keeps it regardless.
+            await Task.Delay(100, timeout.Token);
+            await WriteHeaderAsync(remote, FuzzPingSyn(77), timeout.Token);
+
+            int tail = YamuxProtocol.MaxDataFrameLength - head;
+            ReadOnlySequence<byte> rest = await remote.ReadAsync(tail, ReadBlockingMode.WaitAny, timeout.Token).OrThrow();
+            Assert.That(rest.ToArray(), Is.EqualTo(payload[head..YamuxProtocol.MaxDataFrameLength]), "The frame tail must still arrive.");
+            YamuxHeader next = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
+            Assert.Multiple(() =>
+            {
+                Assert.That(next.Type, Is.EqualTo(YamuxHeaderType.Ping));
+                Assert.That(next.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
+                Assert.That(next.Length, Is.EqualTo(77));
+            });
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(yamux.IsFaulted, Is.False);
+        }
     }
 
     public enum SessionLoss
@@ -545,5 +596,33 @@ public class YamuxWireConformanceTests
             await remote.ReadAsync(header.Length, token: token).OrThrow();
         }
         return header;
+    }
+
+    /// <summary>Completes <see cref="Seen"/> once a log message contains the given text.</summary>
+    private sealed class MessageLogger(string needle) : ILogger
+    {
+        public TaskCompletionSource Seen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ILoggerFactory Factory
+        {
+            get
+            {
+                ILoggerFactory factory = Substitute.For<ILoggerFactory>();
+                factory.CreateLogger(Arg.Any<string>()).Returns(this);
+                return factory;
+            }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (formatter(state, exception).Contains(needle, StringComparison.Ordinal))
+            {
+                Seen.TrySetResult();
+            }
+        }
     }
 }

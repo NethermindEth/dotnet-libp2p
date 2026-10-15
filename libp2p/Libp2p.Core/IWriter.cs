@@ -55,6 +55,16 @@ public interface IWriter
         await WriteAsync(new ReadOnlySequence<byte>(buf));
     }
 
+    /// <summary>
+    /// Writes <paramref name="bytes"/> as one chunk, which is delivered whole or not at all.
+    /// </summary>
+    /// <remarks>
+    /// Cancelling before any of the chunk has been read retracts it and reports
+    /// <see cref="IOResult.Cancelled"/>. Once a read has taken part of it the remainder is still
+    /// owed to the reader, so the call returns only after that remainder is consumed — reporting
+    /// <see cref="IOResult.Ok"/>, because the bytes did arrive — or after the channel is closed.
+    /// The token does not bound how long that takes.
+    /// </remarks>
     ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default);
     ValueTask<IOResult> WriteEofAsync(CancellationToken token = default);
 }
