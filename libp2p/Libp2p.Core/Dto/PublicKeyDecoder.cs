@@ -107,12 +107,15 @@ public static class PublicKeyDecoder
     /// <summary>
     /// Accept only the SEC1 compressed and uncompressed forms. BouncyCastle
     /// also decodes the hybrid prefixes and a single zero byte for the point
-    /// at infinity, both of which go-libp2p and rust-libp2p reject.
+    /// at infinity.
     /// </summary>
     /// <remarks>
-    /// Compressed and uncompressed spellings of one key still hash to two peer
-    /// IDs here, where go-libp2p serializes to compressed before hashing.
-    /// Whether to reject or canonicalize that is left to a follow-up.
+    /// go-libp2p accepts hybrid too, but it serializes every key to compressed
+    /// before hashing, so all of its spellings share one peer ID. This library
+    /// hashes the bytes as received, so every extra spelling accepted here is
+    /// another peer ID for the same keypair. Compressed and uncompressed still
+    /// give two; canonicalizing them is the follow-up, and would make this
+    /// check unnecessary.
     /// </remarks>
     private static void RejectNonSec1Encoding(PublicKey publicKey)
     {

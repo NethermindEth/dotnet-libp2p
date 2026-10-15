@@ -118,18 +118,20 @@ public class PublicKeyDecoderTests
     }
 
     /// <remarks>
-    /// The invariant this class exists to hold, in both directions: a generated
-    /// key decodes, and anything the decoder accepts can be used. Shape-by-shape
-    /// cases only cover the shapes we thought of, and every material bug found
-    /// here so far — padded Ed25519, DER trailing bytes, the secp256k1 point at
-    /// infinity — is this one invariant breaking.
+    /// Checks usability in both directions: a generated key decodes, and anything
+    /// the decoder accepts can verify without throwing. That catches unusable
+    /// material such as the secp256k1 point at infinity or a truncated key. It
+    /// does not catch extra spellings of a valid key — padded Ed25519, DER
+    /// trailing bytes, hybrid secp256k1 — because those verify fine and only the
+    /// peer ID changes. The per-shape cases are what hold those, so they are not
+    /// redundant with this one.
     /// </remarks>
     [Test]
     public void Test_AcceptedKeysVerifyWithoutThrowing()
     {
         byte[] message = [1, 2, 3];
         byte[] signature = new byte[64];
-        List<(string Name, PublicKey Key, bool MustDecode)> shapes = [];
+        List<(string Name, PublicKey Key, bool IsGeneratedKey)> shapes = [];
 
         foreach (KeyType keyType in Enum.GetValues<KeyType>())
         {
@@ -143,7 +145,7 @@ public class PublicKeyDecoderTests
 
         Assert.Multiple(() =>
         {
-            foreach ((string name, PublicKey key, bool mustDecode) in shapes)
+            foreach ((string name, PublicKey key, bool isGeneratedKey) in shapes)
             {
                 PublicKey decoded;
 
@@ -153,7 +155,7 @@ public class PublicKeyDecoderTests
                 }
                 catch (Libp2pException e)
                 {
-                    Assert.That(mustDecode, Is.False, $"{name} is a usable key but was rejected: {e.Message}");
+                    Assert.That(isGeneratedKey, Is.False, $"{name} is a usable key but was rejected: {e.Message}");
                     continue;
                 }
 
