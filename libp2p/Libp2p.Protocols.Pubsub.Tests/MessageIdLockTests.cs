@@ -141,6 +141,52 @@ public class MessageIdLockTests
     }
 
     [Test]
+    public void PublishingDoesNotStallOtherPeers()
+    {
+        using ManualResetEventSlim calculating = new(false);
+        using ManualResetEventSlim release = new(false);
+        PubsubSettings settings = Settings();
+        settings.GetMessageId = message =>
+        {
+            if (message.Data.Span[0] == 9)
+            {
+                calculating.Set();
+                release.Wait();
+            }
+
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        using PubsubRouter router = CreateRouter(settings);
+        ILocalPeer local = Substitute.For<ILocalPeer>();
+        local.ListenAddresses.Returns([TestPeers.Multiaddr(9)]);
+        local.Identity.Returns(TestPeers.Identity(9));
+        _ = router.StartAsync(local);
+        ConnectPeers(router);
+
+        Task publishing = Task.Run(() => router.Publish(Topic, [9]));
+        try
+        {
+            Assert.That(calculating.Wait(Timeout), Is.True, "The message id calculation never started.");
+
+            Task otherPeer = Task.Run(() => router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([Topic], [])));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(otherPeer.Wait(Timeout), Is.True,
+                    "A peer's RPC must not wait on a local publish identifying its own message.");
+                Assert.That(release.IsSet, Is.False,
+                    "It must complete while the calculation is still running, not after it was released.");
+            });
+        }
+        finally
+        {
+            release.Set();
+            Assert.That(publishing.Wait(Timeout), Is.True);
+        }
+    }
+
+    [Test]
     public void APeerThatDisconnectsDuringTheCalculationIsNotAccepted()
     {
         using ManualResetEventSlim calculating = new(false);
