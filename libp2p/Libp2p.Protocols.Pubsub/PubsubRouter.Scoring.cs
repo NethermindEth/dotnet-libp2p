@@ -71,14 +71,12 @@ public partial class PubsubRouter
     /// <summary>
     /// Records a message delivery for scoring purposes
     /// </summary>
-    private void RecordMessageDelivery(PeerId peerId, Message message, string topic, bool isValid)
+    private void RecordMessageDelivery(PeerId peerId, MessageId messageId, string topic, bool isValid)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }
-
-        MessageId messageId = _settings.GetMessageId(message);
 
         if (!isValid)
         {
