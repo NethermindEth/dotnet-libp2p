@@ -294,6 +294,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private readonly PubsubSettings _settings;
     private readonly MessageCache _messageCache;
+    // Never disposed: an RPC in flight may still be queued on it or about to release it, and
+    // disposing would strand the queued wait and fault the release. Nothing here takes its
+    // AvailableWaitHandle, which is the only thing its disposal would free.
+    private readonly SemaphoreSlim _messageIdCalculations;
     private readonly TtlCache<MessageId> _seenMessages;
     private readonly TtlCache<MessageId> _limboMessageCache;
     private readonly PartialMessageGossipCache partialMessageGossip;
@@ -407,6 +411,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         directPeers = CreateDirectPeers(_settings.DirectPeers);
         ValidateControlSettings(_settings);
         _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
+        _messageIdCalculations = new(Math.Max(1, _settings.MaxConcurrentMessageIdCalculations));
         _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
         _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
         _iwantPromises = new(_settings.MaxIwantPromises);

@@ -16,6 +16,23 @@ public partial class PubsubRouter
     private DateTime _lastScoreDecay = DateTime.UtcNow;
     private readonly ConcurrentDictionary<MessageId, (PeerId FirstDeliverer, DateTime FirstDeliveryTime)> _firstDeliveryTracker = new();
 
+    private static readonly Dictionary<string, int> NoIpColocationCounts = [];
+
+    private Dictionary<string, int> CountIpColocation()
+    {
+        Dictionary<string, int> ipCounts = [];
+        foreach (PubsubPeer p in peerState.Values)
+        {
+            if (p.Score.IPAddress is not null)
+            {
+                ipCounts.TryGetValue(p.Score.IPAddress, out int count);
+                ipCounts[p.Score.IPAddress] = count + 1;
+            }
+        }
+
+        return ipCounts;
+    }
+
     /// <summary>
     /// Gets the score for a peer
     /// </summary>
@@ -26,18 +43,10 @@ public partial class PubsubRouter
             return 0;
         }
 
-        // Count IPs for P6 calculation
-        var ipCounts = new Dictionary<string, int>();
-        foreach (var p in peerState.Values)
-        {
-            if (p.Score.IPAddress != null)
-            {
-                ipCounts.TryGetValue(p.Score.IPAddress, out int count);
-                ipCounts[p.Score.IPAddress] = count + 1;
-            }
-        }
-
-        return peer.Score.GetScore(ipCounts);
+        // Only this peer's own address can contribute to P6, so the colocation counts are worth
+        // building only when it has one. This runs for every scored peer on the receive and
+        // publish paths, where counting every peer and allocating per call would dominate it.
+        return peer.Score.GetScore(peer.Score.IPAddress is null ? NoIpColocationCounts : CountIpColocation());
     }
 
     /// <summary>
@@ -71,14 +80,12 @@ public partial class PubsubRouter
     /// <summary>
     /// Records a message delivery for scoring purposes
     /// </summary>
-    private void RecordMessageDelivery(PeerId peerId, Message message, string topic, bool isValid)
+    private void RecordMessageDelivery(PeerId peerId, MessageId messageId, string topic, bool isValid)
     {
         if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }
-
-        MessageId messageId = _settings.GetMessageId(message);
 
         if (!isValid)
         {

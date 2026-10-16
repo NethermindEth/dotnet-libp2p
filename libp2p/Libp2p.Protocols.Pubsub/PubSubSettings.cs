@@ -66,6 +66,12 @@ public class PubsubSettings
     public int MaxPendingValidationBytes { get; set; } = 16 * 1024 * 1024;
     /// <summary>Time allowed to complete a deferred verdict before the message is dropped.</summary>
     public TimeSpan PendingValidationTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// How many <see cref="GetMessageId"/> calculations may run at once. They run outside the
+    /// router lock, which no longer serializes them, and the delegate may decompress and hash
+    /// several megabytes, so the bound keeps that transient memory from scaling with peer count.
+    /// </summary>
+    public int MaxConcurrentMessageIdCalculations { get; set; } = Environment.ProcessorCount;
     // Maximum incoming RPC frame size in bytes (default: 1 MiB).
     public int MaxRpcBytes
     {
@@ -126,6 +132,12 @@ public class PubsubSettings
     /// <summary>Maximum locally published partial-message groups retained for one topic.</summary>
     public int MaxPartialMessageGroupsPerTopic { get; set; } = 255;
 
+    /// <summary>
+    /// Derives the application message id. Called outside the router lock, so it must be thread
+    /// safe: calls for different peers run concurrently, up to
+    /// <see cref="MaxConcurrentMessageIdCalculations"/>, and may overlap a local publish. It must
+    /// return the same id for the same message contents and must not modify the message.
+    /// </summary>
     public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
 
     public enum SignaturePolicy
