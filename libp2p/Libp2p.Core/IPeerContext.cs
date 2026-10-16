@@ -55,4 +55,12 @@ public class State
     public Multiaddress? RemoteAddress { get; set; }
     public PublicKey? RemotePublicKey { get; set; }
     public PeerId? RemotePeerId => RemoteAddress?.GetPeerId();
+
+    /// <summary>
+    /// Largest write the layer below carries as a single unit, when it has such a size. A secure
+    /// channel that packs each write into one record sets this so the layer above can size its
+    /// frames to fit, instead of every frame spilling into a second record. Larger writes are
+    /// still accepted; they are just split further down.
+    /// </summary>
+    public int? PreferredWriteSize { get; set; }
 }
