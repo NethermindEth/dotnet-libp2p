@@ -83,6 +83,28 @@ public class ChannelTests
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
+    [Test]
+    public async Task CloseReadKeepsDeliveredDataAndEofReadableWhileFailingWrites()
+    {
+        Channel channel = new();
+        Task<IOResult> delivered = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })).AsTask();
+        Task<IOResult> eof = channel.WriteEofAsync().AsTask();
+        Task<IOResult> pendingInbound = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 8 })).AsTask();
+
+        await channel.CloseReadAsync();
+
+        Assert.That(await pendingInbound.WaitAsync(TimeSpan.FromSeconds(2)), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 9 })), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That(await delivered.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        Assert.That(await eof.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        TaskCompletionSource completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.GetAwaiter().OnCompleted(() => completed.TrySetResult());
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task WriteEofAfterAbortReportsAborted(bool pendingWrite)

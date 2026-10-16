@@ -169,16 +169,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                     if (header.Type == YamuxHeaderType.GoAway)
                     {
-                        _logger?.LogDebug("Ctx({ctx}): Closing all streams", session?.Id ?? NoSession);
-
-                        foreach (ChannelState channelState in channels.Values)
-                        {
-                            if (channelState.Channel is not null)
-                            {
-                                await channelState.Channel.CloseAsync();
-                            }
-                        }
-
+                        _logger?.LogDebug("Ctx({ctx}): Go away received with code {code}, aborting all streams", session?.Id ?? NoSession, header.Length);
+                        AbortStreams();
                         break;
                     }
 
@@ -257,9 +249,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Rst) == YamuxHeaderFlags.Rst)
                 {
+                    // A peer reset aborts both halves, even after its FIN: the application must
+                    // learn that the peer gave up on the stream.
                     stream.AbortOutbound();
-                    if (stream.Channel is { } resetChannel)
-                        _ = resetChannel.AbortAsync();
+                    _ = stream.Channel?.AbortAsync();
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset", session.Id, header.StreamID);
                     if (header.Type == YamuxHeaderType.Data && header.Length > 0)
                         await channel.ReadAsync(header.Length).OrThrow();
@@ -309,6 +302,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
                 {
+                    stream.FinReceived = true;
                     _ = stream.Channel?.WriteEofAsync();
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Finish receiving", session.Id, header.StreamID);
                 }
@@ -396,7 +390,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         outboundFinSent = true;
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Upchannel finished writing", contextId, streamId);
                     }
-                    catch (ChannelClosedException) when (state.OutboundCancellation.IsCancellationRequested)
+                    catch (Exception e) when (state.OutboundCancellation.IsCancellationRequested &&
+                                              e is ChannelClosedException or ChannelAbortedException or OperationCanceledException)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Outbound pump cancelled", contextId, streamId);
                     }
@@ -404,10 +399,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         context.Activity?.AddEvent(new ActivityEvent($"exception {e.Message}"));
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed due to transport disconnection", contextId, streamId);
-                    }
-                    catch (OperationCanceledException) when (state.OutboundCancellation.IsCancellationRequested)
-                    {
-                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Outbound pump cancelled", contextId, streamId);
+                        // The stream may have been registered after the session already swept its table.
+                        AbortStream(state);
                     }
                     catch (Exception e)
                     {
@@ -538,16 +531,27 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         finally
         {
             timer?.Dispose();
+            AbortStreams();
             session?.Dispose();
-
-            foreach (ChannelState? upChannel in channels.Values)
-            {
-                context.Activity?.AddEvent(new ActivityEvent("close an up chan"));
-                upChannel?.AbortOutbound();
-                _ = upChannel?.Channel?.CloseAsync();
-            }
-
             _ = channel.CloseAsync();
+        }
+
+        void AbortStreams()
+        {
+            foreach (ChannelState state in channels.Values)
+            {
+                context.Activity?.AddEvent(new ActivityEvent("abort an up chan"));
+                AbortStream(state);
+            }
+        }
+
+        void AbortStream(ChannelState state)
+        {
+            // Only the peer's FIN completes the inbound half: data received before it stays
+            // readable and ends cleanly, while any other stream is aborted, never ended,
+            // because its data may be truncated.
+            state.AbortOutbound();
+            _ = state.FinReceived ? state.Channel?.CloseReadAsync() : state.Channel?.AbortAsync();
         }
 
         void ExtendWindow(IChannel channel, string sessionId, int streamId, IOResult result, int consumedBytes)

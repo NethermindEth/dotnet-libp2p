@@ -12,8 +12,9 @@ namespace Nethermind.Libp2p.Protocols.Yamux.Tests;
 /// <summary>
 /// Wire-level conformance against the specification and the go-yamux and
 /// rust-yamux reference implementations, driven by a raw frame peer:
-/// bounded outbound DATA frames, the window advertised in SYN/ACK, FIN carried
-/// on DATA, zero-length DATA and headers split across transport reads.
+/// bounded outbound DATA frames, stream outcomes after session loss or a late
+/// RST, the window advertised in SYN/ACK, FIN carried on DATA, zero-length
+/// DATA and headers split across transport reads.
 /// </summary>
 [TestFixture]
 public class YamuxWireConformanceTests
@@ -63,6 +64,156 @@ public class YamuxWireConformanceTests
             Assert.That(yamux.IsFaulted, Is.False);
         }
         await drain;
+    }
+
+    public enum SessionLoss
+    {
+        TransportClosedWhileWaiting,
+        TransportClosedWithUnreadData,
+        TransportClosedInsideFrame,
+        TransportClosedAfterFin,
+        TransportClosedAfterFinWithUnreadData,
+        GoAwayOk,
+        GoAwayProtocolError,
+    }
+
+    [TestCase(SessionLoss.TransportClosedWhileWaiting)]
+    [TestCase(SessionLoss.TransportClosedWithUnreadData)]
+    [TestCase(SessionLoss.TransportClosedInsideFrame)]
+    [TestCase(SessionLoss.TransportClosedAfterFin)]
+    [TestCase(SessionLoss.TransportClosedAfterFinWithUnreadData)]
+    [TestCase(SessionLoss.GoAwayOk)]
+    [TestCase(SessionLoss.GoAwayProtocolError)]
+    public async Task SessionLossAbortsStreamsWithoutFin(SessionLoss loss)
+    {
+        (IConnectionContext ctx, List<Channel> ups) = Dialer();
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().DialAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            YamuxHeader syn = await ReadOutboundHeaderAsync(remote, timeout.Token);
+            await WriteHeaderAsync(remote, new YamuxHeader
+            {
+                Type = YamuxHeaderType.WindowUpdate,
+                Flags = YamuxHeaderFlags.Ack,
+                StreamID = syn.StreamID
+            }, timeout.Token);
+            byte[] payload = [1, 2, 3, 4, 5, 6, 7, 8];
+            bool finReceived = loss is SessionLoss.TransportClosedAfterFin or SessionLoss.TransportClosedAfterFinWithUnreadData;
+            await WriteHeaderAsync(remote, new YamuxHeader
+            {
+                Type = YamuxHeaderType.Data,
+                Flags = finReceived ? YamuxHeaderFlags.Fin : 0,
+                StreamID = syn.StreamID,
+                Length = payload.Length
+            }, timeout.Token);
+            IChannel application = (await WaitForUpchannelAsync(ups, timeout.Token)).Reverse;
+
+            Task<ReadResult> read;
+            switch (loss)
+            {
+                case SessionLoss.TransportClosedInsideFrame:
+                    // Only half of the announced payload ever arrives.
+                    Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload, 0, 4), timeout.Token), Is.EqualTo(IOResult.Ok));
+                    read = application.ReadAsync(payload.Length, token: timeout.Token).AsTask();
+                    await transport.CloseAsync();
+                    break;
+                case SessionLoss.TransportClosedWithUnreadData:
+                case SessionLoss.TransportClosedAfterFinWithUnreadData:
+                    Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
+                    // The session loop is serial: an answered ping proves the DATA frame was dispatched.
+                    await WriteHeaderAsync(remote, FuzzPingSyn(5), timeout.Token);
+                    Assert.That((await ReadOutboundHeaderAsync(remote, timeout.Token)).Type, Is.EqualTo(YamuxHeaderType.Ping));
+                    await transport.CloseAsync();
+                    await yamux.WaitAsync(timeout.Token);
+                    read = application.ReadAsync(payload.Length, token: timeout.Token).AsTask();
+                    break;
+                case SessionLoss.TransportClosedAfterFin:
+                    Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
+                    Assert.That((await application.ReadAsync(payload.Length, token: timeout.Token).OrThrow()).ToArray(), Is.EqualTo(payload));
+                    await transport.CloseAsync();
+                    await yamux.WaitAsync(timeout.Token);
+                    read = application.ReadAsync(1, token: timeout.Token).AsTask();
+                    break;
+                default:
+                    Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
+                    Assert.That((await application.ReadAsync(payload.Length, token: timeout.Token).OrThrow()).ToArray(), Is.EqualTo(payload));
+                    read = application.ReadAsync(1, token: timeout.Token).AsTask();
+                    if (loss is SessionLoss.GoAwayOk or SessionLoss.GoAwayProtocolError)
+                    {
+                        await WriteHeaderAsync(remote, new YamuxHeader
+                        {
+                            Type = YamuxHeaderType.GoAway,
+                            Length = (int)(loss == SessionLoss.GoAwayOk ? SessionTerminationCode.Ok : SessionTerminationCode.ProtocolError)
+                        }, timeout.Token);
+                    }
+                    else
+                    {
+                        await transport.CloseAsync();
+                        await yamux.WaitAsync(timeout.Token);
+                    }
+                    break;
+            }
+
+            ReadResult result = await read.WaitAsync(timeout.Token);
+            if (loss == SessionLoss.TransportClosedAfterFinWithUnreadData)
+            {
+                Assert.That(result.Result, Is.EqualTo(IOResult.Ok));
+                Assert.That(result.Data.ToArray(), Is.EqualTo(payload), "Data received before the FIN is never discarded.");
+                result = await application.ReadAsync(1, token: timeout.Token);
+            }
+            Assert.That(result.Result, Is.EqualTo(finReceived ? IOResult.Ended : IOResult.Aborted),
+                "Only the peer's FIN ends a stream cleanly.");
+            // On the GoAway-received path streams are settled before the farewell GoAway goes out, so no frame needs to be read first.
+            Assert.That(await application.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.Not.EqualTo(IOResult.Ok),
+                "The outbound half cannot accept data once the session is gone.");
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(yamux.IsFaulted, Is.False);
+        }
+    }
+
+    [Test]
+    public async Task ResetAfterFinAbortsTheStream()
+    {
+        // Pins the project's choice (unlike go-yamux, which only resets the half still open):
+        // a peer RST aborts reads even after its FIN, so a waiting application notices it.
+        (IConnectionContext ctx, List<Channel> ups) = Listener();
+        TestChannel transport = new();
+        Task yamux = new YamuxProtocol().ListenAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        try
+        {
+            IChannel remote = transport.Reverse();
+            byte[] payload = [1, 2, 3, 4];
+            await WriteHeaderAsync(remote, new YamuxHeader
+            {
+                Type = YamuxHeaderType.Data,
+                Flags = YamuxHeaderFlags.Syn | YamuxHeaderFlags.Fin,
+                StreamID = 1,
+                Length = payload.Length
+            }, timeout.Token);
+            Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That((await ReadOutboundHeaderAsync(remote, timeout.Token)).Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
+            await WriteHeaderAsync(remote, new YamuxHeader { Type = YamuxHeaderType.WindowUpdate, Flags = YamuxHeaderFlags.Rst, StreamID = 1 }, timeout.Token);
+            await WriteHeaderAsync(remote, FuzzPingSyn(9), timeout.Token);
+            Assert.That((await ReadOutboundHeaderAsync(remote, timeout.Token)).Type, Is.EqualTo(YamuxHeaderType.Ping));
+
+            IChannel application = (await WaitForUpchannelAsync(ups, timeout.Token)).Reverse;
+            Assert.That((await application.ReadAsync(1, token: timeout.Token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(await application.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.Not.EqualTo(IOResult.Ok));
+        }
+        finally
+        {
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(yamux.IsFaulted, Is.False);
+        }
     }
 
     [TestCase(false, false)]
@@ -267,6 +418,47 @@ public class YamuxWireConformanceTests
         YamuxHeader.ToBytes(frame, ref header);
         wire.Write(frame);
         wire.Write(payload);
+    }
+
+    [Test]
+    public async Task AStreamDialedAfterTheSessionDiedIsAborted()
+    {
+        // A dial request can be taken after the session already swept its stream table, so the
+        // new stream's first write meets a dead transport with its own cancellation still live.
+        // It must be aborted like any other stream without the peer's FIN, not left open.
+        using ManualResetEventSlim releaseLateDial = new(false);
+        IEnumerable<UpgradeOptions> Requests()
+        {
+            yield return new UpgradeOptions { SelectedProtocol = Mocks.TestProtocol() };
+            releaseLateDial.Wait(TimeSpan.FromSeconds(30));
+            yield return new UpgradeOptions { SelectedProtocol = Mocks.TestProtocol() };
+        }
+
+        (IConnectionContext ctx, INewSessionContext session) = Mocks.Dialer(Requests());
+        List<Channel> ups = CollectUpChannels(session);
+        TestChannel transport = new();
+        List<FuzzObservation> outbound = [];
+        Task yamux = new YamuxProtocol().DialAsync(transport, ctx);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+        Task drain = DrainAsync(transport.Reverse(), outbound, timeout.Token);
+        try
+        {
+            await WaitForOutboundSynAsync(outbound, timeout.Token);
+            await transport.CloseAsync();
+            await yamux.WaitAsync(TimeSpan.FromSeconds(10));
+
+            releaseLateDial.Set();
+            Channel late = await WaitForUpchannelAsync(ups, timeout.Token, index: 1);
+            ReadResult read = await late.Reverse.ReadAsync(1, token: timeout.Token).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(read.Result, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            releaseLateDial.Set();
+            timeout.Cancel();
+            await drain;
+        }
     }
 
     private static (IConnectionContext Ctx, List<Channel> Ups) Dialer()
