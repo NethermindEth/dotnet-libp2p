@@ -29,6 +29,16 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     /// </summary>
     internal const int MaxDataFrameLength = 64 * 1024 - HeaderLength;
 
+    /// <summary>
+    /// Frame payload cap for a session, never above <see cref="MaxDataFrameLength"/>. A frame is
+    /// written as one header-plus-body unit, so when the layer below advertises the size it carries
+    /// unsplit, keeping the whole frame within it avoids spilling every frame into a second record.
+    /// </summary>
+    internal static int DataFrameLengthFor(int? preferredWriteSize) =>
+        preferredWriteSize is int preferred && preferred > HeaderLength
+            ? Math.Min(MaxDataFrameLength, preferred - HeaderLength)
+            : MaxDataFrameLength;
+
     private const int PingDelay = 30_000;
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
 
@@ -70,6 +80,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
+        int maxDataFrameLength = DataFrameLengthFor(context.State.PreferredWriteSize);
         using var scope = _logger?.BeginScope("Context id {ctx}", context.Id);
         _logger?.LogInformation("Ctx({ctx}): {mode} {peer}", context.Id, isListener ? "Listen" : "Dial", context.State.RemoteAddress);
 
@@ -363,7 +374,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             for (int i = 0; i < upData.Length;)
                             {
                                 int sendingSize = await state.RemoteWindow.SpendOrWait(
-                                    Math.Min(MaxDataFrameLength, (int)upData.Length - i), state.OutboundCancellation);
+                                    Math.Min(maxDataFrameLength, (int)upData.Length - i), state.OutboundCancellation);
 
                                 _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
 
