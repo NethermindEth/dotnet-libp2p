@@ -19,6 +19,16 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     public const int ProtocolInitialWindowSize = 256 * 1024;
 
     private const int HeaderLength = 12;
+
+    /// <summary>
+    /// Largest DATA payload sent in one frame, independent of the credit the peer
+    /// granted. One stream must not hold the shared transport for a whole window,
+    /// and rust-yamux rejects frame bodies above 1 MiB (MAX_FRAME_BODY_LEN) while
+    /// its receive window can grow far beyond that. go-yamux splits writes at its
+    /// 64 KiB MaxMessageSize and rust-yamux at its 16 KiB split_send_size.
+    /// </summary>
+    internal const int MaxDataFrameLength = 64 * 1024 - HeaderLength;
+
     private const int PingDelay = 30_000;
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
 
@@ -358,7 +368,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                             for (int i = 0; i < upData.Length;)
                             {
-                                int sendingSize = await state.RemoteWindow.SpendOrWait((int)upData.Length - i, state.OutboundCancellation);
+                                int sendingSize = await state.RemoteWindow.SpendOrWait(
+                                    Math.Min(MaxDataFrameLength, (int)upData.Length - i), state.OutboundCancellation);
 
                                 _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
 
