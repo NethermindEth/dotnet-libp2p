@@ -229,6 +229,45 @@ public class MessageIdLockTests
             "A message whose sender disconnected while its id was being calculated must not be accepted.");
     }
 
+    [Test]
+    public async Task DisposingTheRouterDoesNotStrandAQueuedCalculation()
+    {
+        using ManualResetEventSlim calculating = new(false);
+        using ManualResetEventSlim release = new(false);
+        PubsubSettings settings = Settings();
+        settings.MaxConcurrentMessageIdCalculations = 1;
+        settings.GetMessageId = message =>
+        {
+            if (message.Data.Span[0] == 1)
+            {
+                calculating.Set();
+                release.Wait(Timeout);
+            }
+
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        PubsubRouter router = CreateRouter(settings);
+        ConnectPeers(router);
+
+        Task holder = Task.Run(() => router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1))));
+        Assert.That(calculating.Wait(Timeout), Is.True, "The first calculation never started.");
+        Task queued = Task.Run(() => router.OnRpc(TestPeers.PeerId(2), RpcWith(NewMessage(2))));
+        // Let the second RPC reach the bound and park there, so disposal happens with a waiter
+        // queued rather than before it arrives.
+        Assert.That(await Task.WhenAny(queued, Task.Delay(TimeSpan.FromMilliseconds(250))), Is.Not.SameAs(queued),
+            "The second RPC should be waiting on the bound.");
+
+        router.Dispose();
+        release.Set();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(holder.Wait(Timeout), Is.True, "Disposal must not fault the running calculation.");
+            Assert.That(queued.Wait(Timeout), Is.True, "Disposal must not strand the queued calculation.");
+        });
+    }
+
     [TestCase(1)]
     [TestCase(2)]
     public void ConcurrentCalculationsStayWithinTheConfiguredBound(int bound)
