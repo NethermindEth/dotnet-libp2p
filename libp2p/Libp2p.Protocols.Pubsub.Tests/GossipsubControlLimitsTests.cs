@@ -520,6 +520,46 @@ public class GossipsubControlLimitsTests
         Assert.That(GetPublishedMessages(setup.SentRpcs), Is.EqualTo(new[] { message }));
     }
 
+    /// <remarks>
+    /// A peer-exchange record whose key cannot be used used to throw out of
+    /// <see cref="PeerStore.Discover(ByteString)"/>, which ended processing of the
+    /// whole RPC, so the valid records after it were never discovered.
+    /// </remarks>
+    [Test]
+    public async Task Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordHasAnUnusableKey()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
+        Identity exchanged = TestPeers.Identity(5);
+        Core.Dto.SignedEnvelope unusable = Core.Dto.SignedEnvelope.Parser.ParseFrom(
+            Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(6), [TestPeers.Multiaddr(6)], 1));
+        unusable.PublicKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString();
+        List<PeerId?> discovered = [];
+        setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
+
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc
+        {
+            Control = new ControlMessage
+            {
+                Prune =
+                {
+                    new ControlPrune
+                    {
+                        TopicID = setup.Topic,
+                        Peers =
+                        {
+                            new PeerInfo { SignedPeerRecord = unusable.ToByteString() },
+                            new PeerInfo { SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
+                        },
+                    },
+                },
+            },
+        });
+
+        Assert.That(discovered, Does.Contain(exchanged.PeerId));
+    }
+
     [Test]
     public void Router_RejectsNonPositiveIdontwantThreshold()
     {
@@ -811,15 +851,17 @@ public class GossipsubControlLimitsTests
         private readonly TaskCompletionSource connection = new();
         private readonly List<TaskCompletionSource> extraConnections = [];
 
-        private RouterSetup(PubsubRouter router, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
+        private RouterSetup(PubsubRouter router, PeerStore peerStore, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
         {
             Router = router;
+            PeerStore = peerStore;
             Topic = topic;
             RemotePeerId = remotePeerId;
             SentRpcs = sentRpcs;
         }
 
         public PubsubRouter Router { get; }
+        public PeerStore PeerStore { get; }
         public string Topic { get; }
         public PeerId RemotePeerId { get; }
         public List<Rpc> SentRpcs { get; }
@@ -828,12 +870,13 @@ public class GossipsubControlLimitsTests
         public static async Task<RouterSetup> Create(PubsubSettings settings)
         {
             const string topic = "topic";
-            PubsubRouter router = new(new PeerStore(), settings);
+            PeerStore peerStore = new();
+            PubsubRouter router = new(peerStore, settings);
             ILocalPeer localPeer = Substitute.For<ILocalPeer>();
             localPeer.Identity.Returns(TestPeers.Identity(1));
             localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
 
-            RouterSetup setup = new(router, topic, TestPeers.PeerId(2), []);
+            RouterSetup setup = new(router, peerStore, topic, TestPeers.PeerId(2), []);
             await router.StartAsync(localPeer, setup.cancellation.Token);
             _ = router.GetTopic(topic);
             Multiaddress remoteAddress = TestPeers.Multiaddr(2);

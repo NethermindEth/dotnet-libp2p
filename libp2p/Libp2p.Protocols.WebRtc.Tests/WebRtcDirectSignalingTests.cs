@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using System.Security.Cryptography;
@@ -71,6 +72,28 @@ public class WebRtcDirectSignalingTests
         string signature = payload!["signature"].GetString()!;
         char replacement = signature[^1] == 'A' ? 'B' : 'A';
         payload["signature"] = JsonDocument.Parse($"\"{signature[..^1]}{replacement}\"").RootElement.Clone();
+        string tamperedWire = JsonSerializer.Serialize(payload);
+
+        Assert.That(
+            () => WebRtcDirectSignaling.ParseAndValidate(tamperedWire, WebRtcDirectSignalType.Offer, sessionId, new WebRtcDirectReplayWindow()),
+            Throws.TypeOf<CryptographicException>());
+    }
+
+    /// <remarks>
+    /// The key used to escape as whatever <see cref="Identity.VerifySignature"/> threw;
+    /// it must fail as the envelope's own signature error.
+    /// </remarks>
+    [Test]
+    public void Envelope_UnusableSignerKey_IsRejected()
+    {
+        Identity signer = new();
+        string sessionId = WebRtcDirectSignaling.NewSessionId();
+        string wire = WebRtcDirectSignaling.BuildSignedPayload(WebRtcDirectSignalType.Offer, signer, sessionId, "v=0");
+
+        Dictionary<string, JsonElement>? payload = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(wire);
+        Assert.That(payload, Is.Not.Null);
+        byte[] unusableKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteArray();
+        payload!["signerPublicKey"] = JsonDocument.Parse($"\"{Convert.ToBase64String(unusableKey)}\"").RootElement.Clone();
         string tamperedWire = JsonSerializer.Serialize(payload);
 
         Assert.That(

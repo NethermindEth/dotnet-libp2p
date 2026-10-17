@@ -149,10 +149,37 @@ public class Identity
         return new() { Type = privateKey.Type, Data = publicKeyData };
     }
 
+    /// <summary>
+    /// Check <paramref name="signature"/> over <paramref name="message"/> against this identity's key.
+    /// </summary>
+    /// <remarks>
+    /// The key and signature usually come from a remote peer, so anything that
+    /// cannot be used — an unknown key type, unparsable key material, a malformed
+    /// signature — is an invalid signature, not an error.
+    /// </remarks>
     public bool VerifySignature(byte[] message, byte[] signature)
     {
         ArgumentNullException.ThrowIfNull(PublicKey);
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(signature);
 
+        try
+        {
+            return VerifySignatureOrThrow(message, signature);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="VerifySignature"/> without the safety net: unusable key material
+    /// throws instead of returning <see langword="false"/>, which lets tests tell
+    /// an unusable key apart from a wrong signature.
+    /// </summary>
+    internal bool VerifySignatureOrThrow(byte[] message, byte[] signature)
+    {
         switch (PublicKey.Type)
         {
             case KeyType.Ed25519:
