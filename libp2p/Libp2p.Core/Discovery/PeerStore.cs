@@ -13,18 +13,35 @@ public class PeerStore
 {
     private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
 
+    /// <remarks>
+    /// Records arrive from remote peers, for example through gossipsub peer
+    /// exchange, so a malformed one is ignored the same way as one that fails
+    /// verification. That includes a payload its sender validly signed but that
+    /// is not a peer record.
+    /// </remarks>
     public void Discover(ByteString signedPeerRecord)
     {
-        SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
-        PublicKey publicKey = PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey);
-        PeerId peerId = new Identity(publicKey).PeerId;
+        PublicKey publicKey;
+        PeerRecord peerRecord;
+        try
+        {
+            SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
+            publicKey = PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey);
 
-        if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, out _))
+            if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, out _))
+            {
+                return;
+            }
+
+            peerRecord = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload);
+        }
+        catch (InvalidProtocolBufferException)
         {
             return;
         }
 
-        Multiaddress[] addresses = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload).Addresses
+        PeerId peerId = new Identity(publicKey).PeerId;
+        Multiaddress[] addresses = peerRecord.Addresses
             .Select(ai => Multiaddress.Decode(ai.Multiaddr.ToByteArray()))
             .Where(a => a.GetPeerId() == peerId)
             .ToArray();

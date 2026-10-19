@@ -79,9 +79,10 @@ public class IdentityTests
     }
 
     /// <remarks>
-    /// The key is valid, so only the signature is wrong. An empty signature for
-    /// an RSA key used to throw a
-    /// <see cref="System.Security.Cryptography.CryptographicException"/>.
+    /// The key is valid, so only the signature is wrong. These mostly guard
+    /// against false positives: on Linux every case already returned false. On
+    /// macOS, where .NET uses Apple's crypto, an empty signature for an RSA key
+    /// threw a <see cref="System.Security.Cryptography.CryptographicException"/>.
     /// </remarks>
     [TestCaseSource(nameof(InvalidSignatures))]
     public void Test_VerifySignature_ReturnsFalse_WhenSignatureIsInvalid(Identity signer, byte[] signature)

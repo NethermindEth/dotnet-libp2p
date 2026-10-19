@@ -521,12 +521,14 @@ public class GossipsubControlLimitsTests
     }
 
     /// <remarks>
-    /// A peer-exchange record whose key cannot be used used to throw out of
-    /// <see cref="PeerStore.Discover(ByteString)"/>, which ended processing of the
+    /// A bad peer-exchange record, whether its key is unusable or its bytes are
+    /// not a record at all, used to throw out of
+    /// <see cref="PeerStore.Discover(ByteString)"/>. That ended processing of the
     /// whole RPC, so the valid records after it were never discovered.
     /// </remarks>
-    [Test]
-    public async Task Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordHasAnUnusableKey()
+    [TestCase(false, TestName = "Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordHasAnUnusableKey")]
+    [TestCase(true, TestName = "Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordIsNotProtobuf")]
+    public async Task Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordIsBad(bool notProtobuf)
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });
         await setup.Router.Heartbeat();
@@ -535,6 +537,7 @@ public class GossipsubControlLimitsTests
         Core.Dto.SignedEnvelope unusable = Core.Dto.SignedEnvelope.Parser.ParseFrom(
             Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(6), [TestPeers.Multiaddr(6)], 1));
         unusable.PublicKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString();
+        ByteString badRecord = notProtobuf ? ByteString.CopyFrom([0xff, 0xff, 0xff, 0xff]) : unusable.ToByteString();
         List<PeerId?> discovered = [];
         setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
 
@@ -549,7 +552,7 @@ public class GossipsubControlLimitsTests
                         TopicID = setup.Topic,
                         Peers =
                         {
-                            new PeerInfo { SignedPeerRecord = unusable.ToByteString() },
+                            new PeerInfo { SignedPeerRecord = badRecord },
                             new PeerInfo { SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
                         },
                     },

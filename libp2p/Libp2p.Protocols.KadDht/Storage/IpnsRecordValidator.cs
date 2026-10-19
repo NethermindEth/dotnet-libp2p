@@ -203,19 +203,12 @@ public sealed class IpnsRecordValidator : IRecordValidator
     /// </summary>
     private static bool VerifySignatureV2(PublicKey publicKey, IpnsEntry entry)
     {
-        try
-        {
-            byte[] data = entry.Data.ToByteArray();
-            byte[] signingInput = new byte[SigningDomain.Length + data.Length];
-            Buffer.BlockCopy(SigningDomain, 0, signingInput, 0, SigningDomain.Length);
-            Buffer.BlockCopy(data, 0, signingInput, SigningDomain.Length, data.Length);
+        byte[] data = entry.Data.ToByteArray();
+        byte[] signingInput = new byte[SigningDomain.Length + data.Length];
+        Buffer.BlockCopy(SigningDomain, 0, signingInput, 0, SigningDomain.Length);
+        Buffer.BlockCopy(data, 0, signingInput, SigningDomain.Length, data.Length);
 
-            var identity = new Identity(publicKey);
-            return identity.VerifySignature(signingInput, entry.SignatureV2.ToByteArray());
-        }
-        catch
-        {
-            return false;
-        }
+        var identity = new Identity(publicKey);
+        return identity.VerifySignature(signingInput, entry.SignatureV2.ToByteArray());
     }
 }

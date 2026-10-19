@@ -155,7 +155,11 @@ public class Identity
     /// <remarks>
     /// The key and signature usually come from a remote peer, so anything that
     /// cannot be used — an unknown key type, unparsable key material, a malformed
-    /// signature — is an invalid signature, not an error.
+    /// signature — is an invalid signature, not an error. The catch is
+    /// deliberately broad, which has two quiet consequences: an environmental
+    /// failure, such as <c>RSA.Create()</c> failing, also reads as an invalid
+    /// signature, and a new <see cref="KeyType"/> without a case in
+    /// <see cref="VerifySignatureOrThrow"/> fails verification instead of throwing.
     /// </remarks>
     public bool VerifySignature(byte[] message, byte[] signature)
     {
