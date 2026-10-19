@@ -34,8 +34,11 @@ public class PeerScore
     /// </summary>
     public TopicScore GetTopicScore(string topic)
     {
-        return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? new TopicScoreParams()));
+        return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams));
     }
+
+    /// <summary>Read-only defaults for topics with no configured parameters.</summary>
+    private static readonly TopicScoreParams DefaultTopicScoreParams = new();
 
     /// <summary>
     /// Calculates the total score for this peer
@@ -51,7 +54,7 @@ public class PeerScore
             string topic = kvp.Key;
             TopicScore ts = kvp.Value;
 
-            var topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic) ?? new TopicScoreParams();
+            TopicScoreParams topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams;
 
             double topicContribution =
                 topicParams.TopicWeight * ts.CalculateScore(topicParams);

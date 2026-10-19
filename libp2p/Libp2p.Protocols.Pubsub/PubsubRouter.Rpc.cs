@@ -19,6 +19,44 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         List<PendingValidation> deferredMessages = [];
         try
         {
+            // GetMessageId is supplied by the host and can be expensive: Ethereum beacon gossip
+            // decompresses Snappy and hashes the uncompressed payload, up to 10 MiB. Running it
+            // under the router lock stalls every other peer and the heartbeat. Admit the RPC under
+            // a short lock, calculate outside it, then take the lock again to update state. The
+            // admission check keeps a stopped router and graylisted peers away from the
+            // calculation; it is advisory, and the authoritative check runs under the second lock.
+            bool admitted = false;
+            PubsubPeer? admittedPeer = null;
+            if (rpc.Publish.Count != 0)
+            {
+                lock (this)
+                {
+                    if (_stopped.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
+                    peerState.TryGetValue(peerId, out admittedPeer);
+                }
+            }
+
+            MessageId[]? publishIds = null;
+            if (admitted)
+            {
+                // The router lock used to serialize these calculations. Bound them explicitly now
+                // that it does not, so the transient memory does not scale with peer count.
+                _messageIdCalculations.Wait();
+                try
+                {
+                    publishIds = ComputeMessageIds(rpc.Publish);
+                }
+                finally
+                {
+                    _messageIdCalculations.Release();
+                }
+            }
+
             ConcurrentDictionary<PeerId, Rpc> peerMessages = new();
             Dictionary<PeerId, Rpc> idontwantMessages = [];
             List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages = [];
@@ -35,9 +73,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     RemoveExpiredPendingValidations();
                     HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
-                    if (rpc.Publish.Count != 0)
+                    // A sender that was already connected when the RPC was admitted must still be
+                    // the same PubsubPeer: it can disconnect while the ids are calculated, and a
+                    // reconnection must not inherit that work. A sender not yet known then is let
+                    // through without that check, which is the usual case and keeps a peer that
+                    // becomes known during the calculation from losing this RPC.
+                    if (publishIds is not null && (admittedPeer is null ||
+                        (peerState.TryGetValue(peerId, out PubsubPeer? sender) && ReferenceEquals(sender, admittedPeer))))
                     {
-                        HandleNewMessages(peerId, rpc.Publish, peerMessages, idontwantMessages, receivedMessages, deferredMessages);
+                        HandleNewMessages(peerId, rpc.Publish, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages);
                     }
 
                     if (rpc.Subscriptions.Count != 0)
@@ -240,7 +284,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     break;
                 case MessageValidity.Rejected:
                     _limboMessageCache.Add(entry.Key);
-                    RecordMessageDelivery(pending.Source, pending.Snapshot, pending.Snapshot.Topic, false);
+                    RecordMessageDelivery(pending.Source, pending.Id, pending.Snapshot.Topic, false);
                     break;
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(entry.Key);
@@ -397,7 +441,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
     }
 
-    private void HandleNewMessages(PeerId peerId, IEnumerable<Message> messages, ConcurrentDictionary<PeerId, Rpc> peerMessages,
+    private MessageId[] ComputeMessageIds(IReadOnlyList<Message> messages)
+    {
+        MessageId[] ids = new MessageId[messages.Count];
+        for (int i = 0; i < ids.Length; i++)
+        {
+            ids[i] = _settings.GetMessageId(messages[i]);
+        }
+
+        return ids;
+    }
+
+    private bool IsKnownMessage(MessageId messageId) =>
+        _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
+
+    private void HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
+        ConcurrentDictionary<PeerId, Rpc> peerMessages,
         Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages,
         List<PendingValidation> deferredMessages)
     {
@@ -410,19 +469,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         if (logger?.IsEnabled(LogLevel.Trace) is true)
         {
-            int knownMessages = messages.Select(_settings.GetMessageId).Count(messageId =>
-                _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId));
-            logger?.LogTrace($"Messages received: {messages.Count()}, already known: {knownMessages}. All: {string.Join(",", messages.Select(_settings.GetMessageId))}.");
+            int knownMessages = messageIds.Count(IsKnownMessage);
+            logger?.LogTrace($"Messages received: {messages.Count}, already known: {knownMessages}. All: {string.Join(",", messageIds)}.");
         }
         else
         {
-            logger?.LogDebug($"Messages received: {messages.Count()}");
+            logger?.LogDebug($"Messages received: {messages.Count}");
         }
 
-        foreach (Message? message in messages)
+        for (int i = 0; i < messages.Count; i++)
         {
-            MessageId messageId = _settings.GetMessageId(message);
-            if (_pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId))
+            Message message = messages[i];
+            MessageId messageId = messageIds[i];
+            if (IsKnownMessage(messageId))
             {
                 continue;
             }
@@ -431,7 +490,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 // An unauthenticated copy can share the application message ID of a valid message.
                 // It also cannot fulfill an IWANT promise.
-                RecordMessageDelivery(peerId, message, message.Topic, false);
+                RecordMessageDelivery(peerId, messageId, message.Topic, false);
                 continue;
             }
 
@@ -450,7 +509,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 case MessageValidity.Rejected:
                     _limboMessageCache.Add(messageId);
                     _iwantPromises.Fulfill(messageId);
-                    RecordMessageDelivery(peerId, validated, validated.Topic, false);
+                    RecordMessageDelivery(peerId, messageId, validated.Topic, false);
                     continue;
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId);
@@ -512,7 +571,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         _seenMessages.Add(messageId);
         _messageCache.Put(messageId, message);
         _iwantPromises.Fulfill(messageId);
-        RecordMessageDelivery(peerId, message, message.Topic, true);
+        RecordMessageDelivery(peerId, messageId, message.Topic, true);
         AddIdontwantMessages(message, messageId, peerId, idontwantMessages);
 
         PeerId author = new(message.From.ToArray());

@@ -225,26 +225,39 @@ public partial class PubsubRouter
             throw new InvalidOperationException("Router has not been started. Call StartAsync() first.");
         }
 
+        // Build, sign and identify the message before taking the router lock. Signing and
+        // GetMessageId are both host-supplied work, and holding the lock across them stalls every
+        // peer and the heartbeat. Only the sequence number needs router state, and it is unique
+        // without the lock.
+        Rpc rpc = new();
+        if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
+        {
+            rpc.Publish.Add(new Message
+            {
+                Topic = topicId,
+                Data = ByteString.CopyFrom(message),
+            });
+        }
+        else
+        {
+            rpc.WithMessages(topicId, Interlocked.Increment(ref seqNo) - 1, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
+        }
+
+        Message publishedMessage = rpc.Publish[0];
+        MessageId messageId;
+        _messageIdCalculations.Wait();
+        try
+        {
+            messageId = _settings.GetMessageId(publishedMessage);
+        }
+        finally
+        {
+            _messageIdCalculations.Release();
+        }
+
         lock (this)
         {
             topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
-
-            Rpc rpc = new();
-            if (_settings.DefaultSignaturePolicy is PubsubSettings.SignaturePolicy.StrictNoSign)
-            {
-                rpc.Publish.Add(new Message
-                {
-                    Topic = topicId,
-                    Data = ByteString.CopyFrom(message),
-                });
-            }
-            else
-            {
-                rpc.WithMessages(topicId, seqNo++, localPeer.Identity.PeerId.Bytes, message, localPeer.Identity);
-            }
-
-            Message publishedMessage = rpc.Publish[0];
-            MessageId messageId = _settings.GetMessageId(publishedMessage);
             _seenMessages.Add(messageId);
             _messageCache.Put(messageId, publishedMessage);
 
