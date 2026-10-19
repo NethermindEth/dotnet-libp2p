@@ -16,7 +16,7 @@ public interface IPeerFactoryBuilder
     /// <returns>The same builder for chaining calls</returns>
     /// <param name="inboundLimit">
     /// Caps inbound streams for this protocol. Pass one instance to several registrations to give
-    /// them a shared allowance. Null leaves them uncapped, which is the behaviour without it.
+    /// them a shared allowance. Null leaves them uncapped, which is the behavior without it.
     /// </param>
     IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol;
     IPeerFactory Build();
