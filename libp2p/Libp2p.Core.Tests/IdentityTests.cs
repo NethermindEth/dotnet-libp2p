@@ -67,6 +67,105 @@ public class IdentityTests
         Assert.That(id.VerifySignature([1, 2, 3], new byte[length]), Is.False);
     }
 
+    /// <remarks>
+    /// Each signature is genuine for a real key of the same type, so only the key
+    /// is wrong. Every one of these used to throw out of
+    /// <see cref="Identity.VerifySignature"/>.
+    /// </remarks>
+    [TestCaseSource(nameof(UnusableKeys))]
+    public void Test_VerifySignature_ReturnsFalse_WhenKeyIsUnusable(PublicKey key, byte[] signature)
+    {
+        Assert.That(new Identity(key).VerifySignature(SignedMessage, signature), Is.False);
+    }
+
+    /// <remarks>
+    /// The key is valid, so only the signature is wrong. These mostly guard
+    /// against false positives: on Linux every case already returned false. On
+    /// macOS, where .NET uses Apple's crypto, an empty signature for an RSA key
+    /// threw a <see cref="System.Security.Cryptography.CryptographicException"/>.
+    /// </remarks>
+    [TestCaseSource(nameof(InvalidSignatures))]
+    public void Test_VerifySignature_ReturnsFalse_WhenSignatureIsInvalid(Identity signer, byte[] signature)
+    {
+        Assert.That(new Identity(signer.PublicKey).VerifySignature(SignedMessage, signature), Is.False);
+    }
+
+    /// <remarks>
+    /// A null argument is a caller bug, not untrusted input, so it still throws.
+    /// </remarks>
+    [Test]
+    public void Test_VerifySignature_Throws_WhenArgumentIsNull()
+    {
+        Identity identity = new();
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<ArgumentNullException>(() => identity.VerifySignature(null!, []));
+            Assert.Throws<ArgumentNullException>(() => identity.VerifySignature(SignedMessage, null!));
+        });
+    }
+
+    /// <remarks>
+    /// The decoder's usability invariant relies on this still throwing; if it
+    /// returned false too, that test could no longer fail.
+    /// </remarks>
+    [Test]
+    public void Test_VerifySignatureOrThrow_Throws_WhenKeyIsUnusable()
+    {
+        Identity truncated = new(new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(new byte[31]) });
+
+        Assert.Catch(() => truncated.VerifySignatureOrThrow(SignedMessage, new byte[64]));
+    }
+
+    private static readonly byte[] SignedMessage = [1, 2, 3];
+
+    public static IEnumerable<TestCaseData> UnusableKeys()
+    {
+        foreach (KeyType keyType in Enum.GetValues<KeyType>())
+        {
+            Identity real = new(keyType: keyType);
+            byte[] signature = real.Sign(SignedMessage);
+            byte[] data = real.PublicKey.Data.ToByteArray();
+
+            yield return Case($"Empty({keyType})", keyType, [], signature);
+            yield return Case($"ASingleZeroByte({keyType})", keyType, [0x00], signature);
+            yield return Case($"Truncated({keyType})", keyType, data[..^1], signature);
+            yield return Case($"Garbage({keyType})", keyType, [1, 2, 3, 4], signature);
+
+            if (keyType == KeyType.Secp256K1)
+            {
+                yield return Case("Secp256k1WithATrailingByte", keyType, [.. data, 0x00], signature);
+            }
+        }
+
+        yield return new TestCaseData(new PublicKey { Type = (KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }, new byte[64])
+            .SetName("Test_VerifySignature_ReturnsFalse_WhenKeyIsOfUnknownType");
+        yield return new TestCaseData(new PublicKey { Data = ByteString.CopyFrom([1, 2, 3]) }, new byte[64])
+            .SetName("Test_VerifySignature_ReturnsFalse_WhenKeyHasNoType");
+
+        static TestCaseData Case(string name, KeyType keyType, byte[] data, byte[] signature) =>
+            new TestCaseData(new PublicKey { Type = keyType, Data = ByteString.CopyFrom(data) }, signature)
+                .SetName($"Test_VerifySignature_ReturnsFalse_WhenKeyIs{name}");
+    }
+
+    public static IEnumerable<TestCaseData> InvalidSignatures()
+    {
+        foreach (KeyType keyType in Enum.GetValues<KeyType>())
+        {
+            Identity signer = new(keyType: keyType);
+            byte[] signature = signer.Sign(SignedMessage);
+
+            yield return Case("Empty", []);
+            yield return Case("Garbage", Enumerable.Repeat((byte)0xab, signature.Length).ToArray());
+            yield return Case("Truncated", signature[..^1]);
+            yield return Case("FollowedByAByte", [.. signature, 0x00]);
+            yield return Case("ForADifferentMessage", signer.Sign([.. SignedMessage, 0x00]));
+
+            TestCaseData Case(string name, byte[] invalid) =>
+                new TestCaseData(signer, invalid).SetName($"Test_VerifySignature_ReturnsFalse_WhenSignatureIs{name}({keyType})");
+        }
+    }
+
     [Test]
     public void Test_GeneratedSecp256K1KeysAlwaysSign()
     {

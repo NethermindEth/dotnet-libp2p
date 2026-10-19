@@ -174,6 +174,48 @@ public class NoiseProtocolTests
         listenTask.Wait(5000);
     }
 
+    /// <remarks>
+    /// The signature is checked before the peer ID, so an unusable key reaches
+    /// <see cref="Identity.VerifySignature"/>, which used to throw its own
+    /// exception out of the handshake.
+    /// </remarks>
+    [Test]
+    public void Test_DialerRejects_WhenResponderIdentityKeyIsUnusable()
+    {
+        var maliciousListener = new MaliciousResponderProtocol(
+            MaliciousResponderProtocol.CorruptionMode.UnusableIdentityKey,
+            new MultiplexerSettings());
+
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
+        dialerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        dialerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(2)}" });
+
+        TestChannel dialerUpChannel = new();
+        dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(dialerUpChannel);
+
+        NoiseProtocol dialer = new();
+
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
+        listenerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(2)]);
+        listenerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(1)}" });
+
+        TestChannel listenerUpChannel = new();
+        listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
+
+        Task listenTask = maliciousListener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = dialer.DialAsync(downChannelFromProtocolPov, dialerContext);
+
+        Assert.ThrowsAsync<Libp2pException>(async () => await dialTask,
+            "Dialer should reject connection when responder identity key is unusable");
+
+        listenTask.Wait(5000);
+    }
+
     [Test]
     public void Test_DialerRejects_WhenResponderSignatureUsesWrongIdentity()
     {
@@ -322,9 +364,46 @@ public class NoiseProtocolTests
         dialTask.Wait(5000);
     }
 
+    [Test]
+    public void Test_ListenerRejects_WhenInitiatorIdentityKeyIsUnusable()
+    {
+        var maliciousDialer = new MaliciousInitiatorProtocol(
+            MaliciousInitiatorProtocol.CorruptionMode.UnusableIdentityKey,
+            new MultiplexerSettings());
+
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
+        listenerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(2)]);
+        listenerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(1)}" });
+
+        TestChannel listenerUpChannel = new();
+        listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(listenerUpChannel);
+
+        NoiseProtocol listener = new();
+
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
+        dialerContext.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        dialerContext.State.Returns(new State() { RemoteAddress = $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(2)}" });
+
+        TestChannel dialerUpChannel = new();
+        dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(dialerUpChannel);
+
+        Task listenTask = listener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = maliciousDialer.DialAsync(downChannelFromProtocolPov, dialerContext);
+
+        Assert.ThrowsAsync<Libp2pException>(async () => await listenTask,
+            "Listener should reject connection when initiator identity key is unusable");
+
+        dialTask.Wait(5000);
+    }
+
     private class MaliciousResponderProtocol : NoiseProtocol
     {
-        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity }
+        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey }
 
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
@@ -393,6 +472,10 @@ public class NoiseProtocolTests
                     }
                     break;
 
+                case CorruptionMode.UnusableIdentityKey:
+                    payload = UnusableIdentityKeyPayload();
+                    break;
+
                 default:
                     throw new InvalidOperationException();
             }
@@ -412,7 +495,7 @@ public class NoiseProtocolTests
 
     private class MaliciousInitiatorProtocol : NoiseProtocol
     {
-        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity }
+        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey }
 
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
@@ -495,6 +578,10 @@ public class NoiseProtocolTests
                     }
                     break;
 
+                case CorruptionMode.UnusableIdentityKey:
+                    payload = UnusableIdentityKeyPayload();
+                    break;
+
                 default:
                     throw new InvalidOperationException();
             }
@@ -507,4 +594,13 @@ public class NoiseProtocolTests
             await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten2));
         }
     }
+
+    /// <summary>
+    /// A key of an unknown type with a non-empty signature, so the handshake gets as far as verifying it.
+    /// </summary>
+    private static NoiseHandshakePayload UnusableIdentityKeyPayload() => new()
+    {
+        IdentityKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString(),
+        IdentitySig = ByteString.CopyFrom(new byte[64]),
+    };
 }
