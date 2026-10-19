@@ -37,12 +37,12 @@ public class PeerScore
         return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams));
     }
 
-    /// <summary>
-    /// Calculates the total score for this peer
-    /// </summary>
     /// <summary>Read-only defaults for topics with no configured parameters.</summary>
     private static readonly TopicScoreParams DefaultTopicScoreParams = new();
 
+    /// <summary>
+    /// Calculates the total score for this peer
+    /// </summary>
     public double GetScore(Dictionary<string, int> ipCounts)
     {
         double score = 0;

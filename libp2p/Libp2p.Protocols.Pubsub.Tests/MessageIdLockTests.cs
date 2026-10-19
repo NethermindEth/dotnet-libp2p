@@ -268,6 +268,80 @@ public class MessageIdLockTests
         });
     }
 
+    [Test]
+    public void AFailedCalculationReleasesItsSlot()
+    {
+        // A delegate that throws must not keep its slot: with the bound at one, a single bad
+        // message would otherwise stop every later RPC from ever being identified.
+        PubsubSettings settings = Settings();
+        settings.MaxConcurrentMessageIdCalculations = 1;
+        settings.GetMessageId = message => message.Data.Span[0] == 0
+            ? throw new InvalidOperationException("message id calculation failed")
+            : new MessageId(message.Data.ToByteArray());
+
+        using PubsubRouter router = CreateRouter(settings);
+        ConnectPeers(router);
+        List<byte[]> deliveries = [];
+        router.GetTopic(Topic).OnMessage += (_, data) => deliveries.Add(data);
+
+        router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(0)));
+
+        Task later = Task.Run(() => router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1))));
+        Assert.Multiple(() =>
+        {
+            Assert.That(later.Wait(Timeout), Is.True, "The failed calculation never gave its slot back.");
+            Assert.That(deliveries, Has.Count.EqualTo(1), "The message after the failure must still be delivered.");
+        });
+    }
+
+    [Test]
+    public void PublishingStaysWithinTheConfiguredBound()
+    {
+        const int publishers = 6;
+        using CountdownEvent entered = new(1);
+        using ManualResetEventSlim release = new(false);
+        int active = 0;
+        int peak = 0;
+        PubsubSettings settings = Settings();
+        settings.MaxConcurrentMessageIdCalculations = 1;
+        settings.GetMessageId = message =>
+        {
+            int running = Interlocked.Increment(ref active);
+            InterlockedMax(ref peak, running);
+            if (!entered.IsSet)
+            {
+                entered.Signal();
+            }
+
+            release.Wait(Timeout);
+            Interlocked.Decrement(ref active);
+            return new MessageId(message.Data.ToByteArray());
+        };
+
+        using PubsubRouter router = CreateRouter(settings);
+        ILocalPeer local = Substitute.For<ILocalPeer>();
+        local.ListenAddresses.Returns([TestPeers.Multiaddr(9)]);
+        local.Identity.Returns(TestPeers.Identity(9));
+        _ = router.StartAsync(local);
+        ConnectPeers(router);
+
+        Task[] published = [.. Enumerable.Range(0, publishers).Select(i => Task.Factory.StartNew(
+            () => router.Publish(Topic, [(byte)i]),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default))];
+
+        try
+        {
+            Assert.That(entered.Wait(Timeout), Is.True, "No publish reached the calculation.");
+            Assert.That(Volatile.Read(ref peak), Is.LessThanOrEqualTo(1),
+                "Local publishes must share the same bound as received messages.");
+        }
+        finally
+        {
+            release.Set();
+            Task.WaitAll(published);
+        }
+    }
+
     [TestCase(1)]
     [TestCase(2)]
     public void ConcurrentCalculationsStayWithinTheConfiguredBound(int bound)

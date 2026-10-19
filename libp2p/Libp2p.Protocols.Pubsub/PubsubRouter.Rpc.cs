@@ -73,9 +73,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     RemoveExpiredPendingValidations();
                     HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
 
-                    // A peer that was connected when the RPC was admitted must still be the same
-                    // one: it can disconnect while the ids are calculated, and a reconnection must
-                    // not inherit that work.
+                    // A sender that was already connected when the RPC was admitted must still be
+                    // the same PubsubPeer: it can disconnect while the ids are calculated, and a
+                    // reconnection must not inherit that work. A sender not yet known then is let
+                    // through without that check, which is the usual case and keeps a peer that
+                    // becomes known during the calculation from losing this RPC.
                     if (publishIds is not null && (admittedPeer is null ||
                         (peerState.TryGetValue(peerId, out PubsubPeer? sender) && ReferenceEquals(sender, admittedPeer))))
                     {
