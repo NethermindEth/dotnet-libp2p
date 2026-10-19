@@ -785,6 +785,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             });
         }
 
+        // Only what was acquired may be released. The acquire below is for inbound streams only,
+        // so holding the limit itself rather than a flag keeps the dial path from refunding an
+        // allowance it never took, which would raise the cap a little further with every dial.
+        InboundStreamLimit? acquiredLimit = null;
         PeerId? limitedPeer = null;
         if (isListener && top.InboundLimit is { } inboundLimit)
         {
@@ -801,6 +805,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 upgradeActivity?.Dispose();
                 return Task.CompletedTask;
             }
+
+            acquiredLimit = inboundLimit;
         }
 
         try
@@ -863,7 +869,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             upgradeTask.ContinueWith(t =>
             {
-                top.InboundLimit?.Release(limitedPeer);
+                acquiredLimit?.Release(limitedPeer);
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {

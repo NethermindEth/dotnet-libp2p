@@ -101,6 +101,43 @@ public class InboundStreamLimitTests
         }
     }
 
+    [Test]
+    public async Task TheCapStillBindsAfterEarlierStreamsFinish()
+    {
+        // Both peers register the protocol against the same limit, so this covers the dial path too:
+        // releasing an allowance that was never acquired drives the count below zero and widens the
+        // cap by one for every stream dialled, until the limit stops limiting anything.
+        InboundStreamLimit limit = new(maxConcurrent: 1);
+        await using LimitedE2eTestSetup test = new(limit);
+        await test.AddPeersAsync(2);
+        ISession session = await test.Peers[0].DialAsync([.. test.Peers[1].ListenAddresses]);
+
+        try
+        {
+            GatedProtocol.Release.Set();
+            for (int i = 0; i < 3; i++)
+            {
+                await session.DialAsync<GatedProtocol>().WaitAsync(Timeout);
+            }
+
+            GatedProtocol.Listening.Reset();
+            GatedProtocol.Release.Reset();
+
+            Task first = session.DialAsync<GatedProtocol>();
+            Assert.That(GatedProtocol.Listening.Wait(Timeout), Is.True, "The first stream never reached the protocol.");
+
+            Assert.ThrowsAsync<ChannelClosedException>(async () => await session.DialAsync<GatedProtocol>(),
+                "The allowance is still one, however many streams have come and gone.");
+
+            GatedProtocol.Release.Set();
+            Assert.That(first.Wait(Timeout), Is.True);
+        }
+        finally
+        {
+            GatedProtocol.Release.Set();
+        }
+    }
+
     [TearDown]
     public void ResetGate()
     {
