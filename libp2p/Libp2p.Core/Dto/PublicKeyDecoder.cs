@@ -20,6 +20,7 @@ namespace Nethermind.Libp2p.Core.Dto;
 public static class PublicKeyDecoder
 {
     private const int Secp256k1CompressedLength = 33;
+    private const int Secp256k1UncompressedLength = 65;
 
     private static readonly X9ECParameters Secp256k1 = CustomNamedCurves.GetByName("secp256k1");
 
@@ -118,17 +119,20 @@ public static class PublicKeyDecoder
     /// bytes, which keeps the serialized key under the 42-byte inlining limit;
     /// the 65-byte forms are hashed with SHA2-256 instead, so the IDs differ
     /// in multihash code as well as digest. BouncyCastle checks the point is
-    /// on the curve and that a hybrid prefix matches the parity of y, but it
-    /// also decodes a single zero byte as the point at infinity, which cannot
-    /// verify anything.
+    /// on the curve and that a hybrid prefix matches the parity of y.
     /// </remarks>
     private static ByteString CompressSecp256k1(ByteString data)
     {
-        ECPoint point = Secp256k1.Curve.DecodePoint(data.ToByteArray());
-        if (point.IsInfinity)
+        // Only the two SEC1 point sizes can hold a key, so anything else is
+        // rejected before decoding. That also rules out the one-byte encoding
+        // of the point at infinity, which BouncyCastle would otherwise decode.
+        if (data.Length is not (Secp256k1CompressedLength or Secp256k1UncompressedLength))
         {
-            throw new Libp2pException("Secp256k1 public key is the point at infinity.");
+            throw new Libp2pException(
+                $"Secp256k1 public key must be {Secp256k1CompressedLength} or {Secp256k1UncompressedLength} bytes, got {data.Length}.");
         }
+
+        ECPoint point = Secp256k1.Curve.DecodePoint(data.ToByteArray());
 
         // A compressed point that decodes re-encodes to the same bytes.
         return data.Length == Secp256k1CompressedLength ? data : ByteString.CopyFrom(point.GetEncoded(true));
