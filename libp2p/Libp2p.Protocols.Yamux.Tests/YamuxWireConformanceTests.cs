@@ -21,6 +21,17 @@ namespace Nethermind.Libp2p.Protocols.Yamux.Tests;
 [TestFixture]
 public class YamuxWireConformanceTests
 {
+    [TestCase(null, 65524, TestName = "FrameLengthWithoutAnAdvertisedWriteSizeUsesTheProtocolCap")]
+    [TestCase(65519, 65507, TestName = "FrameLengthFitsOneNoiseRecord")]
+    [TestCase(4 * 1024 * 1024, 65524, TestName = "FrameLengthNeverExceedsTheProtocolCap")]
+    [TestCase(12, 65524, TestName = "FrameLengthIgnoresAWriteSizeWithNoRoomForAHeader")]
+    public void FrameLengthFollowsTheAdvertisedWriteSize(int? preferredWriteSize, int expected)
+    {
+        // A frame is one header-plus-body write, so it must fit whole inside whatever the layer
+        // below carries unsplit, or every frame spills into a second record.
+        Assert.That(YamuxProtocol.DataFrameLengthFor(preferredWriteSize), Is.EqualTo(expected));
+    }
+
     [Test]
     public async Task OutboundDataFramesNeverExceedMaxFrameSize()
     {
