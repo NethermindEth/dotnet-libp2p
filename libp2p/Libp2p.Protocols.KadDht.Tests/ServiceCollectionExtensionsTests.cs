@@ -338,7 +338,7 @@ public class ServiceCollectionExtensionsTests
 
         public IServiceCollection Services { get; }
 
-        public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true)
+        public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null)
             where TProtocol : IProtocol
         {
             if (instance is null)

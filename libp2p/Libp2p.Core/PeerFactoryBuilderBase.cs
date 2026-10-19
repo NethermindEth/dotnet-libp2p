@@ -6,13 +6,16 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Nethermind.Libp2p.Core;
 
-public class ProtocolRef(IProtocol protocol, bool isExposed = true)
+public class ProtocolRef(IProtocol protocol, bool isExposed = true, InboundStreamLimit? inboundLimit = null)
 {
     static int RefIdCounter = 0;
 
     public string RefId { get; } = Interlocked.Increment(ref RefIdCounter).ToString();
     public IProtocol Protocol => protocol;
     public bool IsExposed => isExposed;
+
+    /// <summary>Caps inbound streams for this registration, or null to leave them uncapped.</summary>
+    public InboundStreamLimit? InboundLimit => inboundLimit;
 
     public string Id => Protocol.Id;
 
@@ -76,9 +79,9 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
         }
     }
 
-    public IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol
+    public IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol
     {
-        _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed));
+        _appLayerProtocols.Add(new ProtocolRef(CreateProtocolInstance(ServiceProvider!, instance), isExposed, inboundLimit));
         return (TBuilder)this;
     }
 

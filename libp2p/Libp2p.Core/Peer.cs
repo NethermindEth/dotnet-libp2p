@@ -785,6 +785,24 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             });
         }
 
+        PeerId? limitedPeer = null;
+        if (isListener && top.InboundLimit is { } inboundLimit)
+        {
+            limitedPeer = session.State.RemotePeerId;
+            if (!inboundLimit.TryAcquire(limitedPeer))
+            {
+                // Refuse before the protocol reads anything, and reset rather than end the stream,
+                // as go-libp2p does for a denied reservation: an orderly close would reach the peer
+                // as an empty reply it could mistake for a protocol-level answer. Nothing tells the
+                // peer to back off, which matches go — there is no such signal in libp2p.
+                _logger?.LogDebug($"Inbound stream for {top} refused: {inboundLimit.MaxConcurrent} already in flight");
+                cancellationRegistration.Dispose();
+                _ = downChannel.AbortAsync();
+                upgradeActivity?.Dispose();
+                return Task.CompletedTask;
+            }
+        }
+
         try
         {
             switch (top.Protocol)
@@ -845,6 +863,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             upgradeTask.ContinueWith(t =>
             {
+                top.InboundLimit?.Release(limitedPeer);
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {

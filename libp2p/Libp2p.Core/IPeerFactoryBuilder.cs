@@ -14,7 +14,11 @@ public interface IPeerFactoryBuilder
     /// <param name="instance">Instance of the protocol can be passed if manual creation is preferred over automatic creation via dependency injection.</param>
     /// <param name="isExposed">Whether information about protocol support is shared during the handshake.</param>
     /// <returns>The same builder for chaining calls</returns>
-    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true) where TProtocol : IProtocol;
+    /// <param name="inboundLimit">
+    /// Caps inbound streams for this protocol. Pass one instance to several registrations to give
+    /// them a shared allowance. Null leaves them uncapped, which is the behaviour without it.
+    /// </param>
+    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol;
     IPeerFactory Build();
     IServiceProvider ServiceProvider { get; }
 }
