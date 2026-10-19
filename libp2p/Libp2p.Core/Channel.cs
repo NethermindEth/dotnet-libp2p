@@ -399,15 +399,17 @@ public class Channel : IChannel
                         _canRead.Release();
                     }
 
-                    // Wait for the reader to release the chunk. Releasing means consumed on the
-                    // normal path, but teardown releases by discarding what is left, so only the
-                    // former counts as delivered: reporting a cancellation for bytes that did
-                    // arrive invites a retry, and a retry here duplicates them.
+                    // Wait for the reader to release the chunk, having kept the publish in place.
                     await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
-                    if ((Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0)
-                    {
-                        return ClosedIoResult;
-                    }
+                }
+
+                // Either wait can be satisfied by teardown releasing the chunk, which discards what
+                // is left instead of consuming it, so neither path may assume delivery. Only
+                // consumption is reported as written: saying a cancelled write arrived invites a
+                // retry that duplicates it, and saying a discarded one arrived loses it silently.
+                if ((Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0)
+                {
+                    return ClosedIoResult;
                 }
 
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);
