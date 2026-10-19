@@ -77,8 +77,9 @@ public class LibP2pKademliaMessageSenderTests
 
         // Assert
         await _mockLocalPeer.Received(1).DialAsync(multiaddr, Arg.Any<CancellationToken>());
-        await mockSession.Received(1).DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
-            Arg.Is<Message>(m => m.Type == Message.Types.MessageType.Ping), Arg.Any<CancellationToken>());
+        // The Kad-DHT spec forbids actively sending PING; liveness is the established connection.
+        await mockSession.DidNotReceive().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -229,21 +230,19 @@ public class LibP2pKademliaMessageSenderTests
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var mockSession = Substitute.For<ISession>();
 
-        // First call succeeds, second fails, third succeeds
+        // The protocol request in the middle fails, which must drop the cached session
         mockSession.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
             Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(MessageHelper.CreatePingResponse()),
-                     Task.FromException<Message>(new Exception("Protocol failed")),
-                     Task.FromResult(MessageHelper.CreatePingResponse()));
+            .Returns(Task.FromException<Message>(new Exception("Protocol failed")));
 
         var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(mockSession));
 
-        // Act - First ping succeeds, second fails
+        // Act - First ping succeeds, the following request fails
         await _messageSender.Ping(node, CancellationToken.None);
 
-        Assert.That(async () => await _messageSender.Ping(node, CancellationToken.None),
+        Assert.That(async () => await _messageSender.FindNeighbours(node, new PublicKey(new byte[32]), CancellationToken.None),
             Throws.TypeOf<Exception>());
 
         // Try third time - should create new session

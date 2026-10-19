@@ -41,12 +41,8 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     public async Task Ping(TNode receiver, CancellationToken token)
     {
         ThrowIfDisposed();
-        await WithSession(receiver, "PING", token, async session =>
-        {
-            var request = MessageHelper.CreatePingRequest();
-            await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, token)
-                .ConfigureAwait(false);
-        });
+        // Kad-DHT PING is deprecated and must not be sent; an established session is the liveness check.
+        await WithSession(receiver, "liveness check", token, _ => Task.CompletedTask);
     }
 
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)

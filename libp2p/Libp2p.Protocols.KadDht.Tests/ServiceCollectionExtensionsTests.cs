@@ -53,7 +53,7 @@ public class ServiceCollectionExtensionsTests
         await protocol.BootstrapAsync();
 
         Assert.That(state.GetKNearestPeers(bootstrapNode.PublicKey).Any(p => p.PeerId.Equals(peerId)), Is.True);
-        await session.Received().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+        await session.DidNotReceive().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
             Arg.Is<Message>(m => m.Type == Message.Types.MessageType.Ping), Arg.Any<CancellationToken>());
     }
 
@@ -94,17 +94,17 @@ public class ServiceCollectionExtensionsTests
         var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
         var node = peerId.ToDhtNode();
         var session = Substitute.For<ISession>();
-        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(session);
-        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
-            Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(_ => succeeds
-                ? Task.FromResult(MessageHelper.CreatePingResponse())
-                : Task.FromException<Message>(new InvalidOperationException("Disconnected")));
+        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(_ => succeeds
+            ? Task.FromResult(session)
+            : Task.FromException<ISession>(new InvalidOperationException("Disconnected")));
         protocol.AddNode(node);
         protocol.RoutingTable!.Remove(new DhtNodeHashProvider().GetHash(node));
 
         Assert.That(await sender.Ping(node, CancellationToken.None), Is.EqualTo(succeeds));
         var peers = serviceProvider.GetRequiredService<SharedDhtState>().GetKNearestPeers(node.PublicKey);
         Assert.That(peers.Any(p => p.PeerId.Equals(peerId)), Is.EqualTo(succeeds));
+        await session.DidNotReceive().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     private IServiceCollection _services;

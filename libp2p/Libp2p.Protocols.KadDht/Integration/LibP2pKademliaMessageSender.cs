@@ -35,18 +35,17 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
     public async Task<bool> Ping(DhtNode receiver, CancellationToken token = default)
     {
-        _logger?.LogDebug("Sending Ping to {NodeId}", receiver.PeerId);
+        _logger?.LogDebug("Checking liveness of {NodeId}", receiver.PeerId);
 
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeoutCts.CancelAfter(_operationTimeout);
 
-            var session = await DialNodeAsync(receiver, timeoutCts.Token);
-            var request = MessageHelper.CreatePingRequest();
-            await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
+            // Kad-DHT PING is deprecated and must not be sent; a successful dial is the liveness check.
+            await DialNodeAsync(receiver, timeoutCts.Token);
 
-            _logger?.LogTrace("Ping response from {NodeId}", receiver.PeerId);
+            _logger?.LogTrace("Connection to {NodeId} is alive", receiver.PeerId);
             // Bootstrap relies on the transport to re-admit responding bootnodes.
             _onPingResponse?.Invoke(receiver);
             return true;
