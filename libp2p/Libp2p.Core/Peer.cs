@@ -787,9 +787,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {
-                    if (t.Exception?.InnerException is ChannelClosedException or SessionExistsException)
+                    if (t.Exception?.InnerException is ChannelClosedException or ChannelAbortedException or SessionExistsException)
                     {
-                        _logger?.LogDebug($"Upgrade task cancelled (duplicate connection): {t.Exception.InnerException.Message}");
+                        _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {t.Exception.InnerException.Message}");
                     }
                     else
                     {

@@ -44,6 +44,9 @@ public class NoiseProtocol : IConnectionProtocol
 
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
+    /// <summary>Plaintext carried by one Noise message: the transport message limit less its 16-byte tag.</summary>
+    private const int MaxPlaintextPerMessage = Protocol.MaxMessageLength - 16;
+
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
@@ -138,6 +141,9 @@ public class NoiseProtocol : IConnectionProtocol
         Transport? transport = msg2.Transport;
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
+
+        // Each write becomes one Noise message, so a write of this size costs one record.
+        context.State.PreferredWriteSize = MaxPlaintextPerMessage;
 
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
@@ -240,6 +246,9 @@ public class NoiseProtocol : IConnectionProtocol
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
 
+        // Each write becomes one Noise message, so a write of this size costs one record.
+        context.State.PreferredWriteSize = MaxPlaintextPerMessage;
+
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
         await ExchangeData(transport, downChannel, upChannel, _logger);
@@ -277,7 +286,7 @@ public class NoiseProtocol : IConnectionProtocol
         {
             for (; ; )
             {
-                ReadResult dataReadResult = await upChannel.ReadAsync(Protocol.MaxMessageLength - 16, ReadBlockingMode.WaitAny);
+                ReadResult dataReadResult = await upChannel.ReadAsync(MaxPlaintextPerMessage, ReadBlockingMode.WaitAny);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("End reading, due to {}", dataReadResult.Result);

@@ -105,6 +105,12 @@ public class ChannelStream : Stream
         return WriteAsyncCore(source, cancellationToken).AsTask();
     }
 
+    /// <remarks>
+    /// Once a read has taken part of this write, the remainder is owed to the reader and
+    /// <paramref name="cancellationToken"/> no longer bounds the call: it returns when that
+    /// remainder is consumed, and succeeds, because the bytes did arrive. Dispose the stream to
+    /// give up instead — that closes the channel and ends the write without delivering the rest.
+    /// </remarks>
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
         if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
