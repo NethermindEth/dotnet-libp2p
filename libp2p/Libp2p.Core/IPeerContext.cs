@@ -32,7 +32,13 @@ public interface ISessionContext : IConnectionContext
 {
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol protocol);
-    Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>;
+
+    /// <summary>Dials a session protocol without a request payload and returns its response.</summary>
+    /// <remarks>The default implementation does not support typed responses. Implementations must override this method to return protocol results.</remarks>
+    /// <exception cref="NotSupportedException">The session implementation does not support typed responses.</exception>
+    Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
+        => Task.FromException<TResponse>(new NotSupportedException("This session does not support typed protocol responses."));
+
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
 }
 
