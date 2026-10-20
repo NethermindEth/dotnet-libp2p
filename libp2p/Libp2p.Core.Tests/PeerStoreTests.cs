@@ -5,6 +5,9 @@ using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
+using System.Buffers.Binary;
+using Nethermind.Libp2p.Core.TestsBase;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -18,6 +21,216 @@ namespace Nethermind.Libp2p.Core.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class PeerStoreTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public void MetadataDoesNotPreventRemoteAddressRefresh(bool publishProtocols)
+    {
+        PeerStore store = new(1);
+        PeerId peerId = TestPeers.PeerId(1);
+        Multiaddress updated = $"/ip4/192.0.2.20/tcp/4001/p2p/{peerId}";
+        store.Discover([$"/ip4/192.0.2.10/tcp/4001/p2p/{peerId}"], isTrusted: false);
+        if (publishProtocols) store.SetSupportedProtocols(peerId, ["/meshsub/1.3.0"]);
+        else store.GetPeerInfo(peerId);
+        List<Multiaddress[]> announcements = [];
+        store.OnNewPeer += announcements.Add;
+        announcements.Clear();
+
+        store.Discover([updated], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(peerId).Addrs, Is.EquivalentTo(new[] { updated }));
+        Assert.That(announcements, Has.Count.EqualTo(1));
+        Assert.That(announcements[0], Is.EqualTo(new[] { updated }));
+    }
+
+    [Test]
+    public void UnsignedDiscoveryCannotReplaceSignedAddresses()
+    {
+        Identity remote = TestPeers.Identity(1);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        PeerStore store = new(1);
+        store.Discover(SignedRecord(remote), state);
+
+        store.Discover([$"/ip4/192.0.2.20/tcp/4001/p2p/{remote.PeerId}"], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs,
+            Is.EquivalentTo(new Multiaddress[] { $"/ip4/127.0.0.1/tcp/4001/p2p/{remote.PeerId}" }));
+    }
+
+    [Test]
+    public void RemoteDiscoveryCanFillAnAddressMissingFromAuthenticatedMetadata()
+    {
+        PeerStore store = new(1);
+        store.SetSupportedProtocols(TestPeers.PeerId(1), ["/meshsub/1.3.0"]);
+
+        store.Discover([TestPeers.Multiaddr(1)], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { TestPeers.Multiaddr(1).ToString() }));
+    }
+
+    [Test]
+    public void RemoteAddressesCannotReplaceConfiguredAddresses()
+    {
+        PeerStore store = new(1);
+        Multiaddress configured = TestPeers.Multiaddr(1);
+        store.Discover([configured]);
+
+        store.Discover([$"/ip4/192.0.2.1/tcp/9999/p2p/{TestPeers.PeerId(1)}"], isTrusted: false);
+        store.Discover([$"/ip4/192.0.2.2/tcp/9999/p2p/{TestPeers.PeerId(2)}"], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { configured.ToString() }));
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
+    [Test]
+    public void DisconnectedMetadataPublicationTargetsTheCurrentEntry()
+    {
+        PeerStore store = new(1);
+        PeerStore.PeerInfo evicted = store.GetPeerInfo(TestPeers.PeerId(1));
+        store.GetPeerInfo(TestPeers.PeerId(2));
+
+        store.SetSupportedProtocols(TestPeers.PeerId(1), ["/meshsub/1.3.0"]);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)), Is.Not.SameAs(evicted));
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
+        Assert.That(evicted.SupportedProtocols, Is.Null);
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
+    [Test]
+    public void PeerExchangeCannotDisplaceConfiguredSeeds()
+    {
+        PeerStore store = new(2);
+        store.Discover([TestPeers.Multiaddr(1)]);
+        Identity[] exchanged = Enumerable.Range(2, 8).Select(TestPeers.Identity).ToArray();
+
+        foreach (Identity peer in exchanged) store.Discover(SignedRecord(peer));
+
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(1), out _), Is.True);
+        Assert.That(exchanged.Count(peer => store.TryGetPeerInfo(peer.PeerId, out _)), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void SessionRecordCallbacksRunOutsidePublicationLocks()
+    {
+        Identity remote = TestPeers.Identity(8);
+        PeerStore store = new(1);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        Lock storeLock = (Lock)typeof(PeerStore).GetField("_storeLock", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(store)!;
+        string address = $"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}";
+        bool announced = false;
+        store.OnNewPeer += addresses =>
+        {
+            announced = true;
+            Assert.That(addresses.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
+            Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.True);
+            bool locksAvailable = Task.Run(() =>
+            {
+                if (!state.PeerRecordLock.TryEnter()) return false;
+                try
+                {
+                    if (!storeLock.TryEnter()) return false;
+                    storeLock.Exit();
+                    return true;
+                }
+                finally
+                {
+                    state.PeerRecordLock.Exit();
+                }
+            }).GetAwaiter().GetResult();
+            Assert.That(locksAvailable, Is.True, "Subscribers must be able to inspect session and peer metadata from another thread.");
+        };
+
+        store.Discover(SigningHelper.CreateSignedEnvelope(remote, [address], 42), state);
+
+        Assert.That(announced, Is.True);
+        Assert.That(state.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
+    }
+
+    [Test]
+    public void DialingUnknownPeerDoesNotEvictKnownPeer()
+    {
+        PeerStore store = new(1);
+        PeerId known = TestPeers.PeerId(2);
+        store.Discover([TestPeers.Multiaddr(2)]);
+        LocalPeer peer = new(TestPeers.Identity(1), store, new ProtocolStackSettings());
+
+        Assert.ThrowsAsync<Exceptions.Libp2pException>(async () => await peer.DialAsync(TestPeers.PeerId(3)));
+
+        Assert.That(store.TryGetPeerInfo(known, out PeerStore.PeerInfo? retained), Is.True);
+        Assert.That(retained!.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { TestPeers.Multiaddr(2).ToString() }));
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.False);
+    }
+
+    [Test]
+    public void DefaultCapacityEvictsTheOldestPeer()
+    {
+        PeerStore store = new();
+        PeerId[] ids = Enumerable.Range(0, 10_001).Select(i =>
+        {
+            byte[] hash = new byte[34];
+            hash[0] = 0x12;
+            hash[1] = 0x20;
+            BinaryPrimitives.WriteInt32LittleEndian(hash.AsSpan(30), i);
+            return new PeerId(hash);
+        }).ToArray();
+        foreach (PeerId id in ids) store.GetPeerInfo(id);
+
+        Assert.That(store.TryGetPeerInfo(ids[0], out _), Is.False, "The store must not retain every peer indefinitely.");
+        Assert.That(store.TryGetPeerInfo(ids[1], out _), Is.True);
+        Assert.That(store.TryGetPeerInfo(ids[^1], out _), Is.True);
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void CapacityMustBePositive(int capacity) => Assert.Throws<ArgumentOutOfRangeException>(() => new PeerStore(capacity));
+
+    [Test]
+    public void ExistingLookupsPreserveEntryAndInsertionOrder()
+    {
+        PeerStore store = new(2);
+        PeerId first = TestPeers.PeerId(1);
+        PeerId second = TestPeers.PeerId(2);
+        PeerStore.PeerInfo original = store.GetPeerInfo(first);
+        store.GetPeerInfo(second);
+        for (int i = 0; i < 100; i++) Assert.That(store.GetPeerInfo(first), Is.SameAs(original));
+
+        store.GetPeerInfo(TestPeers.PeerId(3));
+
+        Assert.That(store.TryGetPeerInfo(first, out _), Is.False);
+        Assert.That(store.TryGetPeerInfo(second, out _), Is.True);
+        Assert.That(store.GetPeerInfo(first), Is.Not.SameAs(original));
+        Assert.That(store.TryGetPeerInfo(second, out _), Is.False);
+    }
+
+    [Test]
+    public void DiscoveryUsesTheSameCapacityAndReplaysOnlyRetainedPeers()
+    {
+        PeerStore store = new(2);
+        store.Discover([TestPeers.Multiaddr(1)]);
+        store.Discover([TestPeers.Multiaddr(2)]);
+        store.Discover([TestPeers.Multiaddr(3)]);
+        List<PeerId?> replayed = [];
+        store.OnNewPeer += addrs => replayed.Add(addrs[0].GetPeerId());
+
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(1), out _), Is.False);
+        Assert.That(replayed, Is.EquivalentTo(new[] { TestPeers.PeerId(2), TestPeers.PeerId(3) }));
+    }
+
+    [Test]
+    public void ConcurrentInsertionsStayWithinCapacity()
+    {
+        PeerStore store = new(4);
+        PeerId[] ids = Enumerable.Range(1, 100).Select(TestPeers.PeerId).ToArray();
+
+        Parallel.ForEach(ids, id => store.GetPeerInfo(id));
+
+        Assert.That(ids.Count(id => store.TryGetPeerInfo(id, out _)), Is.EqualTo(4));
+        PeerId last = TestPeers.PeerId(101);
+        store.GetPeerInfo(last);
+        Assert.That(store.TryGetPeerInfo(last, out _), Is.True);
+        Assert.That(ids.Count(id => store.TryGetPeerInfo(id, out _)), Is.EqualTo(3));
+    }
+
     [Test]
     public void Test_Discover_AnnouncesPeer_WhenRecordIsValid()
     {

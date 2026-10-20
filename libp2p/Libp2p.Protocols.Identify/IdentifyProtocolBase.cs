@@ -14,6 +14,7 @@ using System.Net.Sockets;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
+using System.Text;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -23,6 +24,9 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private const int MaxMessageLength = 8 * 1024;
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    // Bound retained metadata independently of the Identify wire message limit.
+    private const int DefaultProtocolCapacity = 64;
+    private const int MaxStoredProtocolIdBytes = 128;
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
     private readonly PeerStore? _peerStore = peerStore;
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
@@ -46,27 +50,44 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         }
 
         ByteString? signedPeerRecord = identify.HasSignedPeerRecord ? identify.SignedPeerRecord : null;
+        ulong? priorSeq = context.State.VerifiedPeerRecordSequence;
+        if (_peerStore?.GetVerifiedPeerRecordSequence(context.State.RemotePeerId) is { } cachedSeq)
+        {
+            if (priorSeq is null || cachedSeq > priorSeq) priorSeq = cachedSeq;
+        }
         bool mayOmitPeerRecord = isPush && signedPeerRecord is null &&
-            (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.RequireCorrect ||
-                _peerStore is not null && _peerStore.TryGetPeerInfo(context.State.RemotePeerId, out PeerStore.PeerInfo? priorInfo) &&
-                priorInfo?.SignedPeerRecord is not null);
+            (_settings.PeerRecordsVerificationPolicy != PeerRecordsVerificationPolicy.RequireCorrect || priorSeq is not null);
         bool verifiedPeerRecord = VerifySignedPeerRecordOrThrow(signedPeerRecord, context.State.RemotePublicKey, context.State.RemotePeerId, mayOmitPeerRecord, out ulong seq);
+        if (priorSeq is { } prior)
+        {
+            context.State.RecordVerifiedPeerRecordSequence(prior);
+        }
+        if (verifiedPeerRecord && _peerStore is null) context.State.RecordVerifiedPeerRecordSequence(seq);
 
         if (_peerStore is not null)
         {
-            PeerStore.PeerInfo peerInfo = _peerStore.GetPeerInfo(context.State.RemotePeerId);
-
             // Repeated fields have no presence bit, so an empty Push must not erase known protocols.
             if (!isPush || identify.Protocols.Count > 0)
             {
-                peerInfo.SupportedProtocols = identify.Protocols.ToArray();
+                List<string> protocols = new(DefaultProtocolCapacity);
+                HashSet<string> selected = new(StringComparer.Ordinal);
+                foreach (ProtocolRef protocol in _protocolStackSettings.Protocols?.Keys.AsEnumerable() ?? [])
+                {
+                    if (protocol.Protocol is ISessionListenerProtocol && identify.Protocols.Contains(protocol.Id) && selected.Add(protocol.Id))
+                    {
+                        protocols.Add(protocol.Id);
+                    }
+                }
+                foreach (string protocol in identify.Protocols)
+                {
+                    if (protocols.Count >= DefaultProtocolCapacity) break;
+                    if (protocol.Length <= MaxStoredProtocolIdBytes && Encoding.UTF8.GetByteCount(protocol) <= MaxStoredProtocolIdBytes && selected.Add(protocol)) protocols.Add(protocol);
+                }
+                _peerStore.SetSupportedProtocols(context.State.RemotePeerId, protocols.ToArray());
             }
-            if (verifiedPeerRecord && (peerInfo.Seq is null || seq > peerInfo.Seq))
+            if (verifiedPeerRecord)
             {
-                peerInfo.SignedPeerRecord = signedPeerRecord;
-                peerInfo.Seq = seq;
-                // Extract and store peer's advertised addresses from signed peer record
-                _peerStore.Discover(signedPeerRecord!);
+                _peerStore.Discover(signedPeerRecord!, context.State);
             }
         }
     }

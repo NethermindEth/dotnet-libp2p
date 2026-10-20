@@ -76,6 +76,7 @@ public partial class LocalPeer
         private bool _disconnected;
         private bool _connectionCounted;
         private bool _sessionCounted;
+        private PeerId? _retainedPeerId;
 
         internal void RegisterConnection()
         {
@@ -95,6 +96,9 @@ public partial class LocalPeer
             {
                 if (_disconnected) throw new OperationCanceledException(ConnectionToken);
                 if (_sessionCounted) return;
+                PeerId remotePeerId = State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
+                peer._peerStore?.Retain(remotePeerId);
+                _retainedPeerId = remotePeerId;
                 _sessionCounted = true;
                 Libp2pMetrics.SessionsOpened.Add(1);
                 Libp2pMetrics.SessionsActive.Add(1);
@@ -121,6 +125,7 @@ public partial class LocalPeer
             {
                 if (closeSession)
                 {
+                    if (_retainedPeerId is { } peerId) peer._peerStore?.Release(peerId);
                     ConnectedTcs.TrySetCanceled(ConnectionToken);
                     Libp2pMetrics.SessionsClosed.Add(1);
                     Libp2pMetrics.SessionsActive.Add(-1);

@@ -171,8 +171,7 @@ public static class ServiceCollectionExtensions
 
         try
         {
-            var peerInfo = peerStore.GetPeerInfo(node.PeerId);
-            if (peerInfo.Addrs is { Count: > 0 })
+            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? peerInfo) && peerInfo?.Addrs is { Count: > 0 })
             {
                 return new DhtNode
                 {
@@ -207,8 +206,7 @@ public static class ServiceCollectionExtensions
         if (peerStore == null) return;
         try
         {
-            var existingInfo = peerStore.GetPeerInfo(node.PeerId);
-            if (existingInfo.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
+            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? existingInfo) && existingInfo?.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
                 return;
 
             var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
@@ -222,7 +220,7 @@ public static class ServiceCollectionExtensions
             }
 
             if (addresses.Count > 0)
-                peerStore.Discover(addresses.ToArray());
+                peerStore.Discover(addresses.ToArray(), isTrusted: false);
         }
         catch { }
     }
