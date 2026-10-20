@@ -13,21 +13,21 @@ public class DnsClientLookup : IDnsLookup
 
     public DnsClientLookup() => _lookup = new LookupClient();
 
-    public async Task<IEnumerable<string>> QueryTxtAsync(string name)
+    public async Task<IEnumerable<string>> QueryTxtAsync(string name, CancellationToken token = default)
     {
-        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.TXT);
+        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.TXT, cancellationToken: token);
         return result.Answers.TxtRecords().SelectMany(r => r.Text ?? Enumerable.Empty<string>());
     }
 
-    public async Task<IEnumerable<System.Net.IPAddress>> QueryAAsync(string name)
+    public async Task<IEnumerable<System.Net.IPAddress>> QueryAAsync(string name, CancellationToken token = default)
     {
-        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.A);
+        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.A, cancellationToken: token);
         return result.Answers.ARecords().Select(r => r.Address);
     }
 
-    public async Task<IEnumerable<System.Net.IPAddress>> QueryAaaaAsync(string name)
+    public async Task<IEnumerable<System.Net.IPAddress>> QueryAaaaAsync(string name, CancellationToken token = default)
     {
-        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.AAAA);
+        IDnsQueryResponse result = await _lookup.QueryAsync(name, QueryType.AAAA, cancellationToken: token);
         return result.Answers.AaaaRecords().Select(r => r.Address);
     }
 }

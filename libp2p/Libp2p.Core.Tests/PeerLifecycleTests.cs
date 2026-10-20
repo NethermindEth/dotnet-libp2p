@@ -7,6 +7,7 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -143,11 +144,13 @@ internal class PeerLifecycleTests
     public async Task SynchronousDialFailureDoesNotCacheFailedAttempt()
     {
         GateTransport transport = new();
-        ControlledPeer peer = new(TestPeers.Identity(1), transport);
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        dns.QueryTxtAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IEnumerable<string>>([]));
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, resolver: new MultiaddrResolver(dns));
         Multiaddress remoteAddress = TestPeers.Multiaddr(2);
 
         Assert.ThrowsAsync<Libp2pException>(async () =>
-            await peer.DialAsync([remoteAddress, TestPeers.Multiaddr(3)], CancellationToken.None));
+            await peer.DialAsync((Multiaddress)$"/dnsaddr/missing.test/p2p/{remoteAddress.GetPeerId()}"));
 
         Task<ISession> retry = peer.DialAsync(remoteAddress);
         Assert.That(retry.IsCompleted, Is.False, "the failed attempt must not be reused");
@@ -156,6 +159,108 @@ internal class PeerLifecycleTests
         ISession session = await retry.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(transport.DialCount, Is.EqualTo(1));
         await session.DisconnectAsync();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailedAndForeignAddressesDoNotPreventDialingTheValidAddress(bool includeFailedName)
+    {
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        dns.QueryTxtAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromException<IEnumerable<string>>(new DnsClient.DnsResponseException("lookup failed")));
+        GateTransport transport = new();
+        transport.CompleteDial.SetResult();
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, resolver: new MultiaddrResolver(dns));
+        Multiaddress valid = TestPeers.Multiaddr(2);
+
+        Multiaddress[] addresses = includeFailedName
+            ? [$"/dnsaddr/broken.test/p2p/{valid.GetPeerId()}", TestPeers.Multiaddr(3), valid]
+            : [valid, TestPeers.Multiaddr(3)];
+        ISession session = await peer.DialAsync(addresses, CancellationToken.None);
+        try
+        {
+            Assert.That(session.RemoteAddress.ToString(), Is.EqualTo(valid.ToString()));
+            Assert.That(transport.DialCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            await session.DisconnectAsync();
+        }
+    }
+
+    [Test]
+    public async Task CancelingDialCancelsThePendingDnsQuery()
+    {
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource canceled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<IEnumerable<string>> PendingQuery(CancellationToken token)
+        {
+            started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                return Array.Empty<string>();
+            }
+            catch (OperationCanceledException)
+            {
+                canceled.TrySetResult();
+                throw;
+            }
+        }
+        dns.QueryTxtAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => PendingQuery(call.Arg<CancellationToken>()));
+        ControlledPeer peer = new(TestPeers.Identity(1), resolver: new MultiaddrResolver(dns));
+        using CancellationTokenSource cancellation = new();
+        Task<ISession> dial = peer.DialAsync((Multiaddress)$"/dnsaddr/pending.test/p2p/{TestPeers.PeerId(2)}", cancellation.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            cancellation.Cancel();
+            Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(TimeSpan.FromSeconds(2)));
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            cancellation.Cancel();
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task StalledDnsDoesNotDiscardLiteralSibling(bool stalledFirst)
+    {
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<IEnumerable<string>> PendingQuery(CancellationToken token)
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return [];
+        }
+        dns.QueryTxtAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => PendingQuery(call.Arg<CancellationToken>()));
+        ResolutionClock clock = new();
+        GateTransport transport = new();
+        transport.CompleteDial.SetResult();
+        ControlledPeer peer = new(TestPeers.Identity(1), transport, resolver: new MultiaddrResolver(dns, clock));
+        Multiaddress valid = TestPeers.Multiaddr(2);
+        Multiaddress stalled = $"/dnsaddr/stalled.test/p2p/{valid.GetPeerId()}";
+        Task<ISession> dial = peer.DialAsync(stalledFirst ? [stalled, valid] : [valid, stalled], CancellationToken.None);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(clock.DueTime, Is.EqualTo(TimeSpan.FromSeconds(15)));
+            clock.Expire();
+            ISession session = await dial.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(session.RemoteAddress.ToString(), Is.EqualTo(valid.ToString()));
+            Assert.That(transport.DialCount, Is.EqualTo(1));
+            await session.DisconnectAsync();
+        }
+        finally
+        {
+            release.TrySetResult();
+            await ((Task)dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+        clock.Timer.Received(1).Dispose();
     }
 
     [Test]
@@ -328,11 +433,29 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null)
-        : LocalPeer(identity, null, new ProtocolStackSettings(), activitySource)
+    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null)
+        : LocalPeer(identity, null, new ProtocolStackSettings(), activitySource, multiaddrResolver: resolver)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => connectedTo?.Invoke() ?? Task.CompletedTask;
+    }
+
+    private sealed class ResolutionClock : TimeProvider
+    {
+        private TimerCallback? _callback;
+        private object? _state;
+        public TimeSpan? DueTime { get; private set; }
+        public ITimer Timer { get; } = Substitute.For<ITimer>();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            _callback = callback;
+            _state = state;
+            DueTime = dueTime;
+            return Timer;
+        }
+
+        public void Expire() => _callback!(_state);
     }
 
     private sealed class GateTransport(bool holdAfterConnectionClosed = false) : ITransportProtocol

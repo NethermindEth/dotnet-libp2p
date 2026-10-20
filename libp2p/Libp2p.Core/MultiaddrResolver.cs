@@ -2,104 +2,111 @@
 // SPDX-License-Identifier: MIT
 
 using System.Net;
-using DnsClient;
+using System.Runtime.CompilerServices;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
-using Multiformats.Hash;
 
 namespace Nethermind.Libp2p.Core;
 
-public class MultiaddrResolver
+public class MultiaddrResolver(IDnsLookup? dns = null, TimeProvider? timeProvider = null)
 {
-    private readonly IDnsLookup _dns;
-
-    public MultiaddrResolver(IDnsLookup? dns = null)
-    {
-        _dns = dns ?? new DnsClientLookup();
-    }
+    // Budgets apply to the complete resolution, including all roots and nested DNSADDR records.
+    private const int MaxQueries = 32;
+    private const int MaxDepth = 8;
+    private const int MaxAddresses = 16;
+    private const int MaxRecordsPerQuery = 32;
+    private static readonly TimeSpan ResolutionTimeout = TimeSpan.FromSeconds(15);
+    private readonly IDnsLookup _dns = dns ?? new DnsClientLookup();
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <summary>
-    /// Converts DNS/DNS4/DNS6/dnsaddr to non-unique IP4/IP6-based addresses
+    /// Resolves DNS addresses with bounded queries, recursion depth and distinct results.
+    /// DNS queries share a 15-second deadline. Failed names and malformed DNSADDR records
+    /// are skipped; literal addresses remain usable after the DNS deadline expires.
     /// </summary>
-    /// <param name="addr">A multiaddress</param>
-    /// <returns>Resolved addresses</returns>
-    public async IAsyncEnumerable<Multiaddress> Resolve(Multiaddress addr)
-    {
-        Multihash? p2p = addr.Get<P2P>().Value as Multihash;
+    public IAsyncEnumerable<Multiaddress> Resolve(Multiaddress addr, CancellationToken token = default) => Resolve([addr], token);
 
-        if (addr.Has<DnsAddr>())
+    internal async IAsyncEnumerable<Multiaddress> Resolve(IEnumerable<Multiaddress> addresses, [EnumeratorCancellation] CancellationToken token = default)
+    {
+        Queue<(Multiaddress Address, int Depth)> pending = new(addresses.Take(MaxQueries).Select(a => (a, 0)));
+        HashSet<string> visited = new(StringComparer.Ordinal);
+        HashSet<string> results = new(StringComparer.Ordinal);
+        int queries = 0;
+        using CancellationTokenSource timeout = new(ResolutionTimeout, _timeProvider);
+        using CancellationTokenSource queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
+
+        async Task<T[]> QueryAsync<T>(Func<CancellationToken, Task<IEnumerable<T>>> query)
         {
-            async IAsyncEnumerable<string> GetRecords(string dnsAddr)
+            token.ThrowIfCancellationRequested();
+            if (queries >= MaxQueries || timeout.IsCancellationRequested) return [];
+            queries++;
+            try
             {
-                IEnumerable<string> records = await _dns.QueryTxtAsync(dnsAddr);
+                IEnumerable<T> records = await query(queryCancellation.Token);
+                token.ThrowIfCancellationRequested();
+                return records.Take(MaxRecordsPerQuery).ToArray();
+            }
+            catch (Exception) when (!token.IsCancellationRequested)
+            {
+                return [];
+            }
+        }
+
+        while (pending.TryDequeue(out var next) && results.Count < MaxAddresses)
+        {
+            token.ThrowIfCancellationRequested();
+            Multiaddress addr = next.Address;
+            if (!visited.Add(addr.ToString())) continue;
+
+            if (addr.Has<DnsAddr>())
+            {
+                if (next.Depth >= MaxDepth) continue;
+                PeerId? peerId = addr.GetPeerId();
+                string[] records = await QueryAsync(t => _dns.QueryTxtAsync($"_dnsaddr.{addr.Get<DnsAddr>()}", t));
                 foreach (string text in records)
                 {
                     const string prefix = "dnsaddr=";
-
-                    if (text.StartsWith(prefix))
+                    if (!text.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                    Multiaddress resolved;
+                    try
                     {
-                        Multiaddress addr = text[prefix.Length..];
-                        if (p2p is null || (addr.Has<P2P>() && addr.Get<P2P>().Value.Equals(p2p)))
-                        {
-                            yield return text[prefix.Length..];
-                        }
+                        resolved = text[prefix.Length..];
+                    }
+                    catch (Exception e) when (e is ArgumentException or FormatException or NotSupportedException)
+                    {
+                        continue;
+                    }
+                    if ((peerId is null || resolved.GetPeerId() == peerId) && pending.Count < MaxRecordsPerQuery)
+                    {
+                        pending.Enqueue((resolved, next.Depth + 1));
                     }
                 }
+                continue;
             }
 
-            await foreach (string item in GetRecords($"_dnsaddr.{addr.Get<DnsAddr>()}"))
+            // Secure WebSocket transports need the hostname for TLS verification.
+            bool preserveHostname = addr.Has<WebSocketSecure>();
+            if (!preserveHostname && (addr.Has<DNS6>() || addr.Has<DNS>()))
             {
-                await foreach (Multiaddress resolved in Resolve(item))
+                IPAddress[] records = await QueryAsync(t => _dns.QueryAaaaAsync(addr.Get<DNS6>()?.ToString() ?? addr.Get<DNS>().ToString(), t));
+                foreach (IPAddress record in records)
                 {
-                    yield return resolved;
+                    if (results.Count >= MaxAddresses) yield break;
+                    Multiaddress resolved = addr.Has<DNS6>() ? addr.Clone().Replace<DNS6, IP6>(record) : addr.Clone().Replace<DNS, IP6>(record);
+                    if (results.Add(resolved.ToString())) yield return resolved;
                 }
             }
-        }
-        else
-        {
-            if (addr.Has<WebSocketSecure>() && (addr.Has<DNS>() || addr.Has<DNS4>() || addr.Has<DNS6>()))
+            if (!preserveHostname && (addr.Has<DNS4>() || addr.Has<DNS>()))
             {
-                yield return addr;
-                yield break;
-            }
-
-            bool resolved = false;
-            if (addr.Has<DNS6>() || addr.Has<DNS>())
-            {
-                resolved = true;
-                IEnumerable<IPAddress> addrs = await _dns.QueryAaaaAsync(addr.Get<DNS6>()?.ToString() ?? addr.Get<DNS>().ToString());
-
-                foreach (IPAddress record in addrs)
+                IPAddress[] records = await QueryAsync(t => _dns.QueryAAsync(addr.Get<DNS4>()?.ToString() ?? addr.Get<DNS>().ToString(), t));
+                foreach (IPAddress record in records)
                 {
-                    if (addr.Has<DNS6>())
-                    {
-                        yield return addr.Clone().Replace<DNS6, IP6>(record);
-                    }
-                    else
-                    {
-                        yield return addr.Clone().Replace<DNS, IP6>(record);
-                    }
+                    if (results.Count >= MaxAddresses) yield break;
+                    Multiaddress resolved = addr.Has<DNS4>() ? addr.Clone().Replace<DNS4, IP4>(record) : addr.Clone().Replace<DNS, IP4>(record);
+                    if (results.Add(resolved.ToString())) yield return resolved;
                 }
             }
-            if (addr.Has<DNS4>() || addr.Has<DNS>())
-            {
-                resolved = true;
-                IEnumerable<IPAddress> addrs4 = await _dns.QueryAAsync(addr.Get<DNS4>()?.ToString() ?? addr.Get<DNS>().ToString());
-
-                foreach (IPAddress record in addrs4)
-                {
-                    if (addr.Has<DNS4>())
-                    {
-                        yield return addr.Clone().Replace<DNS4, IP4>(record);
-                    }
-                    else
-                    {
-                        yield return addr.Clone().Replace<DNS, IP4>(record);
-                    }
-                }
-            }
-
-            if (!resolved)
+            if ((preserveHostname || !(addr.Has<DNS>() || addr.Has<DNS4>() || addr.Has<DNS6>())) && results.Add(addr.ToString()))
             {
                 yield return addr;
             }
