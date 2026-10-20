@@ -39,7 +39,7 @@ The MAUI chat sample is visible in the solution but excluded from its default re
 
 ## Roadmap
 
-The stable 1.0.0 release supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
+The current implementation supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 
