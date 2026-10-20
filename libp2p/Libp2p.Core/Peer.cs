@@ -218,7 +218,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 else
                 {
                     session.ConnectedTcs.TrySetException(t.Exception!.InnerExceptions);
-                    _logger?.LogError(t.Exception.GetBaseException(), "Disconnecting due to exception");
+                    _logger?.LogDebug(t.Exception.GetBaseException(), "Disconnecting due to exception");
                 }
                 _ = session.DisconnectAsync();
                 return;
@@ -793,7 +793,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     }
                     else
                     {
-                        _logger?.LogError($"Upgrade task failed with {t.Exception}");
+                        _logger?.LogDebug(t.Exception, "Upgrade task failed");
                     }
                 }
                 if (t.IsCompletedSuccessfully)
