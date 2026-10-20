@@ -176,7 +176,8 @@ public class PubsubSettings
     public double BehaviorPenaltyDecay { get; set; } = 0.99;
 
     // Topic Scoring Parameters (P1, P2, P3, P3b, P4)
-    // These can be configured per-topic using the TopicScoreParams class
+    // Topics without configured parameters retain first message delivery rewards and invalid-message penalties.
+    // Configure mesh time and delivery thresholds for the application.
     public Dictionary<string, TopicScoreParams> TopicScoreParams { get; set; } = new();
 
     public double TopicScoreCap { get; set; } = 3600;

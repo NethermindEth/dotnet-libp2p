@@ -6,12 +6,39 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
 public class GossipsubControlLimitsTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task QuietMeshPeerIsPrunedAndGraylistedOnlyWhenTopicScoringIsConfigured(bool configureTopic)
+    {
+        PubsubSettings settings = new() { HeartbeatInterval = int.MaxValue, DecayInterval = int.MaxValue };
+        if (configureTopic) settings.TopicScoreParams["topic"] = new TopicScoreParams { TimeInMeshWeight = 0 };
+        await using RouterSetup setup = await RouterSetup.Create(settings);
+        IRoutingStateContainer state = setup.Router;
+        await setup.Router.Heartbeat();
+        Assert.That(state.Mesh[setup.Topic], Does.Contain(setup.RemotePeerId));
+        var peers = (ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer>)typeof(PubsubRouter)
+            .GetField("peerState", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(setup.Router)!;
+        peers[setup.RemotePeerId].Score.GetTopicScore(setup.Topic).MeshJoinTime = DateTime.UtcNow.AddSeconds(-6);
+
+        await setup.Router.Heartbeat();
+        int deliveries = 0;
+        setup.Router.OnMessage += (_, _, _) => deliveries++;
+        Identity author = TestPeers.Identity(3);
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author));
+
+        Assert.That(state.Mesh[setup.Topic].Contains(setup.RemotePeerId), Is.EqualTo(!configureTopic));
+        Assert.That(deliveries, Is.EqualTo(configureTopic ? 0 : 1),
+            "Only the configured deficit should cause messages to be ignored.");
+    }
+
     [Test]
     public async Task Ihave_CountsRpcsRatherThanTopicEnvelopes()
     {
