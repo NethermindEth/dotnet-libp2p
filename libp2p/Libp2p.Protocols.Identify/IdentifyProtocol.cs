@@ -14,8 +14,8 @@ public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol
 {
     public string Id => "/ipfs/id/1.0.0";
 
-    public IdentifyProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null)
-        : base(protocolStackSettings, settings, peerStore, loggerFactory)
+    public IdentifyProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
+        : base(protocolStackSettings, settings, peerStore, loggerFactory, timeProvider)
     {
     }
 

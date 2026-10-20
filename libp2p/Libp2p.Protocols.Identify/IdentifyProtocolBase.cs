@@ -17,8 +17,12 @@ using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null)
+public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
 {
+    // Match go-libp2p's signed identify message cap and read deadline, for both Identify and Push.
+    private const int MaxMessageLength = 8 * 1024;
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
     private readonly PeerStore? _peerStore = peerStore;
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
@@ -31,7 +35,8 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
 
-        Identify.Dto.Identify identify = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser);
+        using CancellationTokenSource timeout = new(ReadTimeout, _timeProvider);
+        Identify.Dto.Identify identify = await channel.ReadPrefixedProtobufAsync(Identify.Dto.Identify.Parser, MaxMessageLength, timeout.Token);
 
         _logger?.LogInformation("Received peer info: {identify}", identify);
 
