@@ -594,9 +594,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             return WaitForExistingSessionAsync(peerId, existingSession, token);
         }
 
-        PeerStore.PeerInfo? existingPeerInfo = _peerStore?.GetPeerInfo(peerId);
-
-        if (existingPeerInfo?.Addrs is null)
+        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? existingPeerInfo) || existingPeerInfo?.Addrs is null)
         {
             throw new Libp2pException("Peer not found");
         }

@@ -778,7 +778,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         prune.Peers.AddRange(topicMesh.ToArray()
                             .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange non-negative scoring peers
-                            .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                            .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
                             .Where(pid => pid.Record is not null)
                             .Select(pid => new PeerInfo
                             {

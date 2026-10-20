@@ -209,8 +209,95 @@ public class IdentifyPeerRecordTests
         Assert.That(peerInfo.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
     }
 
+    [TestCase(false, 63)]
+    [TestCase(true, 63)]
+    [TestCase(false, 64)]
+    [TestCase(true, 64)]
+    [TestCase(false, 65)]
+    [TestCase(true, 65)]
+    public async Task StoredProtocolCountIsBounded(bool push, int count)
+    {
+        Identity remote = TestPeers.Identity(84);
+        PeerStore store = new();
+        string[] protocols = Enumerable.Range(0, count).Select(i => $"/protocol/{i}").ToArray();
+        await ReadIdentifyAsync(remote, store, new Identify
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            Protocols = { protocols }
+        }, push: push);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(protocols.Take(64)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task StoredProtocolIdsAreBoundedInUtf8Bytes(bool push)
+    {
+        Identity remote = TestPeers.Identity(85);
+        PeerStore store = new();
+        string asciiAtLimit = new('a', 128);
+        string unicodeAtLimit = new('é', 64);
+        string[] expected = [new string('b', 127), asciiAtLimit, unicodeAtLimit, "/valid/1"];
+        await ReadIdentifyAsync(remote, store, new Identify
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            Protocols = { expected[0], new string('c', 129), asciiAtLimit, new string('é', 65), unicodeAtLimit, "/valid/1" }
+        }, push: push);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(expected));
+    }
+
+    [TestCase(0ul)]
+    [TestCase(1ul)]
+    [TestCase(ulong.MaxValue)]
+    public async Task StrictPushRemainsValidAfterPeerStoreEviction(ulong sequence)
+    {
+        Identity remote = TestPeers.Identity(86);
+        PeerStore store = new(1);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        await ReadIdentifyAsync(remote, store, new Identify
+        {
+            PublicKey = remote.PublicKey.ToByteString(),
+            SignedPeerRecord = SigningHelper.CreateSignedEnvelope(remote, [], sequence)
+        }, PeerRecordsVerificationPolicy.RequireCorrect, state: state);
+        store.GetPeerInfo(TestPeers.PeerId(87));
+        Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.False);
+
+        await ReadIdentifyAsync(remote, store, new Identify { Protocols = { "/valid/1" } },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
+    }
+
+    [Test]
+    public async Task OlderSignedRecordAfterEvictionCannotReplaceVerifiedSessionRecord()
+    {
+        Identity remote = TestPeers.Identity(88);
+        PeerStore store = new(1);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        ByteString newer = SigningHelper.CreateSignedEnvelope(remote, [], 42);
+        ByteString older = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}"], 41);
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
+            PeerRecordsVerificationPolicy.RequireCorrect, state: state);
+        store.GetPeerInfo(TestPeers.PeerId(89));
+
+        await ReadIdentifyAsync(remote, store, new Identify { SignedPeerRecord = older },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.Null);
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs, Is.Null);
+
+        ByteString latest = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}"], 43);
+        await ReadIdentifyAsync(remote, store, new Identify { SignedPeerRecord = latest },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(latest));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(43UL));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()),
+            Is.EqualTo(new[] { $"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}" }));
+    }
+
     private static async Task ReadIdentifyAsync(Identity remote, PeerStore peerStore, Identify identify,
-        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false)
+        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false, State? state = null)
     {
         IProtocolStackSettings stack = Substitute.For<IProtocolStackSettings>();
         IdentifyProtocolSettings settings = new()
@@ -218,7 +305,7 @@ public class IdentifyPeerRecordTests
             PeerRecordsVerificationPolicy = policy
         };
         ISessionContext context = Substitute.For<ISessionContext>();
-        context.State.Returns(new State
+        context.State.Returns(state ?? new State
         {
             RemoteAddress = TestPeers.Multiaddr(remote),
             RemotePublicKey = remote.PublicKey

@@ -525,7 +525,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
             if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
             {
-                string[]? protocols = _peerStore.GetPeerInfo(session.RemoteAddress.GetPeerId()!)?.SupportedProtocols ?? [];
+                string[] protocols = _peerStore.TryGetPeerInfo(session.RemoteAddress.GetPeerId()!, out var info) ? info?.SupportedProtocols ?? [] : [];
                 if (protocols.Contains(GossipsubProtocolVersionV13))
                 {
                     await session.DialAsync<GossipsubProtocolV13>(token);
@@ -794,7 +794,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                             prune.Peers.AddRange(meshPeers
                                 .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
                                 .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
-                                .Select(pid => (PeerId: pid, Record: _peerStore.GetPeerInfo(pid)?.SignedPeerRecord))
+                                .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
                                 .Where(pid => pid.Record is not null)
                                 .Select(pid => new PeerInfo
                                 {
