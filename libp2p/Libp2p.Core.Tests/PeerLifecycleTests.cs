@@ -25,6 +25,7 @@ internal class PeerLifecycleTests
         using CancellationTokenRegistration registration = exposed.Closed.Register(() => notifications++);
         Task work = Task.Delay(Timeout.Infinite, exposed.Closed);
         Assert.That(exposed.RemotePeerId, Is.EqualTo(TestPeers.PeerId(2)));
+        Assert.That(exposed.Closed.CanBeCanceled, Is.True);
         Assert.That(exposed.Closed.IsCancellationRequested, Is.False);
 
         await session.DisconnectAsync();

@@ -9,12 +9,19 @@ namespace Nethermind.Libp2p.Core;
 public interface ISession
 {
     /// <summary>The authenticated remote peer's identity.</summary>
-    PeerId RemotePeerId { get; }
+    /// <remarks>The default implementation reads the destination peer id from <see cref="RemoteAddress"/>.</remarks>
+    /// <exception cref="InvalidOperationException">The remote address does not contain a destination peer id.</exception>
+    PeerId RemotePeerId => RemoteAddress.GetPeerId()
+        ?? throw new InvalidOperationException("The session's remote address does not contain a destination peer id.");
     Multiaddress RemoteAddress { get; }
     Activity? Activity { get; }
 
-    /// <summary>Canceled when this session starts closing, including transport loss.</summary>
-    CancellationToken Closed { get; }
+    /// <summary>Canceled when this session starts closing, including transport loss, if lifetime notifications are supported.</summary>
+    /// <remarks>
+    /// The default implementation returns <see cref="CancellationToken.None"/> for sessions without lifetime notifications.
+    /// Check <see cref="CancellationToken.CanBeCanceled"/> before relying on this token to observe closure.
+    /// </remarks>
+    CancellationToken Closed => CancellationToken.None;
 
     /// <summary>
     /// Dials a session protocol that does not require a request payload.

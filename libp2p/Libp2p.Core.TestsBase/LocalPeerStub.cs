@@ -55,7 +55,6 @@ public class LocalPeerStub : ILocalPeer
 
 public class TestRemotePeer : ISession
 {
-    private readonly CancellationTokenSource _closed = new();
     public TestRemotePeer(Multiaddress addr)
     {
         Identity = TestPeers.Identity(addr);
@@ -66,8 +65,6 @@ public class TestRemotePeer : ISession
     public Multiaddress Address { get; set; }
 
     public Multiaddress RemoteAddress => $"/p2p/{Identity.PeerId}";
-    public PeerId RemotePeerId => Identity.PeerId;
-    public CancellationToken Closed => _closed.Token;
 
     public Activity? Activity => throw new NotImplementedException();
 
@@ -83,7 +80,6 @@ public class TestRemotePeer : ISession
 
     public Task DisconnectAsync()
     {
-        _closed.Cancel();
         return Task.CompletedTask;
     }
 }
