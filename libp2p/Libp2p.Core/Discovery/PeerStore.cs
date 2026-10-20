@@ -162,6 +162,7 @@ public class PeerStore
         lock (_storeLock) GetOrAdd(peerId)!.SupportedProtocols = protocols;
     }
 
+    /// <summary>Publishes the advertised agent version to the current retained entry.</summary>
     public void SetAgentVersion(PeerId peerId, string? agentVersion)
     {
         lock (_storeLock) GetOrAdd(peerId)!.AgentVersion = agentVersion;

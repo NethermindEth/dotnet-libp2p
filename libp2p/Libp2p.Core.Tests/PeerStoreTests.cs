@@ -43,6 +43,27 @@ public class PeerStoreTests
     }
 
     [Test]
+    public void AgentVersionPublicationUsesTheCurrentEntryWithoutAcquiringConfiguredTrust()
+    {
+        PeerStore store = new(1);
+        PeerId peerId = TestPeers.PeerId(1);
+        PeerStore.PeerInfo evicted = store.GetPeerInfo(peerId);
+        store.GetPeerInfo(TestPeers.PeerId(2));
+
+        store.SetAgentVersion(peerId, "client/1");
+
+        PeerStore.PeerInfo current = store.GetPeerInfo(peerId);
+        Assert.That(current, Is.Not.SameAs(evicted));
+        Assert.That(current.AgentVersion, Is.EqualTo("client/1"));
+        Assert.That(evicted.AgentVersion, Is.Null);
+        Multiaddress first = $"/ip4/192.0.2.10/tcp/4001/p2p/{peerId}";
+        Multiaddress updated = $"/ip4/192.0.2.20/tcp/4001/p2p/{peerId}";
+        store.Discover([first], isTrusted: false);
+        store.Discover([updated], isTrusted: false);
+        Assert.That(current.Addrs, Is.EquivalentTo(new[] { updated }));
+    }
+
+    [Test]
     public void UnsignedDiscoveryCannotReplaceSignedAddresses()
     {
         Identity remote = TestPeers.Identity(1);

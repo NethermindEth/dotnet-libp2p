@@ -14,4 +14,4 @@ records already use this remote policy. Unsigned remote discovery can refresh
 remote addresses after a connection, but cannot overwrite configured addresses or
 verified signed records. Only explicit local seeding can replace a disconnected
 configured entry. Entries returned by `GetPeerInfo` can be evicted when disconnected;
-use `SetSupportedProtocols` to publish metadata to the current entry.
+use `SetSupportedProtocols` and `SetAgentVersion` to publish metadata to the current entry.
