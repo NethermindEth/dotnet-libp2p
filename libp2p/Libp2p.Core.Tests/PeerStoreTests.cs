@@ -21,6 +21,28 @@ namespace Nethermind.Libp2p.Core.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class PeerStoreTests
 {
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public void DiscoveryStoresAndAnnouncesOnlyAddressesForItsPeer(bool isTrusted, bool bareFirst)
+    {
+        PeerStore store = new();
+        Multiaddress valid = TestPeers.Multiaddr(1);
+        Multiaddress bare = "/ip4/192.0.2.1/tcp/4001";
+        Multiaddress foreign = TestPeers.Multiaddr(2);
+        List<Multiaddress[]> announcements = [];
+        store.OnNewPeer += announcements.Add;
+
+        store.Discover(bareFirst ? [bare, valid, foreign] : [valid, bare, foreign], isTrusted);
+
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(1), out var info), Is.True);
+        Assert.That(info!.Addrs, Is.EquivalentTo(new[] { valid }));
+        Assert.That(announcements, Has.Count.EqualTo(1));
+        Assert.That(announcements[0], Is.EqualTo(new[] { valid }));
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public void MetadataDoesNotPreventRemoteAddressRefresh(bool publishProtocols)
