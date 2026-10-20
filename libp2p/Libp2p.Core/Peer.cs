@@ -15,7 +15,7 @@ using System.Diagnostics;
 namespace Nethermind.Libp2p.Core;
 
 public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
-    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
+    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null)
     : ILocalPeer
 {
     private const int ConnectionTimeout = 15_000;
@@ -25,7 +25,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     protected readonly PeerStore? _peerStore = peerStore;
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
-    protected readonly MultiaddrResolver _multiaddrResolver = new();
+    protected readonly MultiaddrResolver _multiaddrResolver = multiaddrResolver ?? new();
 
     private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     private readonly Lock _pendingDialsLock = new();
@@ -381,10 +381,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             List<Multiaddress> resolvedAddrs = [];
 
-            foreach (Multiaddress addr in addrs)
+            await foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addrs.Where(a => a.GetPeerId() == remotePeerId), token))
             {
-                // TODO: Remove ToBlockingEnumerable call in favor of async linq after migration to .NET 10
-                foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addr).ToBlockingEnumerable(cancellationToken: token).Distinct())
+                if (resolvedAddr.GetPeerId() == remotePeerId)
                 {
                     resolvedAddrs.Add(resolvedAddr);
                 }
@@ -393,11 +392,6 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             if (resolvedAddrs is { Count: 0 })
             {
                 throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
-            }
-
-            if (resolvedAddrs.Any(a => a.GetPeerId() != remotePeerId))
-            {
-                throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have multiple different peer ids");
             }
 
             foreach (Multiaddress addr in resolvedAddrs)
