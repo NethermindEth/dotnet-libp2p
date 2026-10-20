@@ -9,6 +9,53 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelTests
 {
+    [TestCase(false, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, true)]
+    [TestCase(false, false, false)]
+    [TestCase(false, true, false)]
+    [TestCase(true, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, false, null)]
+    [TestCase(false, true, null)]
+    [TestCase(true, false, null)]
+    [TestCase(true, true, null)]
+    public async Task StreamDisposalHonorsChannelOwnership(bool direct, bool asynchronous, bool? leaveOpen)
+    {
+        Channel channel = new();
+        using Stream stream = (direct, leaveOpen) switch
+        {
+            (true, null) => new ChannelStream(channel),
+            (false, null) => channel.AsStream(),
+            (true, bool value) => new ChannelStream(channel, value),
+            (false, bool value) => channel.AsStream(value)
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            if (asynchronous) await stream.DisposeAsync();
+            else stream.Dispose();
+        }
+
+        Assert.That(stream.CanRead, Is.False);
+        Assert.That(stream.CanWrite, Is.False);
+        Assert.Throws<ObjectDisposedException>(() => stream.Flush());
+        Assert.That(channel.GetAwaiter().IsCompleted, Is.EqualTo(leaveOpen != true));
+        if (leaveOpen == true)
+        {
+            foreach (Channel direction in new[] { channel, channel.Reverse })
+            {
+                byte[] bytes = [3, 7, 11];
+                Task<IOResult> write = direction.WriteAsync(new ReadOnlySequence<byte>(bytes)).AsTask();
+                ReadResult read = await direction.Reverse.ReadAsync(bytes.Length);
+                Assert.That(read.Data.ToArray(), Is.EqualTo(bytes));
+                Assert.That(await write, Is.EqualTo(IOResult.Ok));
+            }
+            await channel.CloseAsync();
+        }
+    }
+
     [Test]
     public async Task CloseCompletesWithAnUnreadPendingWrite()
     {
