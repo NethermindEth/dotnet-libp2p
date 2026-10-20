@@ -68,9 +68,14 @@ public class AutomaticIdentifyTests
     {
         await using AutomaticSetup setup = new(mode);
         await setup.AddPeersAsync(2);
+        TaskCompletionSource remoteConnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        setup.Peers[1].OnConnected += _ => remoteConnected.TrySetResult();
         ISession session = await setup.Peers[0].DialAsync([.. setup.Peers[1].ListenAddresses]).WaitAsync(TimeSpan.FromSeconds(5));
+        await session.DialAsync<PingProtocol>().WaitAsync(TimeSpan.FromSeconds(5));
+        await remoteConnected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(session.RemoteAddress.GetPeerId(), Is.EqualTo(setup.Peers[1].Identity.PeerId));
         if (mode == 0) return;
+        Assert.That(setup.PeerStores[1].GetPeerInfo(setup.Peers[0].Identity.PeerId).Seq, Is.EqualTo(1));
 
         Multiaddress advertised = $"/ip4/192.0.2.1/tcp/12345/p2p/{setup.Peers[0].Identity.PeerId}";
         TaskCompletionSource received = new(TaskCreationOptions.RunContinuationsAsynchronously);
