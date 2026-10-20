@@ -35,7 +35,7 @@ public class PeerStore
     /// </remarks>
     public void Discover(ByteString signedPeerRecord) => Discover(signedPeerRecord, null);
 
-    /// <summary>Stores a session's verified record only when it advances the known sequence.</summary>
+    /// <summary>Stores a verified record at the session's current sequence or above when the retained record is missing or older.</summary>
     public void Discover(ByteString signedPeerRecord, State? state)
     {
         PublicKey publicKey;
@@ -80,7 +80,7 @@ public class PeerStore
                 if (info.SignedPeerRecord is not null) state.RecordVerifiedPeerRecordSequence(info.Seq ?? 0);
                 ulong? priorSeq = state.VerifiedPeerRecordSequence;
                 state.RecordVerifiedPeerRecordSequence(seq);
-                if (priorSeq is null || seq > priorSeq)
+                if ((priorSeq is null || seq >= priorSeq) && (info.SignedPeerRecord is null || seq > (info.Seq ?? 0)))
                 {
                     info.SignedPeerRecord = signedPeerRecord;
                     info.Seq = seq;

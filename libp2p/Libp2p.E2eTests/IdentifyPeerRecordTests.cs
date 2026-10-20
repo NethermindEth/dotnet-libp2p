@@ -310,31 +310,74 @@ public class IdentifyPeerRecordTests
         Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
     }
 
-    [Test]
-    public async Task OlderSignedRecordAfterEvictionCannotReplaceVerifiedSessionRecord()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task SignedRecordsAfterEvictionRejectOlderRestoreEqualAndAcceptNewer(bool push)
     {
         Identity remote = TestPeers.Identity(88);
         PeerStore store = new(1);
         State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
-        ByteString newer = SigningHelper.CreateSignedEnvelope(remote, [], 42);
+        string currentAddress = $"/ip4/192.0.2.42/tcp/4042/p2p/{remote.PeerId}";
+        ByteString newer = SigningHelper.CreateSignedEnvelope(remote, [currentAddress], 42);
         ByteString older = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}"], 41);
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
             PeerRecordsVerificationPolicy.RequireCorrect, state: state);
         store.GetPeerInfo(TestPeers.PeerId(89));
+        Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.False);
 
-        await ReadIdentifyAsync(remote, store, new Identify { SignedPeerRecord = older },
-            PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = older },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
 
         Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.Null);
         Assert.That(store.GetPeerInfo(remote.PeerId).Addrs, Is.Null);
 
+        int announcements = 0;
+        store.OnNewPeer += _ => announcements++;
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(newer));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(42UL));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(announcements, Is.EqualTo(1));
+
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
+        Assert.That(announcements, Is.EqualTo(1), "An equal record already in the store must not be republished.");
+
         ByteString latest = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}"], 43);
-        await ReadIdentifyAsync(remote, store, new Identify { SignedPeerRecord = latest },
-            PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = latest },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
         Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(latest));
         Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(43UL));
         Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()),
             Is.EqualTo(new[] { $"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}" }));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task EqualSessionSequenceReplacesAnOlderRecordFromAnotherState(bool push)
+    {
+        Identity remote = TestPeers.Identity(90);
+        PeerStore store = new(1);
+        State first = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        State second = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        string currentAddress = $"/ip4/192.0.2.42/tcp/4042/p2p/{remote.PeerId}";
+        ByteString current = SigningHelper.CreateSignedEnvelope(remote, [currentAddress], 42);
+        ByteString older = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.41/tcp/4041/p2p/{remote.PeerId}"], 41);
+        store.Discover(current, first);
+        store.GetPeerInfo(TestPeers.PeerId(91));
+        store.Discover(older, second);
+        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(41UL));
+        Assert.That(first.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
+
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = current },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: first);
+
+        PeerStore.PeerInfo info = store.GetPeerInfo(remote.PeerId);
+        Assert.That(info.Seq, Is.EqualTo(42UL));
+        Assert.That(info.SignedPeerRecord, Is.EqualTo(current));
+        Assert.That(info.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(first.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
     }
 
     private static async Task ReadIdentifyAsync(Identity remote, PeerStore peerStore, Identify identify,
