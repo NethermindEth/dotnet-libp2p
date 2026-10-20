@@ -106,11 +106,17 @@ public class PeerStore
             return;
         }
 
-        PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
+        PeerId? peerId = addrs.Select(a => a.GetPeerId()).FirstOrDefault(id => id is not null);
 
         if (peerId is not null)
         {
-            HashSet<Multiaddress> addresses = [.. addrs];
+            HashSet<Multiaddress> addresses = [];
+            bool filtered = false;
+            foreach (Multiaddress address in addrs)
+            {
+                if (address.GetPeerId() == peerId) addresses.Add(address);
+                else filtered = true;
+            }
             lock (_storeLock)
             {
                 PeerInfo? peerInfo = GetOrAdd(peerId, isConfigured: isTrusted, required: isTrusted);
@@ -118,7 +124,7 @@ public class PeerStore
                 if (peerInfo.Addrs is not null && peerInfo.Addrs.SetEquals(addresses)) return;
                 peerInfo.Addrs = addresses;
             }
-            onNewPeer?.Invoke(addrs);
+            onNewPeer?.Invoke(filtered ? [.. addresses] : addrs);
         }
     }
 

@@ -15,3 +15,13 @@ remote addresses after a connection, but cannot overwrite configured addresses o
 verified signed records. Only explicit local seeding can replace a disconnected
 configured entry. Entries returned by `GetPeerInfo` can be evicted when disconnected;
 use `SetSupportedProtocols` and `SetAgentVersion` to publish metadata to the current entry.
+
+Address lists use their first identified peer as the target; entries without that
+identity are excluded from storage, announcements and dialing. Dialing by peer ID
+always uses the requested identity, even if an older or directly modified cache
+entry contains other addresses. An entirely unidentified list is rejected explicitly.
+
+DNS budgets limit lookups and derived addresses. Caller literals remain candidates,
+with at most 16 transport attempts active at once under one connection deadline.
+Failed attempts free a slot immediately; later fallbacks are not truncated. Cancellation
+or success cancels losing attempts without starting the remaining candidates.
