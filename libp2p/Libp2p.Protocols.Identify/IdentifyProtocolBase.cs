@@ -32,9 +32,9 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     private readonly IdentifyProtocolSettings _settings = settings ?? new IdentifyProtocolSettings();
 
-    protected Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context) => ReadAndVerifyIdentity(channel, context, isPush: false);
+    protected Task<IdentifyResult> ReadAndVerifyIdentity(IChannel channel, ISessionContext context) => ReadAndVerifyIdentity(channel, context, isPush: false);
 
-    protected async Task ReadAndVerifyIdentity(IChannel channel, ISessionContext context, bool isPush)
+    protected async Task<IdentifyResult> ReadAndVerifyIdentity(IChannel channel, ISessionContext context, bool isPush)
     {
         ArgumentNullException.ThrowIfNull(context.State.RemotePublicKey);
         ArgumentNullException.ThrowIfNull(context.State.RemotePeerId);
@@ -66,6 +66,11 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         if (_peerStore is not null)
         {
+            if (!isPush || identify.HasAgentVersion)
+            {
+                _peerStore.SetAgentVersion(context.State.RemotePeerId, identify.HasAgentVersion ? identify.AgentVersion : null);
+            }
+
             // Repeated fields have no presence bit, so an empty Push must not erase known protocols.
             if (!isPush || identify.Protocols.Count > 0)
             {
@@ -90,6 +95,17 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
                 _peerStore.Discover(signedPeerRecord!, context.State);
             }
         }
+        return new IdentifyResult
+        {
+            PeerId = context.State.RemotePeerId,
+            AgentVersion = identify.HasAgentVersion ? identify.AgentVersion : null,
+            ProtocolVersion = identify.HasProtocolVersion ? identify.ProtocolVersion : null,
+            Protocols = Array.AsReadOnly(identify.Protocols.ToArray()),
+            ListenAddresses = Array.AsReadOnly(identify.ListenAddrs.ToArray()),
+            ObservedAddress = identify.HasObservedAddr ? identify.ObservedAddr : null,
+            SignedPeerRecord = verifiedPeerRecord ? signedPeerRecord : null,
+            PeerRecordSequence = verifiedPeerRecord ? seq : null
+        };
     }
 
     private bool VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, bool mayOmitPeerRecord, out ulong seq)

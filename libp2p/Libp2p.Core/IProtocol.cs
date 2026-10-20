@@ -42,6 +42,14 @@ public interface ISessionProtocol : ISessionListenerProtocol
     Task DialAsync(IChannel downChannel, ISessionContext context);
 }
 
+/// <summary>A session protocol that returns a response without a request payload.</summary>
+public interface ISessionProtocol<TResponse> : ISessionProtocol
+{
+    new Task<TResponse> DialAsync(IChannel downChannel, ISessionContext context);
+
+    Task ISessionProtocol.DialAsync(IChannel downChannel, ISessionContext context) => DialAsync(downChannel, context);
+}
+
 public interface ISessionProtocol<TRequest, TResponse> : ISessionListenerProtocol
 {
     Task<TResponse> DialAsync(IChannel downChannel, ISessionContext context, TRequest request);

@@ -162,6 +162,12 @@ public class PeerStore
         lock (_storeLock) GetOrAdd(peerId)!.SupportedProtocols = protocols;
     }
 
+    /// <summary>Publishes the advertised agent version to the current retained entry.</summary>
+    public void SetAgentVersion(PeerId peerId, string? agentVersion)
+    {
+        lock (_storeLock) GetOrAdd(peerId)!.AgentVersion = agentVersion;
+    }
+
     public ulong? GetVerifiedPeerRecordSequence(PeerId peerId)
     {
         lock (_storeLock)
@@ -236,6 +242,7 @@ public class PeerStore
         internal bool IsConfigured;
         internal int Sessions;
         internal LinkedListNode<PeerId>? EvictionNode;
+        public string? AgentVersion { get; set; }
         public ByteString? SignedPeerRecord { get; set; }
         public string[]? SupportedProtocols { get; set; }
         public HashSet<Multiaddress>? Addrs { get; set; }
