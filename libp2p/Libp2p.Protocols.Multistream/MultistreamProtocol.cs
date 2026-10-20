@@ -26,6 +26,7 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
             if (!await DialSelectedProtocolOptimistically(channel, selectedProtocol))
             {
                 _logger?.LogDebug("Negotiation failed");
+                context.UpgradeOptions?.CompletionSource?.TrySetException(new ChannelClosedException());
                 return;
             }
 
