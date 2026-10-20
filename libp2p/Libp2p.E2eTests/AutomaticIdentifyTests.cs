@@ -16,6 +16,27 @@ namespace Libp2p.E2eTests;
 
 public class AutomaticIdentifyTests
 {
+    [Test]
+    public async Task ListenerOnlyPushDoesNotHideTheOutboundImplementation()
+    {
+        using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
+        SplitPushBuilder builder = new(provider);
+        builder.AddProtocol<IdentifyPushProtocol>();
+        IPeerFactory factory = builder.Build();
+        await using LocalPeer peer = (LocalPeer)factory.Create(TestPeers.Identity(1));
+        LocalPeer.Session session = new(peer);
+        peer.Sessions.Add(session);
+        var requests = (BlockingCollection<UpgradeOptions>)typeof(LocalPeer.Session)
+            .GetField("SubDialRequests", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(session)!;
+
+        peer.ListenAddresses.Add(TestPeers.Multiaddr(1));
+
+        Assert.That(requests.TryTake(out UpgradeOptions? request), Is.True);
+        Assert.That(request!.SelectedProtocol, Is.SameAs(peer.GetProtocol<IdentifyPushProtocol>()));
+        request.CompletionSource!.TrySetResult(request.Argument);
+        await session.DisconnectAsync();
+    }
+
     [TestCase(false, 0)]
     [TestCase(false, 1)]
     [TestCase(false, 2)]
@@ -133,5 +154,16 @@ public class AutomaticIdentifyTests
         public string Id => IdentifyPushProtocol.ProtocolId;
         public Task<ulong> DialAsync(IChannel channel, ISessionContext context, ulong request) => _inner.DialAsync(channel, context, request);
         public Task ListenAsync(IChannel channel, ISessionContext context) => _inner.ListenAsync(channel, context);
+    }
+
+    private sealed class SplitPushBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
+    {
+        protected override ProtocolRef? IdentifyPush() => new(new ListeningPush());
+    }
+
+    private sealed class ListeningPush : ISessionListenerProtocol
+    {
+        public string Id => IdentifyPushProtocol.ProtocolId;
+        public Task ListenAsync(IChannel channel, ISessionContext context) => Task.CompletedTask;
     }
 }

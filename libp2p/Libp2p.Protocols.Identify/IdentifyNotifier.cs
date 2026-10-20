@@ -9,7 +9,7 @@ public class IdentifyNotifier
 {
     public void TrackChanges(LocalPeer libp2pPeer)
     {
-        if (libp2pPeer.GetProtocol(IdentifyPushProtocol.ProtocolId) is not ISessionProtocol<ulong, ulong> identifyPush)
+        if (libp2pPeer.GetProtocol<ISessionProtocol<ulong, ulong>>(IdentifyPushProtocol.ProtocolId) is not { } identifyPush)
         {
             return;
         }
