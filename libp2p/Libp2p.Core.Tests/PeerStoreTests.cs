@@ -7,6 +7,7 @@ using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
 using System.Buffers.Binary;
 using Nethermind.Libp2p.Core.TestsBase;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -21,25 +22,79 @@ namespace Nethermind.Libp2p.Core.Tests;
 public class PeerStoreTests
 {
     [Test]
+    public void RemoteDiscoveryCanFillAnAddressMissingFromAuthenticatedMetadata()
+    {
+        PeerStore store = new(1);
+        store.SetSupportedProtocols(TestPeers.PeerId(1), ["/meshsub/1.3.0"]);
+
+        store.Discover([TestPeers.Multiaddr(1)], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { TestPeers.Multiaddr(1).ToString() }));
+    }
+
+    [Test]
+    public void RemoteAddressesCannotReplaceConfiguredAddresses()
+    {
+        PeerStore store = new(1);
+        Multiaddress configured = TestPeers.Multiaddr(1);
+        store.Discover([configured]);
+
+        store.Discover([$"/ip4/192.0.2.1/tcp/9999/p2p/{TestPeers.PeerId(1)}"], isTrusted: false);
+        store.Discover([$"/ip4/192.0.2.2/tcp/9999/p2p/{TestPeers.PeerId(2)}"], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { configured.ToString() }));
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
+    [Test]
+    public void DisconnectedMetadataPublicationTargetsTheCurrentEntry()
+    {
+        PeerStore store = new(1);
+        PeerStore.PeerInfo evicted = store.GetPeerInfo(TestPeers.PeerId(1));
+        store.GetPeerInfo(TestPeers.PeerId(2));
+
+        store.SetSupportedProtocols(TestPeers.PeerId(1), ["/meshsub/1.3.0"]);
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)), Is.Not.SameAs(evicted));
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(1)).SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
+        Assert.That(evicted.SupportedProtocols, Is.Null);
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
+    [Test]
+    public void PeerExchangeCannotDisplaceConfiguredSeeds()
+    {
+        PeerStore store = new(2);
+        store.Discover([TestPeers.Multiaddr(1)]);
+        Identity[] exchanged = Enumerable.Range(2, 8).Select(TestPeers.Identity).ToArray();
+
+        foreach (Identity peer in exchanged) store.Discover(SignedRecord(peer));
+
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(1), out _), Is.True);
+        Assert.That(exchanged.Count(peer => store.TryGetPeerInfo(peer.PeerId, out _)), Is.EqualTo(1));
+    }
+
+    [Test]
     public void SessionRecordCallbacksRunOutsidePublicationLocks()
     {
         Identity remote = TestPeers.Identity(8);
         PeerStore store = new(1);
         State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        Lock storeLock = (Lock)typeof(PeerStore).GetField("_storeLock", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(store)!;
         string address = $"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}";
         bool announced = false;
         store.OnNewPeer += addresses =>
         {
             announced = true;
             Assert.That(addresses.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
-            Assert.That(store.TryGetPeerInfo(remote.PeerId, out PeerStore.PeerInfo? info), Is.True);
+            Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.True);
             bool locksAvailable = Task.Run(() =>
             {
                 if (!state.PeerRecordLock.TryEnter()) return false;
                 try
                 {
-                    if (!info!.RecordLock.TryEnter()) return false;
-                    info.RecordLock.Exit();
+                    if (!storeLock.TryEnter()) return false;
+                    storeLock.Exit();
                     return true;
                 }
                 finally

@@ -142,7 +142,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
             PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
             if (remotePeerId is not null && remotePeerId != localPeerId!)
             {
-                peerStore.Discover(addrs);
+                peerStore.Discover(addrs, isTrusted: false);
             }
             logger?.LogDebug($"New peer discovered {peer}");
         }

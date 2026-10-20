@@ -16,6 +16,47 @@ namespace Libp2p.E2eTests;
 
 public class IdentifyPeerRecordTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task LocallyOwnedProtocolIdsAreNotTruncatedOrRetainedFromTheWire(bool push)
+    {
+        Identity remote = TestPeers.Identity(82);
+        PeerStore store = new();
+        string localId = "/application/" + new string('x', 129);
+        ProtocolStackSettings stack = new() { Protocols = new() { [new(new AdvertisedProtocol(localId))] = [] } };
+        Identify message = new() { PublicKey = remote.PublicKey.ToByteString(), Protocols = { localId, new string('y', 129) } };
+
+        await ReadIdentifyAsync(remote, store, message, push: push, stack: stack);
+
+        string[] protocols = store.GetPeerInfo(remote.PeerId).SupportedProtocols!;
+        Assert.That(protocols, Is.EqualTo(new[] { localId }));
+        Assert.That(protocols[0], Is.SameAs(localId));
+    }
+
+    [TestCase(false, 0)]
+    [TestCase(true, 0)]
+    [TestCase(false, 65)]
+    [TestCase(true, 65)]
+    public async Task StoredProtocolsPrioritizeLocalNegotiationBeforeRemoteOrdering(bool push, int extraLocalProtocols)
+    {
+        Identity remote = TestPeers.Identity(82);
+        PeerStore store = new();
+        string[] localProtocols = [.. Enumerable.Range(0, extraLocalProtocols).Select(i => $"/local-request/{i}"), "/meshsub/1.3.0", "/meshsub/1.2.0"];
+        ProtocolStackSettings stack = new() { Protocols = localProtocols.ToDictionary(id => new ProtocolRef(new AdvertisedProtocol(id)), _ => Array.Empty<ProtocolRef>()) };
+        Identify message = new() { PublicKey = remote.PublicKey.ToByteString() };
+        message.Protocols.AddRange(Enumerable.Range(0, 64).Select(i => $"/unrelated/{i}"));
+        message.Protocols.AddRange(localProtocols.Reverse());
+        message.Protocols.Add("/meshsub/1.3.0");
+
+        await ReadIdentifyAsync(remote, store, message, push: push, stack: stack);
+
+        string[] protocols = store.GetPeerInfo(remote.PeerId).SupportedProtocols!;
+        Assert.That(protocols.Take(localProtocols.Length), Is.EqualTo(localProtocols));
+        for (int i = 0; i < localProtocols.Length; i++) Assert.That(protocols[i], Is.SameAs(localProtocols[i]));
+        Assert.That(protocols.Length, Is.EqualTo(Math.Max(64, localProtocols.Length)));
+        Assert.That(protocols.Distinct().Count(), Is.EqualTo(protocols.Length));
+    }
+
     [Test]
     public async Task MissingOptionalPeerRecordDoesNotCreateOne()
     {
@@ -297,9 +338,9 @@ public class IdentifyPeerRecordTests
     }
 
     private static async Task ReadIdentifyAsync(Identity remote, PeerStore peerStore, Identify identify,
-        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false, State? state = null)
+        PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false, State? state = null, IProtocolStackSettings? stack = null)
     {
-        IProtocolStackSettings stack = Substitute.For<IProtocolStackSettings>();
+        stack ??= Substitute.For<IProtocolStackSettings>();
         IdentifyProtocolSettings settings = new()
         {
             PeerRecordsVerificationPolicy = policy
@@ -316,5 +357,11 @@ public class IdentifyPeerRecordTests
             : new IdentifyProtocol(stack, settings, peerStore).DialAsync(channel, context);
         await channel.Reverse.WriteSizeAndProtobufAsync(identify);
         await read;
+    }
+
+    private sealed class AdvertisedProtocol(string id) : ISessionListenerProtocol
+    {
+        public string Id => id;
+        public Task ListenAsync(IChannel channel, ISessionContext context) => Task.CompletedTask;
     }
 }

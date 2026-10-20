@@ -178,9 +178,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 throw new SessionExistsException(remotePeerId);
             }
             _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
-            session.RegisterSession();
             try
             {
+                session.RegisterSession();
                 Sessions.Add(session);
             }
             catch

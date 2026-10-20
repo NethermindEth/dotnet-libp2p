@@ -220,7 +220,7 @@ public static class ServiceCollectionExtensions
             }
 
             if (addresses.Count > 0)
-                peerStore.Discover(addresses.ToArray());
+                peerStore.Discover(addresses.ToArray(), isTrusted: false);
         }
         catch { }
     }

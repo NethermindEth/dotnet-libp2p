@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
+using Nethermind.Libp2p.Core.Discovery;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -15,6 +16,135 @@ namespace Nethermind.Libp2p.Core.Tests;
 [CancelAfter(5_000)]
 internal class PeerLifecycleTests
 {
+    [Test]
+    public async Task FullRetainedStoreRejectsAnotherSessionAndCleansUpItsConnection()
+    {
+        PeerStore store = new(1);
+        ControlledPeer peer = new(TestPeers.Identity(1), store: store);
+        LocalPeer.Session first = NewSession(peer);
+        peer.UpgradeToSession(first, new ProtocolRef(new GateTransport()), false, null);
+        await first.Connected;
+        LocalPeer.Session second = new(peer);
+        second.State.RemoteAddress = TestPeers.Multiaddr(3);
+        using INewConnectionContext connection = peer.CreateConnection(new ProtocolRef(new GateTransport()), second, true, null);
+        try
+        {
+            Libp2pException? error = Assert.Throws<Libp2pException>(() => connection.UpgradeToSession());
+            Assert.That(error!.Message, Does.Contain("capacity 1"));
+            Assert.That(second.ConnectionToken.IsCancellationRequested, Is.True);
+            Assert.That(peer.Sessions, Is.EqualTo(new[] { first }));
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.True);
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.False);
+        }
+        finally
+        {
+            await first.DisconnectAsync();
+            await second.DisconnectAsync();
+        }
+    }
+
+    [Test]
+    public async Task SharedStoreRetainsPeerUntilEverySessionDisconnects()
+    {
+        PeerStore store = new(1);
+        ControlledPeer firstPeer = new(TestPeers.Identity(1), store: store);
+        ControlledPeer secondPeer = new(TestPeers.Identity(3), store: store);
+        LocalPeer.Session first = NewSession(firstPeer);
+        LocalPeer.Session second = NewSession(secondPeer);
+        firstPeer.UpgradeToSession(first, new ProtocolRef(new GateTransport()), false, null);
+        secondPeer.UpgradeToSession(second, new ProtocolRef(new GateTransport()), false, null);
+        try
+        {
+            await first.DisconnectAsync();
+            Assert.Throws<Libp2pException>(() => store.GetPeerInfo(TestPeers.PeerId(4)));
+            await second.DisconnectAsync();
+            Assert.That(store.GetPeerInfo(TestPeers.PeerId(4)), Is.Not.Null);
+        }
+        finally
+        {
+            await first.DisconnectAsync();
+            await second.DisconnectAsync();
+        }
+    }
+
+    [Test]
+    public async Task ActiveSessionKeepsMetadataAttachedDuringConcurrentCacheChurn()
+    {
+        PeerStore store = new(2);
+        ControlledPeer peer = new(TestPeers.Identity(1), store: store);
+        LocalPeer.Session session = NewSession(peer);
+        peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+        await session.Connected;
+        PeerStore.PeerInfo info = store.GetPeerInfo(TestPeers.PeerId(2));
+        TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task update = Task.Run(async () =>
+        {
+            ready.SetResult();
+            await release.Task;
+            info.SupportedProtocols = ["/meshsub/1.3.0"];
+        });
+        try
+        {
+            await ready.Task;
+            Parallel.For(3, 30, i => store.GetPeerInfo(TestPeers.PeerId(i)));
+            release.SetResult();
+            await update;
+
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out PeerStore.PeerInfo? current), Is.True);
+            Assert.That(current, Is.SameAs(info));
+            Assert.That(current!.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
+            Assert.That(await peer.DialAsync(TestPeers.PeerId(2)), Is.SameAs(session));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await update;
+            await session.DisconnectAsync();
+        }
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task SessionReleasesRetentionWhenInitializationEnds(int completion)
+    {
+        PeerStore store = new(1);
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ControlledPeer peer = new(TestPeers.Identity(1), connectedTo: () => initialization.Task, store: store);
+        LocalPeer.Session session = NewSession(peer);
+        peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+        store.GetPeerInfo(TestPeers.PeerId(2));
+        Assert.Throws<Libp2pException>(() => store.GetPeerInfo(TestPeers.PeerId(3)), "An active session must not be evicted to admit another peer.");
+
+        if (completion != 0)
+        {
+            TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            peer.Sessions.CollectionChanged += (_, _) => { if (peer.Sessions.Count == 0) removed.TrySetResult(); };
+            if (completion == 1)
+            {
+                initialization.SetException(new InvalidOperationException("initialization failed"));
+                Assert.CatchAsync<InvalidOperationException>(async () => await session.Connected);
+            }
+            else
+            {
+                initialization.SetCanceled();
+                Assert.CatchAsync<OperationCanceledException>(async () => await session.Connected);
+            }
+            await removed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        else
+        {
+            initialization.SetResult();
+            await session.Connected;
+            await session.DisconnectAsync();
+            await session.DisconnectAsync();
+        }
+
+        Assert.That(store.GetPeerInfo(TestPeers.PeerId(3)), Is.Not.Null);
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+    }
+
     [Test]
     public async Task CanceledInitializationDoesNotConnectSession()
     {
@@ -433,8 +563,8 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null)
-        : LocalPeer(identity, null, new ProtocolStackSettings(), activitySource, multiaddrResolver: resolver)
+    private sealed class ControlledPeer(Identity identity, GateTransport? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, PeerStore? store = null)
+        : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, multiaddrResolver: resolver)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => connectedTo?.Invoke() ?? Task.CompletedTask;

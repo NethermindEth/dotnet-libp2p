@@ -25,7 +25,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     // Bound retained metadata independently of the Identify wire message limit.
-    private const int MaxStoredProtocols = 64;
+    private const int DefaultProtocolCapacity = 64;
     private const int MaxStoredProtocolIdBytes = 128;
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
     private readonly PeerStore? _peerStore = peerStore;
@@ -51,9 +51,8 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         ByteString? signedPeerRecord = identify.HasSignedPeerRecord ? identify.SignedPeerRecord : null;
         ulong? priorSeq = context.State.VerifiedPeerRecordSequence;
-        if (_peerStore is not null && _peerStore.TryGetPeerInfo(context.State.RemotePeerId, out PeerStore.PeerInfo? priorInfo) && priorInfo?.SignedPeerRecord is not null)
+        if (_peerStore?.GetVerifiedPeerRecordSequence(context.State.RemotePeerId) is { } cachedSeq)
         {
-            ulong cachedSeq = priorInfo.Seq ?? 0;
             if (priorSeq is null || cachedSeq > priorSeq) priorSeq = cachedSeq;
         }
         bool mayOmitPeerRecord = isPush && signedPeerRecord is null &&
@@ -67,14 +66,24 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         if (_peerStore is not null)
         {
-            PeerStore.PeerInfo peerInfo = _peerStore.GetPeerInfo(context.State.RemotePeerId);
-
             // Repeated fields have no presence bit, so an empty Push must not erase known protocols.
             if (!isPush || identify.Protocols.Count > 0)
             {
-                peerInfo.SupportedProtocols = identify.Protocols
-                    .Where(p => p.Length <= MaxStoredProtocolIdBytes && Encoding.UTF8.GetByteCount(p) <= MaxStoredProtocolIdBytes)
-                    .Take(MaxStoredProtocols).ToArray();
+                List<string> protocols = new(DefaultProtocolCapacity);
+                HashSet<string> selected = new(StringComparer.Ordinal);
+                foreach (ProtocolRef protocol in _protocolStackSettings.Protocols?.Keys.AsEnumerable() ?? [])
+                {
+                    if (protocol.Protocol is ISessionListenerProtocol && identify.Protocols.Contains(protocol.Id) && selected.Add(protocol.Id))
+                    {
+                        protocols.Add(protocol.Id);
+                    }
+                }
+                foreach (string protocol in identify.Protocols)
+                {
+                    if (protocols.Count >= DefaultProtocolCapacity) break;
+                    if (protocol.Length <= MaxStoredProtocolIdBytes && Encoding.UTF8.GetByteCount(protocol) <= MaxStoredProtocolIdBytes && selected.Add(protocol)) protocols.Add(protocol);
+                }
+                _peerStore.SetSupportedProtocols(context.State.RemotePeerId, protocols.ToArray());
             }
             if (verifiedPeerRecord)
             {
