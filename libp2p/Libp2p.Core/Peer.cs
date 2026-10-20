@@ -790,16 +790,21 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         // allowance it never took, which would raise the cap a little further with every dial.
         InboundStreamLimit? acquiredLimit = null;
         PeerId? limitedPeer = null;
+        string? limitedProtocolId = null;
         if (isListener && top.InboundLimit is { } inboundLimit)
         {
             limitedPeer = session.State.RemotePeerId;
-            if (!inboundLimit.TryAcquire(limitedPeer))
+            limitedProtocolId = top.Id;
+            if (!inboundLimit.TryAcquire(limitedPeer, out bool perPeerLimit))
             {
                 // Refuse before the protocol reads anything, and reset rather than end the stream,
                 // as go-libp2p does for a denied reservation: an orderly close would reach the peer
                 // as an empty reply it could mistake for a protocol-level answer. Nothing tells the
-                // peer to back off, which matches go — there is no such signal in libp2p.
-                _logger?.LogDebug($"Inbound stream for {top} refused: {inboundLimit.MaxConcurrent} already in flight");
+                // peer how long to back off; the reset carries no retry interval.
+                string scope = perPeerLimit ? "peer" : "total";
+                _logger?.LogDebug("Inbound stream for {Protocol} refused by {Scope} limit ({Limit})", top, scope,
+                    perPeerLimit ? inboundLimit.MaxPerPeer : inboundLimit.MaxConcurrent);
+                Libp2pMetrics.InboundStreamsRefused.Add(1, new("protocol", limitedProtocolId), new("scope", scope));
                 cancellationRegistration.Dispose();
                 _ = downChannel.AbortAsync();
                 upgradeActivity?.Dispose();
@@ -809,8 +814,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             acquiredLimit = inboundLimit;
         }
 
+        void ReleaseInboundAllowance()
+        {
+            if (acquiredLimit is null) return;
+            acquiredLimit.Release(limitedPeer);
+            Libp2pMetrics.InboundStreamsActive.Add(-1, new KeyValuePair<string, object?>("protocol", limitedProtocolId));
+        }
+
         try
         {
+            if (acquiredLimit is not null) Libp2pMetrics.InboundStreamsActive.Add(1, new KeyValuePair<string, object?>("protocol", limitedProtocolId));
             switch (top.Protocol)
             {
                 case IConnectionProtocol tProto:
@@ -869,7 +882,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             upgradeTask.ContinueWith(t =>
             {
-                acquiredLimit?.Release(limitedPeer);
+                ReleaseInboundAllowance();
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {
@@ -900,6 +913,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch (Exception ex)
         {
+            ReleaseInboundAllowance();
             cancellationRegistration.Dispose();
             if (options?.CompletionSource is not null)
             {

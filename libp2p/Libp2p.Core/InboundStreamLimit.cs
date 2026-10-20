@@ -52,8 +52,9 @@ public sealed class InboundStreamLimit
     /// stream whose peer is not yet identified counts against the total only, since there is no
     /// identity to attribute it to.
     /// </summary>
-    internal bool TryAcquire(PeerId? peer)
+    internal bool TryAcquire(PeerId? peer, out bool perPeerLimit)
     {
+        perPeerLimit = false;
         lock (_lock)
         {
             if (_inFlight >= MaxConcurrent)
@@ -66,6 +67,7 @@ public sealed class InboundStreamLimit
                 _perPeer.TryGetValue(peer, out int forPeer);
                 if (forPeer >= MaxPerPeer)
                 {
+                    perPeerLimit = true;
                     return false;
                 }
 

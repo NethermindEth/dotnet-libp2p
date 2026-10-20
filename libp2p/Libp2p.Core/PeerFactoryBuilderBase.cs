@@ -8,6 +8,8 @@ namespace Nethermind.Libp2p.Core;
 
 public class ProtocolRef(IProtocol protocol, bool isExposed = true, InboundStreamLimit? inboundLimit = null)
 {
+    public ProtocolRef(IProtocol protocol, bool isExposed) : this(protocol, isExposed, null) { }
+
     static int RefIdCounter = 0;
 
     public string RefId { get; } = Interlocked.Increment(ref RefIdCounter).ToString();
@@ -78,6 +80,9 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
             ServiceProvider = serviceProvider;
         }
     }
+
+    public IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance, bool isExposed) where TProtocol : IProtocol
+        => AddProtocol(instance, isExposed, null);
 
     public IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol
     {

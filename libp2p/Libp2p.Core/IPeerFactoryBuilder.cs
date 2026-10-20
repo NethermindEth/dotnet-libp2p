@@ -7,6 +7,10 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IPeerFactoryBuilder
 {
+    // Retain the original member for existing callers and custom builders. Optional arguments
+    // live on the overload below so source calls select one overload unambiguously.
+    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance, bool isExposed) where TProtocol : IProtocol;
+
     /// <summary>
     /// Adds application layer protocol to the stack. See <see href="https://github.com/NethermindEth/dotnet-libp2p/blob/main/docs/README.md#make-a-protocol-for-your-application">Defining application layer protocol</see>.
     /// </summary>
@@ -18,7 +22,11 @@ public interface IPeerFactoryBuilder
     /// Caps inbound streams for this protocol. Pass one instance to several registrations to give
     /// them a shared allowance. Null leaves them uncapped, which is the behavior without it.
     /// </param>
-    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol;
+    IPeerFactoryBuilder AddProtocol<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(TProtocol? instance = default, bool isExposed = true, InboundStreamLimit? inboundLimit = null) where TProtocol : IProtocol
+    {
+        if (inboundLimit is not null) throw new NotSupportedException("This builder does not support inbound stream limits.");
+        return AddProtocol(instance, isExposed);
+    }
     IPeerFactory Build();
     IServiceProvider ServiceProvider { get; }
 }
