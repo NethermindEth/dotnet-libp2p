@@ -17,6 +17,30 @@ namespace Libp2p.E2eTests;
 public class AutomaticIdentifyTests
 {
     [Test]
+    public void LegacySessionsCanReportUnsupportedInstanceDialing()
+    {
+        ISession session = new TestRemotePeer(TestPeers.Multiaddr(2));
+
+        Assert.ThrowsAsync<NotSupportedException>(async () => await session.DialAsync(new ForwardedIdentify(new ProtocolStackSettings(), new PeerStore())));
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task AutomaticIdentifyAcceptsOtherSessionImplementations(int mode)
+    {
+        using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
+        AutomaticBuilder builder = new(provider, mode);
+        await using LocalPeer peer = (LocalPeer)builder.Build().Create(TestPeers.Identity(1));
+        RecordingSession session = new(TestPeers.Multiaddr(2));
+
+        await (Task)peer.GetType().GetMethod("ConnectedTo", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(peer, [session, true])!;
+
+        Assert.That(session.SelectedProtocol, Is.SameAs(builder.SelectedIdentify));
+    }
+
+    [Test]
     public async Task ListenerOnlyPushDoesNotHideTheOutboundImplementation()
     {
         using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
@@ -165,5 +189,16 @@ public class AutomaticIdentifyTests
     {
         public string Id => IdentifyPushProtocol.ProtocolId;
         public Task ListenAsync(IChannel channel, ISessionContext context) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingSession(Multiaddress address) : TestRemotePeer(address), ISession
+    {
+        public ISessionProtocol? SelectedProtocol { get; private set; }
+
+        public Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
+        {
+            SelectedProtocol = protocol;
+            return Task.CompletedTask;
+        }
     }
 }

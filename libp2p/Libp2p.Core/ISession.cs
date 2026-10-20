@@ -29,5 +29,11 @@ public interface ISession
     /// <param name="token">Cancellation token used while queueing the dial request.</param>
     /// <returns>The response produced by the selected protocol.</returns>
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
+
+    /// <summary>Dials the selected protocol instance. Older session implementations may not support instance dialing.</summary>
+    /// <exception cref="NotSupportedException">The session does not implement instance dialing.</exception>
+    Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
+        => Task.FromException(new NotSupportedException("This session does not support dialing protocol instances."));
+
     Task DisconnectAsync();
 }

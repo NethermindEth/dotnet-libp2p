@@ -33,7 +33,7 @@ class Libp2pPeer : LocalPeer
     {
         if (GetProtocol<ISessionProtocol>(IdentifyProtocol.ProtocolId) is { } identify)
         {
-            await ((Session)session).DialAsync(identify);
+            await session.DialAsync(identify);
         }
     }
 }
