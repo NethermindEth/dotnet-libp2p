@@ -263,6 +263,12 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return GetProtocolInstance<T>() as T;
     }
 
+    /// <summary>Gets the first installed protocol with the given wire identifier.</summary>
+    public IProtocol? GetProtocol(string protocolId)
+    {
+        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId)?.Protocol;
+    }
+
     public Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
     {
         if (token.IsCancellationRequested)
