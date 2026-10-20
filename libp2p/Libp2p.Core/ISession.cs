@@ -8,8 +8,13 @@ namespace Nethermind.Libp2p.Core;
 
 public interface ISession
 {
+    /// <summary>The authenticated remote peer's identity.</summary>
+    PeerId RemotePeerId { get; }
     Multiaddress RemoteAddress { get; }
     Activity? Activity { get; }
+
+    /// <summary>Canceled when this session starts closing, including transport loss.</summary>
+    CancellationToken Closed { get; }
 
     /// <summary>
     /// Dials a session protocol that does not require a request payload.

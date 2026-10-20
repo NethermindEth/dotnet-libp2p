@@ -16,6 +16,57 @@ namespace Nethermind.Libp2p.Core.Tests;
 internal class PeerLifecycleTests
 {
     [Test]
+    public async Task SessionLifetimeEndsApplicationWorkOnDisconnect()
+    {
+        ControlledPeer peer = new(TestPeers.Identity(1));
+        LocalPeer.Session session = NewSession(peer);
+        ISession exposed = session;
+        int notifications = 0;
+        using CancellationTokenRegistration registration = exposed.Closed.Register(() => notifications++);
+        Task work = Task.Delay(Timeout.Infinite, exposed.Closed);
+        Assert.That(exposed.RemotePeerId, Is.EqualTo(TestPeers.PeerId(2)));
+        Assert.That(exposed.Closed.IsCancellationRequested, Is.False);
+
+        await session.DisconnectAsync();
+        await session.DisconnectAsync();
+
+        Assert.That(exposed.Closed.IsCancellationRequested, Is.True);
+        Assert.That(work.IsCanceled, Is.True);
+        Assert.That(notifications, Is.EqualTo(1));
+        Assert.That(exposed.RemotePeerId, Is.EqualTo(TestPeers.PeerId(2)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailedInitializationEndsExposedSessionLifetime(bool canceled)
+    {
+        ControlledPeer peer = new(TestPeers.Identity(1), connectedTo: () => canceled
+            ? Task.FromCanceled(new CancellationToken(true))
+            : Task.FromException(new InvalidOperationException("initialization failed")));
+        LocalPeer.Session session = NewSession(peer);
+        ISession exposed = session;
+
+        peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+
+        Assert.CatchAsync<Exception>(async () => await session.Connected);
+        Assert.That(exposed.Closed.IsCancellationRequested, Is.True);
+        Assert.That(peer.Sessions, Is.Empty);
+    }
+
+    [Test]
+    public async Task PeerDisposalEndsExposedSessionLifetime()
+    {
+        ControlledPeer peer = new(TestPeers.Identity(1));
+        LocalPeer.Session session = NewSession(peer);
+        peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+        await session.Connected;
+
+        await peer.DisposeAsync();
+
+        Assert.That(((ISession)session).Closed.IsCancellationRequested, Is.True);
+    }
+
+    [Test]
     public async Task CanceledInitializationDoesNotConnectSession()
     {
         ControlledPeer peer = new(TestPeers.Identity(1), connectedTo: () => Task.FromCanceled(new CancellationToken(true)));

@@ -20,6 +20,8 @@ public partial class LocalPeer
         public Activity? Activity { get; } = activity;
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
+        public PeerId RemotePeerId => State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
+        public CancellationToken Closed => ConnectionToken;
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
 
