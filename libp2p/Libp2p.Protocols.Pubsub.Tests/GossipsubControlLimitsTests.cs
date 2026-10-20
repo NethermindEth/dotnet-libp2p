@@ -881,9 +881,10 @@ public class GossipsubControlLimitsTests
         private readonly TaskCompletionSource connection = new();
         private readonly List<TaskCompletionSource> extraConnections = [];
 
-        private RouterSetup(PubsubRouter router, PeerStore peerStore, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
+        private RouterSetup(PubsubRouter router, PeerStore peerStore, ILocalPeer localPeer, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
         {
             Router = router;
+            LocalPeer = localPeer;
             PeerStore = peerStore;
             Topic = topic;
             RemotePeerId = remotePeerId;
@@ -891,6 +892,7 @@ public class GossipsubControlLimitsTests
         }
 
         public PubsubRouter Router { get; }
+        public ILocalPeer LocalPeer { get; }
         public PeerStore PeerStore { get; }
         public string Topic { get; }
         public PeerId RemotePeerId { get; }
@@ -906,7 +908,7 @@ public class GossipsubControlLimitsTests
             localPeer.Identity.Returns(TestPeers.Identity(1));
             localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
 
-            RouterSetup setup = new(router, peerStore, topic, TestPeers.PeerId(2), []);
+            RouterSetup setup = new(router, peerStore, localPeer, topic, TestPeers.PeerId(2), []);
             await router.StartAsync(localPeer, setup.cancellation.Token);
             _ = router.GetTopic(topic);
             Multiaddress remoteAddress = TestPeers.Multiaddr(2);
