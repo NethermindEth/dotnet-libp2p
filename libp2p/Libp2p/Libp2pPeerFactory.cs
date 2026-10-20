@@ -31,6 +31,9 @@ public class Libp2pPeer : LocalPeer
 
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        await session.DialAsync<IdentifyProtocol>();
+        if (GetProtocol<ISessionProtocol>(IdentifyProtocol.ProtocolId) is { } identify)
+        {
+            await session.DialAsync(identify);
+        }
     }
 }

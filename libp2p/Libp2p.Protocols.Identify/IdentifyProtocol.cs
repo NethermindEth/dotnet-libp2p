@@ -12,7 +12,8 @@ namespace Nethermind.Libp2p.Protocols;
 /// </summary>
 public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol<IdentifyResult>
 {
-    public string Id => "/ipfs/id/1.0.0";
+    public const string ProtocolId = "/ipfs/id/1.0.0";
+    public string Id => ProtocolId;
 
     public IdentifyProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
         : base(protocolStackSettings, settings, peerStore, loggerFactory, timeProvider)

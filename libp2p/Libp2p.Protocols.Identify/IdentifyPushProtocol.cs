@@ -13,7 +13,8 @@ namespace Nethermind.Libp2p.Protocols;
 public class IdentifyPushProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
     : IdentifyProtocolBase(protocolStackSettings, settings, peerStore, loggerFactory, timeProvider), ISessionProtocol<ulong, ulong>
 {
-    public string Id => "/ipfs/id/push/1.0.0";
+    public const string ProtocolId = "/ipfs/id/push/1.0.0";
+    public string Id => ProtocolId;
 
     public async Task<ulong> DialAsync(IChannel channel, ISessionContext context, ulong idVersion)
     {

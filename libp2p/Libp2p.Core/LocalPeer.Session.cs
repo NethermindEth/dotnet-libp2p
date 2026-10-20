@@ -56,6 +56,13 @@ public partial class LocalPeer
             return (TResponse)result!;
         }
 
+        /// <summary>Dials a specific protocol instance with a request and returns its response.</summary>
+        public async Task<TResponse> DialAsync<TRequest, TResponse>(ISessionProtocol<TRequest, TResponse> protocol, TRequest request, CancellationToken token = default)
+        {
+            object? result = await DialAsyncCore(protocol, request, token);
+            return (TResponse)result!;
+        }
+
         private async Task<object?> DialAsyncCore(IProtocol? protocol, object? argument, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
