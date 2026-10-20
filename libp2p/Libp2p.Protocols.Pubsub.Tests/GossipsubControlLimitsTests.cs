@@ -611,6 +611,35 @@ public class GossipsubControlLimitsTests
         Assert.That(setup.PeerStore.TryGetPeerInfo(signer.PeerId, out _), Is.False);
     }
 
+    /// <remarks>
+    /// Gossipsub v1.1 lets an entry omit the signed record. Such a peer can only be
+    /// reached through addresses the store already has, and an entry without one must
+    /// not stop the entries after it.
+    /// </remarks>
+    [Test]
+    public async Task Prune_DialsExchangedPeersWithoutRecords_OnlyWhenTheirAddressesAreKnown()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        PeerId known = TestPeers.PeerId(5);
+        PeerId unknown = TestPeers.PeerId(6);
+        Identity signed = TestPeers.Identity(7);
+        setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
+        setup.LocalPeer.ClearReceivedCalls();
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo(),
+            new PeerInfo { PeerID = ByteString.CopyFrom(unknown.Bytes) },
+            new PeerInfo { PeerID = ByteString.CopyFrom(known.Bytes), SignedPeerRecord = ByteString.Empty },
+            new PeerInfo { PeerID = ByteString.CopyFrom(signed.PeerId.Bytes), SignedPeerRecord = SignedRecord(signed) }));
+
+        PeerId?[] dialed = setup.LocalPeer.ReceivedCalls()
+            .Where(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[])
+            .Select(call => ((Multiaddress[])call.GetArguments()[0]!)[0].GetPeerId())
+            .ToArray();
+        Assert.That(dialed, Is.EquivalentTo(new[] { known, signed.PeerId }));
+        Assert.That(setup.PeerStore.TryGetPeerInfo(unknown, out _), Is.False);
+    }
+
     private static async Task<RouterSetup> PrunableSetup()
     {
         RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });

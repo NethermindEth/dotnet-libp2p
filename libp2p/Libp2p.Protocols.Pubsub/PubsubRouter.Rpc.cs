@@ -851,7 +851,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     }
 
     /// <remarks>
-    /// A record is only stored when its signer is the advertised peer.
+    /// The signed record is optional in gossipsub v1.1 peer exchange. A record is only
+    /// stored when its signer is the advertised peer. Without one, the peer is dialed
+    /// only if the store already has its addresses.
     /// </remarks>
     private void DiscoverExchangedPeer(PeerInfo exchanged)
     {
@@ -861,8 +863,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         if (!exchanged.SignedPeerRecord.IsEmpty)
         {
             if (RecordSigner(exchanged.SignedPeerRecord) == peerId) _peerStore.Discover(exchanged.SignedPeerRecord);
+            return;
         }
 
+        if (peerId == localPeer?.Identity.PeerId || peerState.ContainsKey(peerId)) return;
+        if (_peerStore.TryGetPeerInfo(peerId, out Core.Discovery.PeerStore.PeerInfo? known) && known?.Addrs is { Count: > 0 } addrs)
+        {
+            _onNewPeer?.Invoke([.. addrs]);
+        }
     }
 
     private static PeerId? RecordSigner(ByteString signedPeerRecord)
