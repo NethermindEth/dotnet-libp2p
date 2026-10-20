@@ -13,14 +13,14 @@ public class PeerStore
 {
     private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
     private readonly LinkedList<PeerId> _discovered = [];
-    private readonly LinkedList<PeerId> _trusted = [];
+    private readonly LinkedList<PeerId> _configured = [];
     private readonly Lock _storeLock = new();
     private readonly int _maxPeers;
 
     /// <summary>Retains at most 10,000 peers, protecting active sessions and locally seeded peers from remote discovery.</summary>
     public PeerStore() : this(10_000) { }
 
-    /// <summary>Retains at most <paramref name="maxPeers"/> peers. Admission fails when every slot belongs to an active session.</summary>
+    /// <summary>Retains at most <paramref name="maxPeers"/> peers. Remote admission fails when every slot belongs to an active session or configured peer.</summary>
     public PeerStore(int maxPeers)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPeers);
@@ -76,7 +76,7 @@ public class PeerStore
         {
             lock (_storeLock)
             {
-                PeerInfo info = GetOrAdd(peerId, isTrusted: true)!;
+                PeerInfo info = GetOrAdd(peerId)!;
                 if (info.SignedPeerRecord is not null) state.RecordVerifiedPeerRecordSequence(info.Seq ?? 0);
                 ulong? priorSeq = state.VerifiedPeerRecordSequence;
                 state.RecordVerifiedPeerRecordSequence(seq);
@@ -113,8 +113,8 @@ public class PeerStore
             HashSet<Multiaddress> addresses = [.. addrs];
             lock (_storeLock)
             {
-                PeerInfo? peerInfo = GetOrAdd(peerId, isTrusted);
-                if (peerInfo is null || !isTrusted && (peerInfo.IsTrusted && peerInfo.Addrs is not null || peerInfo.SignedPeerRecord is not null)) return;
+                PeerInfo? peerInfo = GetOrAdd(peerId, isConfigured: isTrusted, required: isTrusted);
+                if (peerInfo is null || !isTrusted && (peerInfo.IsConfigured || peerInfo.SignedPeerRecord is not null)) return;
                 if (peerInfo.Addrs is not null && peerInfo.Addrs.SetEquals(addresses)) return;
                 peerInfo.Addrs = addresses;
             }
@@ -152,14 +152,14 @@ public class PeerStore
         if (_store.TryGetValue(peerId, out PeerInfo? existing)) return existing;
         lock (_storeLock)
         {
-            return GetOrAdd(peerId, isTrusted: true)!;
+            return GetOrAdd(peerId)!;
         }
     }
 
     /// <summary>Publishes metadata to the current retained entry, rather than a possibly evicted reference.</summary>
     public void SetSupportedProtocols(PeerId peerId, string[] protocols)
     {
-        lock (_storeLock) GetOrAdd(peerId, isTrusted: true)!.SupportedProtocols = protocols;
+        lock (_storeLock) GetOrAdd(peerId)!.SupportedProtocols = protocols;
     }
 
     public ulong? GetVerifiedPeerRecordSequence(PeerId peerId)
@@ -174,7 +174,7 @@ public class PeerStore
     {
         lock (_storeLock)
         {
-            PeerInfo info = GetOrAdd(peerId, isTrusted: true)!;
+            PeerInfo info = GetOrAdd(peerId)!;
             if (info.Sessions++ == 0) RemoveFromEvictionList(info);
         }
     }
@@ -184,35 +184,35 @@ public class PeerStore
         lock (_storeLock)
         {
             PeerInfo info = _store[peerId];
-            if (--info.Sessions == 0) info.EvictionNode = _trusted.AddLast(peerId);
+            if (--info.Sessions == 0) info.EvictionNode = (info.IsConfigured ? _configured : _discovered).AddLast(peerId);
         }
     }
 
-    private PeerInfo? GetOrAdd(PeerId peerId, bool isTrusted)
+    private PeerInfo? GetOrAdd(PeerId peerId, bool isConfigured = false, bool required = true)
     {
         if (_store.TryGetValue(peerId, out PeerInfo? existing))
         {
-            if (isTrusted && !existing.IsTrusted)
+            if (isConfigured && !existing.IsConfigured)
             {
-                existing.IsTrusted = true;
+                existing.IsConfigured = true;
                 RemoveFromEvictionList(existing);
-                if (existing.Sessions == 0) existing.EvictionNode = _trusted.AddLast(peerId);
+                if (existing.Sessions == 0) existing.EvictionNode = _configured.AddLast(peerId);
             }
             return existing;
         }
         while (_store.Count >= _maxPeers)
         {
-            LinkedListNode<PeerId>? oldest = _discovered.First ?? (isTrusted ? _trusted.First : null);
+            LinkedListNode<PeerId>? oldest = _discovered.First ?? (isConfigured ? _configured.First : null);
             if (oldest is null)
             {
-                if (isTrusted) throw new Libp2pException($"Peer store capacity {_maxPeers} is occupied by active sessions.");
+                if (required) throw new Libp2pException($"Peer store capacity {_maxPeers} is occupied by active sessions or configured peers.");
                 return null;
             }
             oldest.List!.Remove(oldest);
             _store.TryRemove(oldest.Value, out _);
         }
-        PeerInfo added = new() { IsTrusted = isTrusted };
-        added.EvictionNode = (isTrusted ? _trusted : _discovered).AddLast(peerId);
+        PeerInfo added = new() { IsConfigured = isConfigured };
+        added.EvictionNode = (isConfigured ? _configured : _discovered).AddLast(peerId);
         _store[peerId] = added;
         return added;
     }
@@ -233,7 +233,7 @@ public class PeerStore
 
     public class PeerInfo
     {
-        internal bool IsTrusted;
+        internal bool IsConfigured;
         internal int Sessions;
         internal LinkedListNode<PeerId>? EvictionNode;
         public ByteString? SignedPeerRecord { get; set; }

@@ -16,6 +16,81 @@ namespace Nethermind.Libp2p.Core.Tests;
 [CancelAfter(5_000)]
 internal class PeerLifecycleTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task RemoteDiscoveryRefreshesAddressesAfterConnecting(bool disconnect)
+    {
+        PeerStore store = new(1);
+        store.Discover([$"/ip4/192.0.2.10/tcp/4001/p2p/{TestPeers.PeerId(2)}"], isTrusted: false);
+        ControlledPeer peer = new(TestPeers.Identity(1), store: store);
+        LocalPeer.Session session = NewSession(peer);
+        peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+        await session.Connected;
+        try
+        {
+            if (disconnect) await session.DisconnectAsync();
+            Multiaddress updated = $"/ip4/192.0.2.20/tcp/4001/p2p/{TestPeers.PeerId(2)}";
+
+            store.Discover([updated], isTrusted: false);
+
+            Assert.That(store.GetPeerInfo(TestPeers.PeerId(2)).Addrs, Is.EquivalentTo(new[] { updated }));
+        }
+        finally
+        {
+            await session.DisconnectAsync();
+        }
+    }
+
+    [Test]
+    public async Task SessionChurnCannotDisplaceConfiguredSeeds()
+    {
+        PeerStore store = new(2);
+        Multiaddress seed = TestPeers.Multiaddr(2);
+        store.Discover([seed]);
+        ControlledPeer peer = new(TestPeers.Identity(1), store: store);
+
+        for (int i = 3; i < 12; i++)
+        {
+            LocalPeer.Session session = new(peer);
+            session.State.RemoteAddress = TestPeers.Multiaddr(i);
+            peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
+            try
+            {
+                await session.Connected;
+                store.SetSupportedProtocols(TestPeers.PeerId(i), ["/meshsub/1.3.0"]);
+            }
+            finally
+            {
+                await session.DisconnectAsync();
+            }
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out var retained), Is.True);
+            Assert.That(retained!.Addrs, Is.EquivalentTo(new[] { seed }));
+        }
+    }
+
+    [Test]
+    public async Task FullConfiguredStoreRejectsRemoteAdmissionWithoutEvictingASeed()
+    {
+        PeerStore store = new(1);
+        store.Discover([TestPeers.Multiaddr(3)]);
+        ControlledPeer peer = new(TestPeers.Identity(1), store: store);
+        LocalPeer.Session session = NewSession(peer);
+        using INewConnectionContext connection = peer.CreateConnection(new ProtocolRef(new GateTransport()), session, true, null);
+
+        try
+        {
+            Assert.Throws<Libp2pException>(() => connection.UpgradeToSession());
+
+            Assert.That(session.ConnectionToken.IsCancellationRequested, Is.True);
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.True);
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
+        }
+        finally
+        {
+            await session.DisconnectAsync();
+        }
+    }
+
     [Test]
     public async Task FullRetainedStoreRejectsAnotherSessionAndCleansUpItsConnection()
     {

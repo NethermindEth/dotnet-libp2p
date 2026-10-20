@@ -21,6 +21,41 @@ namespace Nethermind.Libp2p.Core.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class PeerStoreTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public void MetadataDoesNotPreventRemoteAddressRefresh(bool publishProtocols)
+    {
+        PeerStore store = new(1);
+        PeerId peerId = TestPeers.PeerId(1);
+        Multiaddress updated = $"/ip4/192.0.2.20/tcp/4001/p2p/{peerId}";
+        store.Discover([$"/ip4/192.0.2.10/tcp/4001/p2p/{peerId}"], isTrusted: false);
+        if (publishProtocols) store.SetSupportedProtocols(peerId, ["/meshsub/1.3.0"]);
+        else store.GetPeerInfo(peerId);
+        List<Multiaddress[]> announcements = [];
+        store.OnNewPeer += announcements.Add;
+        announcements.Clear();
+
+        store.Discover([updated], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(peerId).Addrs, Is.EquivalentTo(new[] { updated }));
+        Assert.That(announcements, Has.Count.EqualTo(1));
+        Assert.That(announcements[0], Is.EqualTo(new[] { updated }));
+    }
+
+    [Test]
+    public void UnsignedDiscoveryCannotReplaceSignedAddresses()
+    {
+        Identity remote = TestPeers.Identity(1);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        PeerStore store = new(1);
+        store.Discover(SignedRecord(remote), state);
+
+        store.Discover([$"/ip4/192.0.2.20/tcp/4001/p2p/{remote.PeerId}"], isTrusted: false);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs,
+            Is.EquivalentTo(new Multiaddress[] { $"/ip4/127.0.0.1/tcp/4001/p2p/{remote.PeerId}" }));
+    }
+
     [Test]
     public void RemoteDiscoveryCanFillAnAddressMissingFromAuthenticatedMetadata()
     {
