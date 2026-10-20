@@ -121,7 +121,6 @@ public class MessageIdLockTests
         // One rejected delivery scores -0.5, so graylist just above it rather than driving the
         // score down to the -100 default.
         settings.GraylistThreshold = -0.25;
-        settings.TopicScoreParams[Topic] = new TopicScoreParams();
         settings.GetMessageId = message =>
         {
             Interlocked.Increment(ref calculations);

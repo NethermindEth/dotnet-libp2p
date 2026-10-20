@@ -753,9 +753,7 @@ public class GossipsubControlLimitsTests
     [Test]
     public async Task InvalidSignature_KeepsIwantPromiseWithoutAcceptingMessage()
     {
-        PubsubSettings settings = new() { HeartbeatInterval = int.MaxValue };
-        settings.TopicScoreParams["topic"] = new TopicScoreParams();
-        await using RouterSetup setup = await RouterSetup.Create(settings);
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
         Identity author = TestPeers.Identity(3);
         Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, [1], author).Publish.Single();
         message.Data = ByteString.CopyFrom([2]);

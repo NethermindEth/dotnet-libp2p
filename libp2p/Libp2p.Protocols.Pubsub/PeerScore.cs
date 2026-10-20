@@ -37,8 +37,13 @@ public class PeerScore
         return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams));
     }
 
-    /// <summary>Read-only defaults for topics with no configured parameters.</summary>
-    private static readonly TopicScoreParams DefaultTopicScoreParams = new() { TopicWeight = 0 };
+    /// <summary>Fallback scoring retains delivery rewards and invalid-message penalties without mesh assumptions.</summary>
+    private static readonly TopicScoreParams DefaultTopicScoreParams = new()
+    {
+        TimeInMeshWeight = 0,
+        MeshMessageDeliveriesWeight = 0,
+        MeshFailurePenaltyWeight = 0
+    };
 
     /// <summary>
     /// Calculates the total score for this peer

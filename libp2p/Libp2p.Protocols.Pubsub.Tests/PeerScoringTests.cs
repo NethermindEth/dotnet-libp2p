@@ -57,7 +57,7 @@ public class PeerScoringTests
     }
 
     [Test]
-    public void OnlyConfiguredTopicsContributeToScore()
+    public void ConfiguredMeshTermsAndDefaultDeliveryTermsContributeIndependently()
     {
         PubsubSettings settings = new();
         settings.TopicScoreParams[TestTopic] = new TopicScoreParams { TimeInMeshWeight = 0 };
@@ -69,9 +69,39 @@ public class PeerScoringTests
         otherTopic.FirstMessageDeliveries = 17;
         otherTopic.InvalidMessageDeliveries = 3;
 
-        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(-200));
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(-196));
         configured.MeshMessageDeliveries = 20;
-        Assert.That(score.GetScore(EmptyIpCounts()), Is.Zero);
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(4));
+    }
+
+    [TestCase(false, 1, -0.5)]
+    [TestCase(true, 1, -0.5)]
+    [TestCase(false, 2, -2)]
+    [TestCase(true, 2, -2)]
+    [TestCase(false, 15, -112.5)]
+    [TestCase(true, 15, -112.5)]
+    public void InvalidMessagePenaltiesRemainActiveWithOrWithoutTopicConfiguration(bool configureTopic, int deliveries, double expectedScore)
+    {
+        PubsubSettings settings = new();
+        if (configureTopic) settings.TopicScoreParams[TestTopic] = new TopicScoreParams();
+        PeerScore score = new(settings);
+        TopicScore topic = score.GetTopicScore(TestTopic);
+        for (int i = 0; i < deliveries; i++) topic.RecordInvalidMessage();
+
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(expectedScore));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void FirstMessageDeliveryRewardsRemainActiveWithOrWithoutTopicConfiguration(bool configureTopic)
+    {
+        PubsubSettings settings = new();
+        if (configureTopic) settings.TopicScoreParams[TestTopic] = new TopicScoreParams();
+        PeerScore score = new(settings);
+        TopicScore topic = score.GetTopicScore(TestTopic);
+        for (int i = 0; i < 3; i++) topic.RecordFirstMessageDelivery();
+
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(1.5));
     }
 
     [Test]
