@@ -565,6 +565,7 @@ public class GossipsubControlLimitsTests
             Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(6), [TestPeers.Multiaddr(6)], 1));
         unusable.PublicKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString();
         ByteString badRecord = notProtobuf ? ByteString.CopyFrom([0xff, 0xff, 0xff, 0xff]) : unusable.ToByteString();
+        PeerId badRecordPeer = notProtobuf ? TestPeers.PeerId(6) : new PeerId(Core.Dto.PublicKey.Parser.ParseFrom(unusable.PublicKey));
         List<PeerId?> discovered = [];
         setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
 
@@ -579,8 +580,8 @@ public class GossipsubControlLimitsTests
                         TopicID = setup.Topic,
                         Peers =
                         {
-                            new PeerInfo { SignedPeerRecord = badRecord },
-                            new PeerInfo { SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
+                            new PeerInfo { PeerID = ByteString.CopyFrom(badRecordPeer.Bytes), SignedPeerRecord = badRecord },
+                            new PeerInfo { PeerID = ByteString.CopyFrom(exchanged.PeerId.Bytes), SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
                         },
                     },
                 },
@@ -589,6 +590,42 @@ public class GossipsubControlLimitsTests
 
         Assert.That(discovered, Does.Contain(exchanged.PeerId));
     }
+
+    /// <remarks>
+    /// A peer-exchange entry names a peer and may carry its signed record. A record
+    /// signed by any other peer must not be stored in the advertised peer's place.
+    /// </remarks>
+    [Test]
+    public async Task Prune_IgnoresExchangedRecord_WhenSignedByAnotherPeer()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        Identity advertised = TestPeers.Identity(5);
+        Identity signer = TestPeers.Identity(6);
+        List<PeerId?> discovered = [];
+        setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo { PeerID = ByteString.CopyFrom(advertised.PeerId.Bytes), SignedPeerRecord = SignedRecord(signer) }));
+
+        Assert.That(discovered, Is.Empty);
+        Assert.That(setup.PeerStore.TryGetPeerInfo(signer.PeerId, out _), Is.False);
+    }
+
+    private static async Task<RouterSetup> PrunableSetup()
+    {
+        RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
+        return setup;
+    }
+
+    private static Rpc PruneWith(string topic, params PeerInfo[] peers) => new()
+    {
+        Control = new ControlMessage { Prune = { new ControlPrune { TopicID = topic, Peers = { peers } } } },
+    };
+
+    private static ByteString SignedRecord(Identity peer) =>
+        Core.Dto.SigningHelper.CreateSignedEnvelope(peer, [Multiaddress.Decode($"/ip4/127.0.0.1/tcp/4001/p2p/{peer.PeerId}")], 1);
 
     [Test]
     public void Router_RejectsNonPositiveIdontwantThreshold()

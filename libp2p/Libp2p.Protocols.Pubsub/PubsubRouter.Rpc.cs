@@ -843,10 +843,38 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     foreach (PeerInfo? peer in prune.Peers)
                     {
-                        _peerStore.Discover(peer.SignedPeerRecord);
+                        DiscoverExchangedPeer(peer);
                     }
                 }
             }
+        }
+    }
+
+    /// <remarks>
+    /// A record is only stored when its signer is the advertised peer.
+    /// </remarks>
+    private void DiscoverExchangedPeer(PeerInfo exchanged)
+    {
+        if (exchanged.PeerID.IsEmpty) return;
+        PeerId peerId = new(exchanged.PeerID.ToByteArray());
+
+        if (!exchanged.SignedPeerRecord.IsEmpty)
+        {
+            if (RecordSigner(exchanged.SignedPeerRecord) == peerId) _peerStore.Discover(exchanged.SignedPeerRecord);
+        }
+
+    }
+
+    private static PeerId? RecordSigner(ByteString signedPeerRecord)
+    {
+        try
+        {
+            Core.Dto.SignedEnvelope envelope = Core.Dto.SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
+            return new PeerId(Core.Dto.PublicKey.Parser.ParseFrom(envelope.PublicKey));
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            return null;
         }
     }
 
