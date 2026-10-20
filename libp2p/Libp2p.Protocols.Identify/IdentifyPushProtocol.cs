@@ -10,8 +10,8 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify
 /// </summary>
-public class IdentifyPushProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null)
-    : IdentifyProtocolBase(protocolStackSettings, settings, peerStore, loggerFactory), ISessionProtocol<ulong, ulong>
+public class IdentifyPushProtocol(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
+    : IdentifyProtocolBase(protocolStackSettings, settings, peerStore, loggerFactory, timeProvider), ISessionProtocol<ulong, ulong>
 {
     public string Id => "/ipfs/id/push/1.0.0";
 
