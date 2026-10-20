@@ -10,6 +10,7 @@ using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 using Nethermind.Libp2p.Core.Discovery;
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -450,6 +451,58 @@ internal class PeerLifecycleTests
         Assert.That(peer.Sessions, Is.Empty);
     }
 
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task FailedInitializationDoesNotDivertJoiningCallersFromFallback(bool usePeerId, bool lookupBeforeFailure)
+    {
+        Multiaddress[] roots = [$"/ip4/192.0.2.1/tcp/4001/p2p/{TestPeers.PeerId(2)}", $"/ip4/192.0.2.2/tcp/4001/p2p/{TestPeers.PeerId(2)}"];
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseFallback = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        GateTransport transport = new()
+        {
+            BeforeDial = (address, token) => address == roots[0] ? Task.CompletedTask : releaseFallback.Task.WaitAsync(token)
+        };
+        transport.CompleteDial.SetResult();
+        BlockingFailureLogger logger = new();
+        using ILoggerFactory factory = logger;
+        int initializations = 0;
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport,
+            () => Interlocked.Increment(ref initializations) == 1 ? initialization.Task : Task.CompletedTask, loggerFactory: factory);
+        TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        peer.Sessions.CollectionChanged += (_, _) => { if (peer.Sessions.Count == 0) removed.TrySetResult(); };
+        Task<ISession> first = peer.DialAsync(roots, CancellationToken.None);
+        LocalPeer.Session captured = peer.Sessions.Single();
+        Task<ISession>? joining = null;
+        try
+        {
+            initialization.SetException(new InvalidOperationException("first initialization failed"));
+            await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await transport.PostUpgradeDialCanceled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            joining = lookupBeforeFailure
+                ? (Task<ISession>)typeof(LocalPeer).GetMethod("WaitForExistingSessionAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .Invoke(peer, [TestPeers.PeerId(2), captured, CancellationToken.None])!
+                : usePeerId ? peer.DialAsync(TestPeers.PeerId(2)) : peer.DialAsync(roots[0]);
+
+            Assert.That(joining.IsCompleted, Is.False, "A joining caller must keep waiting for the shared dial's remaining fallback.");
+            logger.Release.Set();
+            await removed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            releaseFallback.SetResult();
+            ISession session = await first.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(await joining.WaitAsync(TimeSpan.FromSeconds(2)), Is.SameAs(session));
+            Assert.That(session.RemoteAddress, Is.EqualTo(roots[1]));
+            await session.DisconnectAsync();
+        }
+        finally
+        {
+            logger.Release.Set();
+            releaseFallback.TrySetResult();
+            await ((Task)first).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (joining is not null) await ((Task)joining).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     [Test]
     public async Task EmptyResolutionIsReportedAsResolutionFailure()
     {
@@ -589,9 +642,11 @@ internal class PeerLifecycleTests
         Assert.That(SpinWait.SpinUntil(() => peer.Sessions.Count == 0, TimeSpan.FromSeconds(2)), Is.True);
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public async Task DeduplicatedDialCancellationOnlyEndsTheCanceledWait(bool cancelFirst)
+    [TestCase(true, false)]
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    [TestCase(false, true)]
+    public async Task DeduplicatedDialCancellationOnlyEndsTheCanceledWait(bool cancelFirst, bool secondByPeerId)
     {
         GateTransport transport = new();
         ControlledPeer peer = new(TestPeers.Identity(1), transport);
@@ -601,7 +656,7 @@ internal class PeerLifecycleTests
 
         Task<ISession> first = peer.DialAsync(remoteAddress, firstCancellation.Token);
         await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Task<ISession> second = peer.DialAsync(remoteAddress, secondCancellation.Token);
+        Task<ISession> second = secondByPeerId ? peer.DialAsync(TestPeers.PeerId(2), secondCancellation.Token) : peer.DialAsync(remoteAddress, secondCancellation.Token);
 
         (CancellationTokenSource canceled, Task<ISession> canceledWaiter, Task<ISession> continuingWaiter) =
             cancelFirst ? (firstCancellation, first, second) : (secondCancellation, second, first);
@@ -615,8 +670,9 @@ internal class PeerLifecycleTests
         await session.DisconnectAsync();
     }
 
-    [Test]
-    public async Task CancelingAllDialWaitersAllowsASeparateRetry()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CancelingAllDialWaitersAllowsASeparateRetry(bool secondByPeerId)
     {
         GateTransport transport = new();
         ControlledPeer peer = new(TestPeers.Identity(1), transport);
@@ -626,7 +682,7 @@ internal class PeerLifecycleTests
 
         Task<ISession> first = peer.DialAsync(remoteAddress, firstCancellation.Token);
         await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Task<ISession> second = peer.DialAsync(remoteAddress, secondCancellation.Token);
+        Task<ISession> second = secondByPeerId ? peer.DialAsync(TestPeers.PeerId(2), secondCancellation.Token) : peer.DialAsync(remoteAddress, secondCancellation.Token);
         firstCancellation.Cancel();
         secondCancellation.Cancel();
         Assert.CatchAsync<OperationCanceledException>(async () => await first.WaitAsync(TimeSpan.FromSeconds(2)));
@@ -936,8 +992,8 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, PeerStore? store = null)
-        : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, multiaddrResolver: resolver)
+    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, PeerStore? store = null, ILoggerFactory? loggerFactory = null)
+        : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, loggerFactory: loggerFactory, multiaddrResolver: resolver)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => connectedTo?.Invoke() ?? Task.CompletedTask;
@@ -959,6 +1015,23 @@ internal class PeerLifecycleTests
         }
 
         public void Expire() => _callback!(_state);
+    }
+
+    private sealed class BlockingFailureLogger : ILogger, ILoggerFactory
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim Release { get; } = new(false);
+        public ILogger CreateLogger(string categoryName) => this;
+        public void AddProvider(ILoggerProvider provider) { }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Dispose() => Release.Dispose();
+        public void Log<TState>(LogLevel level, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (!formatter(state, exception).StartsWith("Disconnecting due to exception")) return;
+            Entered.TrySetResult();
+            if (!Release.Wait(TimeSpan.FromSeconds(3))) throw new TimeoutException("Failure-log barrier was not released.");
+        }
     }
 
     private sealed class ThrowingTransport : ITransportProtocol

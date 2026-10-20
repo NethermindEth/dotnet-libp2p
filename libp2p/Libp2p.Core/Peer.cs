@@ -311,9 +311,12 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     {
         lock (Sessions)
         {
-            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId);
+            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId && CanAwaitSession(s));
         }
     }
+
+    private static bool CanAwaitSession(Session session)
+        => !session.Connected.IsFaulted && !session.Connected.IsCanceled && !session.ConnectionToken.IsCancellationRequested;
 
     private static async Task<ISession> WaitForSessionAsync(Session session, CancellationToken token)
     {
@@ -327,7 +330,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         PendingDial? pending = null;
         lock (_pendingDialsLock)
         {
-            if (_pendingDials.TryGetValue(peerId, out PendingDial? inProgress) && inProgress.Sessions.Contains(session))
+            if (_pendingDials.TryGetValue(peerId, out PendingDial? inProgress) &&
+                (inProgress.Sessions.Contains(session) || !CanAwaitSession(session)))
             {
                 pending = inProgress;
                 pending.Waiters++;
@@ -648,6 +652,13 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             return WaitForExistingSessionAsync(peerId, existingSession, token);
         }
+
+        PendingDial? pending;
+        lock (_pendingDialsLock)
+        {
+            if (_pendingDials.TryGetValue(peerId, out pending)) pending.Waiters++;
+        }
+        if (pending is not null) return WaitForDialAsync(peerId, pending, token);
 
         if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? existingPeerInfo) || existingPeerInfo?.Addrs is null)
         {
