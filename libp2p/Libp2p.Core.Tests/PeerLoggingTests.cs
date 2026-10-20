@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.Logging;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -9,34 +10,47 @@ namespace Nethermind.Libp2p.Core.Tests;
 [TestFixture]
 public class PeerLoggingTests
 {
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task FailedUpgradeLogsDebugWithStructuredException(bool isListener)
+    [TestCase(false, 0)]
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    [TestCase(true, 1)]
+    [TestCase(false, 2)]
+    [TestCase(true, 2)]
+    [TestCase(false, 3)]
+    [TestCase(true, 3)]
+    public async Task FailedUpgradeDistinguishesUnexpectedAndRoutineFailures(bool isListener, int failureKind)
     {
-        InvalidOperationException failure = new("negotiation failed");
+        Exception failure = failureKind switch
+        {
+            1 => new ChannelClosedException(),
+            2 => new ChannelAbortedException(),
+            3 => new SessionExistsException(TestPeers.Identity(2).PeerId),
+            _ => new InvalidOperationException("negotiation failed")
+        };
         FailingProtocol protocol = new(failure);
         ProtocolRef parent = new(protocol);
         ProtocolRef top = new(protocol);
         ProtocolStackSettings settings = new() { Protocols = new() { [parent] = [top] } };
-        CapturingLogger logger = new("Upgrade task failed");
+        string message = failureKind == 0 ? "Upgrade task failed" : $"Upgrade task cancelled (closed or duplicate connection): {failure.Message}";
+        CapturingLogger logger = new(message);
         using ILoggerFactory factory = logger;
         await using LocalPeer peer = new(TestPeers.Identity(1), null, settings, loggerFactory: factory);
         LocalPeer.Session session = new(peer);
 
-        Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        Assert.ThrowsAsync(failure.GetType(), async () =>
             await peer.Upgrade(session, new Channel(), parent, null, null, isListener, null));
 
         LogEntry entry = await logger.Entry.Task.WaitAsync(TimeSpan.FromSeconds(2));
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(entry.Level, Is.EqualTo(LogLevel.Debug));
-            Assert.That(entry.Exception?.GetBaseException(), Is.SameAs(failure));
-            Assert.That(entry.Message, Is.EqualTo("Upgrade task failed"));
+            Assert.That(entry.Level, Is.EqualTo(failureKind == 0 ? LogLevel.Warning : LogLevel.Debug));
+            Assert.That(entry.Exception?.GetBaseException(), Is.SameAs(failureKind == 0 ? failure : null));
+            Assert.That(entry.Message, Is.EqualTo(message));
         }
     }
 
     [Test]
-    public async Task FailedInitializationLogsDebugWithStructuredException()
+    public async Task FailedInitializationLogsWarningWithStructuredException()
     {
         InvalidOperationException failure = new("initialization failed");
         CapturingLogger logger = new("Disconnecting due to exception");
@@ -51,7 +65,7 @@ public class PeerLoggingTests
         LogEntry entry = await logger.Entry.Task.WaitAsync(TimeSpan.FromSeconds(2));
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(entry.Level, Is.EqualTo(LogLevel.Debug));
+            Assert.That(entry.Level, Is.EqualTo(LogLevel.Warning));
             Assert.That(entry.Exception, Is.SameAs(failure));
             Assert.That(entry.Message, Is.EqualTo("Disconnecting due to exception"));
         }
