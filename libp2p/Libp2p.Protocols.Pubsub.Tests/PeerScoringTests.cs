@@ -40,6 +40,49 @@ public class PeerScoringTests
 
     private static Dictionary<string, int> EmptyIpCounts() => new();
 
+    [TestCase(1, false)]
+    [TestCase(6, false)]
+    [TestCase(60, false)]
+    [TestCase(1, true)]
+    [TestCase(6, true)]
+    [TestCase(60, true)]
+    public void QuietTopicWithoutParametersDoesNotReduceScore(int secondsInMesh, bool leaveMesh)
+    {
+        PeerScore score = new(new PubsubSettings());
+        TopicScore topic = score.GetTopicScore(TestTopic);
+        topic.MeshJoinTime = DateTime.UtcNow.AddSeconds(-secondsInMesh);
+        if (leaveMesh) topic.LeaveMesh();
+
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.Zero);
+    }
+
+    [Test]
+    public void OnlyConfiguredTopicsContributeToScore()
+    {
+        PubsubSettings settings = new();
+        settings.TopicScoreParams[TestTopic] = new TopicScoreParams { TimeInMeshWeight = 0 };
+        PeerScore score = new(settings);
+        TopicScore configured = score.GetTopicScore(TestTopic);
+        configured.MeshJoinTime = DateTime.UtcNow.AddSeconds(-6);
+        TopicScore otherTopic = score.GetTopicScore(TestTopic2);
+        otherTopic.MeshJoinTime = DateTime.UtcNow.AddSeconds(-6);
+        otherTopic.FirstMessageDeliveries = 17;
+        otherTopic.InvalidMessageDeliveries = 3;
+
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(-200));
+        configured.MeshMessageDeliveries = 20;
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.Zero);
+    }
+
+    [Test]
+    public void GlobalPenaltiesRemainActiveWithoutConfiguredTopics()
+    {
+        PeerScore score = new(new PubsubSettings()) { IPAddress = "192.0.2.1" };
+        score.AddPenalty(3);
+        Assert.That(score.GetScore(EmptyIpCounts()), Is.EqualTo(-135));
+        Assert.That(score.GetScore(new() { ["192.0.2.1"] = 11 }), Is.EqualTo(-170));
+    }
+
     [Test]
     public void Test_PeerScore_InitialScore_IsZero()
     {

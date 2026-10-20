@@ -38,7 +38,7 @@ public class PeerScore
     }
 
     /// <summary>Read-only defaults for topics with no configured parameters.</summary>
-    private static readonly TopicScoreParams DefaultTopicScoreParams = new();
+    private static readonly TopicScoreParams DefaultTopicScoreParams = new() { TopicWeight = 0 };
 
     /// <summary>
     /// Calculates the total score for this peer

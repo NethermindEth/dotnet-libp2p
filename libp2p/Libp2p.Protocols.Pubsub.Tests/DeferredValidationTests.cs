@@ -60,6 +60,7 @@ public class DeferredValidationTests
     {
         PubsubSettings settings = Settings();
         settings.GraylistThreshold = -0.1;
+        settings.TopicScoreParams[Topic] = new TopicScoreParams();
         using PubsubRouter router = CreateRouter(settings);
         List<byte[]> deliveries = [];
         router.GetTopic(Topic).OnMessage += (_, data) => deliveries.Add(data);
