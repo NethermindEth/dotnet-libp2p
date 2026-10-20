@@ -52,6 +52,7 @@ The target is to provide a performant well-tested implementation of a wide range
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
 | yamux              | /yamux/1.0.0       | ✅             |
+| [mplex](./libp2p/Libp2p.Protocols.Mplex/README.md) | /mplex/6.7.0 | ✅ |
 | tls                | /tls/1.0.0         | ✅             |
 | WebSockets         | /ws, /wss          | ✅             |
 | WebRTC Direct      | /webrtc-direct     | 🚧             |
@@ -80,7 +81,7 @@ The target is to provide a performant well-tested implementation of a wide range
 🚧 - work in progress<br>
 ✅ - basic support implemented
 
-No plans for: mplex, quic-draft-29
+No plans for: quic-draft-29
 
 ## License
 
