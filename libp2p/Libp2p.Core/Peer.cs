@@ -780,7 +780,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {
-                    if (t.Exception?.InnerException is { } failure && IsRoutineConnectionFailure(failure))
+                    if (t.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
                     {
                         _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {failure.Message}");
                     }
@@ -818,7 +818,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     }
 
     private static bool IsRoutineConnectionFailure(Exception failure)
-        => failure is ChannelClosedException or ChannelAbortedException or SessionExistsException;
+        => failure is ChannelClosedException or ChannelAbortedException or SessionExistsException ||
+           failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0 &&
+           aggregate.InnerExceptions.All(IsRoutineConnectionFailure);
 
     public async ValueTask DisposeAsync()
     {
