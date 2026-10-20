@@ -73,6 +73,11 @@ public class TestRemotePeer : ISession
         return Task.CompletedTask;
     }
 
+    public Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
+    {
+        throw new NotImplementedException();
+    }
+
     public Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
     {
         throw new NotImplementedException();

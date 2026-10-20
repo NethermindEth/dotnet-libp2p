@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/tree/master/identify
 /// </summary>
-public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol
+public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol<IdentifyResult>
 {
     public string Id => "/ipfs/id/1.0.0";
 
@@ -19,10 +19,10 @@ public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol
     {
     }
 
-    public async Task DialAsync(IChannel channel, ISessionContext context)
+    public async Task<IdentifyResult> DialAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogInformation("Dial");
-        await ReadAndVerifyIdentity(channel, context);
+        return await ReadAndVerifyIdentity(channel, context);
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)

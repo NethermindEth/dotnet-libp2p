@@ -41,6 +41,13 @@ public partial class LocalPeer
         }
 
         /// <inheritdoc />
+        public async Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
+        {
+            object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), null, token);
+            return (TResponse)result!;
+        }
+
+        /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
             object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), request, token);
