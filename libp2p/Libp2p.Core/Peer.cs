@@ -276,11 +276,18 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             return Task.FromCanceled<ISession>(token);
         }
 
-        PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
-
-        if (remotePeerId is null)
+        if (addrs.Length == 0)
         {
             throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
+        }
+        PeerId remotePeerId = addrs[0].GetPeerId() ?? throw new Libp2pException($"Address {addrs[0]} passed into {nameof(DialAsync)} is missing a peer id");
+        for (int i = 1; i < addrs.Length; i++)
+        {
+            PeerId peerId = addrs[i].GetPeerId() ?? throw new Libp2pException($"Address {addrs[i]} passed into {nameof(DialAsync)} is missing a peer id");
+            if (peerId != remotePeerId)
+            {
+                throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} have multiple different peer ids");
+            }
         }
 
         Session? existingSession = FindSession(remotePeerId);
@@ -387,7 +394,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             List<Multiaddress> resolvedAddrs = [];
 
-            await foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addrs.Where(a => a.GetPeerId() == remotePeerId), token))
+            await foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addrs, token))
             {
                 if (resolvedAddr.GetPeerId() == remotePeerId)
                 {
@@ -397,7 +404,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
             if (resolvedAddrs is { Count: 0 })
             {
-                throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
+                throw new Libp2pException($"No usable address was resolved for peer {remotePeerId}");
             }
 
             foreach (Multiaddress addr in resolvedAddrs)

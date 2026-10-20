@@ -10,17 +10,17 @@ namespace Nethermind.Libp2p.Core;
 
 public class MultiaddrResolver(IDnsLookup? dns = null, TimeProvider? timeProvider = null)
 {
-    // Budgets apply to the complete resolution, including all roots and nested DNSADDR records.
+    // DNS budgets apply across all roots and nested records; caller-supplied literals are retained.
     private const int MaxQueries = 32;
     private const int MaxDepth = 8;
-    private const int MaxAddresses = 16;
+    private const int MaxDnsAddresses = 16;
     private const int MaxRecordsPerQuery = 32;
     private static readonly TimeSpan ResolutionTimeout = TimeSpan.FromSeconds(15);
     private readonly IDnsLookup _dns = dns ?? new DnsClientLookup();
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <summary>
-    /// Resolves DNS addresses with bounded queries, recursion depth and distinct results.
+    /// Resolves DNS addresses with bounded queries, recursion depth and distinct DNS results.
     /// DNS queries share a 15-second deadline. Failed names and malformed DNSADDR records
     /// are skipped; literal addresses remain usable after the DNS deadline expires.
     /// </summary>
@@ -28,10 +28,12 @@ public class MultiaddrResolver(IDnsLookup? dns = null, TimeProvider? timeProvide
 
     internal async IAsyncEnumerable<Multiaddress> Resolve(IEnumerable<Multiaddress> addresses, [EnumeratorCancellation] CancellationToken token = default)
     {
-        Queue<(Multiaddress Address, int Depth)> pending = new(addresses.Take(MaxQueries).Select(a => (a, 0)));
+        using IEnumerator<Multiaddress> roots = addresses.GetEnumerator();
+        Queue<(Multiaddress Address, int Depth)> pending = [];
         HashSet<string> visited = new(StringComparer.Ordinal);
         HashSet<string> results = new(StringComparer.Ordinal);
         int queries = 0;
+        int dnsAddresses = 0;
         using CancellationTokenSource timeout = new(ResolutionTimeout, _timeProvider);
         using CancellationTokenSource queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
 
@@ -52,10 +54,24 @@ public class MultiaddrResolver(IDnsLookup? dns = null, TimeProvider? timeProvide
             }
         }
 
-        while (pending.TryDequeue(out var next) && results.Count < MaxAddresses)
+        while (true)
         {
             token.ThrowIfCancellationRequested();
+            if (!pending.TryDequeue(out var next))
+            {
+                if (!roots.MoveNext()) yield break;
+                next = (roots.Current, 0);
+            }
             Multiaddress addr = next.Address;
+            // Secure WebSocket transports need the hostname for TLS verification.
+            bool preserveHostname = addr.Has<WebSocketSecure>();
+            bool needsDns = addr.Has<DnsAddr>() || !preserveHostname && (addr.Has<DNS>() || addr.Has<DNS4>() || addr.Has<DNS6>());
+            if (next.Depth == 0 && !needsDns)
+            {
+                if (results.Add(addr.ToString())) yield return addr;
+                continue;
+            }
+            if (dnsAddresses >= MaxDnsAddresses || needsDns && (queries >= MaxQueries || timeout.IsCancellationRequested)) continue;
             if (!visited.Add(addr.ToString())) continue;
 
             if (addr.Has<DnsAddr>())
@@ -84,30 +100,37 @@ public class MultiaddrResolver(IDnsLookup? dns = null, TimeProvider? timeProvide
                 continue;
             }
 
-            // Secure WebSocket transports need the hostname for TLS verification.
-            bool preserveHostname = addr.Has<WebSocketSecure>();
             if (!preserveHostname && (addr.Has<DNS6>() || addr.Has<DNS>()))
             {
                 IPAddress[] records = await QueryAsync(t => _dns.QueryAaaaAsync(addr.Get<DNS6>()?.ToString() ?? addr.Get<DNS>().ToString(), t));
                 foreach (IPAddress record in records)
                 {
-                    if (results.Count >= MaxAddresses) yield break;
+                    if (dnsAddresses >= MaxDnsAddresses) break;
                     Multiaddress resolved = addr.Has<DNS6>() ? addr.Clone().Replace<DNS6, IP6>(record) : addr.Clone().Replace<DNS, IP6>(record);
-                    if (results.Add(resolved.ToString())) yield return resolved;
+                    if (results.Add(resolved.ToString()))
+                    {
+                        dnsAddresses++;
+                        yield return resolved;
+                    }
                 }
             }
-            if (!preserveHostname && (addr.Has<DNS4>() || addr.Has<DNS>()))
+            if (dnsAddresses < MaxDnsAddresses && !preserveHostname && (addr.Has<DNS4>() || addr.Has<DNS>()))
             {
                 IPAddress[] records = await QueryAsync(t => _dns.QueryAAsync(addr.Get<DNS4>()?.ToString() ?? addr.Get<DNS>().ToString(), t));
                 foreach (IPAddress record in records)
                 {
-                    if (results.Count >= MaxAddresses) yield break;
+                    if (dnsAddresses >= MaxDnsAddresses) break;
                     Multiaddress resolved = addr.Has<DNS4>() ? addr.Clone().Replace<DNS4, IP4>(record) : addr.Clone().Replace<DNS, IP4>(record);
-                    if (results.Add(resolved.ToString())) yield return resolved;
+                    if (results.Add(resolved.ToString()))
+                    {
+                        dnsAddresses++;
+                        yield return resolved;
+                    }
                 }
             }
             if ((preserveHostname || !(addr.Has<DNS>() || addr.Has<DNS4>() || addr.Has<DNS6>())) && results.Add(addr.ToString()))
             {
+                dnsAddresses++;
                 yield return addr;
             }
         }

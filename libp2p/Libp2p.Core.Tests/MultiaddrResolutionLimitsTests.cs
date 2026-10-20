@@ -12,6 +12,53 @@ public class MultiaddrResolutionLimitsTests
 {
     private static readonly PeerId Remote = TestPeers.PeerId(2);
 
+    [TestCase(16)]
+    [TestCase(17)]
+    [TestCase(32)]
+    [TestCase(33)]
+    public async Task LiteralRootsAreNotLimitedByDnsBudgets(int count)
+    {
+        Multiaddress[] roots = Enumerable.Range(1, count)
+            .Select(i => (Multiaddress)$"/ip4/192.0.2.{i}/tcp/4001/p2p/{Remote}").ToArray();
+        List<Multiaddress> results = [];
+
+        await foreach (Multiaddress address in new MultiaddrResolver().Resolve(roots)) results.Add(address);
+
+        Assert.That(results.Select(a => a.ToString()), Is.EqualTo(roots.Select(a => a.ToString())));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task DnsResultLimitDoesNotDiscardLiteralRoots(bool literalFirst)
+    {
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        dns.QueryAAsync("many.test", Arg.Any<CancellationToken>()).Returns(Task.FromResult<IEnumerable<IPAddress>>(
+            Enumerable.Range(1, 17).Select(i => IPAddress.Parse($"192.0.2.{i}"))));
+        Multiaddress literal = $"/ip4/198.51.100.1/tcp/4001/p2p/{Remote}";
+        Multiaddress name = $"/dns4/many.test/tcp/4001/p2p/{Remote}";
+        List<Multiaddress> results = [];
+
+        await foreach (Multiaddress address in new MultiaddrResolver(dns).Resolve(literalFirst ? [literal, name] : [name, literal])) results.Add(address);
+
+        string[] derived = Enumerable.Range(1, 16).Select(i => $"/ip4/192.0.2.{i}/tcp/4001/p2p/{Remote}").ToArray();
+        Assert.That(results.Select(a => a.ToString()), Is.EqualTo(literalFirst ? new[] { literal.ToString() }.Concat(derived) : derived.Concat([literal.ToString()])));
+    }
+
+    [Test]
+    public async Task ExhaustedQueryBudgetDoesNotDiscardLaterLiteralRoot()
+    {
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        dns.QueryAAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IEnumerable<IPAddress>>([]));
+        Multiaddress literal = $"/ip4/198.51.100.1/tcp/4001/p2p/{Remote}";
+        Multiaddress[] roots = [.. Enumerable.Range(0, 33).Select(i => (Multiaddress)$"/dns4/name{i}.test/tcp/4001/p2p/{Remote}"), literal];
+        List<Multiaddress> results = [];
+
+        await foreach (Multiaddress address in new MultiaddrResolver(dns).Resolve(roots)) results.Add(address);
+
+        Assert.That(results.Select(a => a.ToString()), Is.EqualTo(new[] { literal.ToString() }));
+        await dns.Received(32).QueryAAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public async Task CyclicRecordsAreNotQueriedAgain()
     {
