@@ -15,9 +15,18 @@ public static class IChannelExtensions
     /// <returns>The channel as a <see cref="Stream"/>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="channel"/> is null.</exception>
     public static Stream AsStream(this IChannel channel)
+        => AsStream(channel, false);
+
+    /// <summary>
+    /// Converts an <see cref="IChannel"/> to a <see cref="Stream"/> with explicit channel ownership.
+    /// </summary>
+    /// <param name="channel">The input channel.</param>
+    /// <param name="leaveOpen">Whether disposing the stream leaves the channel open.</param>
+    /// <returns>The channel as a <see cref="Stream"/>.</returns>
+    public static Stream AsStream(this IChannel channel, bool leaveOpen)
     {
         ArgumentNullException.ThrowIfNull(channel);
 
-        return new ChannelStream(channel);
+        return new ChannelStream(channel, leaveOpen);
     }
 }
