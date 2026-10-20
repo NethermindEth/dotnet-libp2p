@@ -218,7 +218,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 else
                 {
                     session.ConnectedTcs.TrySetException(t.Exception!.InnerExceptions);
-                    _logger?.LogWarning(t.Exception.GetBaseException(), "Disconnecting due to exception");
+                    Exception failure = t.Exception.GetBaseException();
+                    _logger?.Log(IsRoutineConnectionFailure(failure) ? LogLevel.Debug : LogLevel.Warning, failure, "Disconnecting due to exception");
                 }
                 _ = session.DisconnectAsync();
                 return;
@@ -785,9 +786,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 cancellationRegistration.Dispose();
                 if (t.IsFaulted)
                 {
-                    if (t.Exception?.InnerException is ChannelClosedException or ChannelAbortedException or SessionExistsException)
+                    if (t.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
                     {
-                        _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {t.Exception.InnerException.Message}");
+                        _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {failure.Message}");
                     }
                     else
                     {
@@ -821,6 +822,11 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw;
         }
     }
+
+    private static bool IsRoutineConnectionFailure(Exception failure)
+        => failure is ChannelClosedException or ChannelAbortedException or SessionExistsException ||
+           failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0 &&
+           aggregate.InnerExceptions.All(IsRoutineConnectionFailure);
 
     public async ValueTask DisposeAsync()
     {
