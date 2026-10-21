@@ -27,19 +27,22 @@ internal static class LivenessProbe
     }
 
     /// <summary>
-    /// Pings the remote end of <paramref name="session"/>. Any failure other than the caller cancelling
-    /// (timeout, closed connection, bad pong) disconnects the session so that the next dial is a fresh one.
+    /// Pings the remote end of <paramref name="session"/>. Any failure other than <paramref name="callerToken"/>
+    /// cancelling (timeout, closed connection, bad pong) disconnects the session so that the next dial is a fresh one.
+    /// <paramref name="operationToken"/> is an optional deadline the caller owns (for example a total operation
+    /// timeout); its expiry is a failed probe, not a caller cancellation.
     /// </summary>
-    public static async Task ProbeAsync(ISession session, TimeSpan timeout, CancellationToken token)
+    public static async Task ProbeAsync(ISession session, TimeSpan timeout, CancellationToken callerToken,
+        CancellationToken operationToken = default)
     {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken, operationToken);
         timeoutCts.CancelAfter(timeout);
 
         try
         {
             await session.DialAsync<PingProtocol>(timeoutCts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
         {
             throw;
         }

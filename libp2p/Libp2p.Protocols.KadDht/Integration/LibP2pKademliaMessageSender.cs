@@ -48,7 +48,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.
             // A successful dial alone can return a cached session without touching the wire.
             var session = await DialNodeAsync(receiver, timeoutCts.Token);
-            await LivenessProbe.ProbeAsync(session, _operationTimeout, timeoutCts.Token);
+            await LivenessProbe.ProbeAsync(session, _operationTimeout, token, timeoutCts.Token);
 
             _logger?.LogTrace("Connection to {NodeId} is alive", receiver.PeerId);
             // Bootstrap relies on the transport to re-admit responding bootnodes.
