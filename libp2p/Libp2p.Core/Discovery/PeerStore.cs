@@ -44,16 +44,16 @@ public class PeerStore
         try
         {
             SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
-            publicKey = PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey);
+            publicKey = PublicKeyDecoder.Decode(signedEnvelope.PublicKey);
 
-            if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, out seq))
+            if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, keyFromEnvelope: true, out seq))
             {
                 return;
             }
 
             peerRecord = PeerRecord.Parser.ParseFrom(signedEnvelope.Payload);
         }
-        catch (InvalidProtocolBufferException)
+        catch (Exception e) when (e is InvalidProtocolBufferException or Libp2pException)
         {
             return;
         }
