@@ -127,6 +127,32 @@ public class IpnsRecordTests
         Assert.That(IpnsRecordValidator.Instance.Validate(IpnsRecordHelper.BuildIpnsKey(new PeerId(padded)), entry.ToByteArray()), Is.False);
     }
 
+    /// <remarks>
+    /// The name inlines the author's genuine key, which verifies the signature, but the record
+    /// carries a key of its own. That key must be the one used, so a record whose own key does
+    /// not decode is rejected rather than checked against the name's key instead.
+    /// </remarks>
+    [TestCase(false, TestName = "Validator_Validate_RejectsRecordWhoseOwnKeyDoesNotDecode(padded)")]
+    [TestCase(true, TestName = "Validator_Validate_RejectsRecordWhoseOwnKeyDoesNotDecode(unknownType)")]
+    public void Validator_Validate_RejectsRecordWhoseOwnKeyDoesNotDecode(bool unknownType)
+    {
+        byte[] genuineKey = _identity.PublicKey.Data.ToByteArray();
+        PublicKey undecodable = unknownType
+            ? new() { Type = (KeyType)99, Data = ByteString.CopyFrom(genuineKey) }
+            : new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. genuineKey, 0x00]) };
+        byte[] key = IpnsRecordHelper.BuildIpnsKey(_peerId);
+        IpnsEntry entry = IpnsEntry.Parser.ParseFrom(IpnsRecordHelper.CreateSignedRecord(
+            _identity,
+            "/ipfs/QmReplayed",
+            sequence: 1,
+            eol: DateTimeOffset.UtcNow.AddHours(1)));
+        Assert.That(IpnsRecordValidator.Instance.Validate(key, entry.ToByteArray()), Is.True, "precondition: the genuine record is valid under its name");
+
+        entry.PubKey = undecodable.ToByteString();
+
+        Assert.That(IpnsRecordValidator.Instance.Validate(key, entry.ToByteArray()), Is.False);
+    }
+
     [Test]
     public void Validator_Validate_RejectsWrongSignature()
     {
