@@ -27,6 +27,7 @@
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
     <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
     <ProjectReference Include="..\Libp2p.OpenTelemetry\Libp2p.OpenTelemetry.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Mplex\Libp2p.Protocols.Mplex.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />
   </ItemGroup>

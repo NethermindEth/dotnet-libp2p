@@ -54,6 +54,7 @@ jobs:
         run: |
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
           #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
@@ -85,6 +86,7 @@ jobs:
           dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.KadDht ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
+          dotnet pack Libp2p.Protocols.Mplex ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}

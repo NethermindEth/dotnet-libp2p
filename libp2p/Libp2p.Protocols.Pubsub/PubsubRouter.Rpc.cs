@@ -75,20 +75,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     // Gossipsub v1.1: every RPC from a peer scored below GraylistThreshold is
                     // ignored, not only its messages. Direct peers are exempt from scoring.
                     bool isDirectPeer = IsDirectPeer(peerId);
-                    if (!isDirectPeer && ShouldGraylistPeer(peerId))
+                    if (ShouldIgnoreRpc(peerId, isDirectPeer))
                     {
-                        logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
                         return;
                     }
 
-                    bool penalized = HandleExtensions(peerId, rpc, protocolId, isFirstRpc);
-
-                    // A repeated extensions message is penalized above, which may take the peer
-                    // below the threshold: nothing else in that RPC is processed either. The score
-                    // only needs recomputing when that penalty was applied.
-                    if (penalized && !isDirectPeer && ShouldGraylistPeer(peerId))
+                    // Penalties can cross the threshold within an RPC. Recheck before later
+                    // handlers, without recomputing the score when no penalty was recorded.
+                    if (HandleExtensions(peerId, rpc, protocolId, isFirstRpc) && ShouldIgnoreRpc(peerId, isDirectPeer))
                     {
-                        logger?.LogDebug("Ignoring the rest of the RPC from graylisted peer {peerId}", peerId);
                         return;
                     }
 
@@ -100,7 +95,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     if (publishIds is not null && (admittedPeer is null ||
                         (peerState.TryGetValue(peerId, out PubsubPeer? sender) && ReferenceEquals(sender, admittedPeer))))
                     {
-                        HandleNewMessages(peerId, rpc.Publish, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages);
+                        if (HandleNewMessages(peerId, rpc.Publish, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages) &&
+                            ShouldIgnoreRpc(peerId, isDirectPeer))
+                        {
+                            return;
+                        }
                     }
 
                     if (rpc.Subscriptions.Count != 0)
@@ -110,14 +109,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     if (rpc.Partial is not null)
                     {
-                        HandlePartialMessage(peerId, rpc.Partial, protocolId, receivedPartialMessages);
+                        if (HandlePartialMessage(peerId, rpc.Partial, protocolId, receivedPartialMessages) && ShouldIgnoreRpc(peerId, isDirectPeer))
+                        {
+                            return;
+                        }
                     }
 
                     if (rpc.Control is not null)
                     {
                         if (rpc.Control.Graft.Count != 0)
                         {
-                            HandleGraft(peerId, rpc.Control.Graft, peerMessages);
+                            if (HandleGraft(peerId, rpc.Control.Graft, peerMessages) && ShouldIgnoreRpc(peerId, isDirectPeer))
+                            {
+                                return;
+                            }
                         }
 
                         if (rpc.Control.Prune.Count != 0)
@@ -158,6 +163,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         {
             logger?.LogError(ex, "Exception while processing RPC");
         }
+    }
+
+    private bool ShouldIgnoreRpc(PeerId peerId, bool isDirectPeer)
+    {
+        if (!isDirectPeer && ShouldGraylistPeer(peerId))
+        {
+            logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
+            return true;
+        }
+
+        return false;
     }
 
     private void DispatchDeferredMessages(List<PendingValidation> deferredMessages)
@@ -413,14 +429,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         return false;
     }
 
-    private void HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
+    /// <returns><see langword="true"/> if a behavior penalty was applied to the peer.</returns>
+    private bool HandlePartialMessage(PeerId peerId, PartialMessagesExtension partialMessage, string? protocolId, List<(string Topic, PeerId PeerId, PartialMessage Message)> receivedPartialMessages)
     {
         if (!_settings.EnablePartialMessages ||
             protocolId is not null && protocolId != GossipsubProtocolVersionV13 ||
             !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
             !peer.SupportsPartialMessagesExtension)
         {
-            return;
+            return false;
         }
 
         if (!partialMessage.HasTopicID ||
@@ -428,30 +445,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             (!partialMessage.HasPartialMessage && !partialMessage.HasPartsMetadata))
         {
             logger?.LogDebug("Ignoring an incomplete Partial Messages extension payload from {peerId}", peerId);
-            return;
+            return false;
         }
 
         if (!TryDecodeTopicId(partialMessage.TopicID, out string topicId))
         {
             logger?.LogDebug("Ignoring a Partial Messages extension payload with a non-UTF-8 topic from {peerId}", peerId);
-            return;
+            return false;
         }
 
         topicState.TryGetValue(topicId, out Topic? topic);
         if (partialMessage.HasPartialMessage && topic?.RequestsPartialMessages is not true)
         {
             // SubOpts have no acknowledgement. A peer may still be acting on a prior request.
-            if (topic?.HasRequestedPartialMessages is not true)
+            bool penalized = topic?.HasRequestedPartialMessages is not true;
+            if (penalized)
             {
                 ApplyBehaviorPenalty(peerId, 1.0);
             }
             logger?.LogDebug("Ignoring unsolicited partial data from {peerId} for topic {topicId}", peerId, topicId);
-            return;
+            return penalized;
         }
 
         if (topic?.IsSubscribed is not true || !topic.SupportsSendingPartialMessages)
         {
-            return;
+            return false;
         }
 
         receivedPartialMessages.Add((
@@ -462,6 +480,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 partialMessage.GroupID.ToByteArray(),
                 partialMessage.HasPartialMessage ? partialMessage.PartialMessage.ToByteArray() : null,
                 partialMessage.HasPartsMetadata ? partialMessage.PartsMetadata.ToByteArray() : null)));
+        return false;
     }
 
     private MessageId[] ComputeMessageIds(IReadOnlyList<Message> messages)
@@ -478,7 +497,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
 
-    private void HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
+    /// <returns><see langword="true"/> if an invalid message delivery was recorded.</returns>
+    private bool HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
         ConcurrentDictionary<PeerId, Rpc> peerMessages,
         Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages,
         List<PendingValidation> deferredMessages)
@@ -493,6 +513,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             logger?.LogDebug($"Messages received: {messages.Count}");
         }
 
+        bool penalized = false;
         for (int i = 0; i < messages.Count; i++)
         {
             Message message = messages[i];
@@ -507,6 +528,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 // An unauthenticated copy can share the application message ID of a valid message.
                 // It also cannot fulfill an IWANT promise.
                 RecordMessageDelivery(peerId, messageId, message.Topic, false);
+                penalized = true;
                 continue;
             }
 
@@ -526,6 +548,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     _limboMessageCache.Add(messageId);
                     _iwantPromises.Fulfill(messageId);
                     RecordMessageDelivery(peerId, messageId, validated.Topic, false);
+                    penalized = true;
                     continue;
                 case MessageValidity.Ignored:
                     _limboMessageCache.Add(messageId);
@@ -579,6 +602,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             AcceptMessage(messageId, validated, peerId, peerMessages, idontwantMessages, receivedMessages);
         }
+
+        return penalized;
     }
 
     private void AcceptMessage(MessageId messageId, Message message, PeerId peerId, ConcurrentDictionary<PeerId, Rpc> peerMessages,
@@ -745,8 +770,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
     }
 
-    private void HandleGraft(PeerId peerId, IEnumerable<ControlGraft> grafts, ConcurrentDictionary<PeerId, Rpc> peerMessages)
+    /// <returns><see langword="true"/> if a behavior penalty was applied to the peer.</returns>
+    private bool HandleGraft(PeerId peerId, IEnumerable<ControlGraft> grafts, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
+        bool penalized = false;
         foreach (ControlGraft? graft in grafts)
         {
             if (IsDirectPeer(peerId))
@@ -773,6 +800,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     // Peer grafting during backoff - apply behavioral penalty and auto-prune
                     logger?.LogDebug("Peer {peerId} attempted GRAFT during backoff for topic {topic}", peerId, graft.TopicID);
                     ApplyBehaviorPenalty(peerId, 1.0);
+                    penalized = true;
 
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
                         .Ensure(r => r.Control.Prune)
@@ -818,6 +846,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
+
+        return penalized;
     }
 
     private void HandlePrune(PeerId peerId, IEnumerable<ControlPrune> prunes, ConcurrentDictionary<PeerId, Rpc> peerMessages)

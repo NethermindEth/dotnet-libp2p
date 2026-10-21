@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 
@@ -11,6 +12,38 @@ namespace Nethermind.Libp2p.Protocols.Multistream.Tests;
 [Parallelizable(scope: ParallelScope.All)]
 public class MultistreamProtocolTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ResetBeforeNegotiationReplyFailsThePendingRequest(bool afterHello)
+    {
+        Channel channel = new();
+        IChannel remote = channel.Reverse;
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        IProtocol selected = Substitute.For<IProtocol>();
+        selected.Id.Returns("/test/refused");
+        TaskCompletionSource<object?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.UpgradeOptions.Returns(new UpgradeOptions { SelectedProtocol = selected, CompletionSource = completion });
+        MultistreamProtocol protocol = new();
+        Task negotiation = protocol.DialAsync(channel, context);
+        try
+        {
+            Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(protocol.Id));
+            Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(selected.Id));
+            if (afterHello) await remote.WriteLineAsync(protocol.Id);
+            await remote.AbortAsync();
+            await negotiation.WaitAsync(TimeSpan.FromSeconds(2));
+
+            Assert.That(completion.Task.IsFaulted, Is.True, "A reset before handler dispatch must fail the pending dial request.");
+            Assert.That(completion.Task.Exception!.InnerException, Is.TypeOf<ChannelClosedException>());
+            await context.DidNotReceiveWithAnyArgs().Upgrade(default!, default(IProtocol)!);
+        }
+        finally
+        {
+            await remote.AbortAsync();
+            await negotiation.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     [Test]
     public async Task Test_ConnectionEstablished_AfterHandshake()
     {
