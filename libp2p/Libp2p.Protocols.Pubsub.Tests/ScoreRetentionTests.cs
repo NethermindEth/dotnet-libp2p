@@ -101,25 +101,53 @@ public class ScoreRetentionTests
     }
 
     /// <remarks>
-    /// Only a negative score is kept: a peer that scored well, or simply has nothing against
-    /// it, starts again from zero and leaves nothing behind.
+    /// A positive score is not kept, as in go-libp2p and rust-libp2p: a peer that scored well
+    /// starts again from zero and leaves nothing behind.
     /// </remarks>
-    [TestCase(5, TestName = "WellBehavedPeer_StartsFromZero_WhenItReconnects(positive)")]
-    [TestCase(0, TestName = "WellBehavedPeer_StartsFromZero_WhenItReconnects(zero)")]
-    public async Task WellBehavedPeer_StartsFromZero_WhenItReconnects(double appSpecificScore)
+    [Test]
+    public async Task WellBehavedPeer_StartsFromZero_WhenItReconnects()
     {
         using PubsubRouter router = await CreateStartedRouterAsync();
         Multiaddress address = TestPeers.Multiaddr(1);
         PeerId peerId = address.GetPeerId()!;
         TaskCompletionSource connection = Connect(router, address);
-        router.SetAppSpecificScore(peerId, appSpecificScore);
-        Assert.That(router.GetPeerScore(peerId), Is.GreaterThanOrEqualTo(0), "precondition: nothing counts against the peer");
+        router.SetAppSpecificScore(peerId, 5);
+        Assert.That(router.GetPeerScore(peerId), Is.Positive, "precondition: the peer scores well");
 
         Disconnect(router, peerId, connection);
         Assert.That(router.RetainedScoreCount, Is.Zero);
         Connect(router, address);
 
         Assert.That(router.GetPeerScore(peerId), Is.Zero);
+    }
+
+    /// <remarks>
+    /// 400 first deliveries earn 0.5 × 400 = 200 and 20 rejected messages cost 0.5 × 20² = 200, so
+    /// the peer leaves with a score of exactly zero. Disconnecting drops the delivery credit, which
+    /// leaves -200, below the graylist threshold.
+    /// </remarks>
+    [Test]
+    public async Task ZeroScore_HidingPenalties_IsKept_AndThePenaltiesSurvive()
+    {
+        using PubsubRouter router = await CreateStartedRouterAsync();
+        router.VerifyMessage = (_, message) => BitConverter.ToInt32(message.Data.Span) < 400 ? MessageValidity.Accepted : MessageValidity.Rejected;
+        Multiaddress address = TestPeers.Multiaddr(1);
+        PeerId peerId = address.GetPeerId()!;
+        TaskCompletionSource connection = Connect(router, address);
+        Rpc rpc = new Rpc().WithTopics([Topic], []);
+        for (int i = 0; i < 420; i++)
+        {
+            rpc.Publish.Add(new Message { Topic = Topic, Data = ByteString.CopyFrom(BitConverter.GetBytes(i)) });
+        }
+        router.OnRpc(peerId, rpc);
+        Assert.That(router.GetPeerScore(peerId), Is.Zero, "precondition: the credit balances the penalties");
+
+        Disconnect(router, peerId, connection);
+        Connect(router, address);
+
+        Assert.That(router.GetPeerScore(peerId), Is.EqualTo(-200));
+        router.OnRpc(peerId, new Rpc().WithTopics(["other"], []));
+        Assert.That(IsSubscribed(router, "other", peerId), Is.False, "The reconnected peer is graylisted.");
     }
 
     /// <remarks>

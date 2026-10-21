@@ -85,14 +85,14 @@ public partial class PubsubRouter
     /// it cannot clear a penalty by reconnecting.
     /// </summary>
     /// <remarks>
-    /// Only a negative score is kept, so a well-behaved peer starts again from zero. go-libp2p
-    /// and rust-libp2p also keep a score of exactly zero, which restarts at zero anyway; skipping
-    /// it saves about 2 KB per peer for the retention period. Nothing is kept once the router stops.
-    /// Called under the router lock, like every other use of the kept scores.
+    /// As in go-libp2p and rust-libp2p, only a positive score is dropped, so a well-behaved peer
+    /// starts again from zero. A score of exactly zero is kept: first-delivery credit can balance
+    /// penalties, and <see cref="PeerScore.Disconnect"/> drops that credit. Nothing is kept once
+    /// the router stops. Called under the router lock, like every other use of the kept scores.
     /// </remarks>
     private void KeepDisconnectedScore(PeerId peerId, PeerScore score, double currentScore)
     {
-        if (currentScore >= 0 || _settings.MaxRetainedScores <= 0 || _stopped.IsCancellationRequested)
+        if (currentScore > 0 || _settings.MaxRetainedScores <= 0 || _stopped.IsCancellationRequested)
         {
             return;
         }
