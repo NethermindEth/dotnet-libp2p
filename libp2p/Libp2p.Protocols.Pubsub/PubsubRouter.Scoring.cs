@@ -16,6 +16,28 @@ public partial class PubsubRouter
     private DateTime _lastScoreDecay = DateTime.UtcNow;
     private readonly ConcurrentDictionary<MessageId, (PeerId FirstDeliverer, DateTime FirstDeliveryTime)> _firstDeliveryTracker = new();
 
+    // Scores of disconnected peers, kept for RetainScore so that reconnecting does not clear a penalty.
+    // Only used under the router lock.
+    private readonly Dictionary<PeerId, RetainedScore> _retainedScores = [];
+
+    private sealed class RetainedScore(PeerScore score, DateTime expires)
+    {
+        public PeerScore Score { get; } = score;
+        public DateTime Expires { get; } = expires;
+    }
+
+    /// <summary>Scores currently kept for disconnected peers.</summary>
+    internal int RetainedScoreCount
+    {
+        get
+        {
+            lock (this)
+            {
+                return _retainedScores.Count;
+            }
+        }
+    }
+
     private static readonly Dictionary<string, int> NoIpColocationCounts = [];
 
     private Dictionary<string, int> CountIpColocation()
@@ -43,10 +65,52 @@ public partial class PubsubRouter
             return 0;
         }
 
+        return ScoreOf(peer);
+    }
+
+    private double ScoreOf(PubsubPeer peer)
+    {
         // Only this peer's own address can contribute to P6, so the colocation counts are worth
         // building only when it has one. This runs for every scored peer on the receive and
         // publish paths, where counting every peer and allocating per call would dominate it.
         return peer.Score.GetScore(peer.Score.IPAddress is null ? NoIpColocationCounts : CountIpColocation());
+    }
+
+    /// <summary>
+    /// Keeps a disconnecting peer's score for <see cref="PubsubSettings.RetainScore"/>, so that
+    /// it cannot clear a penalty by reconnecting.
+    /// </summary>
+    /// <remarks>
+    /// Only a negative score is kept, so a well-behaved peer starts again from zero. go-libp2p
+    /// and rust-libp2p also keep a score of exactly zero, which restarts at zero anyway; skipping
+    /// it saves about 2 KB per peer for the retention period. Nothing is kept once the router stops.
+    /// Called under the router lock, like every other use of the kept scores.
+    /// </remarks>
+    private void KeepDisconnectedScore(PeerId peerId, PeerScore score, double currentScore)
+    {
+        if (currentScore >= 0 || _stopped.IsCancellationRequested)
+        {
+            return;
+        }
+
+        score.Disconnect();
+        _retainedScores[peerId] = new RetainedScore(score, DateTime.UtcNow.AddMilliseconds(_settings.RetainScore));
+    }
+
+    /// <summary>
+    /// Gives a peer that has just connected the score it disconnected with, unless it expired.
+    /// </summary>
+    private void RestoreRetainedScore(PubsubPeer peer)
+    {
+        lock (this)
+        {
+            if (_retainedScores.Remove(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow)
+            {
+                // Colocation is about the address this connection uses, not the last one.
+                retained.Score.IPAddress = peer.Score.IPAddress;
+                peer.Score = retained.Score;
+            }
+        }
     }
 
     /// <summary>
@@ -65,6 +129,20 @@ public partial class PubsubRouter
         foreach (var peer in peerState.Values)
         {
             peer.Score.Decay();
+        }
+
+        // Retained scores are not decayed while their peer is away, as in go-libp2p and rust-libp2p:
+        // decay lets recent behavior outweigh old, and an absent peer shows none. They are only
+        // dropped once expired.
+        lock (this)
+        {
+            foreach ((PeerId peerId, RetainedScore retained) in _retainedScores)
+            {
+                if (retained.Expires <= now)
+                {
+                    _retainedScores.Remove(peerId);
+                }
+            }
         }
 
         // Clean up old first delivery tracking

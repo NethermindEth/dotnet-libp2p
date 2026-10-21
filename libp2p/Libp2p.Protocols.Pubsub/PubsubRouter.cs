@@ -931,9 +931,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         lock (this)
         {
+            // Scored before removal, as GetPeerScore would, while the peer still counts towards its own colocation.
+            double score = ScoreOf(peer);
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
                 _iwantPromises.Clear(peerId);
+                KeepDisconnectedScore(peerId, peer.Score, score);
                 foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
@@ -967,7 +970,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return Canceled;
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
+        PubsubPeer? created = null;
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => created = new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
+        if (ReferenceEquals(created, peer))
+        {
+            RestoreRetainedScore(peer);
+        }
 
         lock (peer)
         {
@@ -1042,6 +1050,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (isNewPeer)
             {
                 logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+                RestoreRetainedScore(existingPeer);
                 listTask.ContinueWith(t =>
                 {
                     RemovePeer(peerId, addr, existingPeer);

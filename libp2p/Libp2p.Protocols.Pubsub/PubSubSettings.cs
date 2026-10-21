@@ -158,6 +158,12 @@ public class PubsubSettings
     // Score Decay
     public int DecayInterval { get; set; } = 1000; // 1 second
     public double DecayToZero { get; set; } = 0.01;
+
+    /// <summary>
+    /// Milliseconds a negative score is kept after its peer disconnects, so that reconnecting does
+    /// not clear a penalty. The kept score does not decay while the peer is away, as in go-libp2p
+    /// and rust-libp2p, and is restored if the peer reconnects in time.
+    /// </summary>
     public int RetainScore { get; set; } = 10 * 60 * 1000; // 10 minutes
 
     // Mesh Management
