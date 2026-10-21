@@ -20,6 +20,8 @@ public partial class LocalPeer
         public Activity? Activity { get; } = activity;
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
+        public PeerId RemotePeerId => State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
+        public CancellationToken Closed => ConnectionToken;
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
 
@@ -41,9 +43,23 @@ public partial class LocalPeer
         }
 
         /// <inheritdoc />
+        public async Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
+        {
+            object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), null, token);
+            return (TResponse)result!;
+        }
+
+        /// <inheritdoc />
         public async Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>
         {
             object? result = await DialAsyncCore(peer.GetProtocolInstance<TProtocol>(), request, token);
+            return (TResponse)result!;
+        }
+
+        /// <summary>Dials a specific protocol instance with a request and returns its response.</summary>
+        public async Task<TResponse> DialAsync<TRequest, TResponse>(ISessionProtocol<TRequest, TResponse> protocol, TRequest request, CancellationToken token = default)
+        {
+            object? result = await DialAsyncCore(protocol, request, token);
             return (TResponse)result!;
         }
 
@@ -76,6 +92,7 @@ public partial class LocalPeer
         private bool _disconnected;
         private bool _connectionCounted;
         private bool _sessionCounted;
+        private PeerId? _retainedPeerId;
 
         internal void RegisterConnection()
         {
@@ -95,6 +112,9 @@ public partial class LocalPeer
             {
                 if (_disconnected) throw new OperationCanceledException(ConnectionToken);
                 if (_sessionCounted) return;
+                PeerId remotePeerId = State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
+                peer._peerStore?.Retain(remotePeerId);
+                _retainedPeerId = remotePeerId;
                 _sessionCounted = true;
                 Libp2pMetrics.SessionsOpened.Add(1);
                 Libp2pMetrics.SessionsActive.Add(1);
@@ -121,6 +141,7 @@ public partial class LocalPeer
             {
                 if (closeSession)
                 {
+                    if (_retainedPeerId is { } peerId) peer._peerStore?.Release(peerId);
                     ConnectedTcs.TrySetCanceled(ConnectionToken);
                     Libp2pMetrics.SessionsClosed.Add(1);
                     Libp2pMetrics.SessionsActive.Add(-1);

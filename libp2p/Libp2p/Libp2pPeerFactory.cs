@@ -21,7 +21,7 @@ public class Libp2pPeerFactory(
     public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
 }
 
-class Libp2pPeer : LocalPeer
+public class Libp2pPeer : LocalPeer
 {
     public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
         : base(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory)
@@ -31,6 +31,9 @@ class Libp2pPeer : LocalPeer
 
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
-        await session.DialAsync<IdentifyProtocol>();
+        if (GetProtocol<ISessionProtocol>(IdentifyProtocol.ProtocolId) is { } identify)
+        {
+            await session.DialAsync(identify);
+        }
     }
 }

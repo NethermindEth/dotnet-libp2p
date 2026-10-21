@@ -27,6 +27,39 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 public class ServiceCollectionExtensionsTests
 {
     [Test]
+    public async Task MissingPeerMetadataDoesNotEvictKnownPeer()
+    {
+        PeerStore store = new(1);
+        store.Discover([TestPeers.Multiaddr(2)]);
+        var missing = TestPeers.PeerId(3).ToDhtNode();
+        _services.AddSingleton(store);
+        _services.AddKadDht();
+        using var serviceProvider = _services.BuildServiceProvider();
+        serviceProvider.GetRequiredService<KadDhtProtocol>().AddNode(missing);
+        var builder = new TestPeerFactoryBuilder(serviceProvider);
+        builder.WithKadDht();
+        var protocol = builder.Protocols.OfType<RequestResponseProtocol<Message, Message>>().Single();
+        var context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State());
+        Channel channel = new();
+        Task listen = protocol.ListenAsync(channel.Reverse, context);
+        Message response;
+        try
+        {
+            response = await protocol.DialAsync(channel, context, MessageHelper.CreateFindNodeRequest(missing.PeerId.Bytes)).WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            await channel.CloseAsync();
+            await listen.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        Assert.That(response.CloserPeers.Select(p => new PeerId(p.Id.ToByteArray())), Is.EqualTo(new[] { missing.PeerId }));
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.True);
+        Assert.That(store.TryGetPeerInfo(missing.PeerId, out _), Is.False);
+    }
+
+    [Test]
     public async Task Bootstrap_ReadmitsBootstrapNodeAfterFailedLookups()
     {
         var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;

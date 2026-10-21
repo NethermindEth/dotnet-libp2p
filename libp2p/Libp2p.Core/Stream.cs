@@ -8,13 +8,22 @@ namespace Nethermind.Libp2p.Core;
 public class ChannelStream : Stream
 {
     private readonly IChannel _chan;
+    private readonly bool _leaveOpen;
     private bool _disposed = false;
     private bool _canRead = true;
     private bool _canWrite = true;
 
-    public ChannelStream(IChannel chan)
+    public ChannelStream(IChannel chan) : this(chan, false)
+    {
+    }
+
+    /// <summary>Wraps a channel with a stream.</summary>
+    /// <param name="chan">The channel to wrap.</param>
+    /// <param name="leaveOpen">Whether disposing the stream leaves the channel open.</param>
+    public ChannelStream(IChannel chan, bool leaveOpen)
     {
         _chan = chan ?? throw new ArgumentNullException(nameof(chan));
+        _leaveOpen = leaveOpen;
     }
 
     public override bool CanRead => !_disposed && _canRead;
@@ -105,6 +114,13 @@ public class ChannelStream : Stream
         return WriteAsyncCore(source, cancellationToken).AsTask();
     }
 
+    /// <remarks>
+    /// Once a read has taken part of this write, the remainder is owed to the reader and
+    /// <paramref name="cancellationToken"/> no longer bounds the call: it returns when that
+    /// remainder is consumed, and succeeds, because the bytes did arrive. Closing the channel
+    /// ends the write without delivering the rest. Disposing the stream closes the channel unless
+    /// it was constructed with leaveOpen set to true.
+    /// </remarks>
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
         if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
@@ -222,7 +238,7 @@ public class ChannelStream : Stream
     {
         if (!_disposed)
         {
-            if (disposing)
+            if (disposing && !_leaveOpen)
             {
                 _ = _chan.CloseAsync();
             }

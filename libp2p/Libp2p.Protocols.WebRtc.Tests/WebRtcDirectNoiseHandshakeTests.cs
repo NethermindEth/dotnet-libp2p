@@ -112,4 +112,24 @@ public class WebRtcDirectNoiseHandshakeTests
             () => WebRtcDirectNoiseHandshake.ParseAndValidateRemoteKey(payloadBytes, payloadBytes.Length, staticKey.PublicKey),
             Throws.TypeOf<CryptographicException>());
     }
+
+    /// <remarks>
+    /// The key used to escape as whatever <see cref="Identity.VerifySignature"/> threw;
+    /// it must fail as the handshake's own signature error.
+    /// </remarks>
+    [Test]
+    public void ParseAndValidateRemoteKey_RejectsUnusableIdentityKey()
+    {
+        KeyPair staticKey = KeyPair.Generate();
+        NoiseHandshakePayload payload = new()
+        {
+            IdentityKey = new PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString(),
+            IdentitySig = ByteString.CopyFrom(new byte[64]),
+        };
+        byte[] payloadBytes = payload.ToByteArray();
+
+        Assert.That(
+            () => WebRtcDirectNoiseHandshake.ParseAndValidateRemoteKey(payloadBytes, payloadBytes.Length, staticKey.PublicKey),
+            Throws.TypeOf<CryptographicException>());
+    }
 }

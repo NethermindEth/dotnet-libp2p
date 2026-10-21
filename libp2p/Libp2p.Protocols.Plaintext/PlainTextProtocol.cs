@@ -18,6 +18,13 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
 {
     public string Id => "/plaintext/2.0.0";
 
+    /// <summary>
+    /// The largest exchange message accepted, matching go-libp2p's limit. An
+    /// exchange is one peer ID and one public key, so even a large RSA key
+    /// fits with room to spare.
+    /// </summary>
+    private const int MaxExchangeLength = 1 << 16;
+
     protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
         Exchange src = new()
@@ -34,21 +41,27 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
         VarInt.Encode(size, sizeBuf, ref offset1);
         await channel.WriteAsync(new ReadOnlySequence<byte>(sizeBuf.Concat(buf).ToArray()));
 
-        int structSize = await channel.ReadVarintAsync();
-        buf = (await channel.ReadAsync(structSize).OrThrow()).ToArray();
-        Exchange dest = ParseExchange(buf);
+        Exchange dest = await ReadExchangeAsync(channel);
         SetRemoteIdentity(context, dest);
 
         await context.Upgrade(channel);
     }
 
-    private static Exchange ParseExchange(byte[] buf)
+    /// <remarks>
+    /// The length comes from a peer that has not proven any identity yet, so it
+    /// is checked before any of the message is read.
+    /// </remarks>
+    private static async Task<Exchange> ReadExchangeAsync(IChannel channel)
     {
         try
         {
-            return Exchange.Parser.ParseFrom(buf);
+            return await channel.ReadPrefixedProtobufAsync(Exchange.Parser, MaxExchangeLength, CancellationToken.None);
         }
-        catch (InvalidProtocolBufferException e)
+        catch (InvalidDataException e)
+        {
+            throw new Libp2pException($"Plaintext exchange message is larger than {MaxExchangeLength} bytes.", e);
+        }
+        catch (Exception e) when (e is InvalidProtocolBufferException or FormatException)
         {
             throw new Libp2pException("Plaintext exchange message is malformed.", e);
         }

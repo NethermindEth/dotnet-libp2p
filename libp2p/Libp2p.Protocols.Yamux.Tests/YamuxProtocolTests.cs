@@ -375,16 +375,8 @@ public class YamuxProtocolTests
             YamuxHeader ping = new() { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = 7 };
             YamuxHeader.ToBytes(header, ref ping);
             Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(header), timeout.Token), Is.EqualTo(IOResult.Ok));
-            YamuxHeader ack;
-            do
-            {
-                ack = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
-                if (ack.Type != YamuxHeaderType.Ping)
-                {
-                    Assert.That(ack.Flags, Is.EqualTo(YamuxHeaderFlags.Rst));
-                    Assert.That(ack.StreamID, Is.EqualTo(syn.StreamID));
-                }
-            } while (ack.Type != YamuxHeaderType.Ping);
+            // A received RST is never answered with an RST, so the ping ack is the next frame.
+            YamuxHeader ack = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
             Assert.That(ack.Type, Is.EqualTo(YamuxHeaderType.Ping));
             Assert.That(ack.Flags, Is.EqualTo(YamuxHeaderFlags.Ack));
             Assert.That(ack.Length, Is.EqualTo(7));

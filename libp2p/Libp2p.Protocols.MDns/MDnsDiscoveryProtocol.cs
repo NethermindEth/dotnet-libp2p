@@ -114,7 +114,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     {
                         peers.Add(peer);
                     }
-                    peerStore.Discover(records);
+                    peerStore.Discover(records, isTrusted: false);
                 }
             };
 

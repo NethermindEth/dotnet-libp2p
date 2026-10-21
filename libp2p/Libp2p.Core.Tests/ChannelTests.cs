@@ -9,6 +9,53 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelTests
 {
+    [TestCase(false, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, true)]
+    [TestCase(false, false, false)]
+    [TestCase(false, true, false)]
+    [TestCase(true, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, false, null)]
+    [TestCase(false, true, null)]
+    [TestCase(true, false, null)]
+    [TestCase(true, true, null)]
+    public async Task StreamDisposalHonorsChannelOwnership(bool direct, bool asynchronous, bool? leaveOpen)
+    {
+        Channel channel = new();
+        using Stream stream = (direct, leaveOpen) switch
+        {
+            (true, null) => new ChannelStream(channel),
+            (false, null) => channel.AsStream(),
+            (true, bool value) => new ChannelStream(channel, value),
+            (false, bool value) => channel.AsStream(value)
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            if (asynchronous) await stream.DisposeAsync();
+            else stream.Dispose();
+        }
+
+        Assert.That(stream.CanRead, Is.False);
+        Assert.That(stream.CanWrite, Is.False);
+        Assert.Throws<ObjectDisposedException>(() => stream.Flush());
+        Assert.That(channel.GetAwaiter().IsCompleted, Is.EqualTo(leaveOpen != true));
+        if (leaveOpen == true)
+        {
+            foreach (Channel direction in new[] { channel, channel.Reverse })
+            {
+                byte[] bytes = [3, 7, 11];
+                Task<IOResult> write = direction.WriteAsync(new ReadOnlySequence<byte>(bytes)).AsTask();
+                ReadResult read = await direction.Reverse.ReadAsync(bytes.Length);
+                Assert.That(read.Data.ToArray(), Is.EqualTo(bytes));
+                Assert.That(await write, Is.EqualTo(IOResult.Ok));
+            }
+            await channel.CloseAsync();
+        }
+    }
+
     [Test]
     public async Task CloseCompletesWithAnUnreadPendingWrite()
     {
@@ -81,6 +128,28 @@ public class ChannelTests
 
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CloseReadKeepsDeliveredDataAndEofReadableWhileFailingWrites()
+    {
+        Channel channel = new();
+        Task<IOResult> delivered = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })).AsTask();
+        Task<IOResult> eof = channel.WriteEofAsync().AsTask();
+        Task<IOResult> pendingInbound = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 8 })).AsTask();
+
+        await channel.CloseReadAsync();
+
+        Assert.That(await pendingInbound.WaitAsync(TimeSpan.FromSeconds(2)), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 9 })), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That(await delivered.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        Assert.That(await eof.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        TaskCompletionSource completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.GetAwaiter().OnCompleted(() => completed.TrySetResult());
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [TestCase(false)]
@@ -163,6 +232,27 @@ public class ChannelTests
 
         Assert.That((await read.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task StreamWriteCancelledAfterPartialReadEndsOnDispose()
+    {
+        // The head is already downstream, so the token cannot retract the rest. Disposing is the
+        // caller's way out: it closes the channel and ends the write without delivering it.
+        Channel channel = new();
+        Stream stream = channel.AsStream();
+        using CancellationTokenSource cancel = new();
+        Task write = stream.WriteAsync(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }.AsMemory(), cancel.Token).AsTask();
+        Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
+            Is.EqualTo(new byte[] { 1, 2, 3 }));
+
+        cancel.Cancel();
+        Assert.That(await Task.WhenAny(write, Task.Delay(TimeSpan.FromMilliseconds(200))), Is.Not.SameAs(write),
+            "Cancellation cannot retract a write whose head was already read.");
+
+        stream.Dispose();
+        Assert.That(Assert.CatchAsync<IOException>(async () => await write.WaitAsync(TimeSpan.FromSeconds(5)))!.Message,
+            Is.EqualTo("Channel write failed: Ended."));
     }
 
     [Test]

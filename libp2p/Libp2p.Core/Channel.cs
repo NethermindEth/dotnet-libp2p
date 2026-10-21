@@ -89,6 +89,17 @@ public class Channel : IChannel
         return CloseAsync();
     }
 
+    public ValueTask CloseReadAsync()
+    {
+        // Stop reading: the other side's pending and future writes fail, while what this side
+        // already wrote stays readable. Completion still waits for this side's write half to end,
+        // so a channel half-closed this way completes only once that EOF is consumed.
+        _reader.MarkClosed();
+        _reader.MarkAborted();
+        _reader.CompleteAbort();
+        return ValueTask.CompletedTask;
+    }
+
     private void TryComplete()
     {
         if (_reader._eow && _writer._eow)
@@ -103,6 +114,9 @@ public class Channel : IChannel
         private const int Closed = 1;
         private const int PendingWrite = 2;
         private const int PendingRead = 4;
+
+        /// <summary>The reader released a published chunk by discarding it at teardown, not by consuming it.</summary>
+        private const int WriteDiscarded = 8;
 
         internal protected ReaderWriter(Channel tryComplete)
         {
@@ -210,6 +224,7 @@ public class Channel : IChannel
                     if (!_bytes.IsEmpty)
                     {
                         Interlocked.And(ref _state, ~PendingWrite);
+                        Interlocked.Or(ref _state, WriteDiscarded);
                         _bytes = default;
                         _read.Release();
                     }
@@ -233,6 +248,7 @@ public class Channel : IChannel
                         if (!_bytes.IsEmpty)
                         {
                             Interlocked.And(ref _state, ~PendingWrite);
+                            Interlocked.Or(ref _state, WriteDiscarded);
                             _bytes = default;
                             _read.Release();
                         }
@@ -371,15 +387,29 @@ public class Channel : IChannel
                     // writer past teardown.
                     if (_canRead.Wait(0))
                     {
-                        Interlocked.And(ref _state, ~PendingWrite);
-                        _bytes = default;
-                    }
-                    else
-                    {
-                        await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
+                        if (_bytes.Length == bytes.Length)
+                        {
+                            Interlocked.And(ref _state, ~PendingWrite);
+                            _bytes = default;
+                            throw;
+                        }
+
+                        // A partial read already delivered the head of the chunk downstream, so
+                        // the rest must still follow or the byte stream is corrupted.
+                        _canRead.Release();
                     }
 
-                    throw;
+                    // Wait for the reader to release the chunk, having kept the publish in place.
+                    await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
+                }
+
+                // Either wait can be satisfied by teardown releasing the chunk, which discards what
+                // is left instead of consuming it, so neither path may assume delivery. Only
+                // consumption is reported as written: saying a cancelled write arrived invites a
+                // retry that duplicates it, and saying a discarded one arrived loses it silently.
+                if ((Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0)
+                {
+                    return ClosedIoResult;
                 }
 
                 Libp2pMetrics.DataSentBytes.Add(bytes.Length);

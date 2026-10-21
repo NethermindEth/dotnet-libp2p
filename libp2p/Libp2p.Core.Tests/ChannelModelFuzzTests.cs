@@ -383,14 +383,11 @@ public class ChannelModelFuzzTests
     }
 
     [Test]
-    public async Task CancelledWrite_RollbackThenClose_Completes()
+    public async Task CancelledWrite_PartialTakeThenClose_Completes()
     {
-        // Partial take, writer cancel, then close. Note what this covers: the
-        // partial take re-releases the signal, so cancellation takes the
-        // rollback branch (not the acknowledgement wait, which needs a
-        // microsecond take/cancel interleave to engage and therefore has no
-        // deterministic test). The rollback retracts the remainder, the close
-        // terminates everything, and no read ever observes the retracted bytes.
+        // Partial take, writer cancel, then close while the remainder is still
+        // owed: the close ends the parked write and the unread remainder is
+        // discarded as an incomplete delivery, so the reader sees an abort.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Task<IOResult> write = channel.WriteAsync(
@@ -398,18 +395,73 @@ public class ChannelModelFuzzTests
         Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
             Is.EqualTo(new byte[] { 1, 2, 3 }));
         cancel.Cancel();
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Cancelled));
+        // The head is already downstream, so the cancellation must not retract the remainder
+        // on its own: only the close below may end the write.
+        Assert.That(await Task.WhenAny(write, Task.Delay(TimeSpan.FromMilliseconds(200))), Is.Not.SameAs(write),
+            "The cancelled write must stay parked while the remainder is owed.");
         await channel.CloseAsync();
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
         Assert.That((await channel.Reverse.ReadAsync(8).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result,
-            Is.EqualTo(IOResult.Ended));
+            Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
-    public async Task CancelledWrite_RollsBackRemainder()
+    public async Task CancelledWrite_RemainderDiscardedAtTeardown_IsNeverReportedAsDelivered()
     {
-        // Partial take, then writer cancel: the re-released signal lets the
-        // rollback retract even the still-buffered remainder, so a later EOF
-        // finds nothing to discard and reads end empty.
+        // Teardown releases a parked write by throwing the remainder away instead of consuming it.
+        // The writer must not read that release as proof of delivery. The interleaving that does it
+        // is rare, so this races the tail read against the close from both orderings.
+        const int attempts = 20000;
+        int delivered = 0;
+        int ended = 0;
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            Channel channel = new();
+            using CancellationTokenSource cancel = new();
+            Task<IOResult> write = channel.WriteAsync(
+                new ReadOnlySequence<byte>(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }), cancel.Token).AsTask();
+            Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
+                Is.EqualTo(new byte[] { 1, 2, 3 }));
+            cancel.Cancel();
+
+            Task<ReadResult> tail;
+            Task close;
+            if (attempt % 2 == 0)
+            {
+                tail = Task.Run(async () => await channel.Reverse.ReadAsync(5));
+                close = Task.Run(async () => await channel.CloseAsync());
+            }
+            else
+            {
+                close = Task.Run(async () => await channel.CloseAsync());
+                tail = Task.Run(async () => await channel.Reverse.ReadAsync(5));
+            }
+
+            await Task.WhenAll(write, tail, close).WaitAsync(TimeSpan.FromSeconds(5));
+
+            long taken = tail.Result.Data.Length;
+            Assert.That(write.Result == IOResult.Ok && taken < 5, Is.False,
+                $"Attempt {attempt}: the write reported delivery but the reader only received {taken} of the 5 remaining bytes.");
+
+            if (taken == 5) delivered++; else ended++;
+        }
+
+        // Both outcomes must actually occur, or the race never ran and the assertion above is vacuous.
+        Assert.Multiple(() =>
+        {
+            Assert.That(delivered, Is.Positive, "The remainder was never consumed, so the delivered path went untested.");
+            Assert.That(ended, Is.Positive, "The remainder was never discarded, so the teardown path went untested.");
+        });
+    }
+
+    [Test]
+    public async Task CancelledWrite_KeepsRemainderAfterPartialTake()
+    {
+        // Partial take, then writer cancel: the head already left the channel, so
+        // retracting the still-buffered remainder would corrupt the byte stream.
+        // The write stays parked until the remainder is read and then reports the
+        // delivery, since the bytes did arrive; a later EOF ends reads after it.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Task<IOResult> write = channel.WriteAsync(
@@ -417,8 +469,12 @@ public class ChannelModelFuzzTests
         Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
             Is.EqualTo(new byte[] { 1, 2, 3 }));
         cancel.Cancel();
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Cancelled));
+        await Task.Delay(100);
+        Assert.That(write.IsCompleted, Is.False, "The remainder is still owed to the reader.");
 
+        Assert.That((await channel.Reverse.ReadAsync(5).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
+            Is.EqualTo(new byte[] { 4, 5, 6, 7, 8 }));
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ok));
         Assert.That(await channel.WriteEofAsync(), Is.EqualTo(IOResult.Ok));
         Assert.That((await channel.Reverse.ReadAsync(8).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result,
             Is.EqualTo(IOResult.Ended));

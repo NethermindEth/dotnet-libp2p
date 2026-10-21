@@ -147,6 +147,30 @@ public class IpnsRecordTests
         Assert.That(IpnsRecordValidator.Instance.Validate(key, tampered.ToByteArray()), Is.False);
     }
 
+    /// <remarks>
+    /// The record's key matches the IPNS name, so validation reaches signature
+    /// verification with a key that cannot verify anything. That must be a
+    /// rejection, not an exception out of the validator.
+    /// </remarks>
+    [Test]
+    public void Validator_Validate_RejectsRecordWithUnusableKey()
+    {
+        var unusableKey = new Nethermind.Libp2p.Core.Dto.PublicKey
+        {
+            Type = (Nethermind.Libp2p.Core.Dto.KeyType)7,
+            Data = ByteString.CopyFrom([1, 2, 3]),
+        };
+        byte[] key = IpnsRecordHelper.BuildIpnsKey(new PeerId(unusableKey));
+        var entry = IpnsEntry.Parser.ParseFrom(IpnsRecordHelper.CreateSignedRecord(
+            _identity,
+            "/ipfs/QmTest",
+            sequence: 1,
+            eol: DateTimeOffset.UtcNow.AddHours(1)));
+        entry.PubKey = unusableKey.ToByteString();
+
+        Assert.That(IpnsRecordValidator.Instance.Validate(key, entry.ToByteArray()), Is.False);
+    }
+
     [Test]
     public void Validator_Validate_RejectsWrongPeerId()
     {

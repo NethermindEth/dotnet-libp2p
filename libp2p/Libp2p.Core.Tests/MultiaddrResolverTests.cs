@@ -21,7 +21,7 @@ public class MultiaddrResolverTests
             "dnsaddr=/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
             "dnsaddr=/ip4/1.2.3.4/tcp/4001/p2p/QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51"
         };
-        dns.QueryTxtAsync(dnsName).Returns(Task.FromResult((IEnumerable<string>)txtRecords));
+        dns.QueryTxtAsync(dnsName, Arg.Any<CancellationToken>()).Returns(Task.FromResult((IEnumerable<string>)txtRecords));
 
         var resolver = new MultiaddrResolver(dns);
 

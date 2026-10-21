@@ -32,6 +32,13 @@ public interface ISessionContext : IConnectionContext
 {
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol protocol);
+
+    /// <summary>Dials a session protocol without a request payload and returns its response.</summary>
+    /// <remarks>The default implementation does not support typed responses. Implementations must override this method to return protocol results.</remarks>
+    /// <exception cref="NotSupportedException">The session implementation does not support typed responses.</exception>
+    Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
+        => Task.FromException<TResponse>(new NotSupportedException("This session does not support typed protocol responses."));
+
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
 }
 
@@ -51,8 +58,38 @@ public interface INewSessionContext : IDisposable, INewConnectionContext
 
 public class State
 {
+    internal Lock PeerRecordLock { get; } = new();
+    private ulong? _verifiedPeerRecordSequence;
     public Multiaddress? LocalAddress { get; set; }
     public Multiaddress? RemoteAddress { get; set; }
     public PublicKey? RemotePublicKey { get; set; }
     public PeerId? RemotePeerId => RemoteAddress?.GetPeerId();
+
+    /// <summary>Highest signed peer record sequence verified for this session's remote peer.</summary>
+    public ulong? VerifiedPeerRecordSequence
+    {
+        get
+        {
+            lock (PeerRecordLock) return _verifiedPeerRecordSequence;
+        }
+    }
+
+    public void RecordVerifiedPeerRecordSequence(ulong sequence)
+    {
+        lock (PeerRecordLock)
+        {
+            if (_verifiedPeerRecordSequence is null || sequence > _verifiedPeerRecordSequence)
+            {
+                _verifiedPeerRecordSequence = sequence;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Largest write the layer below carries as a single unit, when it has such a size. A secure
+    /// channel that packs each write into one record sets this so the layer above can size its
+    /// frames to fit, instead of every frame spilling into a second record. Larger writes are
+    /// still accepted; they are just split further down.
+    /// </summary>
+    public int? PreferredWriteSize { get; set; }
 }

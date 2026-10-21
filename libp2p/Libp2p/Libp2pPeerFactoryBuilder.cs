@@ -82,65 +82,84 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
         return this;
     }
 
+    /// <summary>The default Identify protocol, or null to omit it.</summary>
+    protected virtual ProtocolRef? Identify() => Get<IdentifyProtocol>();
+
+    /// <summary>The default Identify Push protocol, or null to omit it.</summary>
+    protected virtual ProtocolRef? IdentifyPush() => Get<IdentifyPushProtocol>();
+
+    /// <summary>The default Ping protocol, or null to omit it.</summary>
+    protected virtual ProtocolRef? Ping() => Get<PingProtocol>();
+
+    /// <summary>Stream transports wired through encryption and multiplexing.</summary>
+    protected virtual ProtocolRef[] StreamTransports()
+    {
+        ProtocolRef tcp = Get<IpTcpProtocol>();
+#if LIBP2P_WEBSOCKETS
+        return addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
+#else
+        return [tcp];
+#endif
+    }
+
+    /// <summary>Transports with built-in security and multiplexing, wired directly to applications.</summary>
+    protected virtual ProtocolRef[] DatagramTransports()
+    {
+        List<ProtocolRef> transports = [];
+        if (addQuic) transports.Add(Get<QuicProtocol>());
+        if (addWebRtcDirect) transports.Add(Get<WebRtcDirectProtocol>());
+        return [.. transports];
+    }
+
+    /// <summary>Security protocols offered on stream transports, in negotiation order.</summary>
+    protected virtual ProtocolRef[] Encryption() => enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
+
+    /// <summary>Stream multiplexers, in negotiation order.</summary>
+    protected virtual ProtocolRef[] Muxers() => [Get<YamuxProtocol>()];
+
+    /// <summary>Relay protocols wired to the other application protocols.</summary>
+    protected virtual ProtocolRef[] Relay() => addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
+
+    /// <summary>Pubsub application protocols, in negotiation order.</summary>
+    protected virtual ProtocolRef[] Pubsub() => addPubsub ? [
+        Get<GossipsubProtocolV13>(),
+        Get<GossipsubProtocolV12>(),
+        Get<GossipsubProtocolV11>(),
+        Get<GossipsubProtocol>(),
+        Get<FloodsubProtocol>()
+        ] : [];
+
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {
         // Ensure transport protocol static methods are preserved for AOT/trimming
         PreserveTransportProtocolMetadata();
 
-        ProtocolRef tcp = Get<IpTcpProtocol>();
-#if LIBP2P_WEBSOCKETS
-        ProtocolRef[] streamTransports = addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
-#else
-        ProtocolRef[] streamTransports = [tcp];
-#endif
-
-        ProtocolRef[] encryption = enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];
-
-        ProtocolRef[] muxers = [Get<YamuxProtocol>()];
+        ProtocolRef[] streamTransports = StreamTransports();
+        ProtocolRef[] encryption = Encryption();
+        ProtocolRef[] muxers = Muxers();
 
         ProtocolRef[] commonAppProtocolSelector = [Get<MultistreamProtocol>()];
         Connect(streamTransports, [Get<MultistreamProtocol>()], encryption, [Get<MultistreamProtocol>()], muxers, commonAppProtocolSelector);
 
-        ProtocolRef[] relay = addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
-        ProtocolRef[] pubsub = addPubsub ? [
-            Get<GossipsubProtocolV13>(),
-            Get<GossipsubProtocolV12>(),
-            Get<GossipsubProtocolV11>(),
-            Get<GossipsubProtocol>(),
-            Get<FloodsubProtocol>()
-            ] : [];
+        ProtocolRef[] relay = Relay();
+        ProtocolRef[] pubsub = Pubsub();
+        ProtocolRef?[] core = [Identify(), IdentifyPush(), Ping()];
 
         ProtocolRef[] apps = [
-            Get<IdentifyProtocol>(),
-            Get<IdentifyPushProtocol>(),
-            Get<PingProtocol>(),
+            .. core.OfType<ProtocolRef>(),
             .. additionalProtocols,
             .. relay,
             .. pubsub,
         ];
         Connect(commonAppProtocolSelector, apps);
 
-        if (addRelay)
+        if (relay.Length > 0)
         {
             Connect(relay, [Get<MultistreamProtocol>()], apps.Where(a => !relay.Contains(a)).ToArray());
         }
 
-        List<ProtocolRef> transports = [.. streamTransports];
-
-        if (addQuic)
-        {
-            ProtocolRef quic = Get<QuicProtocol>();
-            Connect([quic], commonAppProtocolSelector);
-            transports.Add(quic);
-        }
-
-        if (addWebRtcDirect)
-        {
-            ProtocolRef webrtcDirect = Get<WebRtcDirectProtocol>();
-            Connect([webrtcDirect], commonAppProtocolSelector);
-            transports.Add(webrtcDirect);
-        }
-
-        return [.. transports];
+        ProtocolRef[] datagramTransports = DatagramTransports();
+        Connect(datagramTransports, commonAppProtocolSelector);
+        return [.. streamTransports, .. datagramTransports];
     }
 }

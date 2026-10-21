@@ -176,7 +176,7 @@ public class PublicKeyDecoderTests
                 }
 
                 Assert.DoesNotThrow(
-                    () => new Identity(decoded).VerifySignature(message, signature),
+                    () => new Identity(decoded).VerifySignatureOrThrow(message, signature),
                     $"{name} was accepted by the decoder but cannot be used to verify.");
             }
         });

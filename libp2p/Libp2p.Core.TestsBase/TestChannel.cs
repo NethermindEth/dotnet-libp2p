@@ -45,4 +45,6 @@ public class TestChannel : IChannel
     }
 
     public ValueTask AbortAsync() => _channel.AbortAsync();
+
+    public ValueTask CloseReadAsync() => _channel.CloseReadAsync();
 }

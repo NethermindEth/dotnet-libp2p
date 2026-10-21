@@ -34,8 +34,16 @@ public class PeerScore
     /// </summary>
     public TopicScore GetTopicScore(string topic)
     {
-        return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? new TopicScoreParams()));
+        return _topicScores.GetOrAdd(topic, _ => new TopicScore(_settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams));
     }
+
+    /// <summary>Fallback scoring retains delivery rewards and invalid-message penalties without mesh assumptions.</summary>
+    private static readonly TopicScoreParams DefaultTopicScoreParams = new()
+    {
+        TimeInMeshWeight = 0,
+        MeshMessageDeliveriesWeight = 0,
+        MeshFailurePenaltyWeight = 0
+    };
 
     /// <summary>
     /// Calculates the total score for this peer
@@ -51,7 +59,7 @@ public class PeerScore
             string topic = kvp.Key;
             TopicScore ts = kvp.Value;
 
-            var topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic) ?? new TopicScoreParams();
+            TopicScoreParams topicParams = _settings.TopicScoreParams.GetValueOrDefault(topic) ?? DefaultTopicScoreParams;
 
             double topicContribution =
                 topicParams.TopicWeight * ts.CalculateScore(topicParams);
