@@ -14,8 +14,7 @@ namespace Nethermind.Libp2p.Core.Dto;
 /// <summary>
 /// Turns wire bytes into a <see cref="PublicKey"/>, decoding and validating
 /// together so a caller cannot hold a key that parsed but cannot be used.
-/// Intended as the only entry point for untrusted material; the remaining
-/// <c>PublicKey.Parser.ParseFrom</c> call sites still need migrating.
+/// It is the only entry point for key material that arrives from a remote peer.
 /// </summary>
 public static class PublicKeyDecoder
 {
