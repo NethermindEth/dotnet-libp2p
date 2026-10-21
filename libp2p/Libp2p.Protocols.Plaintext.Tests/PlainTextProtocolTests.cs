@@ -11,6 +11,8 @@ using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.PlainText.Dto;
 using NSubstitute;
 using NUnit.Framework;
+using Org.BouncyCastle.Crypto.EC;
+using Org.BouncyCastle.Math.EC;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
 namespace Nethermind.Libp2p.Protocols.Plaintext.Tests;
@@ -138,6 +140,40 @@ public class PlainTextProtocolTests
     }
 
     /// <remarks>
+    /// go-libp2p derives the peer ID from the compressed key whichever encoding
+    /// arrives, so a peer sending its key uncompressed or hybrid still claims the
+    /// compressed key's ID.
+    /// </remarks>
+    [TestCase(false, false, TestName = "Test_RemoteIdentity_IsCompressed_WhenSecp256k1KeyArrivesUncompressed(dialer)")]
+    [TestCase(false, true, TestName = "Test_RemoteIdentity_IsCompressed_WhenSecp256k1KeyArrivesUncompressed(listener)")]
+    [TestCase(true, false, TestName = "Test_RemoteIdentity_IsCompressed_WhenSecp256k1KeyArrivesHybrid(dialer)")]
+    [TestCase(true, true, TestName = "Test_RemoteIdentity_IsCompressed_WhenSecp256k1KeyArrivesHybrid(listener)")]
+    public async Task Test_RemoteIdentity_IsCompressed_WhenSecp256k1KeyArrivesExpanded(bool hybrid, bool isListener)
+    {
+        Identity remote = new(keyType: KeyType.Secp256K1);
+        State state = new() { RemoteAddress = "/ip4/127.0.0.1/tcp/0" };
+
+        await HandshakeAsync(state, ExpandedExchange(remote, hybrid), isListener);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.RemotePublicKey, Is.EqualTo(remote.PublicKey));
+            Assert.That(state.RemoteAddress!.GetPeerId(), Is.EqualTo(remote.PeerId));
+        });
+    }
+
+    [Test]
+    public async Task Test_Handshake_Succeeds_WhenDialedSecp256k1PeerSendsItsKeyUncompressed()
+    {
+        Identity remote = new(keyType: KeyType.Secp256K1);
+        State state = new() { RemoteAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{remote.PeerId}" };
+
+        await HandshakeAsync(state, ExpandedExchange(remote, hybrid: false));
+
+        Assert.That(state.RemotePublicKey, Is.EqualTo(remote.PublicKey));
+    }
+
+    /// <remarks>
     /// Only the length is sent. Rejecting it must not wait for a body that never
     /// comes, and a length past <see cref="int.MaxValue"/> must not wrap to a
     /// negative read size.
@@ -206,11 +242,70 @@ public class PlainTextProtocolTests
         Assert.That(state.RemotePublicKey, Is.EqualTo(remote.PublicKey));
     }
 
+    [Test]
+    public async Task Test_Handshake_Succeeds_WhenEarlierHandshakeStoredTheSameSecp256k1Key()
+    {
+        Identity remote = new(keyType: KeyType.Secp256K1);
+        State state = new() { RemotePublicKey = remote.PublicKey };
+
+        await HandshakeAsync(state, ExpandedExchange(remote, hybrid: false));
+
+        Assert.That(state.RemotePublicKey, Is.EqualTo(remote.PublicKey));
+    }
+
+    /// <remarks>
+    /// The second peer ID that the expanded bytes used to derive must not be
+    /// claimable.
+    /// </remarks>
+    [TestCase(false, TestName = "Test_Handshake_Fails_WhenIdIsDerivedFromUncompressedSecp256k1Key")]
+    [TestCase(true, TestName = "Test_Handshake_Fails_WhenIdIsDerivedFromHybridSecp256k1Key")]
+    public void Test_Handshake_Fails_WhenIdIsDerivedFromExpandedSecp256k1Key(bool hybrid)
+    {
+        PublicKey expanded = Expanded(new Identity(keyType: KeyType.Secp256K1).PublicKey, hybrid);
+        Exchange exchange = new()
+        {
+            Id = ByteString.CopyFrom(new PeerId(expanded).Bytes),
+            Pubkey = expanded.ToByteString(),
+        };
+
+        AssertHandshakeRejected(new State(), exchange);
+    }
+
+    [Test]
+    public void Test_Handshake_Fails_WhenDialedAddressNamesTheUncompressedSecp256k1PeerId()
+    {
+        Identity remote = new(keyType: KeyType.Secp256K1);
+        PeerId uncompressedPeerId = new(Expanded(remote.PublicKey, hybrid: false));
+        State state = new() { RemoteAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{uncompressedPeerId}" };
+
+        AssertHandshakeRejected(state, ExpandedExchange(remote, hybrid: false));
+    }
     private static Exchange ValidExchange(Identity identity) => new()
     {
         Id = ByteString.CopyFrom(identity.PeerId.Bytes),
         Pubkey = identity.PublicKey.ToByteString(),
     };
+
+    /// <summary>
+    /// The remote's key in a 65-byte encoding, claiming its normal (compressed) peer ID.
+    /// </summary>
+    private static Exchange ExpandedExchange(Identity remote, bool hybrid) => new()
+    {
+        Id = ByteString.CopyFrom(remote.PeerId.Bytes),
+        Pubkey = Expanded(remote.PublicKey, hybrid).ToByteString(),
+    };
+
+    private static PublicKey Expanded(PublicKey compressed, bool hybrid)
+    {
+        ECPoint point = CustomNamedCurves.GetByName("secp256k1").Curve.DecodePoint(compressed.Data.ToByteArray()).Normalize();
+        byte[] encoded = point.GetEncoded(false);
+        if (hybrid)
+        {
+            encoded[0] = (byte)(point.AffineYCoord.ToBigInteger().TestBit(0) ? 0x07 : 0x06);
+        }
+
+        return new PublicKey { Type = KeyType.Secp256K1, Data = ByteString.CopyFrom(encoded) };
+    }
 
 
     private static void AssertHandshakeRejected(State state, Exchange exchange, bool isListener = false) =>
