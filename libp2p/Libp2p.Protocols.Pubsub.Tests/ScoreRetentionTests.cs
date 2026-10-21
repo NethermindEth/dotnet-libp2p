@@ -123,6 +123,42 @@ public class ScoreRetentionTests
     }
 
     /// <remarks>
+    /// The test holds the router lock while the peer reconnects on another thread, and sends the
+    /// peer's first RPC under that lock as soon as the router lists the peer. A reconnected peer
+    /// listed before its kept score is restored would have that RPC accepted despite the graylist.
+    /// </remarks>
+    [TestCase(false, TestName = "ReconnectingPeer_IsGraylisted_FromItsFirstRpc(outbound)")]
+    [TestCase(true, TestName = "ReconnectingPeer_IsGraylisted_FromItsFirstRpc(inbound)")]
+    public async Task ReconnectingPeer_IsGraylisted_FromItsFirstRpc(bool inbound)
+    {
+        using PubsubRouter router = await CreateStartedRouterAsync();
+        Multiaddress address = TestPeers.Multiaddr(1);
+        PeerId peerId = address.GetPeerId()!;
+        TaskCompletionSource first = Connect(router, address);
+        Penalize(router, peerId);
+        Disconnect(router, peerId, first);
+        Rpc subscribe = new Rpc().WithTopics(["other"], []);
+
+        Task reconnect;
+        lock (router)
+        {
+            reconnect = Task.Run(() =>
+            {
+                if (inbound) ConnectInbound(router, address);
+                else Connect(router, address);
+            });
+            if (SpinWait.SpinUntil(() => ((IRoutingStateContainer)router).ConnectedPeers.Contains(peerId), TimeSpan.FromMilliseconds(200)))
+            {
+                router.OnRpc(peerId, subscribe);
+            }
+        }
+        await reconnect;
+        router.OnRpc(peerId, subscribe);
+
+        Assert.That(IsSubscribed(router, "other", peerId), Is.False);
+    }
+
+    /// <remarks>
     /// Retention freezes a penalty while the peer is away; it does not make it permanent.
     /// </remarks>
     [Test]

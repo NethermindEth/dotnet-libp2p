@@ -117,17 +117,40 @@ public partial class PubsubRouter
     }
 
     /// <summary>
-    /// Gives a peer that has just connected the score it disconnected with, unless it expired.
+    /// Gives a peer that is connecting the score it disconnected with, unless that expired.
     /// </summary>
-    private void RestoreRetainedScore(PubsubPeer peer)
+    /// <remarks>
+    /// Called from the <see cref="peerState"/> factory, so no reader sees the reconnected peer
+    /// without its score. The kept entry stays: a factory whose peer loses the race to be added
+    /// must not consume it, so the caller whose peer was added calls <see cref="ForgetRetainedScore"/>.
+    /// </remarks>
+    private PubsubPeer WithRetainedScore(PubsubPeer peer, out RetainedScore? restored)
     {
         lock (this)
         {
-            if (_retainedScores.Remove(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow)
+            restored = _retainedScores.TryGetValue(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow
+                ? retained
+                : null;
+            if (restored is not null)
             {
                 // Colocation is about the address this connection uses, not the last one.
-                retained.Score.IPAddress = peer.Score.IPAddress;
-                peer.Score = retained.Score;
+                restored.Score.IPAddress = peer.Score.IPAddress;
+                peer.Score = restored.Score;
+            }
+        }
+
+        return peer;
+    }
+
+    /// <summary>Drops the kept score that a peer just added to the router was given.</summary>
+    private void ForgetRetainedScore(PeerId peerId, RetainedScore restored)
+    {
+        lock (this)
+        {
+            // If the peer has disconnected again since, its score is kept anew and stays.
+            if (_retainedScores.TryGetValue(peerId, out RetainedScore? current) && ReferenceEquals(current, restored))
+            {
+                _retainedScores.Remove(peerId);
             }
         }
     }

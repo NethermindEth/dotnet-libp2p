@@ -971,10 +971,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         if (policy.Suppressed) return Canceled;
 
         PubsubPeer? created = null;
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => created = new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
-        if (ReferenceEquals(created, peer))
+        RetainedScore? restored = null;
+        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => created = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local }, out restored));
+        if (ReferenceEquals(created, peer) && restored is not null)
         {
-            RestoreRetainedScore(peer);
+            ForgetRetainedScore(peerId, restored);
         }
 
         lock (peer)
@@ -1033,7 +1034,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         if (policy.Suppressed) return (Canceled, static () => { });
 
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
+        RetainedScore? restored = null;
+        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote }, out restored));
         lock (existingPeer)
         {
             bool isNewPeer = ReferenceEquals(newPeer, existingPeer);
@@ -1050,7 +1052,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (isNewPeer)
             {
                 logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
-                RestoreRetainedScore(existingPeer);
+                if (restored is not null)
+                {
+                    ForgetRetainedScore(peerId, restored);
+                }
                 listTask.ContinueWith(t =>
                 {
                     RemovePeer(peerId, addr, existingPeer);
