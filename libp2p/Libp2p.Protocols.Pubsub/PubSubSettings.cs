@@ -13,6 +13,13 @@ public class PubsubSettings
 
     public static PubsubSettings Default { get; } = new();
 
+    /// <summary>
+    /// Automatically connect to discovered and direct peers, and reconnect closed pubsub streams.
+    /// Set before starting the router. When false, the application owns transport dialing and retries;
+    /// pubsub can still open reply streams on existing sessions.
+    /// </summary>
+    public bool AutoConnect { get; set; } = true;
+
     /// <summary>Automatic retries after a failed discovery dial or closed pubsub stream. Zero disables retries; direct peers have a separate reconnect loop.</summary>
     public int ReconnectionAttempts { get; set; } = 10;
     public int ReconnectionPeriod { get; set; } = 15_000;

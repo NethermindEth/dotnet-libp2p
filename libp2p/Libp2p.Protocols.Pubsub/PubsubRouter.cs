@@ -419,7 +419,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     /// <summary>
-    /// Starts background loops and connects to peers from the <see cref="PeerStore"/>.
+    /// Starts background loops and, when <see cref="PubsubSettings.AutoConnect"/> is enabled,
+    /// connects to peers from the <see cref="PeerStore"/>.
     /// The router stops when <paramref name="token"/> is cancelled or when it is disposed;
     /// use <see cref="DisposeAsync"/> to also wait for the owned work to finish.
     /// </summary>
@@ -443,11 +444,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
             List<Task> loops = [
                 Task.Run(() => LoopHeartbeat(lifetime), lifetime),
-                Task.Run(() => LoopReconnect(lifetime), lifetime),
             ];
-            if (directPeers.Count > 0)
+            if (_settings.AutoConnect)
             {
-                loops.Add(Task.Run(() => LoopReconnectDirectPeers(lifetime), lifetime));
+                loops.Add(Task.Run(() => LoopReconnect(lifetime), lifetime));
+                if (directPeers.Count > 0)
+                {
+                    loops.Add(Task.Run(() => LoopReconnectDirectPeers(lifetime), lifetime));
+                }
             }
             _loops = Task.WhenAll(loops);
 
@@ -455,19 +459,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 _peerStore.Discover(directPeerAddresses);
             }
-            ConnectDirectPeers(lifetime);
-
-            _onNewPeer = (addrs) =>
+            if (_settings.AutoConnect)
             {
-                // Direct peers are dialed by ConnectDirectPeers.
-                if (addrs.Any(a => a.GetPeerId() is PeerId peerId && (peerId == localPeer.Identity.PeerId || IsDirectPeer(peerId))))
+                ConnectDirectPeers(lifetime);
+
+                _onNewPeer = (addrs) =>
                 {
-                    return;
-                }
-                Track(Connect(addrs, lifetime, true));
-            };
-            // Subscribing replays already known peers, so it goes last.
-            _peerStore.OnNewPeer += _onNewPeer;
+                    // Direct peers are dialed by ConnectDirectPeers.
+                    if (addrs.Any(a => a.GetPeerId() is PeerId peerId && (peerId == localPeer.Identity.PeerId || IsDirectPeer(peerId))))
+                    {
+                        return;
+                    }
+                    Track(Connect(addrs, lifetime, true));
+                };
+                // Subscribing replays already known peers, so it goes last.
+                _peerStore.OnNewPeer += _onNewPeer;
+            }
         }
 
         logger?.LogInformation("Started");
@@ -489,7 +496,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             await Task.Delay(_settings.ReconnectionPeriod, token);
             Reconnect(token);
-            CleanupReconnectionPolicies();
         }
     }
 
@@ -695,6 +701,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     public Task Heartbeat()
     {
+        CleanupReconnectionPolicies();
+
         // Apply score decay
         DecayScores();
 
@@ -941,7 +949,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
-                if (_settings.ReconnectionAttempts > 0 && !peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
+                if (_settings.AutoConnect && _settings.ReconnectionAttempts > 0 && !peer.ReconnectionPolicy.Suppressed && !_stopped.IsCancellationRequested && !IsDirectPeer(peerId))
                 {
                     reconnections.Add(new Reconnection([addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
                 }
