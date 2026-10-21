@@ -100,4 +100,26 @@ public class WebRtcDirectSignalingTests
             () => WebRtcDirectSignaling.ParseAndValidate(tamperedWire, WebRtcDirectSignalType.Offer, sessionId, new WebRtcDirectReplayWindow()),
             Throws.TypeOf<CryptographicException>());
     }
+
+    /// <remarks>
+    /// The signature covers the session and payload but not the signer key, so a
+    /// padded copy of the real key still verifies it while naming a second peer ID.
+    /// </remarks>
+    [Test]
+    public void Envelope_PaddedEd25519SignerKey_IsRejected()
+    {
+        Identity signer = new();
+        string sessionId = WebRtcDirectSignaling.NewSessionId();
+        string wire = WebRtcDirectSignaling.BuildSignedPayload(WebRtcDirectSignalType.Offer, signer, sessionId, "v=0");
+
+        Dictionary<string, JsonElement>? payload = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(wire);
+        Assert.That(payload, Is.Not.Null);
+        byte[] paddedKey = new Core.Dto.PublicKey { Type = Core.Dto.KeyType.Ed25519, Data = ByteString.CopyFrom([.. signer.PublicKey.Data.ToByteArray(), 0x00]) }.ToByteArray();
+        payload!["signerPublicKey"] = JsonDocument.Parse($"\"{Convert.ToBase64String(paddedKey)}\"").RootElement.Clone();
+        string tamperedWire = JsonSerializer.Serialize(payload);
+
+        Assert.That(
+            () => WebRtcDirectSignaling.ParseAndValidate(tamperedWire, WebRtcDirectSignalType.Offer, sessionId, new WebRtcDirectReplayWindow()),
+            Throws.TypeOf<CryptographicException>());
+    }
 }
