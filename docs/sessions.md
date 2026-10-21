@@ -70,3 +70,9 @@ peer.OnConnected += async remoteSession =>
 ```
 
 The handler runs after the lower protocol stack has created the session. Application protocol negotiation still happens when you call `session.DialAsync<...>()`.
+
+## Shutting down
+
+Await `peer.DisposeAsync()` to close its registered connections and sessions. Once disposal starts, transport connections finishing their handshake cannot register new sessions. New dial and listen calls fail with `ObjectDisposedException`. Cancel the token passed to `StartListenAsync` to stop the listeners.
+
+Concurrent disposal calls await the same cleanup, including a session already disconnecting. A failing session-close callback is reported after the other sessions have also been closed.
