@@ -99,6 +99,26 @@ peerStore.Discover([
 
 When a new peer is discovered, `PubsubRouter` dials it and negotiates the best supported pubsub protocol from the remote peer's identified protocols. Gossipsub v1.3 is preferred, then gossipsub v1.2, gossipsub v1.1, gossipsub v1.0, and floodsub.
 
+### Application-managed connections
+
+If the application owns connection scheduling, peer limits or compatibility checks, register settings before resolving the router:
+
+```csharp
+services.AddSingleton(new PubsubSettings { AutoConnect = false });
+```
+
+With `AutoConnect` disabled, the router does not dial discovered peers (including previously stored addresses and PX), connect configured direct peers, or retry closed pubsub streams. Heartbeats and gossip on existing sessions continue. Identify, Identify Push and discovery still verify and store metadata; storing an address does not grant permission to connect. The default is `true`, preserving automatic connection management.
+
+The application dials the transport, completes its checks, then opens a supported pubsub protocol on the admitted session. For example, if the peer advertises Gossipsub v1.3:
+
+```csharp
+Task gossipStream = admittedSession.DialAsync<GossipsubProtocolV13>(token);
+```
+
+The task lasts for the stream's lifetime: keep and observe it with the application's session tasks. The router opens a reply stream on the same session when the remote opens pubsub; this does not dial another transport connection. Disabling automatic connections is not an inbound protocol admission gate. Applications that require checks before serving inbound pubsub must enforce those checks in their protocol handlers. The application also owns reconnecting direct peers when automatic connections are disabled, including the explicit peering agreement's connectivity requirement.
+
+This setting controls Pubsub only. Other enabled protocols that dial transports, such as Kad-DHT, need their own integration with the application's connection manager. No beacon-specific admission policy is part of Identify, the peer store or the session API.
+
 ## Unsubscribing
 
 ```csharp

@@ -94,10 +94,11 @@ public class PubsubRouterLifecycleTests
         Assert.That(Announcements(sent, "topic"), Is.EqualTo(new[] { true }));
     }
 
-    [Test]
-    public async Task DisposeAsync_closes_and_awaits_the_reverse_dial_of_an_inbound_stream()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task DisposeAsync_closes_and_awaits_the_reverse_dial_of_an_inbound_stream(bool autoConnect)
     {
-        PubsubRouter router = new(new PeerStore());
+        PubsubRouter router = new(new PeerStore(), new PubsubSettings { AutoConnect = autoConnect });
         await router.StartAsync(CreatePeer());
         FloodsubProtocol protocol = new(router);
         ISessionContext context = Substitute.For<ISessionContext>();
