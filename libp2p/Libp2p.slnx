@@ -8,6 +8,8 @@
     <Project Path="Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj" />
     <Project Path="Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj" />
     <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
+    <Project Path="Libp2p.Protocols.Mplex/Libp2p.Protocols.Mplex.csproj" />
+    <Project Path="Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj" />
     <Project Path="Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj" />
