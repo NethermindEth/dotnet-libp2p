@@ -280,6 +280,89 @@ public class PlainTextProtocolTests
 
         AssertHandshakeRejected(state, ExpandedExchange(remote, hybrid: false));
     }
+
+    /// <remarks>
+    /// The remote peer stops part-way through its exchange: before the length, inside
+    /// the length, after the length, or inside the body. The last case sends the body
+    /// in several pieces, which must not move the deadline.
+    /// </remarks>
+    [TestCase(0, false, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteSendsNothing(dialer)")]
+    [TestCase(0, true, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteSendsNothing(listener)")]
+    [TestCase(1, false, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteStopsInsideTheLength(dialer)")]
+    [TestCase(1, true, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteStopsInsideTheLength(listener)")]
+    [TestCase(2, false, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteStopsAfterTheLength(dialer)")]
+    [TestCase(2, true, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteStopsAfterTheLength(listener)")]
+    [TestCase(3, false, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteTricklesPartOfTheBody(dialer)")]
+    [TestCase(3, true, TestName = "Test_Handshake_Fails_AtTheDeadline_WhenRemoteTricklesPartOfTheBody(listener)")]
+    public async Task Test_Handshake_Fails_AtTheDeadline_WhenExchangeStalls(int stage, bool isListener)
+    {
+        byte[][] sent = stage switch
+        {
+            0 => [],
+            1 => [[0x80]],
+            2 => [Varint(100)],
+            _ => [Varint(100), new byte[10], new byte[10], new byte[10]],
+        };
+        ManualTimeProvider clock = new();
+        State state = new();
+        TestChannel channel = new();
+        IChannel remoteEnd = channel.Reverse();
+        Task remote = Task.Run(async () =>
+        {
+            await ReadLengthPrefixedAsync(remoteEnd);
+            foreach (byte[] piece in sent)
+            {
+                await remoteEnd.WriteAsync(new ReadOnlySequence<byte>(piece));
+            }
+        });
+        Task handshake = StartHandshake(new PlainTextProtocol(clock), channel, state, isListener);
+
+        try
+        {
+            await clock.TimerCreated.WaitAsync(Timeout);
+            await remote.WaitAsync(Timeout);
+            Assert.Multiple(() =>
+            {
+                Assert.That(handshake.IsCompleted, Is.False, "precondition: the handshake is waiting for the rest of the exchange");
+                Assert.That(clock.DueTime, Is.EqualTo(TimeSpan.FromSeconds(15)));
+                Assert.That(clock.TimersCreated, Is.EqualTo(1), "Bytes arriving must not start a new deadline.");
+            });
+            clock.Timer.DidNotReceive().Change(Arg.Any<TimeSpan>(), Arg.Any<TimeSpan>());
+
+            clock.Expire();
+
+            ChannelClosedException? error = Assert.ThrowsAsync<ChannelClosedException>(async () => await handshake.WaitAsync(Timeout));
+            Assert.Multiple(() =>
+            {
+                Assert.That(error!.Message, Does.Contain("Cancelled"));
+                Assert.That(state.RemotePublicKey, Is.Null, "A rejected handshake must not store an identity.");
+            });
+        }
+        finally
+        {
+            await channel.CloseAsync();
+            await handshake.ContinueWith(_ => { }, TaskScheduler.Default);
+        }
+    }
+
+    /// <remarks>
+    /// A deadline that fires releases its own timer, so only an exchange that
+    /// arrives in time shows whether the handshake disposes it.
+    /// </remarks>
+    [TestCase(false, TestName = "Test_Deadline_IsReleased_WhenExchangeArrivesInTime(dialer)")]
+    [TestCase(true, TestName = "Test_Deadline_IsReleased_WhenExchangeArrivesInTime(listener)")]
+    public async Task Test_Deadline_IsReleased_WhenExchangeArrivesInTime(bool isListener)
+    {
+        ManualTimeProvider clock = new();
+        Identity remote = TestPeers.Identity(RemotePeerIndex);
+        byte[] exchange = ValidExchange(remote).ToByteArray();
+        State state = new();
+
+        await HandshakeWithRawReplyAsync(state, [.. Varint((ulong)exchange.Length), .. exchange], isListener, clock: clock);
+
+        Assert.That(state.RemotePublicKey, Is.EqualTo(remote.PublicKey), "precondition: the exchange was accepted");
+        clock.Timer.Received(1).Dispose();
+    }
     private static Exchange ValidExchange(Identity identity) => new()
     {
         Id = ByteString.CopyFrom(identity.PeerId.Bytes),
@@ -343,14 +426,10 @@ public class PlainTextProtocolTests
     /// optionally closing its end afterwards. Channel writes block until the other end reads, so the
     /// remote peer has to run concurrently.
     /// </summary>
-    private static async Task HandshakeWithRawReplyAsync(State state, byte[] reply, bool isListener = false, bool closeAfterReply = false)
+    private static async Task HandshakeWithRawReplyAsync(State state, byte[] reply, bool isListener = false, bool closeAfterReply = false, TimeProvider? clock = null)
     {
         TestChannel channel = new();
         IChannel remoteEnd = channel.Reverse();
-
-        IConnectionContext context = Substitute.For<IConnectionContext>();
-        context.Peer.Identity.Returns(TestPeers.Identity(LocalPeerIndex));
-        context.State.Returns(state);
 
         Task remote = Task.Run(async () =>
         {
@@ -362,18 +441,24 @@ public class PlainTextProtocolTests
             }
         });
 
-        PlainTextProtocol protocol = new();
-
         try
         {
-            Task handshake = isListener ? protocol.ListenAsync(channel, context) : protocol.DialAsync(channel, context);
-            await handshake.WaitAsync(Timeout);
+            await StartHandshake(new PlainTextProtocol(clock), channel, state, isListener).WaitAsync(Timeout);
         }
         finally
         {
             await channel.CloseAsync();
             await remote.WaitAsync(Timeout).ContinueWith(_ => { }, TaskScheduler.Default);
         }
+    }
+
+    private static Task StartHandshake(PlainTextProtocol protocol, IChannel channel, State state, bool isListener)
+    {
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Peer.Identity.Returns(TestPeers.Identity(LocalPeerIndex));
+        context.State.Returns(state);
+
+        return isListener ? protocol.ListenAsync(channel, context) : protocol.DialAsync(channel, context);
     }
 
     private static byte[] Varint(ulong value)
@@ -393,5 +478,31 @@ public class PlainTextProtocolTests
     {
         int size = await channel.ReadVarintAsync();
         return (await channel.ReadAsync(size).OrThrow()).ToArray();
+    }
+
+    /// <summary>A clock whose only timer fires when the test calls <see cref="Expire"/>.</summary>
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly TaskCompletionSource _timerCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TimerCallback? _callback;
+        private object? _state;
+        private int _timersCreated;
+
+        public ITimer Timer { get; } = Substitute.For<ITimer>();
+        public TimeSpan? DueTime { get; private set; }
+        public int TimersCreated => Volatile.Read(ref _timersCreated);
+        public Task TimerCreated => _timerCreated.Task;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            _callback = callback;
+            _state = state;
+            DueTime = dueTime;
+            Interlocked.Increment(ref _timersCreated);
+            _timerCreated.TrySetResult();
+            return Timer;
+        }
+
+        public void Expire() => _callback!(_state);
     }
 }
