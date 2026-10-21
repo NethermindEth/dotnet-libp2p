@@ -11,6 +11,7 @@ using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Integration;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using System.Threading;
@@ -105,6 +106,39 @@ public class ServiceCollectionExtensionsTests
         Assert.That(peers.Any(p => p.PeerId.Equals(peerId)), Is.EqualTo(succeeds));
         await session.DidNotReceive().DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
             Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await session.Received(succeeds ? 1 : 0).DialAsync<PingProtocol>(Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Ping_DeadSessionStillReturnedByDial_ReportsFailure()
+    {
+        _services.AddKadDht();
+        using var serviceProvider = _services.BuildServiceProvider();
+        var sender = serviceProvider.GetRequiredService<KademliaMessageSender>();
+        var peerId = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId;
+        var node = peerId.ToDhtNode();
+        var session = Substitute.For<ISession>();
+        // LocalPeer.DialAsync returns an existing session without I/O, so only the probe can notice it is dead
+        _mockLocalPeer.DialAsync(peerId, Arg.Any<CancellationToken>()).Returns(session);
+
+        Assert.That(await sender.Ping(node, CancellationToken.None), Is.True);
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OperationCanceledException()));
+
+        Assert.That(await sender.Ping(node, CancellationToken.None), Is.False);
+        await session.Received().DisconnectAsync();
+    }
+
+    [Test]
+    public void Ping_WithoutPingProtocol_ThrowsInsteadOfReportingLiveness()
+    {
+        _services.AddKadDht();
+        _mockLocalPeer.GetProtocol<PingProtocol>().Returns((PingProtocol?)null);
+        using var serviceProvider = _services.BuildServiceProvider();
+        var sender = serviceProvider.GetRequiredService<KademliaMessageSender>();
+        var node = new Identity(Enumerable.Repeat((byte)1, 32).ToArray()).PeerId.ToDhtNode();
+
+        Assert.That(async () => await sender.Ping(node, CancellationToken.None), Throws.TypeOf<Libp2pSetupException>());
     }
 
     private IServiceCollection _services;
@@ -117,6 +151,7 @@ public class ServiceCollectionExtensionsTests
 
         _mockLocalPeer = Substitute.For<ILocalPeer>();
         _mockLocalPeer.Identity.Returns(new Identity(new byte[32]));
+        _mockLocalPeer.GetProtocol<PingProtocol>().Returns(new PingProtocol());
         _mockLocalPeer.ListenAddresses.Returns(new System.Collections.ObjectModel.ObservableCollection<Multiformats.Address.Multiaddress>());
 
         _services.AddSingleton(_mockLocalPeer);

@@ -41,8 +41,11 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     public async Task Ping(TNode receiver, CancellationToken token)
     {
         ThrowIfDisposed();
-        // Kad-DHT PING is deprecated and must not be sent; an established session is the liveness check.
-        await WithSession(receiver, "liveness check", token, _ => Task.CompletedTask);
+        // Kad-DHT PING is deprecated and must not be sent; probe the cached session with the ping protocol.
+        // A cached session is not proof of a live connection, so a failed probe evicts it in WithSession.
+        LivenessProbe.EnsureSupported(_localPeer);
+        await WithSession(receiver, "liveness check", token,
+            session => LivenessProbe.ProbeAsync(session, LivenessProbe.DefaultTimeout, token));
     }
 
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)
@@ -141,6 +144,7 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     private async Task WithSession(TNode receiver, string operation, CancellationToken token, Func<ISession, Task> action)
     {
         var acquired = false;
+        ISession? session = null;
         try
         {
             await _connectionSemaphore.WaitAsync(token).ConfigureAwait(false);
@@ -148,7 +152,7 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
 
             _logger.LogDebug("{Operation} to {Node}", operation, receiver);
 
-            var session = await GetOrCreateSession(receiver, token).ConfigureAwait(false);
+            session = await GetOrCreateSession(receiver, token).ConfigureAwait(false);
             if (session is null)
             {
                 _logger.LogError("Failed to establish session with {Node} for {Operation}", receiver, operation);
@@ -157,20 +161,22 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
 
             await action(session);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            // The caller gave up; that says nothing about the cached session.
             _logger.LogWarning("{Operation} to {Node} cancelled", operation, receiver);
-            throw;
-        }
-        catch (InvalidOperationException)
-        {
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "{Operation} to {Node} failed: {Error}", operation, receiver, ex.Message);
-            if (_activeSessions.TryRemove(receiver, out var failedSession))
-                await SafeDisconnectAsync(failedSession).ConfigureAwait(false);
+            // Any other failure, including InvalidOperationException and a closed connection surfacing as
+            // OperationCanceledException, means the cached session cannot be trusted any more.
+            if (session is not null)
+            {
+                _logger.LogError(ex, "{Operation} to {Node} failed: {Error}", operation, receiver, ex.Message);
+                if (_activeSessions.TryRemove(receiver, out var failedSession))
+                    await SafeDisconnectAsync(failedSession).ConfigureAwait(false);
+            }
             throw;
         }
         finally

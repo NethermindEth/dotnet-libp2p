@@ -37,13 +37,18 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     {
         _logger?.LogDebug("Checking liveness of {NodeId}", receiver.PeerId);
 
+        // A misconfigured stack is a setup error, not a dead peer, so it is thrown rather than reported as false.
+        LivenessProbe.EnsureSupported(_localPeer);
+
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeoutCts.CancelAfter(_operationTimeout);
 
-            // Kad-DHT PING is deprecated and must not be sent; a successful dial is the liveness check.
-            await DialNodeAsync(receiver, timeoutCts.Token);
+            // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.
+            // A successful dial alone can return a cached session without touching the wire.
+            var session = await DialNodeAsync(receiver, timeoutCts.Token);
+            await LivenessProbe.ProbeAsync(session, _operationTimeout, timeoutCts.Token);
 
             _logger?.LogTrace("Connection to {NodeId} is alive", receiver.PeerId);
             // Bootstrap relies on the transport to re-admit responding bootnodes.

@@ -43,8 +43,11 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
 
     public async Task Ping(TestNode receiver, CancellationToken token)
     {
-        // Kad-DHT PING is deprecated and must not be sent; a successful dial is the liveness check.
-        await _localPeer.DialAsync(GetAddresses(receiver), token);
+        // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.
+        // A successful dial alone can return a cached session without touching the wire.
+        LivenessProbe.EnsureSupported(_localPeer);
+        ISession session = await _localPeer.DialAsync(GetAddresses(receiver), token);
+        await LivenessProbe.ProbeAsync(session, LivenessProbe.DefaultTimeout, token);
     }
 
     private Multiaddress[] GetAddresses(TestNode node)
