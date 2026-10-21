@@ -166,6 +166,13 @@ public class PubsubSettings
     /// </summary>
     public int RetainScore { get; set; } = 10 * 60 * 1000; // 10 minutes
 
+    /// <summary>
+    /// Maximum number of scores kept for disconnected peers; zero keeps none. When full, an expired
+    /// score is dropped first, otherwise the least negative one, including the one arriving. A tie
+    /// keeps the score already there, so pushing out a penalized peer needs worse scores.
+    /// </summary>
+    public int MaxRetainedScores { get; set; } = 10_000;
+
     // Mesh Management
     public int DScore { get; set; } = 5;
     public int DOut { get; set; } = 2;

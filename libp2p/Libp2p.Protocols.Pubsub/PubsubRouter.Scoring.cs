@@ -20,9 +20,13 @@ public partial class PubsubRouter
     // Only used under the router lock.
     private readonly Dictionary<PeerId, RetainedScore> _retainedScores = [];
 
-    private sealed class RetainedScore(PeerScore score, DateTime expires)
+    private sealed class RetainedScore(PeerScore score, double value, DateTime expires)
     {
         public PeerScore Score { get; } = score;
+
+        /// <summary>The score when kept; kept scores do not decay, so it stays exact.</summary>
+        public double Value { get; } = value;
+
         public DateTime Expires { get; } = expires;
     }
 
@@ -88,13 +92,28 @@ public partial class PubsubRouter
     /// </remarks>
     private void KeepDisconnectedScore(PeerId peerId, PeerScore score, double currentScore)
     {
-        if (currentScore >= 0 || _stopped.IsCancellationRequested)
+        if (currentScore >= 0 || _settings.MaxRetainedScores <= 0 || _stopped.IsCancellationRequested)
         {
             return;
         }
 
         score.Disconnect();
-        _retainedScores[peerId] = new RetainedScore(score, DateTime.UtcNow.AddMilliseconds(_settings.RetainScore));
+        double kept = score.GetScore(NoIpColocationCounts);
+        DateTime now = DateTime.UtcNow;
+        if (_retainedScores.Count >= _settings.MaxRetainedScores)
+        {
+            // Full: an expired score goes first, otherwise the least negative one, whether
+            // already kept or this one.
+            KeyValuePair<PeerId, RetainedScore> dropped = _retainedScores.MaxBy(r => r.Value.Expires <= now ? double.PositiveInfinity : r.Value.Value);
+            if (dropped.Value.Expires > now && kept >= dropped.Value.Value)
+            {
+                return;
+            }
+
+            _retainedScores.Remove(dropped.Key);
+        }
+
+        _retainedScores[peerId] = new RetainedScore(score, kept, now.AddMilliseconds(_settings.RetainScore));
     }
 
     /// <summary>

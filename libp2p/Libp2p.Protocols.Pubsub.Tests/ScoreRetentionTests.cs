@@ -183,6 +183,72 @@ public class ScoreRetentionTests
         Assert.That(router.GetPeerScore(peerId), Is.Zero);
     }
 
+    /// <remarks>
+    /// Room for two scores, and three penalized peers leave: 15 rejected messages score -112.5,
+    /// two score -2 and one scores -0.5. The least negative is dropped, whether it is already
+    /// kept or the one arriving, and on a tie the kept one stays, so peers whose scores are no
+    /// worse cannot push out a penalized one.
+    /// </remarks>
+    [TestCase(15, 1, 2, 1, TestName = "RetainedScores_AreBounded_DroppingTheLeastNegative(kept)")]
+    [TestCase(15, 2, 1, 2, TestName = "RetainedScores_AreBounded_DroppingTheLeastNegative(arriving)")]
+    [TestCase(15, 2, 2, 2, TestName = "RetainedScores_AreBounded_DroppingTheLeastNegative(tie)")]
+    public async Task RetainedScores_AreBounded_DroppingTheLeastNegative(int first, int second, int third, int dropped)
+    {
+        using PubsubRouter router = await CreateStartedRouterAsync(new PubsubSettings { MaxRetainedScores = 2 });
+        int[] invalidMessages = [first, second, third];
+        Multiaddress[] addresses = [TestPeers.Multiaddr(1), TestPeers.Multiaddr(2), TestPeers.Multiaddr(3)];
+        int nextMessage = 0;
+        for (int i = 0; i < addresses.Length; i++)
+        {
+            TaskCompletionSource connection = Connect(router, addresses[i]);
+            Penalize(router, addresses[i].GetPeerId()!, nextMessage, invalidMessages[i]);
+            nextMessage += invalidMessages[i];
+            Disconnect(router, addresses[i].GetPeerId()!, connection);
+        }
+        Assert.That(router.RetainedScoreCount, Is.EqualTo(2));
+
+        double[] restored = addresses.Select(address =>
+        {
+            Connect(router, address);
+            return router.GetPeerScore(address.GetPeerId()!);
+        }).ToArray();
+
+        double[] expected = invalidMessages.Select((n, i) => i == dropped ? 0 : -0.5 * n * n).ToArray();
+        Assert.That(restored, Is.EqualTo(expected));
+    }
+
+    /// <remarks>
+    /// Room for two scores. The first, -112.5, is kept with no retention time left, so it has
+    /// expired, but still takes a slot until the next decay. A score of -0.5 is kept next. When
+    /// -2 arrives, the expired score is dropped rather than the least negative one.
+    /// </remarks>
+    [Test]
+    public async Task RetainedScores_DropAnExpiredScoreFirst_WhenFull()
+    {
+        PubsubSettings settings = new() { MaxRetainedScores = 2, RetainScore = 0 };
+        using PubsubRouter router = await CreateStartedRouterAsync(settings);
+        Multiaddress expired = TestPeers.Multiaddr(1);
+        Multiaddress mild = TestPeers.Multiaddr(2);
+        Multiaddress arriving = TestPeers.Multiaddr(3);
+        TaskCompletionSource connection = Connect(router, expired);
+        Penalize(router, expired.GetPeerId()!);
+        Disconnect(router, expired.GetPeerId()!, connection);
+
+        settings.RetainScore = (int)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        connection = Connect(router, mild);
+        Penalize(router, mild.GetPeerId()!, InvalidMessages, count: 1);
+        Disconnect(router, mild.GetPeerId()!, connection);
+        Assert.That(router.RetainedScoreCount, Is.EqualTo(2), "precondition: the set is full");
+        connection = Connect(router, arriving);
+        Penalize(router, arriving.GetPeerId()!, InvalidMessages + 1, count: 2);
+        Disconnect(router, arriving.GetPeerId()!, connection);
+
+        Connect(router, mild);
+        Connect(router, arriving);
+        Assert.That(router.GetPeerScore(mild.GetPeerId()!), Is.EqualTo(-0.5));
+        Assert.That(router.GetPeerScore(arriving.GetPeerId()!), Is.EqualTo(-2));
+    }
+
     private static async Task<PubsubRouter> CreateStartedRouterAsync(PubsubSettings? settings = null)
     {
         settings ??= new PubsubSettings();
@@ -225,11 +291,14 @@ public class ScoreRetentionTests
         lock (router) { }
     }
 
-    /// <summary>Sends rejected messages numbered from <paramref name="firstMessage"/>; numbers already seen would be dropped as duplicates.</summary>
-    private static void Penalize(PubsubRouter router, PeerId peerId, int firstMessage = 0)
+    /// <summary>
+    /// Sends <paramref name="count"/> rejected messages numbered from <paramref name="firstMessage"/>;
+    /// numbers already seen would be dropped as duplicates.
+    /// </summary>
+    private static void Penalize(PubsubRouter router, PeerId peerId, int firstMessage = 0, int count = InvalidMessages)
     {
         Rpc rpc = new Rpc().WithTopics([Topic], []);
-        for (int i = firstMessage; i < firstMessage + InvalidMessages; i++)
+        for (int i = firstMessage; i < firstMessage + count; i++)
         {
             rpc.Publish.Add(new Message { Topic = Topic, Data = ByteString.CopyFrom(BitConverter.GetBytes(i)) });
         }
