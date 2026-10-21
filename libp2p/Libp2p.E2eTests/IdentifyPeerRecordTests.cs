@@ -380,6 +380,41 @@ public class IdentifyPeerRecordTests
         Assert.That(first.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
     }
 
+    /// <remarks>
+    /// The handshake stored the key compressed; the peer announces the same key
+    /// uncompressed in Identify, which must still match. The key is the go-generated
+    /// js-libp2p fixture also used by <c>PublicKeyDecoderTests</c>.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AnnouncedKeyMatches_WhenSecp256k1KeyArrivesUncompressed(bool push)
+    {
+        PublicKey compressed = new() { Type = KeyType.Secp256K1, Data = ByteString.CopyFrom(Convert.FromHexString("029c0ce5d53646ed47112560297a3e59b78b8cbd4bae37c7a0c236eeb91d0fbeaf")) };
+        PublicKey uncompressed = new()
+        {
+            Type = KeyType.Secp256K1,
+            Data = ByteString.CopyFrom(Convert.FromHexString(
+                "049c0ce5d53646ed47112560297a3e59b78b8cbd4bae37c7a0c236eeb91d0fbeaf698f4ac1643c2fd5bd0b9588df903f5310637e96942b4b22916a4cb4cdf6c990")),
+        };
+        Assert.That(PublicKeyDecoder.Decode(uncompressed.ToByteString()), Is.EqualTo(compressed), "precondition: both are encodings of one key");
+        Identity remote = new(compressed);
+        PeerStore store = new();
+
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = uncompressed.ToByteString(), Protocols = { "/valid/1" } }, push: push);
+
+        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void AnnouncedKeyIsRejected_WhenItIsAPaddedCopyOfTheSessionKey(bool push)
+    {
+        Identity remote = TestPeers.Identity(90);
+        PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. remote.PublicKey.Data.ToByteArray(), 0x00]) };
+
+        Assert.ThrowsAsync<PeerConnectionException>(() => ReadIdentifyAsync(remote, new PeerStore(), new Identify { PublicKey = padded.ToByteString() }, push: push));
+    }
+
     private static async Task ReadIdentifyAsync(Identity remote, PeerStore peerStore, Identify identify,
         PeerRecordsVerificationPolicy policy = PeerRecordsVerificationPolicy.RequireWithWarning, bool push = false, State? state = null, IProtocolStackSettings? stack = null)
     {
