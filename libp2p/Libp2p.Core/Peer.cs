@@ -30,6 +30,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
     private readonly Lock _pendingDialsLock = new();
     private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
+    private readonly HashSet<Session> _connections = [];
+    private TaskCompletionSource? _disposal;
     public ObservableCollection<Session> Sessions { get; } = [];
 
     public override string ToString()
@@ -83,6 +85,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public virtual async Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
     {
+        ThrowIfDisposed();
         peerActivity?.SetTag("parent", rootActivity?.Id);
         addrs ??= GetDefaultAddresses();
 
@@ -158,10 +161,24 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
     {
-        session ??= new(this, activity);
+        try
+        {
+            lock (Sessions)
+            {
+                if (_disposal is not null) throw new ChannelClosedException();
+                session ??= new(this, activity);
+                session.RegisterConnection();
+                // Instrumentation can synchronously reenter shutdown.
+                if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
+            }
+        }
+        catch
+        {
+            if (session is not null) _ = session.DisconnectAsync();
+            throw;
+        }
         activity?.SetTag("session.id", session.Id);
         activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
-        session.RegisterConnection();
         return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
     }
 
@@ -170,24 +187,25 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
-        lock (Sessions)
+        try
         {
-            if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
+            lock (Sessions)
             {
-                _ = session.DisconnectAsync();
-                throw new SessionExistsException(remotePeerId);
-            }
-            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
-            try
-            {
+                if (_disposal is not null) throw new ChannelClosedException();
+                if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
+                    throw new SessionExistsException(remotePeerId);
                 session.RegisterSession();
+                if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
                 Sessions.Add(session);
             }
-            catch
-            {
-                _ = session.DisconnectAsync();
-                throw;
-            }
+            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
+            // Collection notifications and logging can close an already registered session.
+            if (session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
+        }
+        catch
+        {
+            _ = session.DisconnectAsync();
+            throw;
         }
 
         activity?.SetTag("session.id", session.Id);
@@ -224,7 +242,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 _ = session.DisconnectAsync();
                 return;
             }
-            if (session.ConnectedTcs.TrySetResult())
+            if (session.TrySetConnected())
             {
                 OnConnected?.Invoke(session);
             }
@@ -276,6 +294,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             return Task.FromCanceled<ISession>(token);
         }
+        ThrowIfDisposed();
 
         if (addrs.Length == 0)
         {
@@ -646,6 +665,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             return Task.FromCanceled<ISession>(token);
         }
+        ThrowIfDisposed();
 
         Session? existingSession = FindSession(peerId);
 
@@ -929,9 +949,36 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
            failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0 &&
            aggregate.InnerExceptions.All(IsRoutineConnectionFailure);
 
-    public async ValueTask DisposeAsync()
+    private void ThrowIfDisposed()
     {
-        await Task.WhenAll(Sessions.ToArray().Select(s => s?.DisconnectAsync() ?? Task.CompletedTask));
-        peerActivity?.Dispose();
+        lock (Sessions) ObjectDisposedException.ThrowIf(_disposal is not null, this);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Session[] sessions;
+        TaskCompletionSource disposal;
+        lock (Sessions)
+        {
+            if (_disposal is not null) return new(_disposal.Task);
+            _disposal = disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            sessions = [.. _connections.Union(Sessions)];
+        }
+        _ = DisposeSessionsAsync(sessions, disposal);
+        return new(disposal.Task);
+    }
+
+    private async Task DisposeSessionsAsync(Session[] sessions, TaskCompletionSource disposal)
+    {
+        try
+        {
+            try { await Task.WhenAll(sessions.Select(session => session.DisconnectAsync())); }
+            finally { peerActivity?.Dispose(); }
+            disposal.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            disposal.TrySetException(exception);
+        }
     }
 }

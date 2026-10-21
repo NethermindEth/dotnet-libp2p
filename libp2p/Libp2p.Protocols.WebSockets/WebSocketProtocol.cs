@@ -81,7 +81,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
             using SocketWebSocket webSocket = await httpContext.WebSockets.AcceptWebSocketAsync();
             _logger?.LogDebug("Accepted WebSocket connection from {RemoteAddress}:{RemotePort}", httpContext.Connection.RemoteIpAddress, httpContext.Connection.RemotePort);
-            INewConnectionContext connection = context.CreateConnection();
+            using INewConnectionContext connection = context.CreateConnection();
             connection.State.RemoteAddress = ToRemoteMultiAddress(httpContext, secure);
             IChannel upChannel = connection.Upgrade();
 
@@ -92,7 +92,6 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
             finally
             {
                 await upChannel.CloseAsync();
-                connection.Dispose();
             }
         });
 
@@ -125,7 +124,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         await webSocket.ConnectAsync(uri, token);
         _logger?.LogDebug("Connected WebSocket {Uri}", uri);
 
-        INewConnectionContext connection = context.CreateConnection();
+        using INewConnectionContext connection = context.CreateConnection();
         connection.State.RemoteAddress = remoteAddr;
         IChannel upChannel = connection.Upgrade();
 
@@ -136,7 +135,6 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
         finally
         {
             await upChannel.CloseAsync();
-            connection.Dispose();
         }
     }
 

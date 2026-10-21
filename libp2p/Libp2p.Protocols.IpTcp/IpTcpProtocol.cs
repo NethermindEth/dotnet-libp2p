@@ -65,7 +65,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
+        using Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint endpoint = listenAddr.ToEndPoint();
 
         listener.Bind(endpoint);
@@ -80,7 +80,7 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             listenAddr.ReplaceOrAdd<TCP>(localIpEndpoint.Port);
         }
 
-        token.Register(listener.Close);
+        using CancellationTokenRegistration listenerCancellation = token.Register(listener.Close);
 
         _logger?.LogDebug($"Ready to handle connections at {listenAddr}");
         context.ListenerReady(listenAddr);
@@ -93,6 +93,27 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 Socket client = await listener.AcceptAsync();
 
                 context.Activity?.AddEvent(new ActivityEvent($"connected {client.RemoteEndPoint}"));
+
+                INewConnectionContext? connectionCtx = null;
+                IChannel upChannel;
+                try
+                {
+                    connectionCtx = context.CreateConnection();
+                    connectionCtx.Token.Register(client.Close);
+                    connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+                    upChannel = connectionCtx.Upgrade();
+                }
+                catch (Exception failure)
+                {
+                    try { connectionCtx?.Dispose(); }
+                    finally { client.Dispose(); }
+                    if (failure is ChannelClosedException)
+                    {
+                        return;
+                    }
+
+                    throw;
+                }
 
                 CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
@@ -108,13 +129,6 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                     }
                 };
 #endif
-                INewConnectionContext connectionCtx = context.CreateConnection();
-                connectionCtx.Token.Register(client.Close);
-                connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
-
-
-                IChannel upChannel = connectionCtx.Upgrade();
-
                 Task readTask = Task.Run(async () =>
                 {
                     try
@@ -214,18 +228,29 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             throw new Libp2pException($"{nameof(client.RemoteEndPoint)} is not set for client connection.");
         }
 
-        INewConnectionContext connectionCtx = context.CreateConnection();
-        connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
-        if (remoteAddr.Get<P2P>() is { } requestedPeerId)
+        INewConnectionContext? connectionCtx = null;
+        IChannel upChannel;
+        try
         {
-            connectionCtx.State.RemoteAddress.Add(requestedPeerId);
+            connectionCtx = context.CreateConnection();
+            connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
+            if (remoteAddr.Get<P2P>() is { } requestedPeerId)
+            {
+                connectionCtx.State.RemoteAddress.Add(requestedPeerId);
+            }
+            connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
+
+            connectionCtx.Token.Register(client.Close);
+            token.Register(client.Close);
+
+            upChannel = connectionCtx.Upgrade();
         }
-        connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
-
-        connectionCtx.Token.Register(client.Close);
-        token.Register(client.Close);
-
-        IChannel upChannel = connectionCtx.Upgrade();
+        catch
+        {
+            try { connectionCtx?.Dispose(); }
+            finally { client.Dispose(); }
+            throw;
+        }
 
         Task receiveTask = Task.Run(async () =>
         {

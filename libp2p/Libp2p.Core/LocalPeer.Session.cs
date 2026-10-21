@@ -89,7 +89,7 @@ public partial class LocalPeer
 
         private CancellationTokenSource connectionTokenSource = new();
         private readonly Lock _lifecycleLock = new();
-        private bool _disconnected;
+        private TaskCompletionSource? _disconnection;
         private bool _connectionCounted;
         private bool _sessionCounted;
         private PeerId? _retainedPeerId;
@@ -98,8 +98,9 @@ public partial class LocalPeer
         {
             lock (_lifecycleLock)
             {
-                if (_disconnected) throw new OperationCanceledException(ConnectionToken);
+                if (_disconnection is not null) throw new OperationCanceledException(ConnectionToken);
                 if (_connectionCounted) return;
+                peer._connections.Add(this);
                 _connectionCounted = true;
                 Libp2pMetrics.ConnectionsOpened.Add(1);
                 Libp2pMetrics.ConnectionsActive.Add(1);
@@ -110,8 +111,9 @@ public partial class LocalPeer
         {
             lock (_lifecycleLock)
             {
-                if (_disconnected) throw new OperationCanceledException(ConnectionToken);
+                if (_disconnection is not null) throw new OperationCanceledException(ConnectionToken);
                 if (_sessionCounted) return;
+                peer._connections.Add(this);
                 PeerId remotePeerId = State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
                 peer._peerStore?.Retain(remotePeerId);
                 _retainedPeerId = remotePeerId;
@@ -121,38 +123,51 @@ public partial class LocalPeer
             }
         }
 
+        internal bool TrySetConnected()
+        {
+            lock (peer.Sessions)
+                lock (_lifecycleLock)
+                    return peer._disposal is null && _disconnection is null && ConnectedTcs.TrySetResult();
+        }
+
         public Task DisconnectAsync()
         {
             bool closeSession;
             bool closeConnection;
+            TaskCompletionSource disconnection;
             lock (_lifecycleLock)
             {
-                if (_disconnected) return Task.CompletedTask;
-                _disconnected = true;
+                if (_disconnection is not null) return _disconnection.Task;
+                _disconnection = disconnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 closeSession = _sessionCounted;
                 closeConnection = _connectionCounted;
             }
 
+            Exception? failure = null;
             try
             {
-                connectionTokenSource.Cancel();
-            }
-            finally
-            {
-                if (closeSession)
+                try { connectionTokenSource.Cancel(); }
+                finally
                 {
-                    if (_retainedPeerId is { } peerId) peer._peerStore?.Release(peerId);
                     ConnectedTcs.TrySetCanceled(ConnectionToken);
-                    Libp2pMetrics.SessionsClosed.Add(1);
-                    Libp2pMetrics.SessionsActive.Add(-1);
+                    if (closeSession)
+                    {
+                        if (_retainedPeerId is { } peerId) peer._peerStore?.Release(peerId);
+                        Libp2pMetrics.SessionsClosed.Add(1);
+                        Libp2pMetrics.SessionsActive.Add(-1);
+                    }
+                    if (closeConnection)
+                    {
+                        Libp2pMetrics.ConnectionsActive.Add(-1);
+                    }
                 }
-                if (closeConnection)
-                {
-                    Libp2pMetrics.ConnectionsActive.Add(-1);
-                }
-                peer.RemoveSession(this);
             }
-            return Task.CompletedTask;
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            peer.CompleteDisconnection(this, disconnection, failure);
+            return disconnection.Task;
         }
 
         public CancellationToken ConnectionToken => connectionTokenSource.Token;
@@ -164,11 +179,26 @@ public partial class LocalPeer
         internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
     }
 
-    private void RemoveSession(Session session)
+    private void CompleteDisconnection(Session session, TaskCompletionSource completion, Exception? failure)
     {
-        lock (Sessions)
+        // Collection and metric callbacks can disconnect during admission. Finish removal
+        // after the current notification returns, when ObservableCollection permits it.
+        if (Monitor.IsEntered(Sessions)) _ = Task.Run(Finish);
+        else Finish();
+
+        void Finish()
         {
-            Sessions.Remove(session);
+            lock (Sessions)
+            {
+                try { Sessions.Remove(session); }
+                catch (Exception exception)
+                {
+                    failure = failure is null ? exception : new AggregateException(failure, exception);
+                }
+                _connections.Remove(session);
+                if (failure is null) completion.TrySetResult();
+                else completion.TrySetException(failure);
+            }
         }
     }
 }
