@@ -157,7 +157,7 @@ public sealed class IpnsRecordValidator : IRecordValidator
         {
             try
             {
-                PublicKey fromRecord = PublicKey.Parser.ParseFrom(entry.PubKey);
+                PublicKey fromRecord = PublicKeyDecoder.Decode(entry.PubKey);
 
                 // If we also got a key from the PeerId, they must match
                 if (fromPeerId is not null)
@@ -180,7 +180,7 @@ public sealed class IpnsRecordValidator : IRecordValidator
             }
             catch
             {
-                // Invalid public key protobuf
+                // The record's key does not decode
             }
         }
 

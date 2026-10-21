@@ -5,6 +5,7 @@ using System.Text;
 using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Storage;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using NUnit.Framework;
 
@@ -105,6 +106,25 @@ public class IpnsRecordTests
             eol: DateTimeOffset.UtcNow.AddHours(-1)); // Already expired
 
         Assert.That(IpnsRecordValidator.Instance.Validate(key, value), Is.False);
+    }
+
+    /// <remarks>
+    /// The signature covers the record's data but not the name it is stored under,
+    /// so anyone holding a genuine record could republish it under the peer ID of
+    /// the author's padded key, which verifies the same signature.
+    /// </remarks>
+    [Test]
+    public void Validator_Validate_RejectsGenuineRecordUnderPaddedKeyName()
+    {
+        PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. _identity.PublicKey.Data.ToByteArray(), 0x00]) };
+        IpnsEntry entry = IpnsEntry.Parser.ParseFrom(IpnsRecordHelper.CreateSignedRecord(
+            _identity,
+            "/ipfs/QmReplayed",
+            sequence: 1,
+            eol: DateTimeOffset.UtcNow.AddHours(1)));
+        entry.PubKey = padded.ToByteString();
+
+        Assert.That(IpnsRecordValidator.Instance.Validate(IpnsRecordHelper.BuildIpnsKey(new PeerId(padded)), entry.ToByteArray()), Is.False);
     }
 
     [Test]
