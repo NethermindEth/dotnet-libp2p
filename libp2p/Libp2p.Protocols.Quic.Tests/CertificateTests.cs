@@ -7,6 +7,7 @@ using Nethermind.Libp2p.Core.Dto;
 using System.Formats.Asn1;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
 namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 
@@ -66,6 +67,26 @@ public class CertificateTests
         tampered[^1] ^= 1;
         using X509Certificate2 invalid = X509CertificateLoader.LoadCertificate(tampered);
         Assert.That(CertificateHelper.ValidateCertificate(invalid, identity.PeerId.ToString()), Is.False);
+    }
+
+    /// <remarks>
+    /// The identity key signs only the certificate key, never its own encoding, so a
+    /// padded Ed25519 key passes that check while naming a second peer ID.
+    /// </remarks>
+    [Test]
+    public void RejectsPaddedEd25519KeyInLibp2pExtension()
+    {
+        Identity identity = new();
+        PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. identity.PublicKey.Data.ToByteArray(), 0x00]) };
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presentedKey: padded);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+            Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null, out string? failureReason), Is.False);
+            Assert.That(failureReason, Is.EqualTo("libp2p public key extension is missing or invalid"));
+        });
     }
 
     [TestCase(0)]
@@ -161,13 +182,14 @@ public class CertificateTests
         return lease.Certificate.GetRawCertData();
     }
 
-    private static X509Certificate2 CreateRsaCertificate(RSA certificateKey, Identity identity, RSASignaturePadding padding)
+    /// <param name="presentedKey">The key written into the libp2p extension; <paramref name="identity"/>'s own when <c>null</c>.</param>
+    private static X509Certificate2 CreateRsaCertificate(RSA certificateKey, Identity identity, RSASignaturePadding padding, PublicKey? presentedKey = null)
     {
         byte[] publicKeyInfo = certificateKey.ExportSubjectPublicKeyInfo();
         byte[] signature = identity.Sign([.. "libp2p-tls-handshake:"u8, .. publicKeyInfo]);
         AsnWriter extension = new(AsnEncodingRules.DER);
         extension.PushSequence();
-        extension.WriteOctetString(identity.PublicKey.ToByteArray());
+        extension.WriteOctetString((presentedKey ?? identity.PublicKey).ToByteArray());
         extension.WriteOctetString(signature);
         extension.PopSequence();
 
