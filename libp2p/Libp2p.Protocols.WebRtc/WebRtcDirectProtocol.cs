@@ -158,8 +158,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
             DataChannelOverIChannel rawChannel = new(openedNoiseDataChannel);
             byte[] prologue = WebRtcNoisePrologue.Build(_fingerprint, expectedFingerprint);
+            // The dialer is _A_, the Noise RESPONDER. webrtc-direct.md: "_B_ starts a Noise XX
+            // handshake on the new channel", because WebRTC uses DTLS 1.2 and _B_, the DTLS server,
+            // is the side that can send first. Getting this backwards is invisible to a loopback
+            // test, since both halves would be wrong together, and fails against every real peer.
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: true, token);
+                rawChannel, context.Peer.Identity, prologue, isInitiator: false, token);
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }
@@ -217,8 +221,9 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
             DataChannelOverIChannel rawChannel = new(openedNoiseChannel);
             byte[] prologue = WebRtcNoisePrologue.Build(offeredFingerprint, _fingerprint);
+            // The listener is _B_, the Noise INITIATOR. See the dialer side for why.
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: false, token);
+                rawChannel, context.Peer.Identity, prologue, isInitiator: true, token);
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }
