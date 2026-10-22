@@ -640,9 +640,42 @@ public class GossipsubControlLimitsTests
         Assert.That(setup.PeerStore.TryGetPeerInfo(unknown, out _), Is.False);
     }
 
-    private static async Task<RouterSetup> PrunableSetup()
+    /// <remarks>
+    /// Repeated entries for a peer whose dial is still pending must not start more
+    /// dials, and a failed dial must leave a single retry behind.
+    /// </remarks>
+    [Test]
+    public async Task Prune_CoalescesDuplicateExchangedPeers_WhileTheirDialIsPending()
     {
-        RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });
+        await using RouterSetup setup = await PrunableSetup(int.MaxValue);
+        PeerId known = TestPeers.PeerId(5);
+        TaskCompletionSource<ISession> pendingDial = new();
+        DialTo(known).Returns(pendingDial.Task);
+        setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
+
+        PeerInfo[] duplicates = Enumerable.Range(0, 100).Select(_ => new PeerInfo { PeerID = ByteString.CopyFrom(known.Bytes) }).ToArray();
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic, duplicates));
+
+        Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
+
+        pendingDial.SetException(new InvalidOperationException("dial failed"));
+        DialTo(known).Returns(new TaskCompletionSource<ISession>().Task);
+        setup.LocalPeer.ClearReceivedCalls();
+        setup.Router.Reconnect(CancellationToken.None);
+        setup.Router.Reconnect(CancellationToken.None);
+
+        Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
+
+        Task<ISession> DialTo(PeerId peerId) =>
+            setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == peerId), Arg.Any<CancellationToken>());
+    }
+
+    private static int DialsTo(ILocalPeer localPeer, PeerId peerId) => localPeer.ReceivedCalls()
+        .Count(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[] addrs && addrs[0].GetPeerId() == peerId);
+
+    private static async Task<RouterSetup> PrunableSetup(int reconnectionPeriod = 15_000)
+    {
+        RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0, ReconnectionPeriod = reconnectionPeriod });
         await setup.Router.Heartbeat();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
         return setup;
