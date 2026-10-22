@@ -337,6 +337,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly PeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
     private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
+    private readonly ConcurrentDictionary<PeerId, byte> pendingDials = new();
     private long heartbeatTick;
     private ulong seqNo = 1;
 
@@ -464,7 +465,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 {
                     return;
                 }
-                Track(Connect(addrs, lifetime, true));
+                // Coalesces repeated discoveries of a peer while its dial is in flight.
+                PeerId? dialed = addrs.FirstOrDefault()?.GetPeerId();
+                if (dialed is not null && !pendingDials.TryAdd(dialed, 0))
+                {
+                    return;
+                }
+                Task connect = Connect(addrs, lifetime, true);
+                Track(connect);
+                if (dialed is not null)
+                {
+                    _ = connect.ContinueWith(t => pendingDials.TryRemove(dialed, out byte _), TaskScheduler.Default);
+                }
             };
             // Subscribing replays already known peers, so it goes last.
             _peerStore.OnNewPeer += _onNewPeer;
