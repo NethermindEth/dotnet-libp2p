@@ -157,13 +157,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
             DataChannelOverIChannel rawChannel = new(openedNoiseDataChannel);
-            byte[] prologue = WebRtcNoisePrologue.Build(_fingerprint, expectedFingerprint);
-            // The dialer is _A_, the Noise RESPONDER. webrtc-direct.md: "_B_ starts a Noise XX
-            // handshake on the new channel", because WebRTC uses DTLS 1.2 and _B_, the DTLS server,
-            // is the side that can send first. Getting this backwards is invisible to a loopback
-            // test, since both halves would be wrong together, and fails against every real peer.
+            // The dialer is _A_, the Noise RESPONDER. Both role-dependent values here come from
+            // WebRtcDirectRoles, which carries the spec sentence behind each one; getting either
+            // backwards is invisible to a loopback test, since both halves would be wrong
+            // together, and fails against every real peer.
+            (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
+                WebRtcDirectRoles.OrderFingerprints(isListener: false, local: _fingerprint, remote: expectedFingerprint);
+            byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: false, token);
+                rawChannel, context.Peer.Identity, prologue, isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }
@@ -220,10 +222,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Udp);
 
             DataChannelOverIChannel rawChannel = new(openedNoiseChannel);
-            byte[] prologue = WebRtcNoisePrologue.Build(offeredFingerprint, _fingerprint);
-            // The listener is _B_, the Noise INITIATOR. See the dialer side for why.
+            // The listener is _B_, the Noise INITIATOR. See WebRtcDirectRoles for why.
+            (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
+                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: offeredFingerprint);
+            byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: true, token);
+                rawChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }

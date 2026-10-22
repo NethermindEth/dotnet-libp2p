@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Buffers.Binary;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
@@ -17,6 +18,14 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 public class WebRtcDirectNoiseHandshakeTests
 {
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
+
+    /// <summary>Noise XX message 1 is "-> e": one X25519 public key, no static key, no payload.</summary>
+    private const int NoiseMessageOneLength = 32;
+
+    private static readonly TimeSpan FrameTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long a side that must not speak is watched before believing it never will.</summary>
+    private static readonly TimeSpan QuietPeriod = TimeSpan.FromMilliseconds(250);
 
     [Test]
     public async Task HandshakeAsync_AuthenticatesRemoteIdentity()
@@ -48,6 +57,55 @@ public class WebRtcDirectNoiseHandshakeTests
 
         await initiatorEncrypted.CloseAsync();
         await responderEncrypted.CloseAsync();
+    }
+
+    /// <summary>
+    /// The oracle here is the Noise specification's own message size, not this code: whoever is
+    /// the initiator writes exactly 32 bytes before reading anything, and whoever is the responder
+    /// writes nothing at all until it has read them.
+    /// <para>
+    /// <see cref="HandshakeAsync_AuthenticatesRemoteIdentity"/> cannot catch a swapped role,
+    /// because a self-dial gets both halves wrong together and the two errors cancel -- which is
+    /// exactly how the inverted Noise role in this transport survived. Running one side against a
+    /// peer that answers nothing removes that cancellation: either the side we called the
+    /// initiator speaks first, or nothing moves at all.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Initiator_WritesNoiseMessageOne_BeforeReadingAnything()
+    {
+        byte[] prologue = Encoding.UTF8.GetBytes("webrtc-initiator-speaks-first");
+        using CancellationTokenSource abandoned = new();
+
+        Channel initiatorSide = new();
+        IChannel silentResponder = initiatorSide.Reverse;
+        Task initiatorHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
+            initiatorSide, new Identity(), prologue, isInitiator: true, abandoned.Token);
+
+        ReadResult header = await silentResponder.ReadAsync(2).AsTask().WaitAsync(FrameTimeout);
+        Assert.That(header.Result, Is.EqualTo(IOResult.Ok));
+        Assert.That(
+            BinaryPrimitives.ReadUInt16BigEndian(header.Data.ToArray()),
+            Is.EqualTo(NoiseMessageOneLength),
+            "Noise XX message 1 is a bare ephemeral key.");
+        Assert.That((await silentResponder.ReadAsync(NoiseMessageOneLength).AsTask().WaitAsync(FrameTimeout)).Result,
+            Is.EqualTo(IOResult.Ok));
+
+        Channel responderSide = new();
+        IChannel silentInitiator = responderSide.Reverse;
+        Task responderHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
+            responderSide, new Identity(), prologue, isInitiator: false, abandoned.Token);
+
+        Task<ReadResult> secondFrame = silentResponder.ReadAsync(1).AsTask();
+        Task<ReadResult> anythingAtAll = silentInitiator.ReadAsync(1).AsTask();
+        await Task.Delay(QuietPeriod);
+
+        Assert.That(secondFrame.IsCompleted, Is.False, "The initiator must stop after message 1 and read.");
+        Assert.That(anythingAtAll.IsCompleted, Is.False, "The responder must write nothing before reading message 1.");
+
+        await abandoned.CancelAsync();
+        await ObserveAsync(initiatorHandshake);
+        await ObserveAsync(responderHandshake);
     }
 
     [Test]
@@ -153,5 +211,20 @@ public class WebRtcDirectNoiseHandshakeTests
         Assert.That(
             () => WebRtcDirectNoiseHandshake.ParseAndValidateRemoteKey(payloadBytes, payloadBytes.Length, staticKey.PublicKey),
             Throws.TypeOf<CryptographicException>());
+    }
+
+    /// <summary>A handshake left waiting on a peer that never answers faults when cancelled -- the
+    /// channel reports the cancelled read as <see cref="IOResult.Cancelled"/>, which the handshake
+    /// raises as <see cref="InvalidOperationException"/>. That fault is the point of the test and
+    /// must not resurface later as an unobserved exception.</summary>
+    private static async Task ObserveAsync(Task handshake)
+    {
+        try
+        {
+            await handshake;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or InvalidOperationException)
+        {
+        }
     }
 }
