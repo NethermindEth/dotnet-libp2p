@@ -59,6 +59,14 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     /// </summary>
     private int _nextOutboundStreamId;
 
+    /// <summary>
+    /// Every inbound id ever accepted. Ids are never reused, for the same reason outbound ids are
+    /// not: with no RFC 6525 RE-CONFIG chunk available, a late chunk of a closed stream would be
+    /// delivered into its replacement. Bounded by the peer's parity half of the id space.
+    /// </summary>
+    private readonly HashSet<ushort> _acceptedInboundIds = [];
+    private readonly Lock _acceptedInboundIdsLock = new();
+
     private int _polling;
     private int _disposed;
 
@@ -355,20 +363,10 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
         string label,
         string protocol)
     {
-        // RFC 8832 section 6 gives each side its own parity, so an id out of our half would collide
-        // with what NextOutboundStreamId is about to hand out. Id 0 is ours either way: it is the
-        // negotiated Noise channel, which is never opened with DCEP.
-        bool remoteOwnsId = streamId != NoiseStreamId && (streamId % 2 == 1) == _isDtlsClient;
-
-        // The framing is a byte stream of length-prefixed messages, so anything other than
-        // ordered and fully reliable delivery would desync the length prefixes rather than merely
-        // lose data.
-        bool usable = type == DataChannelTypes.DATA_CHANNEL_RELIABLE;
-        if (!remoteOwnsId || !usable || !TryRegisterChannel(streamId, out SctpWebRtcDataChannel? channel))
+        if (!TryAcceptInboundChannel(streamId, type, out SctpWebRtcDataChannel? channel))
         {
-            // "If the receiver... the receiver MUST close the corresponding data channel", and it
-            // sends no ACK. With no RE-CONFIG chunk available there is no reset to send either, so
-            // withholding the ACK is the whole of the refusal.
+            // The refusal is to send no ACK. With no RE-CONFIG chunk available there is no reset
+            // to send either, so withholding the ACK is the whole of it.
             return;
         }
 
@@ -379,6 +377,57 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
         {
             channel.Close();
         }
+    }
+
+    /// <summary>
+    /// Whether to accept a peer's DCEP OPEN. Separated from the event handler because
+    /// <c>OnNewDataChannel</c> cannot be raised from a test, so this keeps the decision itself
+    /// covered even though the wiring around it is not.
+    /// </summary>
+    internal bool TryAcceptInboundChannel(ushort streamId, DataChannelTypes type, out SctpWebRtcDataChannel channel)
+    {
+        channel = null!;
+
+        // RFC 8832 section 6 gives each side its own parity, so an id out of our half would
+        // collide with what NextOutboundStreamId is about to hand out. Id 0 is ours either way:
+        // it is the negotiated Noise channel, which is never opened with DCEP.
+        if (streamId == NoiseStreamId || (streamId % 2 == 1) != _isDtlsClient)
+        {
+            return false;
+        }
+
+        // The framing above is a byte stream of length-prefixed messages, so anything other than
+        // ordered and fully reliable delivery would desync the length prefixes rather than merely
+        // lose data.
+        if (type != DataChannelTypes.DATA_CHANNEL_RELIABLE)
+        {
+            return false;
+        }
+
+        lock (_acceptedInboundIdsLock)
+        {
+            // A second OPEN for a live id would otherwise return the existing channel through
+            // get-or-add and publish it to InboundChannels again, handing one SCTP stream to two
+            // independent readers. A reopen after close is refused for the same reason outbound
+            // ids are never recycled.
+            if (!_acceptedInboundIds.Add(streamId))
+            {
+                return false;
+            }
+        }
+
+        if (!TryRegisterChannel(streamId, out channel))
+        {
+            lock (_acceptedInboundIdsLock)
+            {
+                // Refused for capacity, not for identity: let the peer retry this id later.
+                _acceptedInboundIds.Remove(streamId);
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private void FailConnect(string reason)

@@ -19,7 +19,9 @@ public class WebRtcDirectSctpMuxerTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
-    private static RTCSctpTransport CreateTransport() => new(5000, 5000, RTCPeerSctpAssociation.DEFAULT_DTLS_MTU);
+    // RTCSctpTransport(ushort sourcePort, ushort destinationPort, int dtlsPort) -- the third
+    // argument is the DTLS port, not an MTU.
+    private static RTCSctpTransport CreateTransport() => new(5000, 5000, 5000);
 
     [Test]
     public async Task OutboundStreamIds_AsDtlsClient_StartAtTwoAndStepByTwo()
@@ -294,5 +296,58 @@ public class WebRtcDirectSctpMuxerTests
     }
 
     /// <summary>A channel over a real association that was never started, so nothing is in flight.</summary>
+
+    [Test]
+    public async Task InboundOpen_ForALiveId_IsRefusedRatherThanPublishedTwice()
+    {
+        // Get-or-add registration would hand back the SAME channel and publish it to
+        // InboundChannels again, giving one SCTP stream two independent readers.
+        await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient: true);
+
+        Assert.That(muxer.TryAcceptInboundChannel(1, DataChannelTypes.DATA_CHANNEL_RELIABLE, out SctpWebRtcDataChannel? first), Is.True);
+        Assert.That(muxer.TryAcceptInboundChannel(1, DataChannelTypes.DATA_CHANNEL_RELIABLE, out _), Is.False);
+        Assert.That(first, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task InboundOpen_ReusingAClosedId_IsRefused()
+    {
+        // No RE-CONFIG chunk exists, so a late chunk of the closed stream could surface in its
+        // replacement. Same rule as outbound ids.
+        await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient: true);
+
+        Assert.That(muxer.TryAcceptInboundChannel(3, DataChannelTypes.DATA_CHANNEL_RELIABLE, out SctpWebRtcDataChannel? channel), Is.True);
+        channel!.Close();
+
+        Assert.That(muxer.TryAcceptInboundChannel(3, DataChannelTypes.DATA_CHANNEL_RELIABLE, out _), Is.False);
+    }
+
+    [TestCase(true, 1, true, TestName = "ClientAcceptsOddFromPeer")]
+    [TestCase(true, 2, false, TestName = "ClientRejectsItsOwnEvenId")]
+    [TestCase(false, 2, true, TestName = "ServerAcceptsEvenFromPeer")]
+    [TestCase(false, 3, false, TestName = "ServerRejectsItsOwnOddId")]
+    [TestCase(true, 0, false, TestName = "ClientRejectsReservedNoiseId")]
+    [TestCase(false, 0, false, TestName = "ServerRejectsReservedNoiseId")]
+    public async Task InboundOpen_HonoursRfc8832Parity(bool isDtlsClient, int streamId, bool expectAccepted)
+    {
+        await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient);
+
+        Assert.That(muxer.TryAcceptInboundChannel((ushort)streamId, DataChannelTypes.DATA_CHANNEL_RELIABLE, out _),
+            Is.EqualTo(expectAccepted));
+    }
+
+    [TestCase(DataChannelTypes.DATA_CHANNEL_RELIABLE, true)]
+    [TestCase(DataChannelTypes.DATA_CHANNEL_RELIABLE_UNORDERED, false)]
+    [TestCase(DataChannelTypes.DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT, false)]
+    [TestCase(DataChannelTypes.DATA_CHANNEL_PARTIAL_RELIABLE_TIMED, false)]
+    public async Task InboundOpen_AcceptsOnlyOrderedReliableChannels(DataChannelTypes type, bool expectAccepted)
+    {
+        // Out-of-order or lossy delivery desyncs the uvarint length prefixes of the framing above,
+        // which is worse than losing the data.
+        await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient: true);
+
+        Assert.That(muxer.TryAcceptInboundChannel(1, type, out _), Is.EqualTo(expectAccepted));
+    }
+
     private static SctpWebRtcDataChannel CreateChannel() => new(CreateTransport().RTCSctpAssociation, 2);
 }
