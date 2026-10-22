@@ -128,7 +128,7 @@ public class IpnsRecordTests
     }
 
     /// <remarks>
-    /// The name inlines the author's genuine key, which verifies the signature, but the record
+    /// The name contains the author's genuine key, which verifies the signature, but the record
     /// carries a key of its own. That key must be the one used, so a record whose own key does
     /// not decode is rejected rather than checked against the name's key instead.
     /// </remarks>
