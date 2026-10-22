@@ -396,4 +396,23 @@ public class WebRtcStreamTests
         await WaitUntil(() => channel.IsClosed);
         Assert.That(channel.IsClosed, Is.True);
     }
+
+    [Test]
+    public async Task RepeatedFin_IsAnsweredExactlyOnce()
+    {
+        // Otherwise a peer drives one detached FIN_ACK task per FIN frame it sends.
+        FakeWebRtcDataChannel channel = new();
+        WebRtcStream stream = new(channel);
+
+        for (int i = 0; i < 50; i++)
+        {
+            channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null));
+        }
+
+        await WaitUntil(() => Flags(channel).Contains(Message.Types.Flag.FinAck));
+        await Task.Delay(50);
+
+        Assert.That(Flags(channel).Count(f => f == Message.Types.Flag.FinAck), Is.EqualTo(1));
+        Assert.That(await stream.ReadAsync(), Is.Null);
+    }
 }

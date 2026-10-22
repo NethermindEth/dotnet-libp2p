@@ -346,9 +346,20 @@ internal sealed class WebRtcStream : IAsyncDisposable
         switch (message.Flag)
         {
             case Message.Types.Flag.Fin:
+                bool firstFin;
                 lock (_sync)
                 {
+                    firstFin = !_finReceived;
                     _finReceived = true;
+                }
+
+                // Answer only the first one. The spec does not forbid a peer retransmitting FIN,
+                // so a repeat is ignored rather than treated as a violation -- but replying to
+                // each would let a peer drive one detached task and one send-lock acquisition per
+                // frame it chooses to send.
+                if (!firstFin)
+                {
+                    break;
                 }
 
                 _inbound.Writer.TryComplete();
