@@ -26,6 +26,15 @@ internal sealed class WebRtcStreamChannel : IChannel
     private bool _ended;
     private int _aborted;
 
+    /// <summary>
+    /// Which halves are finished. As in <see cref="Channel"/>, the awaiter fires only once both
+    /// are: a channel whose write half ended is still readable, and firing early would cancel
+    /// <see cref="IChannel.CancellationToken"/> out from under a caller still using it.
+    /// Interlocked rather than volatile so the two halves cannot both miss each other's store.
+    /// </summary>
+    private int _writesDone;
+    private int _readsDone;
+
     public WebRtcStreamChannel(WebRtcStream stream) => _stream = stream;
 
     public TaskAwaiter GetAwaiter() => _completion.Task.GetAwaiter();
@@ -68,7 +77,8 @@ internal sealed class WebRtcStreamChannel : IChannel
             {
                 // A WaitAll that cannot be filled reports the end rather than a short read: bytes
                 // returned as Ok are indistinguishable from a complete answer.
-                return Finish(ReadResult.Ended);
+                EndReads();
+                return ReadResult.Ended;
             }
 
             if (blockingMode == ReadBlockingMode.DoNotWait)
@@ -92,8 +102,8 @@ internal sealed class WebRtcStreamChannel : IChannel
                 // A peer RESET_STREAM, and any other way the stream dies mid-flight, faults the
                 // reader here. It must never degrade to Ended: a reader told the stream ended
                 // believes it received the whole message, so a reset would become silent truncation.
-                Interlocked.Exchange(ref _aborted, 1);
-                return Finish(ReadResult.Aborted);
+                Abort();
+                return ReadResult.Aborted;
             }
 
             if (next is null)
@@ -134,20 +144,42 @@ internal sealed class WebRtcStreamChannel : IChannel
         }
         catch (Exception)
         {
-            Interlocked.Exchange(ref _aborted, 1);
-            _completion.TrySetResult();
+            Abort();
             return IOResult.Aborted;
         }
     }
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => CloseWritesAsync(token);
 
-    public async ValueTask CloseAsync() => await CloseWritesAsync(CancellationToken.None);
+    public async ValueTask CloseAsync()
+    {
+        await CloseWritesAsync(CancellationToken.None);
 
-    public ValueTask CloseReadAsync() => _stream.StopReadingAsync();
+        // Unlike WriteEofAsync, this ends the channel as a whole, so it completes the awaiter even
+        // with the read half still open -- the same split Channel.CloseAsync makes.
+        _completion.TrySetResult();
+    }
+
+    public async ValueTask CloseReadAsync()
+    {
+        try
+        {
+            await _stream.StopReadingAsync();
+            EndReads();
+        }
+        catch (Exception)
+        {
+            // Teardown must not throw: the IChannel close calls return no result, and Yamux
+            // discards this very task (YamuxProtocol.AbortStream), so anything escaping here would
+            // reach TaskScheduler.UnobservedTaskException. The stream is already dead, which is
+            // what the caller wanted; record it so a later read reports Aborted rather than Ended.
+            Abort();
+        }
+    }
 
     public async ValueTask AbortAsync()
     {
+        // Set before the await, so a read racing the abort reports Aborted instead of parking.
         Interlocked.Exchange(ref _aborted, 1);
         try
         {
@@ -155,7 +187,7 @@ internal sealed class WebRtcStreamChannel : IChannel
         }
         finally
         {
-            _completion.TrySetResult();
+            Abort();
         }
     }
 
@@ -170,6 +202,8 @@ internal sealed class WebRtcStreamChannel : IChannel
         {
             // Idempotent in WebRtcStream, so WriteEofAsync followed by CloseAsync still sends one FIN.
             await _stream.CloseWritesAsync(token);
+            Interlocked.Exchange(ref _writesDone, 1);
+            TryComplete();
             return IOResult.Ok;
         }
         catch (OperationCanceledException)
@@ -178,19 +212,31 @@ internal sealed class WebRtcStreamChannel : IChannel
         }
         catch (Exception)
         {
-            Interlocked.Exchange(ref _aborted, 1);
+            Abort();
             return IOResult.Aborted;
-        }
-        finally
-        {
-            _completion.TrySetResult();
         }
     }
 
-    private ReadResult Finish(ReadResult result)
+    private void EndReads()
     {
+        Interlocked.Exchange(ref _readsDone, 1);
+        TryComplete();
+    }
+
+    private void Abort()
+    {
+        Interlocked.Exchange(ref _aborted, 1);
+        Interlocked.Exchange(ref _readsDone, 1);
+        Interlocked.Exchange(ref _writesDone, 1);
         _completion.TrySetResult();
-        return result;
+    }
+
+    private void TryComplete()
+    {
+        if (Volatile.Read(ref _writesDone) != 0 && Volatile.Read(ref _readsDone) != 0)
+        {
+            _completion.TrySetResult();
+        }
     }
 
     private static ReadOnlySequence<byte> AsSequence(List<ReadOnlyMemory<byte>> parts)
