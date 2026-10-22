@@ -822,6 +822,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandlePrune(PeerId peerId, IEnumerable<ControlPrune> prunes, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
+        HashSet<PeerId> exchanged = [];
         foreach (ControlPrune? prune in prunes)
         {
             if (topicState.GetValueOrDefault(prune.TopicID)?.IsSubscribed is true &&
@@ -843,7 +844,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     foreach (PeerInfo? peer in prune.Peers)
                     {
-                        DiscoverExchangedPeer(peer);
+                        DiscoverExchangedPeer(peer, exchanged);
                     }
                 }
             }
@@ -855,10 +856,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     /// stored when its signer is the advertised peer. Without one, the peer is dialed
     /// only if the store already has its addresses.
     /// </remarks>
-    private void DiscoverExchangedPeer(PeerInfo exchanged)
+    private void DiscoverExchangedPeer(PeerInfo exchanged, HashSet<PeerId> seen)
     {
         if (exchanged.PeerID.IsEmpty) return;
         PeerId peerId = new(exchanged.PeerID.ToByteArray());
+        if (!seen.Add(peerId)) return;
 
         if (!exchanged.SignedPeerRecord.IsEmpty)
         {
