@@ -120,9 +120,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
     {
         (IPEndPoint endpoint, DtlsFingerprint expectedFingerprint) = WebRtcDirectMultiaddr.Parse(remoteAddr);
 
-        using UdpClient signalingUdp = new(0);
         RTCPeerConnection pc = CreatePeerConnection();
-        string signalingSessionId = WebRtcDirectSignaling.NewSessionId();
 
         try
         {
@@ -133,28 +131,29 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
             RTCSessionDescriptionInit offer = pc.createOffer(new RTCOfferOptions { X_WaitForIceGatheringToComplete = true });
             ValidateExpectedFingerprint(WebRtcDirectSdp.ExtractFingerprint(offer.sdp ?? string.Empty), _fingerprint, "offer");
-            string signedOffer = WebRtcDirectSignaling.BuildSignedPayload(
-                WebRtcDirectSignalType.Offer,
-                context.Peer.Identity,
-                signalingSessionId,
-                offer.sdp ?? string.Empty);
-
             await pc.setLocalDescription(offer);
-            await signalingUdp.SendAsync(Encoding.UTF8.GetBytes(OfferPrefix + signedOffer), endpoint, token);
 
-            RTCSessionDescriptionInit answer = await ReceiveAnswerAsync(signalingUdp, endpoint, signalingSessionId, token);
-            DtlsFingerprint answerFingerprint = WebRtcDirectSdp.ExtractFingerprint(answer.sdp ?? string.Empty);
-            ValidateExpectedFingerprint(answerFingerprint, expectedFingerprint, "answer");
+            // webrtc-direct has no signalling channel: the offer is never sent anywhere. The answer
+            // is synthesised locally from the multiaddr, and the listener identifies this dial from
+            // the STUN USERNAME alone, which carries the server ufrag built below.
+            RTCSessionDescriptionInit answer = new()
+            {
+                type = RTCSdpType.answer,
+                sdp = WebRtcDirectAnswerSdp.Build(endpoint, expectedFingerprint, pc.GetRtpChannel().LocalIcePassword),
+            };
             EnsureRemoteDescriptionApplied(pc.setRemoteDescription(answer), "answer");
 
             await connectionTask;
             RTCDataChannel openedNoiseDataChannel = await noiseOpenTask;
 
+            // The answer above only claims the /certhash; this checks the certificate the peer
+            // actually presented in the DTLS handshake against it. Read through the accessor
+            // injected by #422 so the enforcement stays coverable in CI without a live peer.
             ValidateRemoteFingerprint(_readRemoteFingerprint(pc), expectedFingerprint);
 
             using INewConnectionContext connectionContext = context.CreateConnection();
             using CancellationTokenRegistration closed = connectionContext.Token.Register(pc.close);
-            connectionContext.State.LocalAddress = signalingUdp.Client.LocalEndPoint.ToMultiaddress(ProtocolType.Udp);
+            connectionContext.State.LocalAddress = pc.GetRtpChannel().RTPLocalEndPoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
             DataChannelOverIChannel rawChannel = new(openedNoiseDataChannel);
@@ -258,36 +257,6 @@ public class WebRtcDirectProtocol : ITransportProtocol
         };
 
         return (rtcCertificate, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificateChain)));
-    }
-
-    private async Task<RTCSessionDescriptionInit> ReceiveAnswerAsync(
-        UdpClient udp,
-        IPEndPoint expectedRemoteEndpoint,
-        string expectedSessionId,
-        CancellationToken token)
-    {
-        for (; ; )
-        {
-            UdpReceiveResult packet = await udp.ReceiveAsync(token);
-            if (!packet.RemoteEndPoint.Equals(expectedRemoteEndpoint))
-            {
-                continue;
-            }
-
-            string msg = Encoding.UTF8.GetString(packet.Buffer);
-            if (!msg.StartsWith(AnswerPrefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            (string _, string answerSdp, Identity _) = WebRtcDirectSignaling.ParseAndValidate(
-                msg[AnswerPrefix.Length..],
-                WebRtcDirectSignalType.Answer,
-                expectedSessionId,
-                _replayWindow);
-
-            return new RTCSessionDescriptionInit { type = RTCSdpType.answer, sdp = answerSdp };
-        }
     }
 
     private static Task WaitForConnectionAsync(RTCPeerConnection pc, CancellationToken token)

@@ -70,7 +70,7 @@ public class WebRtcDirectIntegrationTests
     }
 
     [Test]
-    [Explicit("Manual end-to-end loopback for WebRTC-Direct handshake and upgrade.")]
+    [Ignore("Dialling is spec-compliant webrtc-direct (no signalling); the listener still speaks the old private UDP signalling, so the two cannot pair until the ICE-lite listener lands. See #237.")]
     public async Task DialAndListen_UpgradesOnBothSides()
     {
         WebRtcDirectProtocol listenerProtocol = new();
@@ -104,7 +104,7 @@ public class WebRtcDirectIntegrationTests
     }
 
     [Test]
-    [Explicit("Manual end-to-end loopback for fingerprint mismatch rejection.")]
+    [Ignore("Dialling is spec-compliant webrtc-direct (no signalling); the listener still speaks the old private UDP signalling, so the two cannot pair until the ICE-lite listener lands. See #237.")]
     public async Task DialAndListen_RejectsWhenCerthashMismatches()
     {
         WebRtcDirectProtocol listenerProtocol = new();

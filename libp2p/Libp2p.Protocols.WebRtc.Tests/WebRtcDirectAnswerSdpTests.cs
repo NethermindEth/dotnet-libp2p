@@ -89,6 +89,47 @@ public class WebRtcDirectAnswerSdpTests
         Assert.That(parsed.Media[0].Connection.ConnectionAddress, Is.EqualTo("1.2.3.4"));
     }
 
+    /// <summary>
+    /// The dial path feeds SIPSorcery's own generated ICE password straight into the answer it
+    /// synthesises, so three things have to hold at once: the password is a legal v2 client
+    /// password, the resulting answer is accepted by the very connection that produced it, and the
+    /// listener can read the password back out of the server ufrag. A SIPSorcery release that
+    /// changed its credential alphabet or length would break the dialer against every remote peer
+    /// while every pure-unit test here kept passing.
+    /// </summary>
+    [Test]
+    public void Build_FromALivePeerConnectionsIcePassword_IsAcceptedByThatConnection()
+    {
+        using RTCPeerConnection pc = new(new RTCConfiguration { X_ICEIncludeAllInterfaceAddresses = false });
+        pc.createDataChannel("", new RTCDataChannelInit { negotiated = true, id = 0 }).GetAwaiter().GetResult();
+
+        RTCSessionDescriptionInit offer = pc.createOffer();
+        pc.setLocalDescription(offer).GetAwaiter().GetResult();
+
+        string clientPwd = pc.GetRtpChannel().LocalIcePassword;
+        Assert.That(
+            WebRtcIceCredentials.IsIceString(clientPwd, WebRtcIceCredentials.MinPasswordLength, WebRtcIceCredentials.MaxPasswordLength),
+            Is.True,
+            $"SIPSorcery generated an ICE password this transport cannot use: '{clientPwd}'.");
+
+        string sdp = WebRtcDirectAnswerSdp.Build(new IPEndPoint(IPAddress.Parse("1.2.3.4"), 4242), Fingerprint(), clientPwd);
+
+        SetDescriptionResultEnum result = pc.setRemoteDescription(new RTCSessionDescriptionInit { type = RTCSdpType.answer, sdp = sdp });
+        Assert.That(result, Is.EqualTo(SetDescriptionResultEnum.OK));
+
+        // Read the server ufrag back out of the answer itself, so this fails if Build ever embeds
+        // something other than the client password, and feed the listener what it will really see.
+        string serverUfrag = sdp
+            .Split('\n')
+            .First(line => line.StartsWith("a=ice-ufrag:", StringComparison.Ordinal))["a=ice-ufrag:".Length..];
+
+        Assert.That(
+            WebRtcIceCredentials.TryParseStunUsername($"{serverUfrag}:{pc.GetRtpChannel().LocalIceUser}", out WebRtcIceCredentials credentials),
+            Is.True);
+        Assert.That(credentials.TryGetClientPassword(out string? recovered), Is.True);
+        Assert.That(recovered, Is.EqualTo(clientPwd));
+    }
+
     [TestCase("")]
     [TestCase("tooshort")]
     [TestCase("has:colon:and:is:long:enough")]
