@@ -3,6 +3,7 @@
 
 using Google.Protobuf;
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Exceptions;
 
 namespace Nethermind.Libp2p.Core.Dto;
 
@@ -16,13 +17,19 @@ public static class SigningHelper
         return VerifyPeerRecord(signedEnvelope, publicKey, out seq);
     }
 
-    public static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey, out ulong seq)
+    public static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey, out ulong seq) =>
+        VerifyPeerRecord(signedEnvelope, publicKey, keyFromEnvelope: false, out seq);
+
+    /// <param name="keyFromEnvelope">
+    /// The caller decoded <paramref name="publicKey"/> from this envelope's own key,
+    /// so the two already match and the key is not decoded a second time.
+    /// </param>
+    internal static bool VerifyPeerRecord(SignedEnvelope signedEnvelope, PublicKey publicKey, bool keyFromEnvelope, out ulong seq)
     {
         ReadOnlySpan<byte> payloadType = signedEnvelope.PayloadType.Span;
 
         // Signed-envelope payload types may append arbitrary bytes after the multicodec; the signature covers the full type.
-        if (!payloadType.StartsWith(PayloadType) ||
-            !PublicKey.Parser.ParseFrom(signedEnvelope.PublicKey).Equals(publicKey))
+        if (!payloadType.StartsWith(PayloadType) || !keyFromEnvelope && !IsEncodingOf(signedEnvelope.PublicKey, publicKey))
         {
             seq = 0;
             return false;
@@ -62,6 +69,23 @@ public static class SigningHelper
 
         seq = pr.Seq;
         return true;
+    }
+
+    /// <remarks>
+    /// The envelope's key comes from the remote peer, so one that does not decode
+    /// fails verification instead of throwing: callers expect protobuf errors from
+    /// the envelope itself and a <c>false</c> for anything that does not verify.
+    /// </remarks>
+    private static bool IsEncodingOf(ByteString bytes, PublicKey publicKey)
+    {
+        try
+        {
+            return PublicKeyDecoder.Decode(bytes).Equals(publicKey);
+        }
+        catch (Libp2pException)
+        {
+            return false;
+        }
     }
 
     public static ByteString CreateSignedEnvelope(Identity identity, Multiaddress[] addresses, ulong seq)

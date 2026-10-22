@@ -44,7 +44,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         _logger?.LogInformation("Received peer info: {identify}", identify);
 
-        if ((!isPush || identify.HasPublicKey) && context.State.RemotePublicKey.ToByteString() != identify.PublicKey)
+        if ((!isPush || identify.HasPublicKey) && !IsEncodingOf(identify.PublicKey, context.State.RemotePublicKey))
         {
             throw new PeerConnectionException("Malformed peer identity: the remote public key corresponds to a different peer id");
         }
@@ -106,6 +106,23 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             SignedPeerRecord = verifiedPeerRecord ? signedPeerRecord : null,
             PeerRecordSequence = verifiedPeerRecord ? seq : null
         };
+    }
+
+    /// <remarks>
+    /// The security handshake stored the remote key in decoded form, so the announced
+    /// key is decoded before comparing; otherwise the same secp256k1 key sent in another
+    /// encoding would not match. One that does not decode does not match either.
+    /// </remarks>
+    private static bool IsEncodingOf(ByteString bytes, PublicKey publicKey)
+    {
+        try
+        {
+            return PublicKeyDecoder.Decode(bytes).Equals(publicKey);
+        }
+        catch (Libp2pException)
+        {
+            return false;
+        }
     }
 
     private bool VerifySignedPeerRecordOrThrow(ByteString? signedPeerRecordBytes, PublicKey remotePublicKey, PeerId remotePeerId, bool mayOmitPeerRecord, out ulong seq)

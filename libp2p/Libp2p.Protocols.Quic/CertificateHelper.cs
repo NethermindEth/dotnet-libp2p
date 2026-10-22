@@ -260,11 +260,11 @@ public class CertificateHelper
             byte[] publicKey = signedKey.ReadOctetString();
             signature = signedKey.ReadOctetString();
 
-            return Core.Dto.PublicKey.Parser.ParseFrom(publicKey);
+            return Core.Dto.PublicKeyDecoder.Decode(ByteString.CopyFrom(publicKey));
         }
         catch
         {
-            // Invalid ASN.1 structure
+            // Invalid ASN.1 structure, or a key that does not decode
             signature = null;
             return null;
         }

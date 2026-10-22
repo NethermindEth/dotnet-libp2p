@@ -4,6 +4,7 @@
 using System.Text;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using Multiformats.Hash;
 
@@ -155,33 +156,36 @@ public sealed class IpnsRecordValidator : IRecordValidator
 
         if (entry.HasPubKey && !entry.PubKey.IsEmpty)
         {
+            PublicKey fromRecord;
             try
             {
-                PublicKey fromRecord = PublicKey.Parser.ParseFrom(entry.PubKey);
-
-                // If we also got a key from the PeerId, they must match
-                if (fromPeerId is not null)
-                {
-                    if (fromPeerId.Type != fromRecord.Type ||
-                        !fromPeerId.Data.Span.SequenceEqual(fromRecord.Data.Span))
-                    {
-                        return null; // Mismatch — reject
-                    }
-                }
-
-                // Verify the public key matches the PeerId
-                var derivedPeerId = new PeerId(fromRecord);
-                if (!derivedPeerId.Bytes.AsSpan().SequenceEqual(peerIdBytes))
-                {
-                    return null; // Public key doesn't match the IPNS key
-                }
-
-                return fromRecord;
+                fromRecord = PublicKeyDecoder.Decode(entry.PubKey);
             }
-            catch
+            catch (Libp2pException)
             {
-                // Invalid public key protobuf
+                // A record that carries a key must verify with it, so a key that does not decode fails
+                // the record instead of falling back to the name's key (IPNS record verification, step 3).
+                return null;
             }
+
+            // If we also got a key from the PeerId, they must match
+            if (fromPeerId is not null)
+            {
+                if (fromPeerId.Type != fromRecord.Type ||
+                    !fromPeerId.Data.Span.SequenceEqual(fromRecord.Data.Span))
+                {
+                    return null; // Mismatch — reject
+                }
+            }
+
+            // Verify the public key matches the PeerId
+            var derivedPeerId = new PeerId(fromRecord);
+            if (!derivedPeerId.Bytes.AsSpan().SequenceEqual(peerIdBytes))
+            {
+                return null; // Public key doesn't match the IPNS key
+            }
+
+            return fromRecord;
         }
 
         // If the PeerId is an identity multihash, we already extracted the key

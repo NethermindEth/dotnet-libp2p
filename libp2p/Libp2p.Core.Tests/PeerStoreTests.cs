@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Dto;
 using System.Buffers.Binary;
 using Nethermind.Libp2p.Core.TestsBase;
 using System.Reflection;
+using Org.BouncyCastle.Crypto.EC;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -297,6 +298,42 @@ public class PeerStoreTests
         yield return new TestCaseData(Key(KeyType.Ed25519, new byte[31])).SetName("Test_Discover_IgnoresRecord_WhenEd25519KeyIsTruncated");
         yield return new TestCaseData(Key(KeyType.Secp256K1, [0x00])).SetName("Test_Discover_IgnoresRecord_WhenSecp256k1KeyIsThePointAtInfinity");
         yield return new TestCaseData(Key(KeyType.Rsa, [1, 2, 3, 4])).SetName("Test_Discover_IgnoresRecord_WhenRsaKeyIsGarbage");
+    }
+
+    /// <remarks>
+    /// A padded Ed25519 key verifies its owner's signatures but hashes to another
+    /// peer ID, so a record claiming that ID must not add a second peer.
+    /// </remarks>
+    [Test]
+    public void Test_Discover_IgnoresRecord_WhenEd25519KeyIsPadded()
+    {
+        Identity peer = new();
+        PublicKey padded = Key(KeyType.Ed25519, [.. peer.PublicKey.Data.ToByteArray(), 0x00]);
+        PeerId paddedPeerId = new(padded);
+        SignedEnvelope template = SignedEnvelope.Parser.ParseFrom(SignedRecord(peer));
+        template.PublicKey = padded.ToByteString();
+        PeerRecord record = new() { PeerId = ByteString.CopyFrom(paddedPeerId.Bytes), Seq = 1 };
+        record.Addresses.Add(new AddressInfo { Multiaddr = ByteString.CopyFrom(Multiaddress.Decode($"/ip4/127.0.0.1/tcp/4001/p2p/{paddedPeerId}").ToBytes()) });
+
+        Assert.That(Announcements(SignedByPeer(peer, template.ToByteString(), record.ToByteString())), Is.Zero);
+    }
+
+    /// <remarks>
+    /// The record names the peer's usual (compressed) peer ID while its envelope
+    /// carries the same key uncompressed, which still decodes to that peer.
+    /// </remarks>
+    [Test]
+    public void Test_Discover_StoresRecord_UnderTheCompressedPeerId_WhenSecp256k1KeyIsUncompressed()
+    {
+        Identity peer = new(keyType: KeyType.Secp256K1);
+        SignedEnvelope envelope = SignedEnvelope.Parser.ParseFrom(SignedRecord(peer));
+        byte[] point = CustomNamedCurves.GetByName("secp256k1").Curve.DecodePoint(peer.PublicKey.Data.ToByteArray()).GetEncoded(false);
+        envelope.PublicKey = Key(KeyType.Secp256K1, point).ToByteString();
+        PeerStore store = new();
+
+        store.Discover(envelope.ToByteString());
+
+        Assert.That(store.TryGetPeerInfo(peer.PeerId, out _), Is.True);
     }
 
     [TestCaseSource(nameof(MalformedRecords))]
