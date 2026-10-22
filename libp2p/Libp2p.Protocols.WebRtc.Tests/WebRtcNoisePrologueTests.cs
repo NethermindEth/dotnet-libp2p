@@ -10,6 +10,19 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 [TestFixture]
 public class WebRtcNoisePrologueTests
 {
+    // webrtc-direct.md, "Both client and server use SHA-256": the client is _A_ (the dialer, Noise
+    // responder) and the server is _B_ (the listener, Noise initiator).
+    private static readonly DtlsFingerprint SpecClient =
+        new("sha-256", Convert.FromHexString("3e79af40d6059617a0d83b83a52ce73b0c1f37a72c6043ad2969e2351bdca870"));
+
+    private static readonly DtlsFingerprint SpecServer =
+        new("sha-256", Convert.FromHexString("30fc9f469c207419dfdd0aab5f27a86c973c94e40548db9375cca2e915973b99"));
+
+    private const string SpecPrologueHex =
+        "6c69627032702d7765627274632d6e6f6973653a"
+        + "12203e79af40d6059617a0d83b83a52ce73b0c1f37a72c6043ad2969e2351bdca870"
+        + "122030fc9f469c207419dfdd0aab5f27a86c973c94e40548db9375cca2e915973b99";
+
     [Test]
     public void Build_UsesExpectedPrefixAndOrder()
     {
@@ -33,16 +46,37 @@ public class WebRtcNoisePrologueTests
     [Test]
     public void Build_MatchesTheSpecTestVector()
     {
-        DtlsFingerprint client = new("sha-256", Convert.FromHexString("3e79af40d6059617a0d83b83a52ce73b0c1f37a72c6043ad2969e2351bdca870"));
-        DtlsFingerprint server = new("sha-256", Convert.FromHexString("30fc9f469c207419dfdd0aab5f27a86c973c94e40548db9375cca2e915973b99"));
+        byte[] prologue = WebRtcNoisePrologue.Build(SpecClient, SpecServer);
 
-        byte[] prologue = WebRtcNoisePrologue.Build(client, server);
+        Assert.That(Convert.ToHexString(prologue).ToLowerInvariant(), Is.EqualTo(SpecPrologueHex));
+    }
 
-        Assert.That(
-            Convert.ToHexString(prologue).ToLowerInvariant(),
-            Is.EqualTo(
-                "6c69627032702d7765627274632d6e6f6973653a"
-                + "12203e79af40d6059617a0d83b83a52ce73b0c1f37a72c6043ad2969e2351bdca870"
-                + "122030fc9f469c207419dfdd0aab5f27a86c973c94e40548db9375cca2e915973b99"));
+    /// <summary>
+    /// Both sides must derive the same prologue bytes from opposite points of view, and
+    /// <see cref="WebRtcDirectRoles.OrderFingerprints"/> is the only thing standing between a
+    /// side's own (local, remote) pair and the (_A_, _B_) order <see cref="WebRtcNoisePrologue"/>
+    /// demands. A swapped tuple still agrees with itself, so a self-dial stays green on it --
+    /// which is why the assertion is against the spec's published bytes and not against the other
+    /// side's output.
+    /// </summary>
+    [Test]
+    public void OrderFingerprints_YieldsTheSpecVector_FromEitherSidesPointOfView()
+    {
+        (DtlsFingerprint dialer, DtlsFingerprint listener) asDialer =
+            WebRtcDirectRoles.OrderFingerprints(isListener: false, local: SpecClient, remote: SpecServer);
+        (DtlsFingerprint dialer, DtlsFingerprint listener) asListener =
+            WebRtcDirectRoles.OrderFingerprints(isListener: true, local: SpecServer, remote: SpecClient);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Convert.ToHexString(WebRtcNoisePrologue.Build(asDialer.dialer, asDialer.listener)).ToLowerInvariant(),
+                Is.EqualTo(SpecPrologueHex),
+                "The dialer holds its own fingerprint as the local one.");
+            Assert.That(
+                Convert.ToHexString(WebRtcNoisePrologue.Build(asListener.dialer, asListener.listener)).ToLowerInvariant(),
+                Is.EqualTo(SpecPrologueHex),
+                "The listener holds the same pair the other way round.");
+        });
     }
 }

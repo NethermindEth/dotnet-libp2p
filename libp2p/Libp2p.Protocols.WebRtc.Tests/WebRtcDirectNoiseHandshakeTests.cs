@@ -22,7 +22,10 @@ public class WebRtcDirectNoiseHandshakeTests
     /// <summary>Noise XX message 1 is "-> e": one X25519 public key, no static key, no payload.</summary>
     private const int NoiseMessageOneLength = 32;
 
-    private static readonly TimeSpan FrameTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>A side that is waiting for a peer that will never speak must fail the test rather
+    /// than wedge the runner: with the Noise roles inverted both halves of a self-dial read first
+    /// and nothing ever completes.</summary>
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>How long a side that must not speak is watched before believing it never will.</summary>
     private static readonly TimeSpan QuietPeriod = TimeSpan.FromMilliseconds(250);
@@ -49,8 +52,8 @@ public class WebRtcDirectNoiseHandshakeTests
             isInitiator: false,
             CancellationToken.None);
 
-        (IChannel initiatorEncrypted, PublicKey initiatorRemoteKey) = await initiatorTask;
-        (IChannel responderEncrypted, PublicKey responderRemoteKey) = await responderTask;
+        (IChannel initiatorEncrypted, PublicKey initiatorRemoteKey) = await initiatorTask.WaitAsync(HandshakeTimeout);
+        (IChannel responderEncrypted, PublicKey responderRemoteKey) = await responderTask.WaitAsync(HandshakeTimeout);
 
         Assert.That(new Identity(initiatorRemoteKey).PeerId, Is.EqualTo(responder.PeerId));
         Assert.That(new Identity(responderRemoteKey).PeerId, Is.EqualTo(initiator.PeerId));
@@ -82,13 +85,13 @@ public class WebRtcDirectNoiseHandshakeTests
         Task initiatorHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
             initiatorSide, new Identity(), prologue, isInitiator: true, abandoned.Token);
 
-        ReadResult header = await silentResponder.ReadAsync(2).AsTask().WaitAsync(FrameTimeout);
+        ReadResult header = await silentResponder.ReadAsync(2).AsTask().WaitAsync(HandshakeTimeout);
         Assert.That(header.Result, Is.EqualTo(IOResult.Ok));
         Assert.That(
             BinaryPrimitives.ReadUInt16BigEndian(header.Data.ToArray()),
             Is.EqualTo(NoiseMessageOneLength),
             "Noise XX message 1 is a bare ephemeral key.");
-        Assert.That((await silentResponder.ReadAsync(NoiseMessageOneLength).AsTask().WaitAsync(FrameTimeout)).Result,
+        Assert.That((await silentResponder.ReadAsync(NoiseMessageOneLength).AsTask().WaitAsync(HandshakeTimeout)).Result,
             Is.EqualTo(IOResult.Ok));
 
         Channel responderSide = new();
@@ -119,8 +122,8 @@ public class WebRtcDirectNoiseHandshakeTests
         Task<(IChannel Encrypted, PublicKey RemoteKey)> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
             otherSide, new Identity(), prologue, isInitiator: false, CancellationToken.None);
 
-        (IChannel encrypted, _) = await initiatorTask;
-        (IChannel responderEncrypted, _) = await responderTask;
+        (IChannel encrypted, _) = await initiatorTask.WaitAsync(HandshakeTimeout);
+        (IChannel responderEncrypted, _) = await responderTask.WaitAsync(HandshakeTimeout);
         Task<IOResult> incoming = responderEncrypted.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 5, 6 })).AsTask();
         Assert.That((await encrypted.ReadAsync(1)).Data.ToArray(), Is.EqualTo(new byte[] { 5 }));
         Assert.That(await incoming, Is.EqualTo(IOResult.Ok));
@@ -143,8 +146,8 @@ public class WebRtcDirectNoiseHandshakeTests
         Task<(IChannel Encrypted, PublicKey RemoteKey)> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
             otherSide, new Identity(), prologue, isInitiator: false, CancellationToken.None);
 
-        (IChannel encrypted, _) = await initiatorTask;
-        await responderTask;
+        (IChannel encrypted, _) = await initiatorTask.WaitAsync(HandshakeTimeout);
+        await responderTask.WaitAsync(HandshakeTimeout);
         Task<ReadResult> pending = encrypted.ReadAsync(1).AsTask();
         Assert.That(await otherSide.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0, 10 })), Is.EqualTo(IOResult.Ok));
         await otherSide.AbortAsync();

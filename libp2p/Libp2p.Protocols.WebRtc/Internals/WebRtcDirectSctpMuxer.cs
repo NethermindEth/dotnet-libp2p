@@ -78,11 +78,7 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
         _association = transport.RTCSctpAssociation;
         _isDtlsClient = isDtlsClient;
 
-        // RFC 8832 section 6: "If the side is acting as the DTLS client, it MUST choose an even
-        // stream identifier; if the side is acting as the DTLS server, it MUST choose an odd one."
-        // Zero is even, so it falls in the client's half -- and libp2p reserves it for the Noise
-        // handshake channel, which is why the client starts at 2 rather than 0.
-        _nextOutboundStreamId = isDtlsClient ? 2 : 1;
+        _nextOutboundStreamId = WebRtcDirectRoles.FirstOutboundStreamId(isDtlsClient);
 
         _transport.OnStateChanged += OnSctpStateChanged;
         _association.OnDataChannelData += OnDataChannelData;

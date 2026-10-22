@@ -49,11 +49,12 @@ internal static class WebRtcDirectRoles
         => isListener ? (remote, local) : (local, remote);
 
     /// <summary>
-    /// RFC 8832 section 6: the DTLS client must choose even stream identifiers and the DTLS server
-    /// odd ones. Zero is even and so falls in the client's half, but libp2p reserves it for the
-    /// Noise channel, which is why the client starts at 2. Must stay equal to the seed
-    /// <see cref="WebRtcDirectSctpMuxer"/> gives <c>_nextOutboundStreamId</c> in its constructor
-    /// (WebRtcDirectSctpMuxer.cs:85 as of this commit).
+    /// RFC 8832 section 6: "If the side is acting as the DTLS client, it MUST choose an even
+    /// stream identifier; if the side is acting as the DTLS server, it MUST choose an odd one."
+    /// Zero is even and so falls in the client's half, but libp2p reserves it for the Noise
+    /// channel, which is why the client starts at 2. <see cref="WebRtcDirectSctpMuxer"/> seeds
+    /// <c>_nextOutboundStreamId</c> from here instead of repeating the literal, so the two cannot
+    /// drift apart and the muxer's own parity tests cover this.
     /// </summary>
     public static ushort FirstOutboundStreamId(bool isDtlsClient) => (ushort)(isDtlsClient ? 2 : 1);
 }
