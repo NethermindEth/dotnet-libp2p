@@ -80,3 +80,19 @@ protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalP
 ```
 
 Application protocols can be added by application code with `AddAppLayerProtocol<TProtocol>()`.
+
+## Cancellation and teardown
+
+Connection protocols should use `IConnectionContext.Token` for their I/O and own all
+forwarding tasks until they finish. The core aborts upgrade channels when either the
+connection or the request is cancelled, including partially consumed writes.
+`INewConnectionContext.Completion` lets a transport dispose the context and then join
+its protocol upgrades before releasing connection admission. The default completion
+is already complete for older custom contexts; implementations with background work
+should supply their own completion task. Do not await completion from inside one of
+that same connection's protocol upgrades.
+
+A transport's connection cancellation registrations must be disposed when its pumps
+stop. TCP cancels and joins both pumps, preserves one pooled scratch receive buffer
+per pump, and publishes exact-sized owned copies. Downstream readers may retain
+fragments after a channel write completes; never publish the pooled scratch array.

@@ -76,3 +76,58 @@ The handler runs after the lower protocol stack has created the session. Applica
 Await `peer.DisposeAsync()` to close its registered connections and sessions. Once disposal starts, transport connections finishing their handshake cannot register new sessions. New dial and listen calls fail with `ObjectDisposedException`. Cancel the token passed to `StartListenAsync` to stop the listeners.
 
 Concurrent disposal calls await the same cleanup, including a session already disconnecting. A failing session-close callback is reported after the other sessions have also been closed.
+
+## Resource limits and deadlines
+
+The default stack bounds inbound TCP connections to **256 per local peer**, including
+connections still shutting down. At most **32** may come from one source IP address,
+across all of that peer's TCP listeners. Source ports do not create new allowances;
+IPv4-mapped IPv6 addresses count as IPv4. Excess sockets close immediately before
+protocol dispatch or receive-buffer rental. Separate local peers have separate TCP
+allowances. Deployments with many peers behind one NAT may need a larger per-IP limit.
+
+An inbound connection has **15 seconds** from connection-context creation to session
+registration, including security negotiation and the wait for the first Yamux stream.
+Both inbound and outbound sessions then have **15 seconds** to finish initialization,
+including Identify negotiation and its response. Expiry disconnects the session,
+cancels I/O, and releases its peer-store retention. Established sessions survive these
+deadlines. Each multistream negotiation also has a **15 second** deadline which stops
+before the selected protocol runs, so long-lived application streams remain supported.
+
+Configure immutable limits through DI before resolving the factory:
+
+```csharp
+ServiceProvider provider = new ServiceCollection()
+    .AddLibp2p()
+    .AddSingleton(new PeerResourceLimits(
+        maxInboundTcpConnections: 512,
+        maxInboundTcpConnectionsPerIp: 64,
+        maxConcurrentInitializations: 128,
+        inboundUpgradeTimeout: TimeSpan.FromSeconds(20),
+        initializationTimeout: TimeSpan.FromSeconds(20),
+        negotiationTimeout: TimeSpan.FromSeconds(15)))
+    .BuildServiceProvider();
+```
+
+Direct `LocalPeer`, `PeerFactory`, `Libp2pPeer`, and `Libp2pPeerFactory` construction
+also accepts `resourceLimits` and `timeProvider`. Positive finite deadlines are
+required. Register a `TimeProvider` in DI to control time in tests.
+
+At most **128 initialization operations** may run per local peer; excess sessions
+are refused without queueing. This allowance remains charged until the initializer
+returns, even after a timeout. Custom `ConnectedTo` overrides should pass
+`session.Closed` into every asynchronous operation. An application operation which
+ignores cancellation can keep an initialization allowance, but its expired session
+cannot keep a peer-store slot pinned.
+
+Identify, Identify Push, Ping, relay, and enabled pubsub protocols each allow **512
+inbound streams total and 64 per remote peer**. All pubsub versions share one
+allowance. Totals span local peers sharing a builder's protocol registrations. Replace
+`Libp2pPeerFactoryBuilder.ProtocolLimits`, or register a `BuiltInProtocolLimits` instance
+in DI, to change individual allowances. Setting a family's allowance to `null`
+explicitly disables its cap. Application-added protocols remain uncapped unless
+`AddProtocol(..., inboundLimit: ...)` supplies an allowance.
+
+The TCP admission limits apply before context creation. Optional transports share
+core initialization and negotiation protections after context creation; their native
+handshakes and transport-native admission are outside these TCP limits.

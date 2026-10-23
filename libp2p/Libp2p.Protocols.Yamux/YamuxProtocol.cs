@@ -90,12 +90,26 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         ConcurrentDictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
         Timer? timer = null;
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.Token);
+        using CancellationTokenRegistration abort = lifetime.Token.Register(() => _ = channel.AbortAsync());
+        using SemaphoreSlim waitForSession = new(0, 1);
+        Task requestWorker = Task.CompletedTask;
+        HashSet<Task> streamWorkers = [];
+
+        void TrackWorker(Task worker)
+        {
+            lock (streamWorkers) streamWorkers.Add(worker);
+            _ = worker.ContinueWith(t =>
+            {
+                _ = t.Exception;
+                lock (streamWorkers) streamWorkers.Remove(t);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
 
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
 
-            SemaphoreSlim waitForSession = new(0, 1);
             if (!isListener)
             {
                 session = context.UpgradeToSession();
@@ -103,9 +117,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 waitForSession.Release();
             }
 
-            _ = Task.Run(async () =>
+            requestWorker = Task.Run(async () =>
             {
-                await waitForSession.WaitAsync();
+                await waitForSession.WaitAsync(lifetime.Token);
                 if (session is null)
                 {
                     throw new Libp2pException("Session was not initialized.");
@@ -115,7 +129,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                 timer = new((s) =>
                 {
-                    _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
+                    TrackWorker(WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) }, token: lifetime.Token));
                 }, null, PingDelay, PingDelay);
 
                 foreach (UpgradeOptions request in session.DialRequests)
@@ -287,7 +301,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                header.StreamID, available, stream.LocalWindow.Available);
 
                     int dataLength = (int)data.Length;
-                    _ = stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
+                    TrackWorker(stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
                         if (!t.IsCompletedSuccessfully)
                         {
@@ -297,7 +311,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         }
 
                         ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    });
+                    }));
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -444,7 +458,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                 });
 
-                _ = CleanUpClosedStreamAsync();
+                TrackWorker(CleanUpClosedStreamAsync());
 
                 async Task ResetAbortedHalfClosedStreamAsync()
                 {
@@ -541,10 +555,27 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
         finally
         {
-            timer?.Dispose();
-            AbortStreams();
+            lifetime.Cancel();
+            await channel.AbortAsync();
             session?.Dispose();
-            _ = channel.CloseAsync();
+            if (context.Token.CanBeCanceled || session is null || requestWorker.IsCompleted)
+                await requestWorker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            else
+            {
+                // Legacy contexts may supply an application enumerable without cancellation support. Keep its
+                // exceptions observed; built-in contexts always expose a cancellable lifetime.
+                _ = requestWorker.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            }
+            if (timer is not null) await timer.DisposeAsync();
+            AbortStreams();
+            if (context.Token.CanBeCanceled)
+            {
+                Task[] pending;
+                lock (streamWorkers) pending = [.. streamWorkers];
+                await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
+            // Without a lifetime token, legacy contexts can retain FIN payloads until the
+            // application reads them. Their tracked workers still observe every exception.
         }
 
         void AbortStreams()

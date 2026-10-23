@@ -14,9 +14,18 @@ using System.Diagnostics;
 namespace Nethermind.Libp2p.Core;
 
 public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
-    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null)
+    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null,
+    PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
     : ILocalPeer
 {
+    public LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
+        ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory, MultiaddrResolver? multiaddrResolver)
+        : this(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory, multiaddrResolver, null, null) { }
+
+    public PeerResourceLimits ResourceLimits { get; } = resourceLimits ?? PeerResourceLimits.Default;
+    internal TimeProvider Clock { get; } = timeProvider ?? TimeProvider.System;
+    private int _initializations;
+
     private const int ConnectionTimeout = 15_000;
     private const int MaxConcurrentDials = 16;
     private const int CanceledDialDisposalGracePeriod = 1_000;
@@ -168,6 +177,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 if (_disposal is not null) throw new ChannelClosedException();
                 session ??= new(this, activity);
                 session.RegisterConnection();
+                if (isListener) session.StartUpgradeDeadline();
                 // Instrumentation can synchronously reenter shutdown.
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
             }
@@ -194,6 +204,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 if (_disposal is not null) throw new ChannelClosedException();
                 if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
                     throw new SessionExistsException(remotePeerId);
+                if (!session.TryBeginInitialization()) throw new Libp2pException("Concurrent initialization limit reached.");
                 session.RegisterSession();
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
                 Sessions.Add(session);
@@ -204,6 +215,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch
         {
+            session.EndInitialization();
             _ = session.DisconnectAsync();
             throw;
         }
@@ -213,41 +225,43 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         activity?.SetTag("remote.peer.id", remotePeerId.ToString());
         activity?.SetTag("remote.addr", session.RemoteAddress.ToString());
 
-        Task initializeSession;
-        try
+        Task initialization;
+        try { initialization = ConnectedTo(session, !isListener); }
+        catch (Exception failure)
         {
-            initializeSession = ConnectedTo(session, !isListener);
-        }
-        catch (Exception ex)
-        {
-            session.ConnectedTcs.TrySetException(ex);
-            _ = session.DisconnectAsync();
+            session.ConnectedTcs.TrySetException(failure);
+            session.EndInitialization();
+            ObserveLateFailure(session.DisconnectAsync());
             throw;
         }
+        ObserveLateFailure(InitializeSessionAsync(session, initialization));
+        return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
+    }
 
-        _ = initializeSession.ContinueWith(t =>
+    private async Task InitializeSessionAsync(Session session, Task initialization)
+    {
+        try
         {
-            if (!t.IsCompletedSuccessfully)
+            await initialization;
+            if (session.TrySetConnected()) OnConnected?.Invoke(session);
+        }
+        catch (Exception failure)
+        {
+            try
             {
-                if (t.IsCanceled)
-                {
-                    session.ConnectedTcs.TrySetCanceled();
-                }
+                if (initialization.IsCanceled) session.ConnectedTcs.TrySetCanceled();
                 else
                 {
-                    session.ConnectedTcs.TrySetException(t.Exception!.InnerExceptions);
-                    Exception failure = t.Exception.GetBaseException();
-                    _logger?.Log(IsRoutineConnectionFailure(failure) ? LogLevel.Debug : LogLevel.Warning, failure, "Disconnecting due to exception");
+                    if (initialization.Exception is { } aggregate) session.ConnectedTcs.TrySetException(aggregate.InnerExceptions);
+                    else session.ConnectedTcs.TrySetException(failure);
+                    Exception loggedFailure = initialization.Exception?.GetBaseException() ?? failure;
+                    _logger?.Log(IsRoutineConnectionFailure(loggedFailure) ? LogLevel.Debug : LogLevel.Warning,
+                        loggedFailure, "Disconnecting due to exception");
                 }
-                _ = session.DisconnectAsync();
-                return;
             }
-            if (session.TrySetConnected())
-            {
-                OnConnected?.Invoke(session);
-            }
-        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
+            finally { await session.DisconnectAsync(); }
+        }
+        finally { session.EndInitialization(); }
     }
 
     internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
@@ -757,12 +771,15 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     {
         Channel downChannel = new();
 
-        _ = Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity);
+        ObserveLateFailure(Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity));
 
         return downChannel;
     }
 
     internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
+        => session.RunUpgrade(downChannel, () => RunUpgradeAsync(session, downChannel, parentProtocol, upgradeProtocol, options, isListener, activity));
+
+    private Task RunUpgradeAsync(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {
         if (_protocolStackSettings.Protocols is null)
         {
@@ -786,24 +803,13 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
         upgradeActivity?.SetTag("parent", activity?.DisplayName);
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
-        CancellationTokenRegistration cancellationRegistration = default;
-
-        if (options?.CancellationToken.IsCancellationRequested == true)
+        CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(session.ConnectionToken, options?.CancellationToken ?? default);
+        CancellationToken upgradeToken = upgradeCancellation.Token;
+        CancellationTokenRegistration cancellationRegistration = upgradeToken.Register(() =>
         {
-            options.CompletionSource?.TrySetCanceled(options.CancellationToken);
+            options?.CompletionSource?.TrySetCanceled(upgradeToken);
             _ = downChannel.AbortAsync();
-            upgradeActivity?.Dispose();
-            return Task.FromCanceled(options.CancellationToken);
-        }
-
-        if (options?.CancellationToken.CanBeCanceled == true)
-        {
-            cancellationRegistration = options.CancellationToken.Register(() =>
-            {
-                options.CompletionSource?.TrySetCanceled(options.CancellationToken);
-                _ = downChannel.AbortAsync();
-            });
-        }
+        });
 
         // Only what was acquired may be released. The acquire below is for inbound streams only,
         // so holding the limit itself rather than a flag keeps the dial path from refunding an
@@ -811,29 +817,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         InboundStreamLimit? acquiredLimit = null;
         PeerId? limitedPeer = null;
         string? limitedProtocolId = null;
-        if (isListener && top.InboundLimit is { } inboundLimit)
-        {
-            limitedPeer = session.State.RemotePeerId;
-            limitedProtocolId = top.Id;
-            if (!inboundLimit.TryAcquire(limitedPeer, out bool perPeerLimit))
-            {
-                // Refuse before the protocol reads anything, and reset rather than end the stream,
-                // as go-libp2p does for a denied reservation: an orderly close would reach the peer
-                // as an empty reply it could mistake for a protocol-level answer. Nothing tells the
-                // peer how long to back off; the reset carries no retry interval.
-                string scope = perPeerLimit ? "peer" : "total";
-                _logger?.LogDebug("Inbound stream for {Protocol} refused by {Scope} limit ({Limit})", top, scope,
-                    perPeerLimit ? inboundLimit.MaxPerPeer : inboundLimit.MaxConcurrent);
-                Libp2pMetrics.InboundStreamsRefused.Add(1, new("protocol", limitedProtocolId), new("scope", scope));
-                cancellationRegistration.Dispose();
-                _ = downChannel.AbortAsync();
-                upgradeActivity?.Dispose();
-                return Task.CompletedTask;
-            }
-
-            acquiredLimit = inboundLimit;
-        }
-
+        int cleanedUp = 0;
         void ReleaseInboundAllowance()
         {
             if (acquiredLimit is null) return;
@@ -843,6 +827,34 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
         try
         {
+            if (upgradeToken.IsCancellationRequested)
+            {
+                Cleanup();
+                return Task.FromCanceled(upgradeToken);
+            }
+
+            if (isListener && top.InboundLimit is { } inboundLimit)
+            {
+                limitedPeer = session.State.RemotePeerId;
+                limitedProtocolId = top.Id;
+                if (!inboundLimit.TryAcquire(limitedPeer, out bool perPeerLimit))
+                {
+                    // Refuse before the protocol reads anything, and reset rather than end the stream,
+                    // as go-libp2p does for a denied reservation: an orderly close would reach the peer
+                    // as an empty reply it could mistake for a protocol-level answer. Nothing tells the
+                    // peer how long to back off; the reset carries no retry interval.
+                    string scope = perPeerLimit ? "peer" : "total";
+                    _logger?.LogDebug("Inbound stream for {Protocol} refused by {Scope} limit ({Limit})", top, scope,
+                        perPeerLimit ? inboundLimit.MaxPerPeer : inboundLimit.MaxConcurrent);
+                    Libp2pMetrics.InboundStreamsRefused.Add(1, new("protocol", limitedProtocolId), new("scope", scope));
+                    _ = downChannel.AbortAsync();
+                    Cleanup();
+                    return Task.CompletedTask;
+                }
+
+                acquiredLimit = inboundLimit;
+            }
+
             if (acquiredLimit is not null) Libp2pMetrics.InboundStreamsActive.Add(1, new KeyValuePair<string, object?>("protocol", limitedProtocolId));
             switch (top.Protocol)
             {
@@ -892,55 +904,57 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     throw new Libp2pSetupException($"Protocol {top.Protocol} does not implement proper protocol interface");
             }
 
-            if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
-            {
-                _ = upgradeTask.ContinueWith(t =>
-                {
-                    MapToTaskCompletionSource(t, options.CompletionSource);
-                });
-            }
-
-            upgradeTask.ContinueWith(t =>
-            {
-                ReleaseInboundAllowance();
-                cancellationRegistration.Dispose();
-                if (t.IsFaulted)
-                {
-                    if (t.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
-                    {
-                        _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {failure.Message}");
-                    }
-                    else
-                    {
-                        _logger?.LogWarning(t.Exception, "Upgrade task failed");
-                    }
-                }
-                if (t.IsCompletedSuccessfully)
-                {
-                    _ = downChannel is Channel completedChannel
-                        ? completedChannel.CompleteProtocolAsync()
-                        : downChannel.CloseAsync();
-                }
-                else
-                {
-                    _ = downChannel.AbortAsync();
-                }
-                _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
-                upgradeActivity?.Dispose();
-            });
-
-            return upgradeTask;
+            return FinishAsync(upgradeTask);
         }
         catch (Exception ex)
         {
-            ReleaseInboundAllowance();
-            cancellationRegistration.Dispose();
-            if (options?.CompletionSource is not null)
+            try
             {
-                SetTaskCompletionSourceException(options.CompletionSource, ex);
+                if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, ex);
+                _ = downChannel.AbortAsync();
             }
-            upgradeActivity?.Dispose();
+            finally { Cleanup(); }
             throw;
+        }
+
+        async Task FinishAsync(Task task)
+        {
+            try
+            {
+                try { await task; }
+                finally
+                {
+                    if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
+                        MapToTaskCompletionSource(task, options.CompletionSource);
+                }
+                if (downChannel is Channel completedChannel) await completedChannel.CompleteProtocolAsync();
+                else await downChannel.CloseAsync();
+            }
+            catch (Exception ex)
+            {
+                if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, ex);
+                await downChannel.AbortAsync();
+                if (task.IsFaulted)
+                {
+                    if (task.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
+                        _logger?.LogDebug("Upgrade task cancelled (closed or duplicate connection): {Message}", failure.Message);
+                    else _logger?.LogWarning(task.Exception, "Upgrade task failed");
+                }
+                throw;
+            }
+            finally { Cleanup(); }
+        }
+
+        void Cleanup()
+        {
+            if (Interlocked.Exchange(ref cleanedUp, 1) != 0) return;
+            try { ReleaseInboundAllowance(); }
+            finally
+            {
+                cancellationRegistration.Dispose();
+                upgradeCancellation.Dispose();
+                upgradeActivity?.Dispose();
+            }
         }
     }
 
