@@ -156,7 +156,13 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.LocalAddress = pc.GetRtpChannel().RTPLocalEndPoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
-            DataChannelOverIChannel rawChannel = new(openedNoiseDataChannel);
+            // webrtc-direct.md, Connection Security: the Noise handshake runs "over this channel"
+            // using "the message framing described in the Multiplexing section", not as raw
+            // datachannel messages. So it goes through WebRtcStream like any other stream; sending
+            // it unframed is invisible to a self-dial and interoperates with nothing.
+            RtcDataChannelAdapter noiseAdapter = new(openedNoiseDataChannel);
+            await using WebRtcStream noiseStream = new(noiseAdapter);
+            WebRtcStreamChannel handshakeChannel = new(noiseStream);
             // The dialer is _A_, the Noise RESPONDER. Both role-dependent values here come from
             // WebRtcDirectRoles, which carries the spec sentence behind each one; getting either
             // backwards is invisible to a loopback test, since both halves would be wrong
@@ -165,7 +171,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 WebRtcDirectRoles.OrderFingerprints(isListener: false, local: _fingerprint, remote: expectedFingerprint);
             byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
+                handshakeChannel, context.Peer.Identity, prologue, isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }
