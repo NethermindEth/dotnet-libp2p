@@ -252,7 +252,9 @@ public class ProviderRetentionTests
         await store.AddProviderAsync(new byte[] { 1 }, record);
         Assert.Throws<ArgumentOutOfRangeException>(() => store.AddProviderAsync(new byte[] { 1 }, record with
         {
-            Timestamp = 2, StoredAt = DateTime.MaxValue, Ttl = TimeSpan.FromHours(1)
+            Timestamp = 2,
+            StoredAt = DateTime.MaxValue,
+            Ttl = TimeSpan.FromHours(1)
         }));
         Assert.That((await store.GetProvidersAsync(new byte[] { 1 })).Single().Timestamp, Is.EqualTo(1));
         Assert.That(store.ExpiryIndexCount, Is.EqualTo(1));
