@@ -565,6 +565,7 @@ public class GossipsubControlLimitsTests
             Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(6), [TestPeers.Multiaddr(6)], 1));
         unusable.PublicKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString();
         ByteString badRecord = notProtobuf ? ByteString.CopyFrom([0xff, 0xff, 0xff, 0xff]) : unusable.ToByteString();
+        PeerId badRecordPeer = notProtobuf ? TestPeers.PeerId(6) : new PeerId(Core.Dto.PublicKey.Parser.ParseFrom(unusable.PublicKey));
         List<PeerId?> discovered = [];
         setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
 
@@ -579,8 +580,8 @@ public class GossipsubControlLimitsTests
                         TopicID = setup.Topic,
                         Peers =
                         {
-                            new PeerInfo { SignedPeerRecord = badRecord },
-                            new PeerInfo { SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
+                            new PeerInfo { PeerID = ByteString.CopyFrom(badRecordPeer.Bytes), SignedPeerRecord = badRecord },
+                            new PeerInfo { PeerID = ByteString.CopyFrom(exchanged.PeerId.Bytes), SignedPeerRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(exchanged, [TestPeers.Multiaddr(5)], 1) },
                         },
                     },
                 },
@@ -589,6 +590,102 @@ public class GossipsubControlLimitsTests
 
         Assert.That(discovered, Does.Contain(exchanged.PeerId));
     }
+
+    /// <remarks>
+    /// A peer-exchange entry names a peer and may carry its signed record. A record
+    /// signed by any other peer must not be stored in the advertised peer's place.
+    /// </remarks>
+    [Test]
+    public async Task Prune_IgnoresExchangedRecord_WhenSignedByAnotherPeer()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        Identity advertised = TestPeers.Identity(5);
+        Identity signer = TestPeers.Identity(6);
+        List<PeerId?> discovered = [];
+        setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo { PeerID = ByteString.CopyFrom(advertised.PeerId.Bytes), SignedPeerRecord = SignedRecord(signer) }));
+
+        Assert.That(discovered, Is.Empty);
+        Assert.That(setup.PeerStore.TryGetPeerInfo(signer.PeerId, out _), Is.False);
+    }
+
+    /// <remarks>
+    /// Gossipsub v1.1 lets an entry omit the signed record. Such a peer can only be
+    /// reached through addresses the store already has, and an entry without one must
+    /// not stop the entries after it.
+    /// </remarks>
+    [Test]
+    public async Task Prune_DialsExchangedPeersWithoutRecords_OnlyWhenTheirAddressesAreKnown()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        PeerId known = TestPeers.PeerId(5);
+        PeerId unknown = TestPeers.PeerId(6);
+        Identity signed = TestPeers.Identity(7);
+        setup.PeerStore.GetPeerInfo(known).Addrs = [TestPeers.Multiaddr(5)];
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo(),
+            new PeerInfo { PeerID = ByteString.CopyFrom(unknown.Bytes) },
+            new PeerInfo { PeerID = ByteString.CopyFrom(known.Bytes), SignedPeerRecord = ByteString.Empty },
+            new PeerInfo { PeerID = ByteString.CopyFrom(signed.PeerId.Bytes), SignedPeerRecord = SignedRecord(signed) }));
+
+        PeerId?[] dialed = setup.LocalPeer.ReceivedCalls()
+            .Where(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[])
+            .Select(call => ((Multiaddress[])call.GetArguments()[0]!)[0].GetPeerId())
+            .ToArray();
+        Assert.That(dialed, Is.EquivalentTo(new[] { known, signed.PeerId }));
+        Assert.That(setup.PeerStore.TryGetPeerInfo(unknown, out _), Is.False);
+    }
+
+    /// <remarks>
+    /// Repeated entries for a peer whose dial is still pending must not start more
+    /// dials, and a failed dial must leave a single retry behind.
+    /// </remarks>
+    [Test]
+    public async Task Prune_CoalescesDuplicateExchangedPeers_WhileTheirDialIsPending()
+    {
+        await using RouterSetup setup = await PrunableSetup(int.MaxValue);
+        PeerId known = TestPeers.PeerId(5);
+        TaskCompletionSource<ISession> pendingDial = new();
+        setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == known), Arg.Any<CancellationToken>())
+            .Returns(pendingDial.Task);
+        setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
+
+        PeerInfo[] duplicates = Enumerable.Range(0, 100).Select(_ => new PeerInfo { PeerID = ByteString.CopyFrom(known.Bytes) }).ToArray();
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic, duplicates));
+
+        Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
+
+        pendingDial.SetException(new InvalidOperationException("dial failed"));
+        setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == known), Arg.Any<CancellationToken>())
+            .Returns(new TaskCompletionSource<ISession>().Task);
+        setup.LocalPeer.ClearReceivedCalls();
+        setup.Router.Reconnect(CancellationToken.None);
+        setup.Router.Reconnect(CancellationToken.None);
+
+        Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
+    }
+
+    private static int DialsTo(ILocalPeer localPeer, PeerId peerId) => localPeer.ReceivedCalls()
+        .Count(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[] addrs && addrs[0].GetPeerId() == peerId);
+
+    private static async Task<RouterSetup> PrunableSetup(int reconnectionPeriod = 15_000)
+    {
+        RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0, ReconnectionPeriod = reconnectionPeriod });
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
+        return setup;
+    }
+
+    private static Rpc PruneWith(string topic, params PeerInfo[] peers) => new()
+    {
+        Control = new ControlMessage { Prune = { new ControlPrune { TopicID = topic, Peers = { peers } } } },
+    };
+
+    private static ByteString SignedRecord(Identity peer) =>
+        Core.Dto.SigningHelper.CreateSignedEnvelope(peer, [Multiaddress.Decode($"/ip4/127.0.0.1/tcp/4001/p2p/{peer.PeerId}")], 1);
 
     [Test]
     public void Router_RejectsNonPositiveIdontwantThreshold()
@@ -881,9 +978,10 @@ public class GossipsubControlLimitsTests
         private readonly TaskCompletionSource connection = new();
         private readonly List<TaskCompletionSource> extraConnections = [];
 
-        private RouterSetup(PubsubRouter router, PeerStore peerStore, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
+        private RouterSetup(PubsubRouter router, PeerStore peerStore, ILocalPeer localPeer, string topic, PeerId remotePeerId, List<Rpc> sentRpcs)
         {
             Router = router;
+            LocalPeer = localPeer;
             PeerStore = peerStore;
             Topic = topic;
             RemotePeerId = remotePeerId;
@@ -891,6 +989,7 @@ public class GossipsubControlLimitsTests
         }
 
         public PubsubRouter Router { get; }
+        public ILocalPeer LocalPeer { get; }
         public PeerStore PeerStore { get; }
         public string Topic { get; }
         public PeerId RemotePeerId { get; }
@@ -906,7 +1005,7 @@ public class GossipsubControlLimitsTests
             localPeer.Identity.Returns(TestPeers.Identity(1));
             localPeer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
 
-            RouterSetup setup = new(router, peerStore, topic, TestPeers.PeerId(2), []);
+            RouterSetup setup = new(router, peerStore, localPeer, topic, TestPeers.PeerId(2), []);
             await router.StartAsync(localPeer, setup.cancellation.Token);
             _ = router.GetTopic(topic);
             Multiaddress remoteAddress = TestPeers.Multiaddr(2);
