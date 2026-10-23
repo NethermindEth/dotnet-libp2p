@@ -120,23 +120,22 @@ public partial class PubsubRouter
     /// Gives a peer that is connecting the score it disconnected with, unless that expired.
     /// </summary>
     /// <remarks>
-    /// Called from the <see cref="peerState"/> factory, so no reader sees the reconnected peer
-    /// without its score. The kept entry stays: a factory whose peer loses the race to be added
-    /// must not consume it, so the caller whose peer was added calls <see cref="ForgetRetainedScore"/>.
+    /// Called from the <see cref="peerState"/> factory under the router lock, which the caller holds
+    /// until the peer is listed. No reader sees the reconnected peer without its score, and no connection
+    /// to the same peer can keep a score in between that this lookup missed. The kept entry stays until
+    /// the caller calls <see cref="ForgetRetainedScore"/>: an inbound connection can still drop the peer
+    /// it just listed, and the score must not be lost then.
     /// </remarks>
     private PubsubPeer WithRetainedScore(PubsubPeer peer, out RetainedScore? restored)
     {
-        lock (this)
+        restored = _retainedScores.TryGetValue(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow
+            ? retained
+            : null;
+        if (restored is not null)
         {
-            restored = _retainedScores.TryGetValue(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow
-                ? retained
-                : null;
-            if (restored is not null)
-            {
-                // Colocation is about the address this connection uses, not the last one.
-                restored.Score.IPAddress = peer.Score.IPAddress;
-                peer.Score = restored.Score;
-            }
+            // Colocation is about the address this connection uses, not the last one.
+            restored.Score.IPAddress = peer.Score.IPAddress;
+            peer.Score = restored.Score;
         }
 
         return peer;

@@ -970,12 +970,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return Canceled;
 
-        PubsubPeer? created = null;
-        RetainedScore? restored = null;
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => created = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local }, out restored));
-        if (ReferenceEquals(created, peer) && restored is not null)
+        // The kept score is looked up and the peer listed under the router lock, which RemovePeer also
+        // holds to remove a peer and keep its score. Another connection to the same peer therefore cannot
+        // keep a score after this lookup missed it but before this peer is listed.
+        PubsubPeer peer;
+        lock (this)
         {
-            ForgetRetainedScore(peerId, restored);
+            PubsubPeer? created = null;
+            RetainedScore? restored = null;
+            peer = peerState.GetOrAdd(peerId, (id) => created = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local }, out restored));
+            if (ReferenceEquals(created, peer) && restored is not null)
+            {
+                ForgetRetainedScore(peerId, restored);
+            }
         }
 
         lock (peer)
@@ -1033,9 +1040,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return (Canceled, static () => { });
 
+        // Looked up and listed under the router lock, as in OutboundConnection. The kept score is only
+        // forgotten below, once the peer is not dropped as suppressed.
         PubsubPeer? newPeer = null;
         RetainedScore? restored = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote }, out restored));
+        PubsubPeer existingPeer;
+        lock (this)
+        {
+            existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote }, out restored));
+        }
         lock (existingPeer)
         {
             bool isNewPeer = ReferenceEquals(newPeer, existingPeer);

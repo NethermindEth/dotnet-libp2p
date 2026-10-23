@@ -5,7 +5,9 @@ using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -184,6 +186,70 @@ public class ScoreRetentionTests
         router.OnRpc(peerId, subscribe);
 
         Assert.That(IsSubscribed(router, "other", peerId), Is.False);
+    }
+
+    /// <remarks>
+    /// Two connections to the same peer overlap. Connection A has looked for a kept score and found
+    /// none, but is not listed yet. The test pauses it there by holding the peer table's insertion
+    /// locks: with the router lock free, that is the only place A can wait. Then, on the thread that
+    /// holds those locks, connection B is listed, penalized and removed, which keeps -112.5. If the
+    /// router lets B through while A is paused, A must still come up with B's penalty. A router that
+    /// holds its lock from the lookup until A is listed keeps B out, so no score can be kept meanwhile.
+    /// </remarks>
+    [TestCase(false, TestName = "OverlappingConnection_DoesNotLoseAPenaltyKeptMeanwhile(outbound)")]
+    [TestCase(true, TestName = "OverlappingConnection_DoesNotLoseAPenaltyKeptMeanwhile(inbound)")]
+    public async Task OverlappingConnection_DoesNotLoseAPenaltyKeptMeanwhile(bool inbound)
+    {
+        using PubsubRouter router = await CreateStartedRouterAsync();
+        Multiaddress address = TestPeers.Multiaddr(1);
+        PeerId peerId = address.GetPeerId()!;
+        ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer> peers = PeerTable(router);
+        object[] insertionLocks = InsertionLocks(peers);
+        Thread connectionA = new(() =>
+        {
+            if (inbound) router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, () => Task.CompletedTask);
+            else router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, _ => { });
+        })
+        { IsBackground = true };
+
+        bool overlapped;
+        int held = 0;
+        try
+        {
+            for (; held < insertionLocks.Length; held++) Monitor.Enter(insertionLocks[held]);
+            connectionA.Start();
+            Assert.That(SpinWait.SpinUntil(() => (connectionA.ThreadState & ThreadState.WaitSleepJoin) != 0, Timeout), Is.True,
+                "precondition: A is paused");
+            Assert.That(peers.ContainsKey(peerId), Is.False, "precondition: A is not listed yet");
+            overlapped = Monitor.TryEnter(router);
+            if (overlapped)
+            {
+                try
+                {
+                    router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, _ => { });
+                    Penalize(router, peerId);
+                    RemovePeer(router, address, peers[peerId]);
+                    Assert.That(router.RetainedScoreCount, Is.EqualTo(1), "precondition: B's penalty is kept");
+                }
+                finally
+                {
+                    Monitor.Exit(router);
+                }
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < held; i++) Monitor.Exit(insertionLocks[i]);
+        }
+        Assert.That(connectionA.Join(Timeout), Is.True, "A finishes connecting");
+
+        Assert.That(((IRoutingStateContainer)router).ConnectedPeers, Does.Contain(peerId));
+        if (overlapped)
+        {
+            Assert.That(router.GetPeerScore(peerId), Is.EqualTo(PenalizedScore));
+            router.OnRpc(peerId, new Rpc().WithTopics(["other"], []));
+            Assert.That(IsSubscribed(router, "other", peerId), Is.False, "A is graylisted from its first RPC.");
+        }
     }
 
     /// <remarks>
@@ -376,4 +442,24 @@ public class ScoreRetentionTests
             return ((IRoutingStateContainer)router).GossipsubPeers.TryGetValue(topic, out HashSet<PeerId>? peers) && peers.Contains(peerId);
         }
     }
+
+    private static ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer> PeerTable(PubsubRouter router) =>
+        (ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer>)typeof(PubsubRouter)
+            .GetField("peerState", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(router)!;
+
+    /// <summary>
+    /// The locks <see cref="ConcurrentDictionary{TKey, TValue}"/> takes to insert or remove an entry.
+    /// Holding all of them pauses any other thread that is about to list or remove a peer.
+    /// </summary>
+    private static object[] InsertionLocks(ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer> peers)
+    {
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
+        object tables = peers.GetType().GetField("_tables", flags)!.GetValue(peers)!;
+        return (object[])tables.GetType().GetField("_locks", flags)!.GetValue(tables)!;
+    }
+
+    /// <summary>Removes a peer as its connection ending would, on the calling thread.</summary>
+    private static void RemovePeer(PubsubRouter router, Multiaddress address, PubsubRouter.PubsubPeer peer) =>
+        typeof(PubsubRouter).GetMethod("RemovePeer", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(router, [address.GetPeerId()!, address, peer]);
 }
