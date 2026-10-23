@@ -178,6 +178,15 @@ a fresh connection advertises the current snapshot. Insufficient capacity for th
 the new connection again. Automatic connections retain the existing retry policy; with
 `AutoConnect = false`, the application owns recovery.
 
+The same required-control policy applies when other peers occupy the router-wide budget. A peer
+with an empty queue can therefore lose its session, and new sessions can fail their initial
+subscription or extension advertisement until capacity is available. Closing the affected generation
+prevents keeping a live connection with an unannounced local state change; it does not attribute
+misbehavior to that peer. Optional traffic still drops without closing the recipient. There is no
+write deadline, capacity waiter, retry backlog for dropped frames, or eviction of another peer's
+queued frames. Stalled writes remain charged until they finish or teardown aborts them, so these
+limits bound retention rather than guarantee availability under sustained global saturation.
+
 IWANT promises reserve bounded tracking capacity only after admission. Queue residence and stalled
 writes do not consume the follow-up deadline. A successful channel write starts that deadline;
 fulfillment, failed writes and teardown cancel pending promises. A write completion from an old
