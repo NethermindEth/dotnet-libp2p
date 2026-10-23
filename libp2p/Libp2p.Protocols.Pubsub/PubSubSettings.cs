@@ -31,6 +31,18 @@ public class PubsubSettings
 
     public int MaxConnections { get; set; }
 
+    /// <summary>Maximum distinct remote topic memberships retained for one peer. Configure before constructing the router.</summary>
+    public int MaxRemoteSubscriptionsPerPeer { get; set; } = 1_024;
+
+    /// <summary>Maximum topic-name bytes retained per peer, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytesPerPeer { get; set; } = 1 * 1024 * 1024;
+
+    /// <summary>Maximum remote peer/topic memberships retained across the router.</summary>
+    public int MaxRemoteSubscriptions { get; set; } = 65_536;
+
+    /// <summary>Maximum topic-name bytes across all remote memberships, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytes { get; set; } = 64 * 1024 * 1024;
+
     /// <summary>
     /// Peers with reciprocal explicit peering agreements. Each address must
     /// contain a peer ID and is configured before the router starts.

@@ -130,6 +130,7 @@ public class TopicLifecycleTests
         const string topicName = "topic-lifecycle";
         PubsubSettings settings = new() { Degree = 1, LazyDegree = 1, GossipFactor = 1 };
         PubsubRouter router = new(new PeerStore(), settings);
+        await router.StartAsync(new LocalPeerStub(), new CancellationToken(true));
         IRoutingStateContainer state = router;
         _ = router.GetTopic(topicName, subscribe: false);
         Multiaddress fanoutPeerAddress = TestPeers.Multiaddr(3);
@@ -146,7 +147,7 @@ public class TopicLifecycleTests
         router.OnRpc(fanoutPeerId, new Rpc().WithTopics([topicName], []));
         router.OnRpc(gossipPeerId, new Rpc().WithTopics([topicName], []));
         state.Fanout.GetOrAdd(topicName, []).Add(fanoutPeerId);
-        router.OnRpc(fanoutPeerId, CreateMessage(topicName, TestPeers.Identity(5), 1));
+        router.Publish(topicName, [1, 2, 3]);
         fanoutSent.Clear();
         gossipSent.Clear();
 
