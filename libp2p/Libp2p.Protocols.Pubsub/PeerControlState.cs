@@ -19,7 +19,7 @@ internal sealed class PeerControlState
     public int IHaveRequested { get; private set; }
     public int IwantMessages { get; private set; }
     public int IdontwantMessages { get; private set; }
-    public int SentIdontwantMessages { get; private set; }
+    public int IdontwantSendAttempts { get; private set; }
 
     public bool TryAcceptIHave(int maxMessages)
     {
@@ -50,14 +50,15 @@ internal sealed class PeerControlState
         return true;
     }
 
-    public bool TrySendIdontwant(int maxMessages)
+    // These are conservative attempt budgets; queue admission and successful writes are separate.
+    public bool TryReserveIdontwantAttempt(int maxMessages)
     {
-        if (SentIdontwantMessages >= maxMessages)
+        if (IdontwantSendAttempts >= maxMessages)
         {
             return false;
         }
 
-        SentIdontwantMessages++;
+        IdontwantSendAttempts++;
         return true;
     }
 
@@ -82,7 +83,7 @@ internal sealed class PeerControlState
 
     public bool IsUnwanted(MessageId id) => unwanted.ContainsKey(id);
 
-    public bool TryRecordIwantResponse(MessageId id, long currentTick, int historyLength, int maxResponses, int maxTrackedMessages)
+    public bool TryReserveIwantResponseAttempt(MessageId id, long currentTick, int historyLength, int maxResponses, int maxTrackedMessages)
     {
         if (iwantResponses.TryGetValue(id, out ResponseState response))
         {
@@ -110,7 +111,7 @@ internal sealed class PeerControlState
         IHaveRequested = 0;
         IwantMessages = 0;
         IdontwantMessages = 0;
-        SentIdontwantMessages = 0;
+        IdontwantSendAttempts = 0;
         RemoveExpired(unwanted, currentTick);
         RemoveExpired(iwantResponses, currentTick);
     }

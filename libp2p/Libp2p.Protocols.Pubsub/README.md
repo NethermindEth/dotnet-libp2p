@@ -150,6 +150,56 @@ Other additions exceeding a budget are ignored without a penalty or disconnect; 
 
 Remote unsubscribe and disconnect release membership and partial-message metadata. Empty remote topic keys are removed from `IRoutingStateContainer.FloodsubPeers` and `GossipsubPeers`; local subscription alone no longer creates these keys. An active local subscription keeps its empty mesh so heartbeat can refill it. Local unsubscribe retains remote announcements, and publishing without subscribing continues to use fanout.
 
+## Outbound work and incoming dispatch
+
+Configure these positive capacities before constructing the router:
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `MaxOutboundRpcEntriesPerPeer` | 32 | Queued plus in-flight frames per peer |
+| `MaxOutboundRpcBytesPerPeer` | 4 MiB | Encoded bytes, including framing, per peer |
+| `MaxOutboundRpcEntries` | 4,096 | Frames across the router, including draining connections |
+| `MaxOutboundRpcBytes` | 64 MiB | Encoded bytes across the router, including draining connections |
+| `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
+| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs |
+
+Every outbound RPC uses the same budgets, including before a reply stream is attached. Admission
+never waits for space. Each peer has one asynchronous writer and owns immutable serialized frames;
+mutating an RPC after admission cannot change queued data. Reservations remain charged until the
+underlying write finishes, including a partly consumed write during shutdown. Byte limits measure
+encoded payloads, rather than total managed memory; entry limits also bound queue overhead.
+
+At capacity, payloads, partial messages, IHAVE, IDONTWANT and IWANT requests drop newest without a
+score penalty. Losing a subscribe, unsubscribe, GRAFT, PRUNE or first-frame extension advertisement
+instead closes that peer generation and disconnects its owning session. A failed write also closes
+the generation, because continuing a possibly incomplete framed stream is unsafe. This session
+closure can affect other protocols sharing the connection. Local subscriptions survive teardown;
+a fresh connection advertises the current snapshot. Insufficient capacity for that snapshot closes
+the new connection again. Automatic connections retain the existing retry policy; with
+`AutoConnect = false`, the application owns recovery.
+
+IWANT promises reserve bounded tracking capacity only after admission. Queue residence and stalled
+writes do not consume the follow-up deadline. A successful channel write starts that deadline;
+fulfillment, failed writes and teardown cancel pending promises. A write completion from an old
+connection cannot arm a replacement connection's promise. Incoming request and response-attempt
+limits remain conservative abuse limits even when outbound work is dropped.
+
+Receive loops await message-ID admission before reading another frame. The incoming budgets bound
+both semaphore waiters and RPCs retained through dispatch. At capacity, publishes are skipped before
+hashing, validation, caching, delivery credit or penalties; subscriptions and controls still run.
+Control-only, unwanted-topic and graylisted traffic keep their early gates. Calculations share the
+existing concurrency limit with synchronous application publishing. Cancellation stops pending
+admission; already running host calculations and application callbacks cannot be forcibly cancelled.
+
+Forwarding and IDONTWANT admission happen before synchronous full-message and partial-message
+callbacks, including accepted deferred validations. Application events retain their signatures,
+ordering and exception isolation and run outside the router lock. An admitted frame is queued work,
+not an acknowledgement of delivery.
+
+The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
+`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity` or `serialization`)
+and no peer or topic labels.
+
 ## Stopping the router
 
 The router stops when the token passed to `StartAsync` is cancelled or when the router is disposed. Disposal cancels its heartbeat and reconnect loops and the dials it started, closes the pubsub streams it serves and stops reacting to new `PeerStore` peers. It does not dispose the `PeerStore` or the local peer.

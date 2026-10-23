@@ -23,12 +23,14 @@ public class GossipsubControlLimitsTests
         await using RouterSetup setup = await RouterSetup.Create(settings);
         IRoutingStateContainer state = setup.Router;
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh[setup.Topic], Does.Contain(setup.RemotePeerId));
         var peers = (ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer>)typeof(PubsubRouter)
             .GetField("peerState", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(setup.Router)!;
         peers[setup.RemotePeerId].Score.GetTopicScore(setup.Topic).MeshJoinTime = DateTime.UtcNow.AddSeconds(-6);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         int deliveries = 0;
         setup.Router.OnMessage += (_, _, _) => deliveries++;
         Identity author = TestPeers.Identity(3);
@@ -67,6 +69,7 @@ public class GossipsubControlLimitsTests
         Assert.That(GetIwantIds(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
 
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [5]));
@@ -94,6 +97,7 @@ public class GossipsubControlLimitsTests
         Assert.That(GetIwantIds(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, [8], [9], [10], [11]));
         Assert.That(GetIwantIds(setup.SentRpcs), Has.Count.EqualTo(3));
@@ -171,6 +175,7 @@ public class GossipsubControlLimitsTests
         Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
 
         setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
@@ -187,6 +192,7 @@ public class GossipsubControlLimitsTests
         setup.Router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV12, senderConnection.Task, _ => { });
         setup.Router.OnRpc(senderPeerId, new Rpc().WithTopics([setup.Topic], []));
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Is.SupersetOf(new[] { setup.RemotePeerId, senderPeerId }));
 
         Identity author = TestPeers.Identity(4);
@@ -225,9 +231,11 @@ public class GossipsubControlLimitsTests
         _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV12, allowedRpcs);
         _ = setup.ConnectPeer(5, PubsubRouter.FloodsubProtocolVersion, floodsubRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         if (useFanout)
         {
             setup.Router.Unsubscribe(setup.Topic);
+            setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         }
 
         MessageId messageId = new([42]);
@@ -241,6 +249,7 @@ public class GossipsubControlLimitsTests
         floodsubRpcs.Clear();
 
         setup.Router.Publish(setup.Topic, [42]);
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -267,6 +276,7 @@ public class GossipsubControlLimitsTests
         _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV11, oldPeerRpcs);
         _ = setup.ConnectPeer(5, PubsubRouter.GossipsubProtocolVersionV13, v13PeerRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Has.Count.EqualTo(4));
         setup.SentRpcs.Clear();
         senderRpcs.Clear();
@@ -308,6 +318,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> senderRpcs = [];
         PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         senderRpcs.Clear();
 
@@ -360,11 +371,13 @@ public class GossipsubControlLimitsTests
         _ = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV11, oldPeerRpcs);
         _ = setup.ConnectPeer(4, PubsubRouter.GossipsubProtocolVersionV13, v13PeerRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         oldPeerRpcs.Clear();
         v13PeerRpcs.Clear();
 
         setup.Router.Publish(setup.Topic, new byte[1024]);
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Message published = GetPublishedMessages(setup.SentRpcs).Single();
         ByteString expectedId = ByteString.CopyFrom(PubsubSettings.ConcatFromAndSeqno(published).Bytes);
@@ -385,6 +398,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> recipientRpcs = [];
         _ = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, recipientRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         recipientRpcs.Clear();
         Identity author = TestPeers.Identity(4);
         Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
@@ -410,6 +424,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> senderRpcs = [];
         PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         Identity author = TestPeers.Identity(4);
 
@@ -433,6 +448,7 @@ public class GossipsubControlLimitsTests
         Assert.That(GetIdontwantIds(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         Message fourth = new Rpc().WithMessages(setup.Topic, 4, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
         setup.Router.OnRpc(sender, new Rpc { Publish = { fourth } });
@@ -451,6 +467,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> senderRpcs = [];
         PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         Identity author = TestPeers.Identity(4);
         Message[] messages = Enumerable.Range(1, 5)
@@ -491,6 +508,7 @@ public class GossipsubControlLimitsTests
             Subscriptions = { new Rpc.Types.SubOpts { Subscribe = true, Topicid = setup.Topic, SupportsSendingPartial = true } },
         });
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         partialPeerRpcs.Clear();
         fullPeerRpcs.Clear();
         Identity author = TestPeers.Identity(5);
@@ -514,6 +532,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> senderRpcs = [];
         PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         Identity author = TestPeers.Identity(4);
 
@@ -537,6 +556,7 @@ public class GossipsubControlLimitsTests
         List<Rpc> senderRpcs = [];
         PeerId sender = setup.ConnectPeer(3, PubsubRouter.GossipsubProtocolVersionV12, senderRpcs);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
         Identity author = TestPeers.Identity(4);
         Message message = new Rpc().WithMessages(setup.Topic, 1, author.PeerId.Bytes, new byte[1024], author).Publish.Single();
@@ -559,6 +579,7 @@ public class GossipsubControlLimitsTests
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0 });
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
         Identity exchanged = TestPeers.Identity(5);
         Core.Dto.SignedEnvelope unusable = Core.Dto.SignedEnvelope.Parser.ParseFrom(
@@ -619,6 +640,7 @@ public class GossipsubControlLimitsTests
         setup.Router.GetTopic(secondTopic);
         setup.Router.OnRpc(setup.RemotePeerId, new Rpc().WithTopics([secondTopic], []));
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[secondTopic], Does.Contain(setup.RemotePeerId));
         Identity signer = new(keyType: Core.Dto.KeyType.Secp256K1);
         Core.Dto.SignedEnvelope envelope = Core.Dto.SignedEnvelope.Parser.ParseFrom(SignedRecord(signer));
@@ -720,6 +742,7 @@ public class GossipsubControlLimitsTests
     {
         RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue, AcceptPXThreshold = 0, ReconnectionPeriod = reconnectionPeriod });
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(((IRoutingStateContainer)setup.Router).Mesh[setup.Topic], Does.Contain(setup.RemotePeerId), "precondition: the remote peer is in the mesh");
         return setup;
     }
@@ -793,6 +816,7 @@ public class GossipsubControlLimitsTests
         Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         setup.SentRpcs.Clear();
 
         Rpc idontwant = new() { Control = new ControlMessage() };
@@ -813,8 +837,8 @@ public class GossipsubControlLimitsTests
         MessageId firstMessage = new([1]);
         MessageId secondMessage = new([2]);
 
-        tracker.Add(firstPeer, [firstMessage], DateTime.UtcNow.AddSeconds(-1));
-        tracker.Add(secondPeer, [secondMessage], DateTime.UtcNow.AddSeconds(-1));
+        tracker.Arm(tracker.Reserve(firstPeer, firstPeer, [firstMessage]), DateTime.UtcNow.AddSeconds(-1));
+        tracker.Arm(tracker.Reserve(secondPeer, secondPeer, [secondMessage]), DateTime.UtcNow.AddSeconds(-1));
 
         Assert.Multiple(() =>
         {
@@ -823,7 +847,7 @@ public class GossipsubControlLimitsTests
             Assert.That(tracker.Count, Is.Zero);
         });
 
-        tracker.Add(firstPeer, [firstMessage], DateTime.UtcNow.AddSeconds(1));
+        tracker.Arm(tracker.Reserve(firstPeer, firstPeer, [firstMessage]), DateTime.UtcNow.AddSeconds(1));
         tracker.Fulfill(firstMessage);
         Assert.That(tracker.Count, Is.Zero);
     }
@@ -836,8 +860,8 @@ public class GossipsubControlLimitsTests
         MessageId message = new([1]);
         DateTime now = DateTime.UtcNow;
 
-        tracker.Add(peer, [message], now.AddSeconds(-1));
-        tracker.Add(peer, [message], now.AddSeconds(1));
+        tracker.Arm(tracker.Reserve(peer, peer, [message]), now.AddSeconds(-1));
+        tracker.Arm(tracker.Reserve(peer, peer, [message]), now.AddSeconds(1));
 
         Assert.Multiple(() =>
         {
@@ -862,6 +886,7 @@ public class GossipsubControlLimitsTests
         Assert.That(setup.Router.IwantPromiseCount, Is.EqualTo(1));
         await Task.Delay(settings.IWantFollowupTime + 20);
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -870,6 +895,7 @@ public class GossipsubControlLimitsTests
         });
 
         await setup.Router.Heartbeat();
+        setup.Router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(setup.RemotePeerScore, Is.EqualTo(initialScore + settings.BehaviorPenaltyWeight));
     }
 
@@ -1063,6 +1089,7 @@ public class GossipsubControlLimitsTests
         public MessageId Publish(byte[] data)
         {
             Router.Publish(Topic, data);
+            Router.FlushOutboundAsync().GetAwaiter().GetResult();
             Message published = SentRpcs.Last().Publish.Single();
             return PubsubSettings.ConcatFromAndSeqno(published);
         }

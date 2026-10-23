@@ -419,6 +419,7 @@ public class PeerScoringTests
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         // Verify peer has negative score (exact behavior depends on implementation)
         Assert.Pass("Low score peer graylist test completed");
@@ -440,7 +441,7 @@ public class PeerScoringTests
         settings.TopicScoreParams[TestTopic] = CreateDefaultTopicParams();
 
         PeerStore peerStore = new();
-        PubsubRouter router = new(peerStore, settings);
+        await using PubsubRouter router = new(peerStore, settings);
         ILocalPeer localPeer = new LocalPeerStub();
         IRoutingStateContainer state = router;
 
@@ -449,6 +450,7 @@ public class PeerScoringTests
 
         // Add multiple peers
         List<PeerId> peerIds = new();
+        List<TaskCompletionSource> connections = [];
         for (int i = 1; i <= 4; i++)
         {
             Multiaddress peerAddr = TestPeers.Multiaddr(i);
@@ -459,15 +461,17 @@ public class PeerScoringTests
             TaskCompletionSource tcs = new();
             router.OutboundConnection(peerAddr, PubsubRouter.GossipsubProtocolVersionV11, tcs.Task, _ => { });
             router.OnRpc(peerId, new Rpc().WithTopics([TestTopic], []));
-            tcs.SetResult();
+            connections.Add(tcs);
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         // Test completes if we can successfully create peers and run heartbeat
         // The mesh formation depends on peer connectivity and protocol negotiation
         // We verify basic functionality rather than specific mesh state
         Assert.That(state.GossipsubPeers.ContainsKey(TestTopic), Is.True, "Topic should have gossipsub peers");
+        foreach (TaskCompletionSource connection in connections) connection.SetResult();
         Assert.Pass("Successfully created peers and ran heartbeat with scoring enabled");
     }
 

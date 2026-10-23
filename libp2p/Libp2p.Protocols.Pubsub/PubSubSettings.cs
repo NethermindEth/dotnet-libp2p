@@ -29,6 +29,19 @@ public class PubsubSettings
     public int HighestDegree { get; set; } = 12; // Upper bound for outbound degree 	12
     public int LazyDegree { get; set; } = 6; // (Optional) the outbound degree for gossip emission D
 
+    /// <summary>Outbound queued plus in-flight frames per peer. Configure capacities before router construction.</summary>
+    public int MaxOutboundRpcEntriesPerPeer { get; set; } = 32;
+    /// <summary>Outbound encoded bytes per peer, including framing and in-flight writes.</summary>
+    public long MaxOutboundRpcBytesPerPeer { get; set; } = 4L * 1024 * 1024;
+    /// <summary>Outbound frames across all peers, including draining generations.</summary>
+    public int MaxOutboundRpcEntries { get; set; } = 4_096;
+    /// <summary>Outbound encoded bytes across all peers, including draining generations.</summary>
+    public long MaxOutboundRpcBytes { get; set; } = 64L * 1024 * 1024;
+    /// <summary>Incoming RPCs retained while awaiting or performing message-ID calculation and dispatch.</summary>
+    public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
+    /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs.</summary>
+    public long MaxIncomingMessageIdRpcBytes { get; set; } = 16L * 1024 * 1024;
+
     public int MaxConnections { get; set; }
 
     /// <summary>Maximum distinct remote topic memberships retained for one peer. Configure before constructing the router.</summary>
