@@ -125,10 +125,13 @@ public class IpTcpProtocol : ITransportProtocol
         catch (Exception failure) when (lifetime.IsCancellationRequested && failure is OperationCanceledException or ObjectDisposedException or SocketException) { }
         finally
         {
-            lifetime.Cancel();
-            Task[] pending;
-            lock (active) pending = [.. active];
-            await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            try { lifetime.Cancel(); }
+            finally
+            {
+                Task[] pending;
+                lock (active) pending = [.. active];
+                await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
         }
         if (setupFailure is not null and not ChannelClosedException)
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(setupFailure).Throw();
@@ -189,13 +192,22 @@ public class IpTcpProtocol : ITransportProtocol
             }
             finally
             {
-                lifetime.Cancel();
-                await channel.AbortAsync();
-                client.Dispose();
-                await Task.WhenAll(receive, send).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                try
+                {
+                    try { lifetime.Cancel(); }
+                    finally { await channel.AbortAsync(); }
+                }
+                finally
+                {
+                    client.Dispose();
+                    try { await Task.WhenAll(receive, send).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing); }
+                    finally
+                    {
 #if DEBUG
-                RemoveDisconnectionHandler(disconnect);
+                        RemoveDisconnectionHandler(disconnect);
 #endif
+                    }
+                }
             }
 
             async Task ReceiveAsync()
@@ -234,8 +246,8 @@ public class IpTcpProtocol : ITransportProtocol
             }
             finally
             {
-                connection?.Dispose();
-                if (connection is not null) await connection.Completion;
+                try { connection?.Dispose(); }
+                finally { if (connection is not null) await connection.Completion; }
             }
         }
     }

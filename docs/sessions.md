@@ -93,6 +93,7 @@ including Identify negotiation and its response. Expiry disconnects the session,
 cancels I/O, and releases its peer-store retention. Established sessions survive these
 deadlines. Each multistream negotiation also has a **15 second** deadline which stops
 before the selected protocol runs, so long-lived application streams remain supported.
+Negotiation frames are limited to 1,024 payload bytes, including the trailing newline.
 
 Configure immutable limits through DI before resolving the factory:
 

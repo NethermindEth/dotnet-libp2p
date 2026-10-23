@@ -46,12 +46,13 @@ public class AdmissionAndLifetimeTests
         Assert.That(admission.Sources, Is.Zero);
     }
 
-    [Test]
-    public async Task AdmissionRemainsChargedWhileProtocolTeardownIsBlocked()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AdmissionRemainsChargedWhileProtocolTeardownIsBlocked(bool disposalFails)
     {
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
         TaskCompletionSource teardown = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Listener listener = new(new object(), new PeerResourceLimits(1, 1), teardown.Task);
+        Listener listener = new(new object(), new PeerResourceLimits(1, 1), teardown.Task, disposalFails);
         Task transport = new IpTcpProtocol().ListenAsync(listener, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
         IPEndPoint endpoint = await listener.Ready.Task;
         try
@@ -145,7 +146,14 @@ public class AdmissionAndLifetimeTests
         object? registrations = typeof(CancellationTokenSource).GetField("_registrations", flags)!.GetValue(source);
         object? node = registrations?.GetType().GetField("Callbacks", flags)!.GetValue(registrations);
         int count = 0;
-        while (node is not null) { count++; node = node.GetType().GetField("Next", flags)!.GetValue(node); }
+        while (node is not null)
+        {
+            // Follow the listener's linked lifetime too: counting only the outer token would
+            // miss registrations retained by connection scopes beneath that lifetime.
+            if (node.GetType().GetField("CallbackState", flags)!.GetValue(node) is CancellationTokenSource linked)
+                count += 1 + RegistrationCount(linked);
+            node = node.GetType().GetField("Next", flags)!.GetValue(node);
+        }
         return count;
     }
 
@@ -155,7 +163,7 @@ public class AdmissionAndLifetimeTests
         catch (IOException) { return 0; }
     }
 
-    private sealed class Listener(object scope, PeerResourceLimits limits, Task? teardown = null) : ITransportContext
+    private sealed class Listener(object scope, PeerResourceLimits limits, Task? teardown = null, bool disposalFails = false) : ITransportContext
     {
         public object ConnectionAdmissionScope => scope;
         public PeerResourceLimits ResourceLimits => limits;
@@ -166,13 +174,13 @@ public class AdmissionAndLifetimeTests
         public void ListenerReady(Multiaddress address) => Ready.TrySetResult(address.ToEndPoint());
         public INewConnectionContext CreateConnection()
         {
-            Connection connection = new(teardown);
+            Connection connection = new(teardown, disposalFails);
             Connections.Writer.TryWrite(connection);
             return connection;
         }
     }
 
-    private sealed class Connection(Task? teardown = null) : INewConnectionContext
+    private sealed class Connection(Task? teardown = null, bool disposalFails = false) : INewConnectionContext
     {
         public Task Completion => teardown ?? Task.CompletedTask;
         public Channel Channel { get; } = new();
@@ -182,7 +190,13 @@ public class AdmissionAndLifetimeTests
         public State State { get; } = new();
         public int Disposals;
         public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public void Dispose() { Interlocked.Increment(ref Disposals); _closed.Cancel(); Disposed.TrySetResult(); }
+        public void Dispose()
+        {
+            Interlocked.Increment(ref Disposals);
+            _closed.Cancel();
+            Disposed.TrySetResult();
+            if (disposalFails) throw new InvalidOperationException("Injected disposal failure");
+        }
         public ILocalPeer Peer => throw new NotSupportedException();
         public Activity? Activity => null;
         public IEnumerable<IProtocol> SubProtocols => [];

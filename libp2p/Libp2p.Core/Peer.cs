@@ -197,6 +197,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
+        bool initializationAcquired = false;
         try
         {
             lock (Sessions)
@@ -205,6 +206,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
                     throw new SessionExistsException(remotePeerId);
                 if (!session.TryBeginInitialization()) throw new Libp2pException("Concurrent initialization limit reached.");
+                initializationAcquired = true;
                 session.RegisterSession();
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
                 Sessions.Add(session);
@@ -215,8 +217,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch
         {
-            session.EndInitialization();
-            _ = session.DisconnectAsync();
+            ObserveLateFailure(initializationAcquired ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
             throw;
         }
 
@@ -230,8 +231,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         catch (Exception failure)
         {
             session.ConnectedTcs.TrySetException(failure);
-            session.EndInitialization();
-            ObserveLateFailure(session.DisconnectAsync());
+            ObserveLateFailure(FinishFailedInitializationAsync(session));
             throw;
         }
         ObserveLateFailure(InitializeSessionAsync(session, initialization));
@@ -240,13 +240,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     private async Task InitializeSessionAsync(Session session, Task initialization)
     {
+        bool connected = false;
         try
         {
             await initialization;
-            if (session.TrySetConnected()) OnConnected?.Invoke(session);
+            connected = session.TrySetConnected();
+            if (connected) OnConnected?.Invoke(session);
         }
         catch (Exception failure)
         {
+            connected = false;
             try
             {
                 if (initialization.IsCanceled) session.ConnectedTcs.TrySetCanceled();
@@ -260,6 +263,20 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 }
             }
             finally { await session.DisconnectAsync(); }
+        }
+        finally
+        {
+            if (connected) session.EndInitialization();
+            else await FinishFailedInitializationAsync(session);
+        }
+    }
+
+    private static async Task FinishFailedInitializationAsync(Session session)
+    {
+        try
+        {
+            try { await session.DisconnectAsync(); }
+            finally { await session.DrainUpgradesAsync(); }
         }
         finally { session.EndInitialization(); }
     }
@@ -921,17 +938,14 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             try
             {
-                try { await task; }
-                finally
-                {
-                    if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                        MapToTaskCompletionSource(task, options.CompletionSource);
-                }
+                await task;
                 if (downChannel is Channel completedChannel) await completedChannel.CompleteProtocolAsync();
                 else await downChannel.CloseAsync();
             }
             catch (Exception ex)
             {
+                if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
+                    MapToTaskCompletionSource(task, options.CompletionSource);
                 if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, ex);
                 await downChannel.AbortAsync();
                 if (task.IsFaulted)
@@ -942,7 +956,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 }
                 throw;
             }
-            finally { Cleanup(); }
+            finally
+            {
+                try { Cleanup(); }
+                catch (Exception failure)
+                {
+                    if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, failure);
+                    throw;
+                }
+                if (task.IsCompletedSuccessfully && options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
+                    MapToTaskCompletionSource(task, options.CompletionSource);
+            }
         }
 
         void Cleanup()

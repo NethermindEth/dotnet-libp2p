@@ -67,6 +67,44 @@ public class NegotiationDeadlineTests
         }
     }
 
+    [TestCase(0)] // Listener hello
+    [TestCase(1)] // Listener proposal
+    [TestCase(2)] // Dialer hello
+    [TestCase(3)] // Dialer proposal reply
+    [TestCase(4)] // Optimistic dialer hello
+    [TestCase(5)] // Optimistic dialer proposal reply
+    public async Task OversizedNegotiationIsRejectedBeforeReadingItsPayload(int stage)
+    {
+        MultistreamProtocol protocol = new();
+        Channel channel = new();
+        IChannel remote = channel.Reverse;
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        IProtocol selected = Substitute.For<IProtocol>();
+        selected.Id.Returns("/test/bounded");
+        context.SubProtocols.Returns([selected]);
+        if (stage >= 4) context.UpgradeOptions.Returns(new UpgradeOptions { SelectedProtocol = selected });
+        Task negotiation = stage < 2 ? protocol.ListenAsync(channel, context) : protocol.DialAsync(channel, context);
+        try
+        {
+            Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(protocol.Id));
+            if (stage >= 4) await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            if (stage % 2 == 1)
+            {
+                await remote.WriteLineAsync(protocol.Id);
+                if (stage == 3) await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            await remote.WriteVarintAsync(1025);
+            await negotiation.WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
+            await context.DidNotReceiveWithAnyArgs().Upgrade(default!, default(IProtocol)!);
+        }
+        finally
+        {
+            await remote.AbortAsync();
+            await negotiation.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     private sealed class ManualClock : TimeProvider
     {
         private TimerCallback? _callback;
