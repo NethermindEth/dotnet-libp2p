@@ -171,26 +171,34 @@ successful dial. TLS disposes its native stream before the certificate lease on
 both success and authentication failure.
 
 The Windows job keeps the full TLS/QUIC suites, requires 32 executed QUIC cases,
-and retains the registered transport tests. Host-supplied Windows results now
-confirm the handshake, concurrency, certificate lifetime, and normal-process-exit
-cleanup tests at the exact implementation revision. They are actual Windows
-execution evidence, not inferred from Linux results. The CI gates remain intact.
+and retains the registered transport tests. The recorded Windows run confirms
+the handshake, concurrency, certificate lifetime, and normal-process-exit cleanup
+tests at the exact implementation revision. These are Windows execution results,
+not inferred from Linux results. The CI gates remain intact.
 
-## Host Windows validation
+## Recorded Windows validation
 
-The host ran a clean checkout of `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on
-2026-10-23, from 21:26:22 to 21:26:56 UTC. The evidence bundle is
-`/root/hammer-workspace/implementation/audit1-20261023/windows-results`:
-`metadata.txt`, each suite's `.command.txt`, `.exit.txt`, and `.log`, `settings.xml`,
-and the three NUnit reports under `xml/`. These files were read and cross-checked
-during this continuation. The implementation and test inputs remain unchanged;
-only documentation is updated. The Windows commands were run by the host, not
-re-executed on this Linux documentation host.
+A clean checkout of `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` was tested on
+2026-10-23, from 21:26:22 to 21:26:56 UTC. The
+[portable results snapshot](evidence/windows-secure-transport-results.json)
+records the environment, exit codes, suite totals, all executed case names, and
+six certificate-list observations extracted from the supplied NUnit reports.
+It also includes the original reports' SHA-256 hashes. Machine/user names and
+absolute paths are omitted. This snapshot is a summary, not the raw logs, and
+the recorded run is not presented as a published GitHub Actions run.
+
+The [Test workflow](../../.github/workflows/test.yml)'s **Windows QUIC and TLS**
+job publishes the `windows-secure-transport-results` artifact. For a completed
+run of the revision under inspection, download that artifact to inspect the TLS
+NUnit XML, including the six certificate-list probes. QUIC and registered test
+results are in the same job's step logs. The snapshot above keeps the recorded
+observations available in the repository without depending on private machines
+or CI artifact retention.
 
 - OS: Microsoft Windows NT 10.0.26200.0, win-x64.
 - SDK: 10.0.401; MSBuild: 18.9.11; runtime: 10.0.12.
-- All three commands exited 0. XML case totals and individual results agree with
-  the complete logs; no case was skipped, failed, or inconclusive.
+- All three commands exited 0. All 69 recorded cases passed; no case was skipped,
+  failed, or inconclusive.
 
 | Suite | Passed / executed | Skipped |
 | --- | ---: | ---: |
@@ -205,25 +213,27 @@ failure/retry and bidirectional application exchange, plus both expected-peer
 alias controls. Thus the named-key correction to review F1 is validated through
 the registered Windows production paths as well as the key-lifetime tests.
 
-Exact commands captured by the host (the registered filter was passed as one
-argument; quote it when replaying in a shell):
+To repeat these checks on a Windows Actions runner, run the following from the
+repository root. `RUNNER_TEMP` is provided by Actions. The commands create their
+own settings file using the same XML output configuration as the workflow; no
+settings file from the recorded machine is needed. Paths differ from the
+original invocation, while the test options and registered filter are preserved.
 
-```text
-dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml
-dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 5 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml --filter FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId
+```powershell
+"<RunSettings><NUnit><TestOutputXml>$env:RUNNER_TEMP/secure-transport-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:RUNNER_TEMP/secure-transports.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$env:RUNNER_TEMP/secure-transports.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$env:RUNNER_TEMP/secure-transports.xml"
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 5 --timeout 180s --settings "$env:RUNNER_TEMP/secure-transports.xml" --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId"
 ```
 
-The settings file enables NUnit XML output at
-`C:/apps/hammer/artifacts/review-pair/audit1-20261023/windows-results/xml`.
 These results resolve the previous Windows execution-evidence blocker. They do
 not establish cross-client interoperability or hard-crash orphan recovery, and
 they do not turn the #373 visibility probe into protocol enforcement.
 
 ## Validation commands
 
-The retained Linux checks ran from the repository root with the session's existing
-`TMPDIR`. All builds used `-p:TreatWarningsAsErrors=true` and one artifact root:
+Linux checks used the repository root as the working directory and `TMPDIR` for
+one shared artifact root. All builds used `-p:TreatWarningsAsErrors=true`:
 
 ```sh
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38
@@ -243,11 +253,10 @@ The initial parent Noise baseline passed 20 tests. Retained Linux Release checks
 at `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52`, using the commands above with
 `-c Release`, passed Noise 38/38, TLS 32/32, QUIC 29 plus three Windows-only skips,
 and registered E2E 45/45. The Core identity tests passed 75/75 during the initial
-implementation. These successful checks are reused because their code and test
-inputs are unchanged; no protocol suite was rerun for this documentation update.
-The new Windows evidence supplies the native-platform results that Linux could
-not establish. Independent review and final verification of this documentation
-candidate still belong to the host; all existing review and CI gates remain.
+implementation. These results apply to unchanged protocol and test inputs;
+documentation-only edits do not change those inputs. The recorded Windows run
+supplies the native-platform results that Linux could not establish. All existing
+independent review, final verification, and CI gates remain.
 
 ## PR handoff
 
