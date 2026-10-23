@@ -109,7 +109,10 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
     public DtlsFingerprint? RemoteFingerprint { get; private set; }
 
     /// <summary>
-    /// The association as a libp2p stream muxer. Null until <see cref="Established"/> completes.
+    /// The association as a libp2p stream muxer. Published a moment before
+    /// <see cref="Established"/> completes -- it has to exist before the association starts
+    /// delivering, see <see cref="RunHandshake"/> -- so a caller reads it only after awaiting
+    /// <see cref="Established"/>, never by polling it.
     /// </summary>
     public WebRtcDirectSctpMuxer? Muxer { get; private set; }
 
@@ -302,15 +305,27 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
 
             RTCSctpTransport sctp = new(SctpPort, SctpPort, _localUdpPort);
 
+            // Subscribed before Start, not after it. RTCSctpTransport's constructor -- not Start --
+            // is what creates the RTCPeerSctpAssociation the muxer hangs its handlers on, while
+            // Start is what spawns the thread that reads packets into it. Building the muxer
+            // afterwards leaves a window in which the association is already delivering: a DCEP
+            // OPEN that lands in it reaches no OnNewDataChannel handler and the peer's first
+            // inbound stream is lost with no error anywhere.
+            WebRtcDirectSctpMuxer muxer = new(sctp, isDtlsClient: WebRtcDirectRoles.ListenerIsDtlsClient);
+
             lock (_lock)
             {
                 if (_disposed)
                 {
-                    sctp.Close();
+                    // DisposeAsync cannot reach a muxer this thread has not published yet, and an
+                    // abandoned one keeps a 20ms buffered-amount timer -- and its own root -- alive
+                    // for the life of the process. Its DisposeAsync closes the transport too.
+                    muxer.DisposeAsync().AsTask().GetAwaiter().GetResult();
                     return;
                 }
 
                 _sctp = sctp;
+                Muxer = muxer;
             }
 
             // dtls.Transport, NOT dtls. Both satisfy DatagramTransport, so the wrong one compiles
@@ -322,7 +337,6 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
             // called here: it emits an INIT, and SIPSorcery documents a race when both ends do.
             sctp.Start(dtls.Transport, isDtlsClient: WebRtcDirectRoles.ListenerIsDtlsClient);
 
-            Muxer = new WebRtcDirectSctpMuxer(sctp, isDtlsClient: WebRtcDirectRoles.ListenerIsDtlsClient);
             _established.TrySetResult();
         }
         catch (Exception ex)

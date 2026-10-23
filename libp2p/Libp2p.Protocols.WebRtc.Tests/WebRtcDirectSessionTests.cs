@@ -114,6 +114,131 @@ public class WebRtcDirectSessionTests
     }
 
     /// <summary>
+    /// The control for the two tests below, and the only proof that a handshake slot comes back on
+    /// the failure path: a leaked one is capacity this listener never recovers. A DTLS fatal alert
+    /// ends <c>DoHandshake</c> in milliseconds, which is also what makes the drop rules below
+    /// testable without parking a test for the ten-second timeout.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task ReceiveDtls_WhenTheHandshakeFails_GivesTheHandshakeSlotBack(CancellationToken token)
+    {
+        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        using SemaphoreSlim slots = new(1, 1);
+        await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
+        IPEndPoint peer = new(IPAddress.Loopback, 1111);
+
+        session.ReceiveDtls(DiscardedRecord(1), peer);
+        session.ReceiveDtls(FatalAlertRecord(), peer);
+
+        InvalidOperationException? failure = Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await session.Established.WaitAsync(token));
+
+        // Named, not just typed: this has to be RunHandshake's own failure branch and not
+        // StartHandshake blowing up before a handshake ever ran, or the slot assertion below would
+        // be checking the wrong release.
+        Assert.That(failure!.Message, Does.Contain("DTLS handshake failed"));
+        Assert.That(
+            () => slots.CurrentCount,
+            Is.EqualTo(1).After(5_000, 20),
+            "A slot taken for a handshake that failed must come back; a leaked one is capacity gone for good.");
+    }
+
+    /// <summary>
+    /// F6 pins the egress to the source of the first DTLS record; its inbound half is that nothing
+    /// from any other source reaches this peer's record layer at all. Without that filter a third
+    /// party who has seen one packet -- which is all it takes to learn the server ufrag, and the
+    /// ufrag is the entire MESSAGE-INTEGRITY key (F3) -- aborts a handshake in flight with one
+    /// forged datagram.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task ReceiveDtls_FromAnUnpinnedSource_CannotAbortAHandshakeInFlight(CancellationToken token)
+    {
+        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        using SemaphoreSlim slots = new(1, 1);
+        await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
+        IPEndPoint peer = new(IPAddress.Loopback, 1111);
+
+        session.ReceiveDtls(DiscardedRecord(1), peer);
+        session.ReceiveDtls(FatalAlertRecord(), new IPEndPoint(IPAddress.Loopback, 2222));
+
+        await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(session.Established.IsCompleted, Is.False);
+            Assert.That(session.RemoteEndPoint, Is.EqualTo(peer));
+        });
+    }
+
+    /// <summary>
+    /// Past <c>MaxPreHandshakeDatagrams</c> nothing more is handed to the DTLS stack while the
+    /// handshake is incomplete, which is what bounds the unbounded queue behind
+    /// <c>WriteToRecvStream</c>. Proved by making the datagram that crosses the bound the one
+    /// record that would otherwise have a visible effect.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task ReceiveDtls_PastThePreHandshakeCap_StopsFeedingTheDtlsStack(CancellationToken token)
+    {
+        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        using SemaphoreSlim slots = new(1, 1);
+        await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
+        IPEndPoint peer = new(IPAddress.Loopback, 1111);
+
+        // Exactly the budget, in records the DTLS record layer discards on sight.
+        for (ushort i = 0; i < PreHandshakeCap; i++)
+        {
+            session.ReceiveDtls(DiscardedRecord(i), peer);
+        }
+
+        await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
+        Assert.That(
+            session.Established.IsCompleted,
+            Is.False,
+            "The filler has to be inert, or crossing the bound with an alert proves nothing.");
+
+        session.ReceiveDtls(FatalAlertRecord(), peer);
+        await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
+
+        Assert.That(session.Established.IsCompleted, Is.False);
+    }
+
+    /// <summary>
+    /// How long to let a datagram that should have been dropped prove that it was. The DTLS
+    /// receive loop wakes every 25ms, and the control test above faults in well under a tenth of
+    /// this.
+    /// </summary>
+    private const int SettleMs = 750;
+
+    /// <summary>Mirrors <c>WebRtcDirectSession.MaxPreHandshakeDatagrams</c>, which is private.</summary>
+    private const int PreHandshakeCap = 128;
+
+    /// <summary>
+    /// A DTLSPlaintext record: 1 byte content type, 2 version, 2 epoch, 6 sequence number, 2
+    /// length (RFC 6347 section 4.1).
+    /// </summary>
+    private static byte[] Record(byte contentType, ushort epoch, byte[] body) =>
+    [
+        contentType, 0xFE, 0xFD,
+        (byte)(epoch >> 8), (byte)epoch,
+        0, 0, 0, 0, 0, 0,
+        (byte)(body.Length >> 8), (byte)body.Length,
+        .. body,
+    ];
+
+    /// <summary>
+    /// A record from an epoch the receiver is not in, which RFC 6347 section 4.1 says to discard.
+    /// Filler that occupies the pre-handshake budget and does nothing else; the varying epoch only
+    /// keeps the records distinct.
+    /// </summary>
+    private static byte[] DiscardedRecord(ushort n) => Record(22, (ushort)(n + 9), [1, 2, 3, 4]);
+
+    /// <summary>A fatal handshake_failure alert, which ends the handshake wherever it is read.</summary>
+    private static byte[] FatalAlertRecord() => Record(21, 0, [2, 40]);
+
+    /// <summary>
     /// A webrtc-direct listener's whole socket layer: one UDP port, first-byte classification per
     /// RFC 7983, and one session. No address table -- there is one peer here -- but the classify
     /// order is the real one, because answering binding requests for the life of the connection is
