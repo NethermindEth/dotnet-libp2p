@@ -54,7 +54,7 @@ public class TlsProtocol : IConnectionProtocol
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
             };
             _logger?.LogTrace("SslServerAuthenticationOptions initialized with ApplicationProtocols: {Protocols}.", string.Join(", ", ApplicationProtocols.Select(p => System.Text.Encoding.UTF8.GetString(p.Protocol.ToArray()))));
-            SslStream sslStream = new(str, false);
+            using SslStream sslStream = new(str, false);
             _logger?.LogTrace("SslStream initialized.");
             try
             {
@@ -94,7 +94,7 @@ public class TlsProtocol : IConnectionProtocol
     private static bool VerifyRemoteCertificate(Multiaddress? remotePeerAddress,
         X509Certificate? certificate)
     {
-        // Per libp2p TLS spec: Must be single certificate, not a chain
+        // SslStream exposes the leaf here; its built X509Chain is not the transmitted list.
         if (certificate is not X509Certificate2 x509Certificate2)
         {
             return false;
@@ -130,7 +130,7 @@ public class TlsProtocol : IConnectionProtocol
             };
 
             Stream str = new ChannelStream(downChannel);
-            SslStream sslStream = new(str, false);
+            using SslStream sslStream = new(str, false);
             _logger?.LogTrace("SSLStream initialized for client authentication.");
 
             try

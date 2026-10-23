@@ -1,6 +1,6 @@
 # TLS Protocol
 
-This implementation provides full support for the libp2p TLS handshake protocol as specified in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md).
+This implementation supports the libp2p TLS handshake protocol described in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md), with the received certificate-list limitation described below.
 
 ## Features
 
@@ -14,13 +14,12 @@ This implementation provides full support for the libp2p TLS handshake protocol 
 - **libp2p Extension**: Custom X.509 extension (OID: `1.3.6.1.4.1.53594.1.1`) for peer identity
 - **Self-Signed Certificates**: Uses ephemeral keys for certificate signing, not host keys
 - **Key Type Support**: Ed25519, Secp256k1, ECDSA, and RSA key types
-- **Windows Compatibility**: Special handling for Windows CNG key requirements
+- **Session Keys**: Certificates share the supplied session key and own their private-key handles
 
 ### Security Features
 - **Certificate Validation**: Comprehensive validation per libp2p spec:
   - Certificate validity period checking
   - Self-signed certificate requirement
-  - Single certificate (no chains allowed)
   - libp2p extension presence verification
   - Peer ID matching
   - Cryptographic signature verification
@@ -59,9 +58,12 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Cross-platform**: Works on Linux, macOS, and Windows
-- **Windows CNG**: Special handling for Windows named CNG keys for SslStream compatibility
-- **Key Generation**: Creates persistent named keys on Windows, ephemeral keys elsewhere
+- **Platform Validation**: Linux transport tests pass. Windows support for the in-memory key path remains pending CI.
+- **Key Generation**: Uses the supplied in-memory session key without creating named keys. Windows TLS and QUIC handshakes must pass the Windows CI job before support for this key lifetime is confirmed; Linux certificate construction alone does not establish Windows support.
+
+### Received certificate lists
+
+The specification requires rejecting more than one transmitted certificate. The current validation verifies the leaf's self-signature and identity but does not enforce the transmitted list's cardinality. `SslStream` exposes a platform-built `X509Chain`, which can have one element even when the peer sent an unrelated certificate or a duplicate leaf. `ChainElements.Count == 1` therefore cannot enforce this requirement. `ExtraStore` is a platform-specific input to chain building, without a portable exact-list contract. See the [probe and platform evidence](../../docs/development/secure-transport-validation.md).
 
 ## Testing
 
