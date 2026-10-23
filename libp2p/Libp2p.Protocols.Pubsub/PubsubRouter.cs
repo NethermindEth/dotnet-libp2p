@@ -939,9 +939,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         lock (this)
         {
+            // Scored before removal, as GetPeerScore would, while the peer still counts towards its own colocation.
+            double score = ScoreOf(peer);
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
                 _iwantPromises.Clear(peerId);
+                KeepDisconnectedScore(peerId, peer.Score, score);
                 foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
@@ -975,7 +978,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return Canceled;
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
+        // The kept score is looked up and the peer listed under the router lock, which RemovePeer also
+        // holds to remove a peer and keep its score. Another connection to the same peer therefore cannot
+        // keep a score after this lookup missed it but before this peer is listed.
+        PubsubPeer peer;
+        lock (this)
+        {
+            PubsubPeer? created = null;
+            RetainedScore? restored = null;
+            peer = peerState.GetOrAdd(peerId, (id) => created = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local }, out restored));
+            if (ReferenceEquals(created, peer) && restored is not null)
+            {
+                ForgetRetainedScore(peerId, restored);
+            }
+        }
 
         lock (peer)
         {
@@ -1032,8 +1048,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return (Canceled, static () => { });
 
+        // Looked up and listed under the router lock, as in OutboundConnection. The kept score is only
+        // forgotten below, once the peer is not dropped as suppressed.
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
+        RetainedScore? restored = null;
+        PubsubPeer existingPeer;
+        lock (this)
+        {
+            existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote }, out restored));
+        }
         lock (existingPeer)
         {
             bool isNewPeer = ReferenceEquals(newPeer, existingPeer);
@@ -1050,6 +1073,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (isNewPeer)
             {
                 logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+                if (restored is not null)
+                {
+                    ForgetRetainedScore(peerId, restored);
+                }
                 listTask.ContinueWith(t =>
                 {
                     RemovePeer(peerId, addr, existingPeer);
