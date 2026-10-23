@@ -573,7 +573,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                     else
                     {
-                        // A single coalescing wakeup covers both queues. Always inspect them before waiting.
+                        // A single coalescing notification covers both queues. Always inspect them before waiting.
                         await _writeReady.Reader.ReadAsync(_stop.Token);
                     }
                 }
