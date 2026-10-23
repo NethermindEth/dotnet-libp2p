@@ -11,6 +11,9 @@ public partial class PubsubRouter
     private int _remoteSubscriptionCount;
     private long _remoteSubscriptionTopicBytes;
     private readonly HashSet<string> _remoteSubscriptionTopics = new(StringComparer.Ordinal);
+    private readonly Dictionary<(PeerId Peer, string Topic), LinkedListNode<(PubsubPeer Peer, string Topic)>> _unwantedRemoteSubscriptions = [];
+    private readonly LinkedList<(PubsubPeer Peer, string Topic)> _unwantedRemoteSubscriptionOrder = [];
+    private long _unwantedRemoteSubscriptionTopicBytes;
 
     internal (int Count, long TopicBytes) RemoteSubscriptionUsage
     {
@@ -34,9 +37,8 @@ public partial class PubsubRouter
         retainedTopic = topic;
         long bytes = 2L * topic.Length;
         if (peer.RemoteSubscriptions.Count >= _settings.MaxRemoteSubscriptionsPerPeer ||
-            _remoteSubscriptionCount >= _settings.MaxRemoteSubscriptions ||
             bytes > _settings.MaxRemoteSubscriptionTopicBytesPerPeer - peer.RemoteSubscriptionTopicBytes ||
-            bytes > _settings.MaxRemoteSubscriptionTopicBytes - _remoteSubscriptionTopicBytes)
+            !TryMakeRoomForRemoteSubscription(topic, bytes))
         {
             return false;
         }
@@ -53,7 +55,80 @@ public partial class PubsubRouter
         _remoteSubscriptionCount++;
         _remoteSubscriptionTopicBytes += bytes;
         (peer.IsGossipSub ? gPeers : fPeers).GetOrAdd(retainedTopic, _ => []).Add(peer.PeerId);
+        if (!IsLocallySubscribed(retainedTopic))
+        {
+            TrackUnwantedRemoteSubscription(peer, retainedTopic);
+        }
         return true;
+    }
+
+    private bool HasRemoteSubscriptionCapacity(long bytes) =>
+        _remoteSubscriptionCount < _settings.MaxRemoteSubscriptions &&
+        bytes <= _settings.MaxRemoteSubscriptionTopicBytes - _remoteSubscriptionTopicBytes;
+
+    private bool TryMakeRoomForRemoteSubscription(string topic, long bytes)
+    {
+        if (HasRemoteSubscriptionCapacity(bytes))
+        {
+            return true;
+        }
+
+        // Unwanted announcements cannot crowd out local interests. Check that reclaiming
+        // unwanted state can fit the entire membership before evicting anything.
+        if (!IsLocallySubscribed(topic) ||
+            _remoteSubscriptionCount - _unwantedRemoteSubscriptions.Count >= _settings.MaxRemoteSubscriptions ||
+            bytes > _settings.MaxRemoteSubscriptionTopicBytes - (_remoteSubscriptionTopicBytes - _unwantedRemoteSubscriptionTopicBytes))
+        {
+            return false;
+        }
+
+        // Each removal is constant-time and releases one admitted membership. The work is
+        // bounded by retained unwanted state, without repeatedly scanning protected topics.
+        while (!HasRemoteSubscriptionCapacity(bytes))
+        {
+            (PubsubPeer victim, string victimTopic) = _unwantedRemoteSubscriptionOrder.First!.Value;
+            RemoveRemoteSubscription(victim, victimTopic);
+        }
+        return true;
+    }
+
+    private void TrackUnwantedRemoteSubscription(PubsubPeer peer, string topic)
+    {
+        var key = (peer.PeerId, topic);
+        if (!_unwantedRemoteSubscriptions.ContainsKey(key))
+        {
+            _unwantedRemoteSubscriptions.Add(key, _unwantedRemoteSubscriptionOrder.AddLast((peer, topic)));
+            _unwantedRemoteSubscriptionTopicBytes += 2L * topic.Length;
+        }
+    }
+
+    private void ForgetUnwantedRemoteSubscription(PubsubPeer peer, string topic)
+    {
+        if (_unwantedRemoteSubscriptions.Remove((peer.PeerId, topic), out var node))
+        {
+            _unwantedRemoteSubscriptionOrder.Remove(node);
+            _unwantedRemoteSubscriptionTopicBytes -= 2L * topic.Length;
+        }
+    }
+
+    // Called under the router lock immediately after the local subscription changes.
+    private void UpdateRemoteSubscriptionPriority(string topic)
+    {
+        foreach (PeerId peerId in (gPeers.GetValueOrDefault(topic) ?? []).Concat(fPeers.GetValueOrDefault(topic) ?? []))
+        {
+            if (peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
+                peer.RemoteSubscriptions.TryGetValue(topic, out string? retainedTopic))
+            {
+                if (IsLocallySubscribed(topic))
+                {
+                    ForgetUnwantedRemoteSubscription(peer, retainedTopic);
+                }
+                else
+                {
+                    TrackUnwantedRemoteSubscription(peer, retainedTopic);
+                }
+            }
+        }
     }
 
     private void RemoveRemoteSubscription(PubsubPeer peer, string topic)
@@ -65,6 +140,7 @@ public partial class PubsubRouter
         }
 
         peer.RemoteSubscriptions.Remove(retainedTopic);
+        ForgetUnwantedRemoteSubscription(peer, retainedTopic);
         long bytes = 2L * retainedTopic.Length;
         peer.RemoteSubscriptionTopicBytes -= bytes;
         _remoteSubscriptionCount--;

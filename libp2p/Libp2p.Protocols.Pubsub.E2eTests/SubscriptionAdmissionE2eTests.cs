@@ -32,6 +32,8 @@ public class SubscriptionAdmissionE2eTests
             HeartbeatInterval = int.MaxValue,
             MaxRemoteSubscriptionsPerPeer = 2,
             MaxRemoteSubscriptionTopicBytesPerPeer = 4,
+            MaxRemoteSubscriptions = 2,
+            MaxRemoteSubscriptionTopicBytes = 4,
         };
         await using ServiceProvider receiverServices = new ServiceCollection()
             .AddLibp2p(builder => builder.WithPubsub())
@@ -39,8 +41,12 @@ public class SubscriptionAdmissionE2eTests
         WireSender wire = new(protocol);
         await using ServiceProvider senderServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(wire)).BuildServiceProvider();
+        WireSender honestWire = new(protocol);
+        await using ServiceProvider honestServices = new ServiceCollection()
+            .AddLibp2p(builder => builder.AddProtocol(honestWire)).BuildServiceProvider();
         await using ILocalPeer receiver = receiverServices.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer sender = senderServices.GetRequiredService<IPeerFactory>().Create();
+        await using ILocalPeer honestSender = honestServices.GetRequiredService<IPeerFactory>().Create();
         await receiver.StartListenAsync([(Multiaddress)"/ip4/127.0.0.1/tcp/0"], deadline.Token);
         PubsubRouter router = receiverServices.GetRequiredService<PubsubRouter>();
         await router.StartAsync(receiver, deadline.Token);
@@ -50,28 +56,31 @@ public class SubscriptionAdmissionE2eTests
         router.OnMessage += (topic, peer, data) =>
         {
             delivered.Enqueue(topic);
-            Assert.That(peer, Is.EqualTo(sender.Identity.PeerId));
+            Assert.That(peer, Is.EqualTo(data[0] == 4 ? honestSender.Identity.PeerId : sender.Identity.PeerId));
             if (topic == "wanted" && markers.TryGetValue(data[0], out TaskCompletionSource? marker)) marker.TrySetResult();
         };
         ISession session = await sender.DialAsync(receiver.ListenAddresses.First(), deadline.Token);
         Assert.That(session.RemotePeerId, Is.EqualTo(receiver.Identity.PeerId), "The sender uses the authenticated production session.");
         Task stream = session.DialAsync(wire, deadline.Token);
+        ISession? honestSession = null;
+        Task honestStream = Task.CompletedTask;
         try
         {
             IChannel channel = await wire.Ready.Task.WaitAsync(deadline.Token);
             ulong sequence = 0;
-            Rpc Signed(string topic, byte data)
+            Rpc Signed(string topic, byte data, Identity? author = null)
             {
+                author ??= sender.Identity;
                 byte[] seqno = new byte[8];
                 BinaryPrimitives.WriteUInt64BigEndian(seqno, sequence++);
                 Message message = new()
                 {
                     Topic = topic,
-                    From = ByteString.CopyFrom(sender.Identity.PeerId.Bytes),
+                    From = ByteString.CopyFrom(author.PeerId.Bytes),
                     Seqno = ByteString.CopyFrom(seqno),
                     Data = ByteString.CopyFrom([data]),
                 };
-                message.Signature = ByteString.CopyFrom(sender.Identity.Sign([.. Encoding.UTF8.GetBytes("libp2p-pubsub:"), .. message.ToByteArray()]));
+                message.Signature = ByteString.CopyFrom(author.Sign([.. Encoding.UTF8.GetBytes("libp2p-pubsub:"), .. message.ToByteArray()]));
                 return new Rpc { Publish = { message } };
             }
             async Task Marker(byte value)
@@ -115,10 +124,37 @@ public class SubscriptionAdmissionE2eTests
             {
                 Assert.That(table.Keys, Is.EquivalentTo(new[] { "b" }));
             }
+            await channel.WriteSizeAndProtobufAsync(new Rpc { Subscriptions = { new Rpc.Types.SubOpts { Topicid = "a", Subscribe = true } } });
             router.Subscribe("b");
             await channel.WriteSizeAndProtobufAsync(Signed("b", 3));
             await Marker(3);
             Assert.That(delivered, Is.EqualTo(new[] { "wanted", "wanted", "b", "wanted" }), "Late subscription retains discovery and admits payloads.");
+
+            // Fill both global budgets, then admit a different authenticated peer on a wanted
+            // topic. Its marker runs on the same stream after its subscription or GRAFT.
+            lock (router) Assert.That(table.Keys, Is.EquivalentTo(new[] { "a", "b" }));
+            router.Subscribe("c");
+            honestSession = await honestSender.DialAsync(receiver.ListenAddresses.First(), deadline.Token);
+            Assert.That(honestSession.RemotePeerId, Is.EqualTo(receiver.Identity.PeerId));
+            honestStream = honestSession.DialAsync(honestWire, deadline.Token);
+            IChannel honestChannel = await honestWire.Ready.Task.WaitAsync(deadline.Token);
+            Rpc admission = protocol == PubsubRouter.FloodsubProtocolVersion
+                ? new Rpc { Subscriptions = { new Rpc.Types.SubOpts { Topicid = "c", Subscribe = true } } }
+                : new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "c" } } } };
+            await honestChannel.WriteSizeAndProtobufAsync(admission);
+            TaskCompletionSource honestProcessed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            markers[4] = honestProcessed;
+            await honestChannel.WriteSizeAndProtobufAsync(Signed("wanted", 4, honestSender.Identity));
+            await honestProcessed.Task.WaitAsync(deadline.Token);
+            lock (router)
+            {
+                Assert.That(table.Keys, Is.EquivalentTo(new[] { "b", "c" }), "Wanted membership evicts junk while protecting the subscribed membership.");
+                Assert.That(table["c"], Has.Member(honestSender.Identity.PeerId));
+                if (protocol != PubsubRouter.FloodsubProtocolVersion)
+                    Assert.That(state.Mesh["c"], Has.Member(honestSender.Identity.PeerId));
+            }
+            Assert.That(delivered, Is.EqualTo(new[] { "wanted", "wanted", "b", "wanted", "wanted" }));
+            await honestSession.DisconnectAsync();
             await session.DisconnectAsync();
             while (state.ConnectedPeers.Count != 0) await Task.Delay(10, deadline.Token);
             lock (router)
@@ -128,15 +164,19 @@ public class SubscriptionAdmissionE2eTests
         }
         finally
         {
+            if (honestSession is not null) await honestSession.DisconnectAsync();
             await session.DisconnectAsync();
             await router.DisposeAsync();
-            try
+            foreach (Task ownedStream in new[] { stream, honestStream })
             {
-                await stream.WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            catch (OperationCanceledException) when (stream.IsCanceled)
-            {
-                // Closing the authenticated session cancels its application stream.
+                try
+                {
+                    await ownedStream.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (OperationCanceledException) when (ownedStream.IsCanceled)
+                {
+                    // Closing the authenticated session cancels its application stream.
+                }
             }
         }
     }
