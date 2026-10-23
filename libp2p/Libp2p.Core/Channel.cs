@@ -418,7 +418,7 @@ public class Channel : IChannel
             }
             catch (OperationCanceledException)
             {
-                return _closed.IsCancellationRequested ? IOResult.Ended : IOResult.Cancelled;
+                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
             }
             finally
             {

@@ -58,7 +58,7 @@ public class ChannelModelFuzzTests
         await channel.CloseAsync();
 
         Assert.That((await parkedRead.WaitAsync(TimeSpan.FromSeconds(5))).Result, Is.EqualTo(IOResult.Aborted));
-        Assert.That(await parkedWrite.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await parkedWrite.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
@@ -113,29 +113,28 @@ public class ChannelModelFuzzTests
     }
 
     [Test]
-    public async Task Race_ParkedWrite_Close_EndsWrite()
+    public async Task Race_ParkedWrite_Close_AbortsWrite()
     {
         Channel channel = new();
         Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
         await Task.Delay(50);
         await channel.CloseAsync();
 
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result,
             Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
-    public async Task Race_ParkedWrite_Abort_EndsWrite()
+    public async Task Race_ParkedWrite_Abort_AbortsWrite()
     {
-        // Pinned convention: plain writes report Ended (not Aborted) after abort;
-        // only reads and EOF preserve the abort cause.
+        // An undelivered write preserves the abort cause, just like reads and EOF.
         Channel channel = new();
         Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
         await Task.Delay(50);
         await channel.AbortAsync();
 
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
@@ -178,7 +177,7 @@ public class ChannelModelFuzzTests
         await Task.Delay(50);
         await channel.CloseAsync();
 
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
         Assert.That(await eof.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
     }
 
@@ -351,7 +350,7 @@ public class ChannelModelFuzzTests
         // only, no production hook) simulates a reader that claimed the
         // data-available signal without acknowledging it. With a wait that
         // ignores cancellation the writer parks past teardown and this times
-        // out; observing teardown releases it with Ended once the channel closes.
+        // out; observing teardown releases it with Aborted once the channel closes.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Channel.ReaderWriter writer = (Channel.ReaderWriter)channel.Writer;
@@ -371,7 +370,7 @@ public class ChannelModelFuzzTests
             await channel.CloseAsync();
 
             Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)),
-                Is.EqualTo(IOResult.Ended));
+                Is.EqualTo(IOResult.Aborted));
         }
         finally
         {
@@ -386,8 +385,8 @@ public class ChannelModelFuzzTests
     public async Task CancelledWrite_PartialTakeThenClose_Completes()
     {
         // Partial take, writer cancel, then close while the remainder is still
-        // owed: the close ends the parked write and the unread remainder is
-        // discarded as an incomplete delivery, so the reader sees an abort.
+        // owed: the unread remainder is discarded as an incomplete delivery,
+        // so both the writer and reader see an abort.
         Channel channel = new();
         using CancellationTokenSource cancel = new();
         Task<IOResult> write = channel.WriteAsync(
@@ -400,7 +399,7 @@ public class ChannelModelFuzzTests
         Assert.That(await Task.WhenAny(write, Task.Delay(TimeSpan.FromMilliseconds(200))), Is.Not.SameAs(write),
             "The cancelled write must stay parked while the remainder is owed.");
         await channel.CloseAsync();
-        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(8).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result,
             Is.EqualTo(IOResult.Aborted));
     }
@@ -413,7 +412,7 @@ public class ChannelModelFuzzTests
         // is rare, so this races the tail read against the close from both orderings.
         const int attempts = 20000;
         int delivered = 0;
-        int ended = 0;
+        int aborted = 0;
 
         for (int attempt = 0; attempt < attempts; attempt++)
         {
@@ -441,17 +440,18 @@ public class ChannelModelFuzzTests
             await Task.WhenAll(write, tail, close).WaitAsync(TimeSpan.FromSeconds(5));
 
             long taken = tail.Result.Data.Length;
-            Assert.That(write.Result == IOResult.Ok && taken < 5, Is.False,
-                $"Attempt {attempt}: the write reported delivery but the reader only received {taken} of the 5 remaining bytes.");
+            if (taken < 5)
+                Assert.That(write.Result, Is.EqualTo(IOResult.Aborted),
+                    $"Attempt {attempt}: the reader only received {taken} of the 5 remaining bytes.");
 
-            if (taken == 5) delivered++; else ended++;
+            if (taken == 5) delivered++; else aborted++;
         }
 
         // Both outcomes must actually occur, or the race never ran and the assertion above is vacuous.
         Assert.Multiple(() =>
         {
             Assert.That(delivered, Is.Positive, "The remainder was never consumed, so the delivered path went untested.");
-            Assert.That(ended, Is.Positive, "The remainder was never discarded, so the teardown path went untested.");
+            Assert.That(aborted, Is.Positive, "The remainder was never discarded, so the teardown path went untested.");
         });
     }
 
