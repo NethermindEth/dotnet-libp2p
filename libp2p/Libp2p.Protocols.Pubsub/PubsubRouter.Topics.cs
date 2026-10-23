@@ -12,6 +12,8 @@ public partial class PubsubRouter
 {
     private readonly ConcurrentDictionary<string, Topic> topicState = new();
 
+    private bool IsLocallySubscribed(string topic) => topicState.TryGetValue(topic, out Topic? state) && state.IsSubscribed;
+
     public ITopic GetTopic(string topicId, bool subscribe = true)
     {
         Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
@@ -106,9 +108,6 @@ public partial class PubsubRouter
 
             topic.IsSubscribed = true;
 
-            fPeers.TryAdd(topicId, []);
-            gPeers.TryAdd(topicId, []);
-
             HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
             HashSet<PeerId> promotedPeers = [];
 
@@ -117,7 +116,7 @@ public partial class PubsubRouter
                 foreach (PeerId peerId in fanoutPeers)
                 {
                     if (!IsDirectPeer(peerId) &&
-                        gPeers[topicId].Contains(peerId) &&
+                        gPeers.TryGetValue(topicId, out HashSet<PeerId>? remotePeers) && remotePeers.Contains(peerId) &&
                         peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
                         GetPeerScore(peerId) >= 0 &&
                         (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= DateTime.Now) &&
@@ -164,6 +163,10 @@ public partial class PubsubRouter
             }
 
             topic.IsSubscribed = false;
+            foreach (PendingValidation pending in _pendingValidations.Values.Where(p => p.Snapshot.Topic == topicId).ToArray())
+            {
+                RemovePendingValidation(pending);
+            }
 
             if (mesh.TryRemove(topicId, out HashSet<PeerId>? removedMesh))
             {

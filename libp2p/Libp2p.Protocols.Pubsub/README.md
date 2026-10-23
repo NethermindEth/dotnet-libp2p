@@ -51,6 +51,8 @@ ITopic alerts = router.GetTopic("alerts", subscribe: false);
 alerts.Subscribe();
 ```
 
+Only a current local subscription admits received full messages. A remote announcement, score configuration, publishing fanout, or an unsubscribed topic handle does not establish delivery interest. Unwanted payloads are ignored before message-ID calculation, signature or application validation, caches, delivery scoring, events, and forwarding. Subscriptions and control messages in the same RPC still run. Subscribed topics retain their default delivery rewards and invalid-message penalties even without explicit score parameters.
+
 ## Publishing
 
 Publish raw bytes or protobuf messages:
@@ -127,6 +129,24 @@ router.UnsubscribeAll();
 ```
 
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
+It also removes pending validations for the topic and releases their capacity; their later `CompleteValidation` calls return `false`, even after resubscribing. Already accepted callbacks queued for dispatch may finish concurrently with unsubscribe. Application validation work is not cancelled.
+
+## Remote subscription limits
+
+Remote membership is retained independently of local subscriptions so a later local subscription can discover peers. Configure these positive settings before constructing the router:
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `MaxRemoteSubscriptionsPerPeer` | 1,024 | Distinct retained topic memberships for one remote peer |
+| `MaxRemoteSubscriptionTopicBytesPerPeer` | 1 MiB | Topic-name byte charges for one remote peer |
+| `MaxRemoteSubscriptions` | 65,536 | Memberships across all remote peers |
+| `MaxRemoteSubscriptionTopicBytes` | 64 MiB | Topic-name byte charges across all remote peers |
+
+Each membership charges `2L * topic.Length` bytes for UTF-16 characters, including when multiple peers share a topic. Count limits also bound collection overhead; byte limits do not measure total managed-heap usage. Application-created local topics and historical scoring keep their existing lifetimes.
+
+Announcements are processed in wire order. An addition exceeding any budget is ignored without a penalty, eviction, or disconnect; later entries, including unsubscribe, still run. Duplicate announcements consume no additional capacity and can update partial-message options. A rejected topic must be announced again after capacity becomes available; it cannot be discovered by a later local subscription until then. GRAFT's implicit membership uses the same limits and responds with PRUNE when capacity is unavailable.
+
+Remote unsubscribe and disconnect release membership and partial-message metadata. Empty remote topic keys are removed from `IRoutingStateContainer.FloodsubPeers` and `GossipsubPeers`; local subscription alone no longer creates these keys. An active local subscription keeps its empty mesh so heartbeat can refill it. Local unsubscribe retains remote announcements, and publishing without subscribing continues to use fanout.
 
 ## Stopping the router
 

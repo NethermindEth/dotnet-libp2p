@@ -40,6 +40,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     internal sealed class PubsubPeer
     {
+        // Membership and byte accounting are owned by the router lock, independently of local interest.
+        public HashSet<string> RemoteSubscriptions { get; } = new(StringComparer.Ordinal);
+        public long RemoteSubscriptionTopicBytes { get; set; }
+
         public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings, ReconnectionPolicy reconnectionPolicy)
         {
             PeerId = peerId;
@@ -395,6 +399,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ArgumentOutOfRangeException.ThrowIfNegative(_settings.ReconnectionAttempts);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationMessages);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionsPerPeer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionTopicBytesPerPeer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionTopicBytes);
         if (_settings.PendingValidationTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(PubsubSettings.PendingValidationTimeout));
@@ -620,6 +628,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             _pendingValidations.Clear();
             _pendingValidationBytes = 0;
+            foreach (PubsubPeer peer in peerState.Values)
+            {
+                RemoveRemoteSubscriptions(peer);
+            }
         }
 
         _messageCache.Clear();
@@ -852,8 +864,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }
 
-            foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
-                .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true || fanout.ContainsKey(topic))
+            foreach (string topic in mesh.Keys.Concat(fanout.Keys).Distinct()
                 .ToArray())
             {
                 IReadOnlyList<MessageId> messageIds = _messageCache.GetGossipIds(topic);
@@ -957,7 +968,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 _iwantPromises.Clear(peerId);
                 KeepDisconnectedScore(peerId, peer.Score, score);
-                foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
+                RemoveRemoteSubscriptions(peer);
+                foreach (var peersByTopic in new[] { fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
                     {
@@ -1077,7 +1089,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 if (isNewPeer)
                 {
-                    ((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, existingPeer));
+                    lock (this)
+                    {
+                        if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, existingPeer)))
+                        {
+                            // Another stream may already have announced topics. Roll back those
+                            // memberships without changing the retained score used for admission.
+                            RemoveRemoteSubscriptions(existingPeer);
+                        }
+                    }
                 }
                 return (Canceled, static () => { });
             }

@@ -667,7 +667,11 @@ public class DeferredValidationTests
     };
 
     private static PubsubRouter CreateRouter(PubsubSettings? settings = null, TimeProvider? clock = null)
-        => new(new PeerStore(), settings ?? Settings(), timeProvider: clock);
+    {
+        PubsubRouter router = new(new PeerStore(), settings ?? Settings(), timeProvider: clock);
+        router.GetTopic(Topic);
+        return router;
+    }
 
     private static List<Rpc> ConnectForwardingPeer(PubsubRouter router, Action? onForward = null)
     {

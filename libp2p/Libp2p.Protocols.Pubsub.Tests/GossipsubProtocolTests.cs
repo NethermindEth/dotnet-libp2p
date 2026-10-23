@@ -24,8 +24,9 @@ public class GossipsubProtocolTests
         List<Rpc> sentRpcs = [];
 
         router.GetTopic(commonTopic);
-        Assert.That(state.FloodsubPeers.Keys, Has.Member(commonTopic));
-        Assert.That(state.GossipsubPeers.Keys, Has.Member(commonTopic));
+        Assert.That(state.FloodsubPeers, Is.Empty);
+        Assert.That(state.GossipsubPeers, Is.Empty);
+        Assert.That(state.Mesh.Keys, Has.Member(commonTopic));
         await router.StartAsync(peer);
         TaskCompletionSource tcs = new();
 
