@@ -41,6 +41,8 @@ When a real connection is established, the implementation should:
 
 Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
+When a listener closes its listening endpoints, it can call `context.ListenerStopped()` before draining accepted connections. This lets peer disposal finish even when a handler awaits disposal itself. The transport still owns its accepted connections and admission allowances until `ListenAsync` returns. Transports that omit this optional notification must finish their listen task before peer disposal completes.
+
 ## Connection protocol
 
 Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.

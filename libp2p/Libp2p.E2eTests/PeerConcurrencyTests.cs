@@ -76,7 +76,7 @@ public class PeerConcurrencyTests
             if (gateInitializations)
             {
                 LocalPeer.Session loser = new[] { ((GatedPeer)first).OutboundSession!, ((GatedPeer)second).OutboundSession! }
-                    .Single(s => s.DuplicateSessionFailure is not null);
+                    .Single(s => !sessions.Any(connected => ReferenceEquals(connected, s)));
                 Assert.That(loser.Closed.IsCancellationRequested, Is.True);
                 await loser.DrainUpgradesAsync().WaitAsync(deadline.Token);
             }
@@ -172,6 +172,65 @@ public class PeerConcurrencyTests
             request.Cancel();
             release.TrySetResult();
             await call.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [Test]
+    public async Task InboundHandlerCanAwaitPeerDisposalWithoutReleasingItsAllowanceEarly()
+    {
+        ShutdownHandler handler = new();
+        InboundStreamLimit limit = new(1);
+        using ServiceProvider services = new ServiceCollection().AddLibp2p(b => b.AddProtocol(handler, inboundLimit: limit)).BuildServiceProvider();
+        IPeerFactory factory = services.GetRequiredService<IPeerFactory>();
+        await using ILocalPeer server = factory.Create();
+        await using ILocalPeer client = factory.Create();
+        await server.StartListenAsync(["/ip4/127.0.0.1/tcp/0"]);
+        var endpoint = server.ListenAddresses.Single().ToEndPoint();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(8));
+        ISession session = await client.DialAsync(server.ListenAddresses.ToArray(), deadline.Token);
+        Task call = session.DialAsync<ShutdownHandler>(deadline.Token);
+        try
+        {
+            await handler.DisposalReturned.Task.WaitAsync(deadline.Token);
+            await server.DisposeAsync().AsTask().WaitAsync(deadline.Token);
+            Assert.That(server.ListenAddresses, Is.Empty);
+            using Socket rebound = new(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            rebound.Bind(endpoint);
+            Assert.That(limit.InFlight, Is.EqualTo(1), "The handler still owns its inbound allowance while it drains.");
+            handler.Release.TrySetResult();
+            await handler.Finished.Task.WaitAsync(deadline.Token);
+            await ((LocalPeer.Session)handler.Session!).DrainUpgradesAsync().WaitAsync(deadline.Token);
+            Assert.That(limit.InFlight, Is.Zero);
+        }
+        finally
+        {
+            handler.Release.TrySetResult();
+            deadline.Cancel();
+            await call.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await server.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private sealed class ShutdownHandler : ISessionProtocol
+    {
+        public string Id => "/audit/shutdown/1";
+        public TaskCompletionSource DisposalReturned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ISession? Session;
+        public Task DialAsync(IChannel channel, ISessionContext context) => channel.WriteLineAsync("shutdown", context.Token).AsTask();
+        public async Task ListenAsync(IChannel channel, ISessionContext context)
+        {
+            try
+            {
+                Assert.That(await channel.ReadLineAsync(1024, context.Token), Is.EqualTo("shutdown"));
+                Session = ((LocalPeer)context.Peer).Sessions.Single();
+                await context.Peer.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+                DisposalReturned.TrySetResult();
+                await Release.Task;
+            }
+            catch (Exception failure) { DisposalReturned.TrySetException(failure); throw; }
+            finally { Finished.TrySetResult(); }
         }
     }
 
