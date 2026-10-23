@@ -506,6 +506,46 @@ public class NoiseProtocolTests
         return (context, state, upgraded.Task);
     }
 
+    [TestCase(false, "weak-rsa")]
+    [TestCase(true, "weak-rsa")]
+    [TestCase(false, "trailing-rsa")]
+    [TestCase(true, "trailing-rsa")]
+    [TestCase(false, "unknown-alias")]
+    [TestCase(true, "unknown-alias")]
+    public async Task HandshakeRejectsUnusableOrAliasedIdentityBeforeUpgrade(bool remoteInitiates, string shape)
+    {
+        Identity remote = shape == "weak-rsa"
+            ? new Identity(IdentityFixtures.LegacyRsaPrivateKey, Core.Dto.KeyType.Rsa)
+            : new Identity(keyType: shape == "trailing-rsa" ? Core.Dto.KeyType.Rsa : Core.Dto.KeyType.Ed25519);
+        Core.Dto.PublicKey presented = remote.PublicKey.Clone();
+        if (shape == "trailing-rsa") presented.Data = ByteString.CopyFrom([.. presented.Data.ToByteArray(), 0]);
+        if (shape == "unknown-alias") presented.MergeFrom(new byte[] { 0x18, 0x01 });
+        PeerId expected = shape == "unknown-alias"
+            ? new PeerId(Multiformats.Hash.Multihash.Encode(presented.ToByteArray(), Multiformats.Hash.HashType.ID))
+            : remote.PeerId;
+        (IConnectionContext subjectContext, State subjectState, Task upgraded) = Context(TestPeers.Identity(1), $"/ip4/127.0.0.1/tcp/0/p2p/{expected}");
+        (IConnectionContext wireContext, _, _) = Context(remote, $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}");
+        TestChannel channel = new();
+        Task subject = remoteInitiates
+            ? new NoiseProtocol().ListenAsync(channel, subjectContext)
+            : new NoiseProtocol().DialAsync(channel, subjectContext);
+        Task wire = remoteInitiates
+            ? new MaliciousInitiatorProtocol(MaliciousInitiatorProtocol.CorruptionMode.EmptySignature) { PresentedKey = presented }.DialAsync(channel.Reverse(), wireContext)
+            : new MaliciousResponderProtocol(MaliciousResponderProtocol.CorruptionMode.EmptySignature) { PresentedKey = presented }.ListenAsync(channel.Reverse(), wireContext);
+        try
+        {
+            Assert.ThrowsAsync<Libp2pException>(async () => await subject.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.That(subjectState.RemotePublicKey, Is.Null);
+            Assert.That(upgraded.IsCompleted, Is.False);
+        }
+        finally
+        {
+            await channel.CloseAsync();
+            try { await wire.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (ChannelClosedException) { }
+        }
+    }
+
     private class MaliciousResponderProtocol : NoiseProtocol
     {
         public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey, PaddedIdentityKey, UncompressedIdentityKey }
@@ -513,6 +553,7 @@ public class NoiseProtocolTests
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
         private readonly Identity _rogueIdentity;
+        public Core.Dto.PublicKey? PresentedKey { get; init; }
 
         public MaliciousResponderProtocol(CorruptionMode mode, MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
             : base(multiplexerSettings, loggerFactory)
@@ -593,6 +634,7 @@ public class NoiseProtocolTests
                     throw new InvalidOperationException();
             }
 
+            if (PresentedKey is not null) payload = SignedPayload(context.Peer.Identity, serverStatic.PublicKey, PresentedKey);
             buffer = new byte[Protocol.MaxMessageLength];
             (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg1 =
                 handshakeState.WriteMessage(payload.ToByteArray(), buffer.AsSpan(2));
@@ -613,6 +655,7 @@ public class NoiseProtocolTests
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
         private readonly Identity _rogueIdentity;
+        public Core.Dto.PublicKey? PresentedKey { get; init; }
 
         public MaliciousInitiatorProtocol(CorruptionMode mode, MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null)
             : base(multiplexerSettings, loggerFactory)
@@ -707,6 +750,7 @@ public class NoiseProtocolTests
                     throw new InvalidOperationException();
             }
 
+            if (PresentedKey is not null) payload = SignedPayload(context.Peer.Identity, clientStatic.PublicKey, PresentedKey);
             buffer = new byte[Protocol.MaxMessageLength];
             (int BytesWritten2, byte[] HandshakeHash, Transport Transport) msg2 =
                 handshakeState.WriteMessage(payload.ToByteArray(), buffer);

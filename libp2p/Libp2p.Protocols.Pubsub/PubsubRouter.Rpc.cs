@@ -910,9 +910,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         try
         {
             Core.Dto.SignedEnvelope envelope = Core.Dto.SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
-            return new PeerId(Core.Dto.PublicKey.Parser.ParseFrom(envelope.PublicKey));
+            return new PeerId(Core.Dto.PublicKeyDecoder.Decode(envelope.PublicKey));
         }
-        catch (InvalidProtocolBufferException)
+        catch (Exception e) when (e is InvalidProtocolBufferException or Core.Exceptions.Libp2pException)
         {
             return null;
         }
