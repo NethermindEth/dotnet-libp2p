@@ -106,9 +106,11 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     public const long StunOnlyIdleMs = 15_000;
 
     /// <summary>
-    /// An established peer keeps sending binding requests for the life of the connection — RFC 7675 consent
-    /// freshness, which SIPSorcery implements as <c>ChecklistEntryState.ConsentNeeded</c> on a ~5s period —
-    /// so 300s of total silence is ~60 missed consent checks and the association is dead.
+    /// An established peer keeps sending binding requests for the life of the connection: SIPSorcery 10.0.14
+    /// leaves <c>RtpIceChannel._connectivityChecksTimer</c> running once a pair is nominated, on
+    /// <c>CONNECTED_CHECK_PERIOD</c> = 3s, and abandons the pair at <c>DISCONNECTED_TIMEOUT_PERIOD</c> = 8s
+    /// and <c>FAILED_TIMEOUT_PERIOD</c> = 16s. 300s of total silence is ~100 missed checks, long past the
+    /// point where the peer's own stack has torn the association down.
     /// </summary>
     public const long EstablishedIdleMs = 300_000;
 
@@ -130,17 +132,16 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// </summary>
     private readonly Dictionary<IPEndPoint, Row> _byAddress = [];
 
-    /// <summary>
-    /// Admission order of pending rows, for oldest-first eviction. A queue rather than a scan for the
-    /// minimum timestamp because eviction runs on the flood path, where a scan would make every admission
-    /// O(<see cref="MaxPendingSessions"/>). Rows that were established or removed since being queued stay
-    /// behind as stale entries and are skipped on the way past, so the queue is a hint and
-    /// <see cref="_byUfrag"/> is the truth.
-    /// </summary>
-    private readonly Queue<Row> _pendingOrder = new();
-
     private int _pendingCount;
     private int _establishedCount;
+
+    /// <summary>
+    /// Stamped on each row at admission so eviction can pick the oldest PENDING one. A counter rather than
+    /// the clock because one millisecond holds a whole burst of admissions and the eviction order has to be
+    /// total; it is also the only ordering an attacker cannot perturb by sending more packets, since a
+    /// binding request from a known peer moves <see cref="Row.LastSeenMs"/> and nothing else.
+    /// </summary>
+    private long _nextAdmissionSeq;
 
     public WebRtcDirectListenerTable(Func<long>? nowMs = null, WebRtcDirectRateLimiter? rateLimiter = null)
     {
@@ -166,11 +167,13 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// The order is fixed and it matters: the FIRST BYTE is classified per RFC 7983 BEFORE any table lookup.
     /// go-libp2p consults its address map first and we must not copy that — go is safe there only by
     /// accident of its stack, because an address-map hit is pushed into a pion muxedConnection whose own ICE
-    /// agent answers the binding request. We have no ICE agent behind the map. SIPSorcery's dialer keeps a
-    /// checklist entry in <c>ConsentNeeded</c> and re-sends binding requests for the LIFE of the connection,
-    /// so an established peer's consent check routed into DTLS instead of answered looks perfectly fine for
-    /// the two seconds of a loopback test and then drops every real dialer at ~30s. Binding requests are
-    /// answered for ever, established or not.
+    /// agent answers the binding request. We have no ICE agent behind the map, and SIPSorcery's dialer
+    /// re-sends binding requests for the LIFE of the connection: <c>RtpIceChannel</c> keeps
+    /// <c>_connectivityChecksTimer</c> running at <c>CONNECTED_CHECK_PERIOD</c> = 3s after the pair is
+    /// nominated and gives up at <c>FAILED_TIMEOUT_PERIOD</c> = 16s of silence. An established peer's check
+    /// routed into DTLS instead of answered therefore looks perfectly fine for the two seconds of a loopback
+    /// test and then drops every real dialer inside twenty. Binding requests are answered for ever,
+    /// established or not.
     /// </para>
     /// </summary>
     public WebRtcDirectRoute<TSession> Route(IPEndPoint source, byte[] datagram)
@@ -276,41 +279,48 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             return false;
         }
 
-        while (_pendingCount >= MaxPendingSessions && TryEvictOldestPendingLocked())
-        {
-        }
-
-        if (_pendingCount >= MaxPendingSessions)
+        if (_pendingCount >= MaxPendingSessions && !TryEvictOldestPendingLocked())
         {
             return false;
         }
 
-        Row row = new(key, _nowMs());
+        Row row = new(key, _nowMs(), _nextAdmissionSeq++);
         _byUfrag[key] = row;
-        _pendingOrder.Enqueue(row);
         _pendingCount++;
         AttachAddress(row, source);
         return true;
     }
 
+    /// <summary>
+    /// Evicts the pending row admitted longest ago, and only ever a pending row: that one condition is the
+    /// whole of the never-evict invariant.
+    /// </summary>
+    // ponytail: a linear scan of the table per eviction, where an admission-ordered index would be O(1).
+    // It only runs with the pending cap already full, both caps bound it at MaxPendingSessions +
+    // MaxEstablishedSessions rows, and the rate limiter in front of admission caps how often a flood can
+    // reach it, so it is ~1150 reference comparisons on a path that is already rate-limited. An index is
+    // what the first attempt used and it has to be kept in step with promotion, removal and reaping —
+    // which it was not, so every Row it had ever seen stayed reachable from it for the life of the
+    // listener. Reinstate one only with a profile saying the scan matters.
     private bool TryEvictOldestPendingLocked()
     {
-        while (_pendingOrder.TryDequeue(out Row? candidate))
-        {
-            // Skip rows that were established or removed since they were queued. An established session is
-            // never evicted here, and that skip is the whole of the never-evict invariant in one condition.
-            if (candidate.Session is not null ||
-                !_byUfrag.TryGetValue(candidate.Key, out Row? current) ||
-                !ReferenceEquals(current, candidate))
-            {
-                continue;
-            }
+        Row? oldest = null;
 
-            RemoveLocked(candidate);
-            return true;
+        foreach (Row row in _byUfrag.Values)
+        {
+            if (row.Session is null && (oldest is null || row.AdmissionSeq < oldest.AdmissionSeq))
+            {
+                oldest = row;
+            }
         }
 
-        return false;
+        if (oldest is null)
+        {
+            return false;
+        }
+
+        RemoveLocked(oldest);
+        return true;
     }
 
     /// <summary>
@@ -434,9 +444,13 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         WebRtcDirectRouteAction action, WebRtcDirectSessionKey key, STUNMessage request, IPEndPoint source) =>
         new(action, key, WebRtcDirectStun.BuildBindingSuccessResponse(request, source, key.ServerUfrag), null, null);
 
-    private sealed class Row(WebRtcDirectSessionKey key, long now)
+    private sealed class Row(WebRtcDirectSessionKey key, long now, long admissionSeq)
     {
         public WebRtcDirectSessionKey Key { get; } = key;
+
+        /// <summary>Total admission order, for oldest-first eviction. Never changes once set.</summary>
+        public long AdmissionSeq { get; } = admissionSeq;
+
         public long LastSeenMs { get; set; } = now;
         public TSession? Session { get; set; }
         public IPEndPoint? Egress { get; set; }

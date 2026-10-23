@@ -72,10 +72,11 @@ public class WebRtcDirectListenerTableTests
 
     /// <summary>
     /// The one that would have caught a fatal flaw in an address-map-first design. SIPSorcery keeps an ICE
-    /// checklist entry in <c>ConsentNeeded</c> and re-sends binding requests for the life of the
-    /// connection, so an established peer's own, already-known source address keeps producing STUN. There
-    /// is no ICE agent behind our session to answer them, so routing them to the session instead of
-    /// answering them passes a 2s loopback test and drops every real dialer at ~30s.
+    /// <c>_connectivityChecksTimer</c> running at <c>CONNECTED_CHECK_PERIOD</c> = 3s after a pair is
+    /// nominated, so an established peer's own, already-known source address keeps producing STUN for the
+    /// life of the connection. There is no ICE agent behind our session to answer them, so routing them to
+    /// the session instead of answering them passes a 2s loopback test and then trips the same stack's
+    /// <c>FAILED_TIMEOUT_PERIOD</c> = 16s and drops every real dialer.
     /// </summary>
     [Test]
     public void Route_AnswersAnEstablishedPeersConsentCheck_AndNeverDeliversItToTheSession()
@@ -421,6 +422,118 @@ public class WebRtcDirectListenerTableTests
             Assert.That(table.Route(v6, BindingRequest(ufrag)).Key,
                 Is.EqualTo(new WebRtcDirectSessionKey(ufrag, true)));
             Assert.That(table.PendingCount, Is.EqualTo(2));
+        });
+    }
+
+    /// <summary>
+    /// F4 under the sharpest input there is: a forged ufrag whose SOURCE is the victim's own address.
+    /// Minting an integrity-valid binding request costs an attacker nothing — the key is the server ufrag,
+    /// which they invent and put in the same packet — so if attaching a source address could take one off
+    /// another row, a single spoofed packet would re-point a live association's secondary key. The
+    /// attacker's ufrag is new, so it is admitted; what it must not get is the address.
+    /// </summary>
+    [Test]
+    public void Route_AdmitsAForgedUfragFromAVictimsAddress_ButNeverTakesTheAddressFromIt()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        IPEndPoint victimAddress = Peer(40_015);
+        Session victim = new("victim");
+
+        Establish(table, V2Ufrag(16), victimAddress, victim);
+        Assume.That(table.Route(victimAddress, DtlsRecord).Egress, Is.EqualTo(victimAddress));
+
+        WebRtcDirectRoute<Session> attacker = table.Route(victimAddress, BindingRequest(V2Ufrag(17)));
+        Assume.That(attacker.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+
+        WebRtcDirectRoute<Session> delivered = table.Route(victimAddress, DtlsRecord);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(delivered.Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+            Assert.That(delivered.Session, Is.SameAs(victim));
+            Assert.That(delivered.Egress, Is.EqualTo(victimAddress));
+
+            // Nor may the attacker take it on the way out: tearing its row down must unmap only addresses
+            // that row actually owns, and it owns none.
+            Assert.That(table.Remove(attacker.Key), Is.True);
+            Assert.That(table.Route(victimAddress, DtlsRecord).Session, Is.SameAs(victim));
+        });
+    }
+
+    /// <summary>
+    /// A pending row has no session to deliver to, so a DTLS record keyed to its address is dropped rather
+    /// than handed on with a null session for the socket loop to dereference. Between AnswerStunAndAdmit
+    /// and MarkEstablished the handshake the caller started owns those records; the table only begins
+    /// routing them once it has somewhere to put them.
+    /// </summary>
+    [Test]
+    public void Route_DropsDtlsForAPendingRow_AndDeliversItOnlyOnceEstablished()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        IPEndPoint peer = Peer(40_016);
+        Session session = new("late");
+
+        WebRtcDirectRoute<Session> admitted = table.Route(peer, BindingRequest(V2Ufrag(18)));
+        Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+
+        WebRtcDirectRoute<Session> beforeSession = table.Route(peer, DtlsRecord);
+        Assume.That(table.MarkEstablished(admitted.Key, session), Is.True);
+        WebRtcDirectRoute<Session> afterSession = table.Route(peer, DtlsRecord);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(beforeSession.Action, Is.EqualTo(WebRtcDirectRouteAction.Drop));
+            Assert.That(beforeSession.Session, Is.Null);
+            Assert.That(afterSession.Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+            Assert.That(afterSession.Session, Is.SameAs(session));
+        });
+    }
+
+    /// <summary>
+    /// <see cref="WebRtcDirectListenerTable{TSession}.Admit"/> is the same admission path with no datagram
+    /// in hand. It must refuse a ufrag the table already knows rather than start a second row over the
+    /// top of it, which would orphan the addresses and the session the first one owns.
+    /// </summary>
+    [Test]
+    public void Admit_CreatesOnePendingRow_AndRefusesToReplaceAKnownOne()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        IPEndPoint peer = Peer(40_017);
+        string ufrag = V2Ufrag(19);
+        Assume.That(
+            WebRtcIceCredentials.TryParseStunUsername($"{ufrag}:PSAY", out WebRtcIceCredentials credentials),
+            Is.True);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(table.Admit(credentials, peer, 64), Is.True);
+            Assert.That(table.PendingCount, Is.EqualTo(1));
+
+            Assert.That(table.Admit(credentials, peer, 64), Is.False, "the ufrag is known now");
+            Assert.That(table.PendingCount, Is.EqualTo(1));
+
+            // The row it made is a real one in both maps: Route finds it rather than admitting again.
+            Assert.That(table.Route(peer, BindingRequest(ufrag)).Action,
+                Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+        });
+    }
+
+    /// <summary>
+    /// Every other test in this file is written against the constants, which means every other test follows
+    /// a constant that drifts: doubling any of them below leaves the whole fixture green. These five numbers
+    /// are a design decision with arithmetic behind them, not an implementation detail, so here the numbers
+    /// themselves are the oracle and changing one has to be deliberate.
+    /// </summary>
+    [Test]
+    public void Caps_AndIdleBounds_AreTheNumbersTheDesignFixed()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(WebRtcDirectListenerTable<Session>.MaxPendingSessions, Is.EqualTo(1_024));
+            Assert.That(WebRtcDirectListenerTable<Session>.MaxEstablishedSessions, Is.EqualTo(128));
+            Assert.That(WebRtcDirectListenerTable<Session>.MaxAddressesPerUfrag, Is.EqualTo(32));
+            Assert.That(WebRtcDirectListenerTable<Session>.StunOnlyIdleMs, Is.EqualTo(15_000));
+            Assert.That(WebRtcDirectListenerTable<Session>.EstablishedIdleMs, Is.EqualTo(300_000));
         });
     }
 }
