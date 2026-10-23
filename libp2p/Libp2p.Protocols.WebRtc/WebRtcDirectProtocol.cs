@@ -15,7 +15,6 @@ using SIPSorcery.Net;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Text;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.WebRtc.Tests")]
@@ -25,15 +24,43 @@ namespace Nethermind.Libp2p.Protocols.WebRtc;
 public class WebRtcDirectProtocol : ITransportProtocol
 {
     private const string NoiseChannelLabel = "noise";
-    private const string OfferPrefix = "WRTC_OFFER\n";
-    private const string AnswerPrefix = "WRTC_ANSWER\n";
-    private const int MaxConcurrentIncomingOffers = 128;
+
+    /// <summary>
+    /// How often <see cref="WebRtcDirectListenerTable{TSession}.Reap"/> runs. The table enforces its
+    /// TTLs only as fast as something calls it, and the shortest of them --
+    /// <see cref="WebRtcDirectListenerTable{TSession}.StunOnlyIdleMs"/>, 15s -- is the one that frees
+    /// flood residue, so the sweep has to be well inside it.
+    /// </summary>
+    private static readonly TimeSpan ReapInterval = TimeSpan.FromSeconds(5);
 
     private readonly ILogger<WebRtcDirectProtocol>? _logger;
-    private readonly WebRtcDirectReplayWindow _replayWindow = new();
-    private readonly WebRtcDirectRateLimiter _offerRateLimiter = new();
-    private readonly SemaphoreSlim _incomingOfferSlots = new(MaxConcurrentIncomingOffers, MaxConcurrentIncomingOffers);
+
+    /// <summary>
+    /// Throttles binding requests from sources no row owns yet, which is the only path that
+    /// allocates. Owned here rather than by the table so one process-wide budget covers every listen
+    /// address.
+    /// </summary>
+    private readonly WebRtcDirectRateLimiter _newSessionRateLimiter = new();
+
+    /// <summary>
+    /// The listener-wide DTLS handshake budget shared by every <see cref="WebRtcDirectSession"/>.
+    /// Sized at <see cref="WebRtcDirectSession.MaxConcurrentDtlsHandshakes"/> because each slot parks
+    /// a dedicated OS thread for up to <see cref="WebRtcDirectSession.DtlsHandshakeTimeoutMs"/>.
+    /// </summary>
+    private readonly SemaphoreSlim _handshakeSlots =
+        new(WebRtcDirectSession.MaxConcurrentDtlsHandshakes, WebRtcDirectSession.MaxConcurrentDtlsHandshakes);
+
     private readonly RTCCertificate2 _certificate;
+
+    /// <summary>
+    /// The same certificate as <see cref="_certificate"/> in the form the listener needs.
+    /// <see cref="DtlsSrtpServer"/> takes a BouncyCastle <see cref="Certificate"/> chain and its key,
+    /// not an <see cref="RTCCertificate2"/>, so the chain is retained rather than discarded once
+    /// SIPSorcery's wrapper has been built from it.
+    /// </summary>
+    private readonly Certificate _certificateChain;
+    private readonly AsymmetricKeyParameter _privateKey;
+
     private readonly DtlsFingerprint _fingerprint;
     private readonly Func<RTCPeerConnection, RTCDtlsFingerprint?> _readRemoteFingerprint;
 
@@ -46,7 +73,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
     {
         _readRemoteFingerprint = readRemoteFingerprint;
         _logger = loggerFactory?.CreateLogger<WebRtcDirectProtocol>();
-        (_certificate, _fingerprint) = CreateLocalCertificate();
+        (_certificate, _certificateChain, _privateKey, _fingerprint) = CreateLocalCertificate();
     }
 
     public string Id => "webrtc-direct";
@@ -55,64 +82,77 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
     public static bool IsAddressMatch(Multiaddress addr) => WebRtcDirectMultiaddr.IsWebRtcDirect(addr);
 
+    /// <summary>
+    /// Serves every inbound peer from one UDP port, as webrtc-direct requires: there is no signalling
+    /// channel and no per-peer socket, so a datagram's only identity is its first byte (RFC 7983) and,
+    /// for a binding request, the <c>server_ufrag</c> in its USERNAME.
+    /// <para>
+    /// Everything this loop does with a datagram comes from
+    /// <see cref="WebRtcDirectListenerTable{TSession}.Route"/>. In particular it does NOT consult an
+    /// address map of its own first: an established peer keeps sending binding requests for the life
+    /// of the connection, and routing one into DTLS instead of answering it looks fine for the two
+    /// seconds of a loopback test and then drops every real dialer inside twenty. See the Route
+    /// remarks for the SIPSorcery timers behind that number.
+    /// </para>
+    /// </summary>
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
-        IPEndPoint endpoint = listenAddr.ToEndPoint();
-        using UdpClient udp = new(endpoint);
-        if (endpoint.Port == 0)
-        {
-            endpoint = (IPEndPoint)udp.Client.LocalEndPoint!;
-        }
+        using UdpClient udp = Bind(listenAddr.ToEndPoint());
+        IPEndPoint endpoint = (IPEndPoint)udp.Client.LocalEndPoint!;
 
-        Multiaddress listenerAddr = WebRtcDirectMultiaddr.Build(endpoint, _fingerprint);
-        context.ListenerReady(listenerAddr);
-
+        context.ListenerReady(WebRtcDirectMultiaddr.Build(endpoint, _fingerprint));
         _logger?.LogInformation("WebRTC-Direct listening on {Endpoint}", endpoint);
 
-        while (!token.IsCancellationRequested)
+        WebRtcDirectListenerTable<WebRtcDirectSession> table = new(rateLimiter: _newSessionRateLimiter);
+
+        // Separate from the caller's token so the sessions this listener started are torn down when
+        // it stops, whether it stopped on cancellation or on a socket failure.
+        using CancellationTokenSource stopping = CancellationTokenSource.CreateLinkedTokenSource(token);
+        Task reaping = ReapAsync(table, stopping.Token);
+
+        try
         {
-            UdpReceiveResult packet;
-            try
+            while (!token.IsCancellationRequested)
             {
-                packet = await udp.ReceiveAsync(token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-
-            string message = Encoding.UTF8.GetString(packet.Buffer);
-            if (!message.StartsWith(OfferPrefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (!_offerRateLimiter.TryAccept(packet.RemoteEndPoint, packet.Buffer.Length, out string? rejectReason))
-            {
-                _logger?.LogDebug("Dropped WebRTC-Direct offer from {Remote}: {Reason}", packet.RemoteEndPoint, rejectReason);
-                continue;
-            }
-
-            if (!_incomingOfferSlots.Wait(0))
-            {
-                _logger?.LogDebug("Dropped WebRTC-Direct offer from {Remote}: listener at max concurrent offer handling ({MaxConcurrent}).",
-                    packet.RemoteEndPoint,
-                    MaxConcurrentIncomingOffers);
-                continue;
-            }
-
-            string signedOfferPayload = message[OfferPrefix.Length..];
-            _ = Task.Run(async () =>
-            {
+                UdpReceiveResult packet;
                 try
                 {
-                    await HandleIncomingOfferAsync(context, endpoint, udp, packet.RemoteEndPoint, signedOfferPayload, token);
+                    packet = await udp.ReceiveAsync(token);
                 }
-                finally
+                catch (OperationCanceledException)
                 {
-                    _incomingOfferSlots.Release();
+                    break;
                 }
-            }, token);
+                catch (SocketException ex)
+                {
+                    // A previous send drew an ICMP port-unreachable, which the OS reports on the next
+                    // receive. It says nothing about this socket's health, so the loop goes on.
+                    _logger?.LogTrace(ex, "WebRTC-Direct receive reported {Error}", ex.SocketErrorCode);
+                    continue;
+                }
+
+                try
+                {
+                    // UdpClient.ReceiveAsync hands back an array sized to the datagram, so there is no
+                    // pooled tail to slice off. That matters because the APIs below take byte[] and
+                    // read .Length as the message length -- STUN parsing, MESSAGE-INTEGRITY and the
+                    // DTLS record queue would all be fed trailing zeroes by an oversized buffer.
+                    Dispatch(context, table, udp, endpoint, packet.RemoteEndPoint, packet.Buffer, stopping.Token);
+                }
+                catch (Exception ex)
+                {
+                    // One malformed datagram must never take the listener down: it would be a remote
+                    // kill switch for every peer on the port. WebRtcDirectStun exists to make this
+                    // unreachable (STUNMessage.ParseSTUNMessage dereferences a null header on a 1..19
+                    // byte datagram), and this is the backstop for the next one of those.
+                    _logger?.LogDebug(ex, "Dropped WebRTC-Direct datagram from {Remote}", packet.RemoteEndPoint);
+                }
+            }
+        }
+        finally
+        {
+            stopping.Cancel();
+            await reaping;
         }
     }
 
@@ -182,69 +222,205 @@ public class WebRtcDirectProtocol : ITransportProtocol
         }
     }
 
-    private async Task HandleIncomingOfferAsync(
+    /// <summary>
+    /// Binds the one socket this listener serves every peer from. <c>/ip6/::</c> gets a dual-mode
+    /// socket so a v4 dialer is reachable on the same port;
+    /// <see cref="WebRtcDirectStun.Normalize"/> folds the <c>::ffff:a.b.c.d</c> form such a socket
+    /// delivers, which is why every source below goes through the table rather than being keyed raw.
+    /// </summary>
+    private static UdpClient Bind(IPEndPoint endpoint)
+    {
+        if (!endpoint.Address.Equals(IPAddress.IPv6Any))
+        {
+            return new(endpoint);
+        }
+
+        UdpClient dualMode = new(AddressFamily.InterNetworkV6);
+        dualMode.Client.DualMode = true;
+        dualMode.Client.Bind(endpoint);
+        return dualMode;
+    }
+
+    private void Dispatch(
         ITransportContext context,
+        WebRtcDirectListenerTable<WebRtcDirectSession> table,
+        UdpClient udp,
         IPEndPoint localEndpoint,
-        UdpClient signalingUdp,
-        IPEndPoint remoteEndpoint,
-        string signedOfferPayload,
+        IPEndPoint source,
+        byte[] datagram,
         CancellationToken token)
     {
-        RTCPeerConnection pc = CreatePeerConnection();
+        WebRtcDirectRoute<WebRtcDirectSession> route = table.Route(source, datagram);
 
+        switch (route.Action)
+        {
+            case WebRtcDirectRouteAction.AnswerStun:
+                Send(udp, route.Response!, source);
+                break;
+
+            case WebRtcDirectRouteAction.AnswerStunAndAdmit:
+                Send(udp, route.Response!, source);
+                Admit(context, table, udp, localEndpoint, route.Key, token);
+                break;
+
+            case WebRtcDirectRouteAction.DeliverToSession:
+                // The session answers to the endpoint it pinned on its first DTLS record, which is
+                // the destination it hands back through the send callback below; route.Egress is the
+                // table's record of the same address.
+                route.Session!.ReceiveDtls(datagram, source);
+                break;
+
+            case WebRtcDirectRouteAction.Drop:
+            default:
+                // Nothing is sent back, ever. A listener that answered an unvalidated source with so
+                // much as an error would be a reflection primitive.
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Creates the session for a freshly admitted row and attaches it to the table at once.
+    /// <para>
+    /// Attaching it here rather than when the handshake completes is forced:
+    /// <see cref="WebRtcDirectListenerTable{TSession}.Route"/> drops a DTLS record whose row carries
+    /// no session, so a session published only after its handshake finished would never be fed the
+    /// records that finish it.
+    /// </para>
+    /// </summary>
+    private void Admit(
+        ITransportContext context,
+        WebRtcDirectListenerTable<WebRtcDirectSession> table,
+        UdpClient udp,
+        IPEndPoint localEndpoint,
+        WebRtcDirectSessionKey key,
+        CancellationToken token)
+    {
+        WebRtcDirectSession session = new(
+            _certificateChain,
+            _privateKey,
+            localEndpoint.Port,
+            _handshakeSlots,
+            (data, destination) => Send(udp, data, destination));
+
+        if (!table.MarkEstablished(key, session))
+        {
+            // The row went away, or the established cap filled, between admission and here. The
+            // session owns no threads yet, but it must not be left for the GC either.
+            _ = session.DisposeAsync().AsTask();
+            return;
+        }
+
+        // ponytail: fire and forget, with the session's own teardown in its finally. Awaiting these
+        // on the way out would block listener shutdown on Upgrade, which runs for the life of each
+        // connection; QuicProtocol.ListenAsync does the same with its accepted connections. Cancelling
+        // `stopping` is what reaches them. Upgrade to a tracked set if shutdown ever has to be
+        // observably complete.
+        _ = DriveSessionAsync(context, table, key, session, localEndpoint, token);
+    }
+
+    /// <summary>
+    /// Waits for one admitted session to come up and turns it into an upgraded libp2p connection.
+    /// <para>
+    /// This mirrors <see cref="DialAsync"/>'s tail deliberately rather than sharing it: moving both
+    /// halves to a common UpgradeToSession is the next change, and keeping the duplication here keeps
+    /// this one bisectable.
+    /// </para>
+    /// </summary>
+    private async Task DriveSessionAsync(
+        ITransportContext context,
+        WebRtcDirectListenerTable<WebRtcDirectSession> table,
+        WebRtcDirectSessionKey key,
+        WebRtcDirectSession session,
+        IPEndPoint localEndpoint,
+        CancellationToken token)
+    {
         try
         {
-            (string offerSessionId, string remoteOfferSdp, Identity _) = WebRtcDirectSignaling.ParseAndValidate(
-                signedOfferPayload,
-                WebRtcDirectSignalType.Offer,
-                expectedSessionId: null,
-                _replayWindow);
-            RTCSessionDescriptionInit offer = new() { type = RTCSdpType.offer, sdp = remoteOfferSdp };
-            DtlsFingerprint offeredFingerprint = WebRtcDirectSdp.ExtractFingerprint(remoteOfferSdp);
-            EnsureRemoteDescriptionApplied(pc.setRemoteDescription(offer), "offer");
+            // Established faults on failure, timeout and disposal but never cancels, so the token is
+            // the only thing that unparks this when the listener stops.
+            await session.Established.WaitAsync(token);
 
-            RTCDataChannel noiseChannel = await pc.createDataChannel(NoiseChannelLabel, new RTCDataChannelInit { negotiated = true, id = 0 });
-            Task<RTCDataChannel> noiseOpenTask = WaitForDataChannelOpenAsync(noiseChannel, token);
+            // All three are published by the completion above, not polled for.
+            if (session.RemoteFingerprint is not { } remoteFingerprint ||
+                session.Muxer is not { } muxer ||
+                session.RemoteEndPoint is not { } remoteEndPoint)
+            {
+                throw new InvalidOperationException("Established WebRTC-Direct session published no fingerprint, muxer or peer address.");
+            }
 
-            RTCSessionDescriptionInit answer = pc.createAnswer();
-            ValidateExpectedFingerprint(WebRtcDirectSdp.ExtractFingerprint(answer.sdp ?? string.Empty), _fingerprint, "answer");
-            string signedAnswer = WebRtcDirectSignaling.BuildSignedPayload(
-                WebRtcDirectSignalType.Answer,
-                context.Peer.Identity,
-                offerSessionId,
-                answer.sdp ?? string.Empty);
-            await pc.setLocalDescription(answer);
-
-            byte[] answerBytes = Encoding.UTF8.GetBytes(AnswerPrefix + signedAnswer);
-            await signalingUdp.SendAsync(answerBytes, answerBytes.Length, remoteEndpoint);
-
-            await WaitForConnectionAsync(pc, token);
-            ValidateRemoteFingerprint(_readRemoteFingerprint(pc), offeredFingerprint);
-            RTCDataChannel openedNoiseChannel = await noiseOpenTask;
+            // Established only means sctp.Start() has returned; the association has not yet seen the
+            // peer's INIT at that point. SctpAssociation.SendData on an association still in Closed
+            // logs a warning and DISCARDS the message, so writing the Noise handshake here rather
+            // than after Connected loses message one outright and both sides wait for ever.
+            await muxer.Connected.WaitAsync(token);
 
             using INewConnectionContext connectionContext = context.CreateConnection();
-            using CancellationTokenRegistration closed = connectionContext.Token.Register(pc.close);
             connectionContext.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Udp);
-            connectionContext.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Udp);
+            connectionContext.State.RemoteAddress = remoteEndPoint.ToMultiaddress(ProtocolType.Udp);
 
-            DataChannelOverIChannel rawChannel = new(openedNoiseChannel);
-            // The listener is _B_, the Noise INITIATOR. See WebRtcDirectRoles for why.
+            // There is no /certhash to check this against -- the listener dialled nobody -- so the
+            // fingerprint is bound to the libp2p identity at Noise instead, through the prologue.
+            await using WebRtcStream noiseStream = new(muxer.GetNegotiatedChannel(WebRtcDirectSctpMuxer.NoiseStreamId));
+            WebRtcStreamChannel handshakeChannel = new(noiseStream);
+
+            // The listener is _B_, the Noise INITIATOR, and _B_'s fingerprint goes second in the
+            // prologue. See WebRtcDirectRoles for the spec sentences behind both.
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
-                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: offeredFingerprint);
+                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
             byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                rawChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
+                handshakeChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
+
             connectionContext.State.RemotePublicKey = remoteKey;
             await connectionContext.Upgrade(encryptedChannel);
         }
         catch (Exception ex)
         {
-            _logger?.LogDebug(ex, "Failed handling incoming WebRTC-Direct offer from {Remote}", remoteEndpoint);
+            _logger?.LogDebug(ex, "WebRTC-Direct inbound session {Ufrag} ended", key.ServerUfrag);
         }
         finally
         {
-            pc.close();
-            pc.Dispose();
+            table.Remove(key);
+            await session.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Drives the table's TTLs, which it applies only when something asks it to, and disposes what it
+    /// hands back: the table holds no disposables, so an association it forgot without the caller
+    /// closing it would leak that association's two threads for the life of the process.
+    /// </summary>
+    private async Task ReapAsync(WebRtcDirectListenerTable<WebRtcDirectSession> table, CancellationToken token)
+    {
+        using PeriodicTimer timer = new(ReapInterval);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                foreach (WebRtcDirectSession session in table.Reap())
+                {
+                    _logger?.LogDebug("Reaped an idle WebRTC-Direct session");
+                    await session.DisposeAsync();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void Send(UdpClient udp, byte[] datagram, IPEndPoint destination)
+    {
+        try
+        {
+            udp.Send(datagram, datagram.Length, destination);
+        }
+        catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+        {
+            // The socket is gone or the destination is unreachable. Both are the peer's problem and
+            // neither may propagate: this runs on the receive loop and on DTLS callbacks alike.
+            _logger?.LogTrace(ex, "WebRTC-Direct send to {Destination} failed", destination);
         }
     }
 
@@ -260,7 +436,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
         return new RTCPeerConnection(config);
     }
 
-    private static (RTCCertificate2 Certificate, DtlsFingerprint Fingerprint) CreateLocalCertificate()
+    private static (RTCCertificate2 Certificate, Certificate Chain, AsymmetricKeyParameter PrivateKey, DtlsFingerprint Fingerprint) CreateLocalCertificate()
     {
         (Certificate certificateChain, AsymmetricKeyParameter privateKey) =
             DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
@@ -271,7 +447,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             PrivateKey = privateKey,
         };
 
-        return (rtcCertificate, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificateChain)));
+        return (rtcCertificate, certificateChain, privateKey, DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(certificateChain)));
     }
 
     private static Task WaitForConnectionAsync(RTCPeerConnection pc, CancellationToken token)
@@ -327,5 +503,4 @@ public class WebRtcDirectProtocol : ITransportProtocol
             throw new InvalidOperationException($"Failed to apply WebRTC remote {source} SDP: {result}.");
         }
     }
-
 }
