@@ -12,9 +12,9 @@ This implementation supports the libp2p TLS handshake protocol described in the 
 
 ### Certificate Features
 - **libp2p Extension**: Custom X.509 extension (OID: `1.3.6.1.4.1.53594.1.1`) for peer identity
-- **Self-Signed Certificates**: Uses ephemeral keys for certificate signing, not host keys
+- **Self-Signed Certificates**: Uses session keys for certificate signing, separate from host identity keys
 - **Key Type Support**: Ed25519, Secp256k1, ECDSA, and RSA key types
-- **Session Keys**: Certificates share the supplied session key and own their private-key handles
+- **Session Keys**: Certificates use the supplied session key outside Windows and a shared process-owned P-256 key on Windows. Each certificate owns its private-key handle.
 
 ### Security Features
 - **Certificate Validation**: Comprehensive validation per libp2p spec:
@@ -42,7 +42,7 @@ The TLS protocol is automatically integrated into the libp2p connection stack. I
 X.509 Certificate:
 ├── Subject: SERIALNUMBER=<random-hex>
 ├── Issuer: Same as Subject (self-signed)
-├── Public Key: Ephemeral ECDSA key
+├── Public Key: Session ECDSA key
 ├── Extensions:
 │   └── libp2p Public Key Extension (1.3.6.1.4.1.53594.1.1):
 │       └── SignedKey (ASN.1):
@@ -58,8 +58,9 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: Linux transport tests pass. Windows support for the in-memory key path remains pending CI.
-- **Key Generation**: Uses the supplied in-memory session key without creating named keys. Windows TLS and QUIC handshakes must pass the Windows CI job before support for this key lifetime is confirmed; Linux certificate construction alone does not establish Windows support.
+- **Platform Validation**: Linux transport tests pass. The revised Windows key lifetime remains pending CI.
+- **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
+- **Crash Lifetime**: A crash or failed shutdown cleanup can leave one key per process run behind. Across repeated crashes this residual is unbounded; no legacy-key sweep is performed. See the [ownership and validation evidence](../../docs/development/secure-transport-validation.md).
 
 ### Received certificate lists
 

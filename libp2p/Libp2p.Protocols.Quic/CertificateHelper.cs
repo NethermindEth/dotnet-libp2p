@@ -27,13 +27,17 @@ public class CertificateHelper
 {
     private const string PubkeyExtensionOidString = "1.3.6.1.4.1.53594.1.1";
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
+    private static readonly Lazy<WindowsCertificateKey> WindowsKey = new(CreateWindowsProcessKey);
 
     /// <summary>
-    /// Creates a libp2p certificate using the supplied session key. The returned certificate
-    /// owns its private-key handle and must be disposed after its last TLS use.
+    /// Creates a libp2p certificate using the supplied session key outside Windows.
+    /// Windows certificates share a process-owned named key required by Schannel.
+    /// Dispose the returned certificate after its last TLS use; do not delete its shared key.
     /// </summary>
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
-        => CreateCertificate(sessionKey, identity);
+        => OperatingSystem.IsWindows()
+            ? WindowsKey.Value.CreateCertificate(identity)
+            : CreateCertificate(sessionKey, identity);
 
     internal static CertificateLease CreateCertificateLease(ECDsa sessionKey, Identity identity) =>
         new(CertificateFromIdentity(sessionKey, identity));
@@ -43,6 +47,75 @@ public class CertificateHelper
         public X509Certificate2 Certificate { get; } = certificate;
 
         public void Dispose() => Certificate.Dispose();
+    }
+
+    private static WindowsCertificateKey CreateWindowsProcessKey()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        WindowsCertificateKey owner = new();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            try { owner.DeleteAtProcessExit(); }
+            catch (CryptographicException)
+            {
+                // Shutdown cleanup is best effort. A crash or deletion failure can leave
+                // this one key behind. Never search for or delete keys owned by other runs.
+            }
+        };
+        return owner;
+    }
+
+    private sealed class WindowsCertificateKey
+    {
+        private readonly object _sync = new();
+        private ECDsaCng? _key;
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public WindowsCertificateKey()
+        {
+            using CngKey key = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", new CngKeyCreationParameters
+            {
+                ExportPolicy = CngExportPolicies.AllowPlaintextExport,
+                KeyUsage = CngKeyUsages.AllUsages,
+            });
+            try { _key = new ECDsaCng(key); }
+            catch
+            {
+                key.Delete();
+                throw;
+            }
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public X509Certificate2 CreateCertificate(Identity identity)
+        {
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_key is null, this);
+                return CertificateHelper.CreateCertificate(_key, identity);
+            }
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public void DeleteAtProcessExit()
+        {
+            // Do not wait on an application thread during process termination. If it is
+            // still signing, retain the same bounded residual as failed shutdown cleanup.
+            if (!Monitor.TryEnter(_sync)) return;
+            try
+            {
+                if (_key is null) return;
+                using CngKey ownedKey = _key.Key;
+                try { ownedKey.Delete(); }
+                finally
+                {
+                    _key.Dispose();
+                    _key = null;
+                }
+            }
+            finally { Monitor.Exit(_sync); }
+        }
     }
 
     private static X509Certificate2 CreateCertificate(ECDsa certKey, Identity identity)

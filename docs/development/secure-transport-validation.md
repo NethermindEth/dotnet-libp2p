@@ -88,28 +88,68 @@ both registered TLS roles and QUIC dial/listen use this helper. Only lease dispo
 deletes it. This source trace confirms the crash-leak premise; the audit's Windows
 GC and timing experiment was not independently executed on this Linux host.
 
-The candidate instead builds the certificate with the supplied session key. It
-creates no named key, imports no temporary key file, and performs no orphan sweep.
-Existing legacy keys remain untouched. The public helper returns an independently
-owned certificate/key handle; disposing its input key does not invalidate the
-certificate. Disposing a lease releases the certificate without deleting its
-borrowed session key. TLS now disposes its native stream before the certificate
-lease on both success and authentication failure.
+Independent review F1 against `0aa5b634f6803be8309a696b9a73189ecffb592e` correctly
+identified that the initial in-memory replacement breaks the Windows credential
+path. This is source-confirmed, not a Windows execution result:
 
-The Windows test checks 20 leases for the same supplied public key, an ephemeral
-CNG handle, and no key name. This assertion alone does not prove Schannel support.
-`RegisteredSecureTransportTests` uses `AddLibp2p`, the existing TLS-selecting
-builder, and `WithQuic` to exercise three fresh peers per transport. Each performs
-a failed expected-peer handshake followed by successful mutual authentication,
-forced collection, and application requests in both directions. The existing
-QUIC tests also reject a missing client certificate before a successful dial.
+- [.NET 10.0.13 SslStream credentials](https://github.com/dotnet/runtime/blob/v10.0.13/src/libraries/System.Net.Security/src/System/Net/Security/SslStreamPal.Windows.cs#L201-L238)
+  translate the native missing-credentials error for an ephemeral certificate key
+  into an authentication failure.
+- [MsQuic credential configuration](https://github.com/dotnet/runtime/blob/v10.0.13/src/libraries/System.Net.Quic/src/System/Net/Quic/Internal/MsQuicConfiguration.cs#L220-L273)
+  uses the certificate context on Schannel and likewise rejects ephemeral keys.
+- [Windows certificate contexts](https://github.com/dotnet/runtime/blob/v10.0.13/src/libraries/System.Net.Security/src/System/Net/Security/SslStreamCertificateContext.Windows.cs#L14-L18)
+  do not turn that key into a named one.
 
-Linux passed the full TLS and QUIC projects and these registered paths. Windows
-TLS/QUIC handshake support, native key lifetime, and the absence of persisted
-keys remain pending Windows CI. If ephemeral keys fail there, retain the native
-error and runtime details and obtain approval for a bounded reuse alternative;
-do not add a prefix-based cleanup or persistence subsystem. Do not close #402
-on Linux evidence alone.
+The revision restores a named P-256 CNG key with the parent's provider settings,
+shared by all certificates for the lifetime of the loaded helper. In a normal
+application load context, this is one key per process, created lazily. Further
+connection attempts, protocol instances, identities, and public helper calls do
+not create additional persisted keys. Certificate creation is serialized around
+the shared signing object. The process retains ownership across individual lease
+disposal, input-key disposal, and native TLS/QUIC credential caching. Each returned
+certificate still owns its own certificate/private-key handle. Callers dispose
+that certificate and must not explicitly delete the shared key. Outside Windows,
+the supplied session key remains in use as before.
+
+Process ownership avoids introducing protocol-disposal assumptions: the registered
+builder can create protocols with `ActivatorUtilities.GetServiceOrCreateInstance`,
+so a new `IDisposable` on those protocols alone would not establish DI ownership.
+The public helper also supports callers independent of registered protocols.
+
+On normal process exit, cleanup attempts deletion using the exact retained key
+handle created by this process. It does not wait on a signing thread during process
+termination; a busy owner has the same residual as failed shutdown cleanup. No name search, PID inference, recovery database,
+startup sweep, or deletion of legacy keys is performed. If key-wrapper construction
+fails, that newly created key is deleted before returning the error. The lazy
+owner also prevents repeated failed attempts from creating more keys.
+
+**Residual crash leak:** abrupt termination or failed shutdown deletion can leave
+one persisted key per loaded helper per process run. Across N such runs, up to N
+keys remain; this is unbounded across repeated restarts. The revision removes
+per-connection key churn, not this residual. Multiple separately loaded helper
+assemblies each own one key. Do not describe #402 as crash-safe or fully resolved
+without accepting this bound and obtaining Windows transport evidence.
+
+`WindowsCertificateKeyTests` covers sequential and concurrent certificate leases
+with distinct input keys, shared key-name/public-key fingerprints, independent
+certificate disposal, and a surviving certificate that still signs successfully.
+Its subprocess case runs a real child test process, checks that normal exit
+deletes the child's exact key, and verifies that the active parent's different key
+remains present. Failed-probe cleanup requires child exit and the reported key's
+public-key fingerprint before deleting that exact key. The certificate-list probe
+no longer deletes private keys borrowed from the shared process owner.
+
+`RegisteredSecureTransportTests` continues to use `AddLibp2p`, the existing
+TLS-selecting builder, and `WithQuic` to exercise three fresh peers per transport.
+Each performs a failed expected-peer handshake followed by successful mutual
+authentication, forced collection, and application requests in both directions.
+The existing QUIC tests also reject a missing client certificate before a
+successful dial. TLS disposes its native stream before the certificate lease on
+both success and authentication failure.
+
+The Windows job keeps the full TLS/QUIC suites, raises QUIC's discovery floor to
+32 executed cases, and retains the registered transport tests. Windows handshake, concurrency,
+and subprocess-cleanup results are still pending CI; none are claimed from Linux.
 
 ## Validation commands
 
@@ -119,14 +159,23 @@ used `-p:TreatWarningsAsErrors=true` and one artifact root:
 ```sh
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38
 dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32
-dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 20
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 29
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests' --minimum-expected-tests 45
 dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~CanonicalIdentityTests|FullyQualifiedName~IdentityTests|FullyQualifiedName~PeerIdTests' --minimum-expected-tests 1
 dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
 ```
 
-The initial parent Noise baseline passed 20 tests. The final Linux results are
-Noise 38/38, TLS 32/32, QUIC 29 passed plus one Windows-only skip, registered E2E
-45/45, and Core identity tests 75/75. Windows CI retains the existing full protocol
-suites and adds registered lifetime tests and parent expected-peer checks. Its
-results and independent host review are required before reporting #402 resolved.
+A first local QUIC invocation with `--minimum-expected-tests 32` discovered all 32
+cases, passed 29, skipped the three Windows-only cases, and exited 9 because the
+runner excludes skips from its execution minimum. The Linux command above uses
+29; the Windows CI execution minimum remains 32. No CI gate was reduced.
+
+The initial parent Noise baseline passed 20 tests. The revised Linux results are
+Noise 38/38, TLS 32/32, QUIC 29 passed plus three Windows-only skips, registered E2E
+45/45. The Core identity tests passed 75/75 during the initial implementation;
+they were unchanged and were not rerun for this revision. Windows CI retains the
+existing full protocol suites and registered lifetime/expected-peer checks. Its
+results and renewed independent host review are required before accepting the
+Windows compatibility correction. #373 remains unresolved, and #402 retains the
+explicit crash-leak bound above. The host owns PR publication and issue closure;
+closing references alone must not be presented as evidence of resolution.
