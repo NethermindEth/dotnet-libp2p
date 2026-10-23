@@ -49,10 +49,16 @@ its current sequence after eviction when the retained record is absent or older.
 also rejects older records regardless of source; it permits equal-sequence
 refreshes, while this store preserves its existing stricter replacement policy.
 Empty records retain their sequence without removing existing addresses.
+Record metadata alone does not protect addresses: unsigned discovery can still
+fill or refresh them until a usable signed address set is applied. Previously
+applied signed addresses remain protected when a newer empty record arrives.
 
 A record's signature authenticates its contents, not the discovery source.
 Stateless records remain in the ordinary bounded eviction tier, cannot replace
 configured addresses and cannot displace configured peers or active sessions.
+When PX defers a configured peer's signed addresses, an authenticated session
+can apply the same signed payload at the retained sequence once. It preserves the
+original envelope and rejects older or conflicting equal-sequence addresses.
 Eviction may forget a stateless record's history; this change does not add an
 unbounded or persistent replay-history store. Notifications run outside the
 session and store locks and occur only when accepted addresses change.

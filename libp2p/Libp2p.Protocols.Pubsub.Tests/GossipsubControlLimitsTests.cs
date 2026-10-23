@@ -641,6 +641,21 @@ public class GossipsubControlLimitsTests
         Assert.That(info.Seq, Is.EqualTo(1UL));
     }
 
+    [Test]
+    public async Task Prune_EmptyRecordDoesNotPreventLaterAddressDiscovery()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        Identity signer = TestPeers.Identity(5);
+        ByteString record = Core.Dto.SigningHelper.CreateSignedEnvelope(signer, [], 5);
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo { PeerID = ByteString.CopyFrom(signer.PeerId.Bytes), SignedPeerRecord = record }));
+        Multiaddress address = $"/ip4/192.0.2.1/tcp/4001/p2p/{signer.PeerId}";
+        setup.PeerStore.Discover([address], isTrusted: false);
+        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).Addrs, Is.EquivalentTo(new[] { address }));
+        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).Seq, Is.EqualTo(5UL));
+    }
+
     /// <remarks>
     /// Gossipsub v1.1 lets an entry omit the signed record. Such a peer can only be
     /// reached through addresses the store already has, and an entry without one must
