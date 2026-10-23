@@ -1,9 +1,10 @@
 # Secure transport validation
 
-This work is stacked on PR #411, targeting `feature/20261023-122715-498974`,
-with parent `0e731cc8b84ad51fd7af3bc31e58744678e0a427`. It preserves the
-parent's identity canonicalization, certificate self-signatures, expected peer
-checks, and registered protocol stack.
+Stacked on PR #411, targeting `feature/20261023-122715-498974`. Preserves the parent fixes and limits changes to these secure-transport findings.
+
+The parent revision is `0e731cc8b84ad51fd7af3bc31e58744678e0a427`. Its identity
+canonicalization, certificate self-signatures, expected peer checks, and registered
+protocol stack are preserved.
 
 ## Noise framing (#371)
 
@@ -76,12 +77,33 @@ direction. It is not a portable exact-list API:
 - The [public ExtraStore contract](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509chainpolicy.extrastore?view=net-10.0)
   describes inputs for chain building, without guaranteeing exact wire entries.
 
-Windows observations are pending CI. No portable cardinality enforcement is
-claimed, and no chain-count substitute was added. The unsupported full-conformance
-claim was removed from the TLS README. Keep #373 open. The existing Windows TLS
-job runs the six probes and uploads their NUnit XML observations.
+The host also ran the same six probes on Windows 10.0.26200, .NET 10.0.12, at
+`84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52`. All six passed. Their NUnit XML records:
 
-## Session-key lifetime (#402, pending Windows CI)
+| Receiver | Transmitted list | ChainElements | ExtraStore | Leaf copies in ExtraStore |
+| --- | --- | ---: | ---: | ---: |
+| Client | Leaf | 1 | 0 | 0 |
+| Client | Leaf + unrelated | 1 | 1 | 0 |
+| Client | Leaf + duplicate | 1 | 0 | 0 |
+| Server | Leaf | 1 | 0 | 0 |
+| Server | Leaf + unrelated | 1 | 1 | 0 |
+| Server | Leaf + duplicate | 1 | 0 | 0 |
+
+Windows drops the duplicate leaf from `ExtraStore` in both roles. In both the
+two-entry duplicate case and the valid one-entry control, the callback exposes
+only that case's presented leaf: one chain element and an empty `ExtraStore`.
+The emitted DER list is checked separately by the sender probe. Duplication adds
+no observable certificate entry. This is a concrete loss of wire multiplicity,
+not merely an undocumented API guarantee. Neither collection can enforce the
+exact transmitted-list requirement on this platform/runtime.
+
+No portable cardinality enforcement is claimed, and no chain-count substitute
+was added. The unsupported full-conformance claim was removed from the TLS
+README. #373 remains unresolved and must not have a closing reference in the PR.
+The existing Windows TLS job continues to run the six probes and upload their
+NUnit XML observations.
+
+## Session-key lifetime (#402, partial mitigation)
 
 The parent creates a fresh persisted named Windows CNG key on every helper call;
 both registered TLS roles and QUIC dial/listen use this helper. Only lease disposal
@@ -127,8 +149,9 @@ owner also prevents repeated failed attempts from creating more keys.
 one persisted key per loaded helper per process run. Across N such runs, up to N
 keys remain; this is unbounded across repeated restarts. The revision removes
 per-connection key churn, not this residual. Multiple separately loaded helper
-assemblies each own one key. Do not describe #402 as crash-safe or fully resolved
-without accepting this bound and obtaining Windows transport evidence.
+assemblies each own one key. The Windows transport results below validate the
+compatible reuse and normal-exit paths; they do not eliminate this crash leak.
+#402 remains partial and must not have a closing reference in the PR.
 
 `WindowsCertificateKeyTests` covers sequential and concurrent certificate leases
 with distinct input keys, shared key-name/public-key fingerprints, independent
@@ -147,14 +170,60 @@ The existing QUIC tests also reject a missing client certificate before a
 successful dial. TLS disposes its native stream before the certificate lease on
 both success and authentication failure.
 
-The Windows job keeps the full TLS/QUIC suites, raises QUIC's discovery floor to
-32 executed cases, and retains the registered transport tests. Windows handshake, concurrency,
-and subprocess-cleanup results are still pending CI; none are claimed from Linux.
+The Windows job keeps the full TLS/QUIC suites, requires 32 executed QUIC cases,
+and retains the registered transport tests. Host-supplied Windows results now
+confirm the handshake, concurrency, certificate lifetime, and normal-process-exit
+cleanup tests at the exact implementation revision. They are actual Windows
+execution evidence, not inferred from Linux results. The CI gates remain intact.
+
+## Host Windows validation
+
+The host ran a clean checkout of `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on
+2026-10-23, from 21:26:22 to 21:26:56 UTC. The evidence bundle is
+`/root/hammer-workspace/implementation/audit1-20261023/windows-results`:
+`metadata.txt`, each suite's `.command.txt`, `.exit.txt`, and `.log`, `settings.xml`,
+and the three NUnit reports under `xml/`. These files were read and cross-checked
+during this continuation. The implementation and test inputs remain unchanged;
+only documentation is updated. The Windows commands were run by the host, not
+re-executed on this Linux documentation host.
+
+- OS: Microsoft Windows NT 10.0.26200.0, win-x64.
+- SDK: 10.0.401; MSBuild: 18.9.11; runtime: 10.0.12.
+- All three commands exited 0. XML case totals and individual results agree with
+  the complete logs; no case was skipped, failed, or inconclusive.
+
+| Suite | Passed / executed | Skipped |
+| --- | ---: | ---: |
+| QUIC | 32 / 32 | 0 |
+| TLS | 32 / 32 | 0 |
+| Registered transport and alias controls | 5 / 5 | 0 |
+
+The QUIC report includes both sequential/concurrent process-key reuse cases and
+`NormalProcessExitDeletesOnlyItsOwnKey`, all passed. The TLS report includes all
+six certificate-list probes. The registered report includes Noise, TLS, and QUIC
+failure/retry and bidirectional application exchange, plus both expected-peer
+alias controls. Thus the named-key correction to review F1 is validated through
+the registered Windows production paths as well as the key-lifetime tests.
+
+Exact commands captured by the host (the registered filter was passed as one
+argument; quote it when replaying in a shell):
+
+```text
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 5 --timeout 180s --settings C:\apps\hammer\artifacts\review-pair\audit1-20261023\windows-results/settings.xml --filter FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId
+```
+
+The settings file enables NUnit XML output at
+`C:/apps/hammer/artifacts/review-pair/audit1-20261023/windows-results/xml`.
+These results resolve the previous Windows execution-evidence blocker. They do
+not establish cross-client interoperability or hard-crash orphan recovery, and
+they do not turn the #373 visibility probe into protocol enforcement.
 
 ## Validation commands
 
-Run from the repository root with the session's existing `TMPDIR`. All builds
-used `-p:TreatWarningsAsErrors=true` and one artifact root:
+The retained Linux checks ran from the repository root with the session's existing
+`TMPDIR`. All builds used `-p:TreatWarningsAsErrors=true` and one artifact root:
 
 ```sh
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38
@@ -170,12 +239,26 @@ cases, passed 29, skipped the three Windows-only cases, and exited 9 because the
 runner excludes skips from its execution minimum. The Linux command above uses
 29; the Windows CI execution minimum remains 32. No CI gate was reduced.
 
-The initial parent Noise baseline passed 20 tests. The revised Linux results are
-Noise 38/38, TLS 32/32, QUIC 29 passed plus three Windows-only skips, registered E2E
-45/45. The Core identity tests passed 75/75 during the initial implementation;
-they were unchanged and were not rerun for this revision. Windows CI retains the
-existing full protocol suites and registered lifetime/expected-peer checks. Its
-results and renewed independent host review are required before accepting the
-Windows compatibility correction. #373 remains unresolved, and #402 retains the
-explicit crash-leak bound above. The host owns PR publication and issue closure;
-closing references alone must not be presented as evidence of resolution.
+The initial parent Noise baseline passed 20 tests. Retained Linux Release checks
+at `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52`, using the commands above with
+`-c Release`, passed Noise 38/38, TLS 32/32, QUIC 29 plus three Windows-only skips,
+and registered E2E 45/45. The Core identity tests passed 75/75 during the initial
+implementation. These successful checks are reused because their code and test
+inputs are unchanged; no protocol suite was rerun for this documentation update.
+The new Windows evidence supplies the native-platform results that Linux could
+not establish. Independent review and final verification of this documentation
+candidate still belong to the host; all existing review and CI gates remain.
+
+## PR handoff
+
+The only closing reference is:
+
+```text
+Closes #371
+```
+
+#373 remains unresolved because the Windows callback loses transmitted duplicate
+entries. #402 is a partial mitigation of per-attempt key creation and retains one
+possible orphan per crashed process run. Neither issue has a closing reference.
+The stacked dependency on PR #411 and target branch stated above must remain in
+the PR description. The host owns publication and issue closure.
