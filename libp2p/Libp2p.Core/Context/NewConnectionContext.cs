@@ -13,6 +13,7 @@ public class NewConnectionContext(LocalPeer localPeer, LocalPeer.Session session
 
     public void Dispose()
     {
-        Activity?.Dispose();
+        try { _ = session.DisconnectAsync(); }
+        finally { Activity?.Dispose(); }
     }
 }

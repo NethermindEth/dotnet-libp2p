@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
@@ -144,7 +145,17 @@ internal static class WebRtcDirectSignaling
         byte[] payloadBytes = Encoding.UTF8.GetBytes(envelope.Payload);
         string payloadHashHex = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant();
 
-        PublicKey signerPublicKey = PublicKey.Parser.ParseFrom(Convert.FromBase64String(envelope.SignerPublicKey));
+        byte[] signerKeyBytes = Convert.FromBase64String(envelope.SignerPublicKey);
+        PublicKey signerPublicKey;
+        try
+        {
+            signerPublicKey = PublicKeyDecoder.Decode(ByteString.CopyFrom(signerKeyBytes));
+        }
+        catch (Libp2pException e)
+        {
+            throw new CryptographicException("Invalid signaling envelope signer key.", e);
+        }
+
         Identity signerIdentity = new(signerPublicKey);
 
         byte[] signature;

@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Google.Protobuf;
 using Multiformats.Hash;
+using Nethermind.Libp2p.Core.Dto;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -18,6 +20,37 @@ public class PeerIdTests
             Assert.That(peerId.ToString(), Is.EqualTo(cidV0PeerId));
             Assert.That(Multihash.Decode(peerId.Bytes).Code, Is.EqualTo(hashType));
         });
+    }
+
+    [Test]
+    public void Test_ExtractPublicKey_ReturnsTheInlinedEd25519Key()
+    {
+        Identity identity = new();
+
+        Assert.That(PeerId.ExtractPublicKey(identity.PeerId.Bytes), Is.EqualTo(identity.PublicKey));
+    }
+
+    /// <remarks>
+    /// The padded key verifies its owner's signatures, so a peer ID that inlines
+    /// it would give the same keypair a second identity.
+    /// </remarks>
+    [Test]
+    public void Test_ExtractPublicKey_ReturnsNull_WhenInlinedEd25519KeyIsPadded()
+    {
+        PublicKey key = new Identity().PublicKey;
+        PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. key.Data.ToByteArray(), 0x00]) };
+        PeerId peerId = new(padded);
+        Assert.That(Multihash.Decode(peerId.Bytes).Code, Is.EqualTo(HashType.ID), "precondition: the padded key is still inlined");
+
+        Assert.That(PeerId.ExtractPublicKey(peerId.Bytes), Is.Null);
+    }
+
+    [Test]
+    public void Test_ExtractPublicKey_ReturnsNull_WhenInlinedKeyIsNotProtobuf()
+    {
+        byte[] peerId = Multihash.Encode([0xff, 0xff, 0xff], HashType.ID);
+
+        Assert.That(PeerId.ExtractPublicKey(peerId), Is.Null);
     }
 
     public static IEnumerable<TestCaseData> PeerIdsWithExpectedMultihashes()

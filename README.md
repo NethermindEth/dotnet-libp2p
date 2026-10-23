@@ -39,7 +39,7 @@ The MAUI chat sample is visible in the solution but excluded from its default re
 
 ## Roadmap
 
-The stable 1.0.0 release supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
+The current implementation supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 
@@ -52,6 +52,7 @@ The target is to provide a performant well-tested implementation of a wide range
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
 | yamux              | /yamux/1.0.0       | ✅             |
+| [mplex](./libp2p/Libp2p.Protocols.Mplex/README.md) | /mplex/6.7.0 | ✅ |
 | tls                | /tls/1.0.0         | ✅             |
 | WebSockets         | /ws, /wss          | ✅             |
 | WebRTC Direct      | /webrtc-direct     | 🚧             |
@@ -80,7 +81,7 @@ The target is to provide a performant well-tested implementation of a wide range
 🚧 - work in progress<br>
 ✅ - basic support implemented
 
-No plans for: mplex, quic-draft-29
+No plans for: quic-draft-29
 
 ## License
 

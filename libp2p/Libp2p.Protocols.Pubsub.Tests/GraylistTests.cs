@@ -227,6 +227,117 @@ public class GraylistTests
         Assert.That(subscribed, Is.EqualTo(isFirstRpc));
     }
 
+    [TestCase(14, false, false, -100)]
+    [TestCase(15, false, false, -100)]
+    [TestCase(15, true, false, -100)]
+    [TestCase(15, false, false, -112.5)]
+    [TestCase(15, true, false, -112.5)]
+    [TestCase(15, false, true, -100)]
+    [TestCase(15, true, true, -100)]
+    public void InvalidMessagePenalty_AppliesToTheRestOfTheRpc(int invalidCount, bool invalidSignature, bool direct, double threshold)
+    {
+        Multiaddress address = TestPeers.Multiaddr(1);
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            DefaultSignaturePolicy = invalidSignature ? PubsubSettings.SignaturePolicy.StrictSign : PubsubSettings.SignaturePolicy.StrictNoSign,
+            GetMessageId = message => new MessageId(message.Data.ToByteArray()),
+            DirectPeers = direct ? [address] : [],
+            GraylistThreshold = threshold,
+        });
+        IRoutingStateContainer state = router;
+        _ = router.GetTopic(Topic);
+        router.VerifyMessage = (_, _) => MessageValidity.Rejected;
+        PeerId peerId = Connect(router, address, _ => { });
+
+        Rpc rpc = Graft().WithTopics([Topic], []);
+        for (int i = 0; i < invalidCount; i++)
+        {
+            rpc.Publish.Add(new Message { Topic = Topic, Data = ByteString.CopyFrom(BitConverter.GetBytes(i)) });
+        }
+        router.OnRpc(peerId, rpc);
+
+        double score = router.GetPeerScore(peerId);
+        Assert.That(score, Is.EqualTo(invalidCount == 14 ? -98 : -112.5));
+        bool allowed = direct || score >= threshold;
+        bool subscribed = state.GossipsubPeers.TryGetValue(Topic, out HashSet<PeerId>? peers) && peers.Contains(peerId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(subscribed, Is.EqualTo(allowed));
+            Assert.That(state.Mesh[Topic].Contains(peerId), Is.EqualTo(allowed && !direct));
+        });
+    }
+
+    [TestCase(-99, false)]
+    [TestCase(-100, false)]
+    [TestCase(-101, false)]
+    [TestCase(-101, true)]
+    public void UnsolicitedPartialPenalty_AppliesToTheRestOfTheRpc(double penaltyWeight, bool direct)
+    {
+        Multiaddress address = TestPeers.Multiaddr(1);
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            EnablePartialMessages = true,
+            BehaviorPenaltyWeight = penaltyWeight,
+            GossipThreshold = -1_000,
+            DirectPeers = direct ? [address] : [],
+        });
+        _ = router.GetTopic(Topic);
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, address, sent.Add, PubsubRouter.GossipsubProtocolVersionV13);
+        router.OnRpc(peerId, new Rpc
+        {
+            Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } },
+        });
+        sent.Clear();
+
+        Rpc rpc = new() { Control = new ControlMessage() };
+        rpc.Partial = new PartialMessagesExtension
+        {
+            TopicID = ByteString.CopyFromUtf8(Topic),
+            GroupID = ByteString.CopyFrom([1]),
+            PartialMessage = ByteString.CopyFrom([2]),
+        };
+        rpc.Control.Ihave.Add(new ControlIHave { TopicID = Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
+        router.OnRpc(peerId, rpc, isFirstRpc: false);
+
+        Assert.That(router.GetPeerScore(peerId), Is.EqualTo(penaltyWeight));
+        Assert.That(sent.SelectMany(response => response.Control?.Iwant.SelectMany(want => want.MessageIDs) ?? []),
+            Is.EqualTo(direct || penaltyWeight >= -100 ? new[] { ByteString.CopyFrom([3]) } : []));
+    }
+
+    [TestCase(-99)]
+    [TestCase(-100)]
+    [TestCase(-101)]
+    public void BackoffGraftPenalty_AppliesToTheRestOfTheRpc(double penaltyWeight)
+    {
+        using PubsubRouter router = CreateRouter(new PubsubSettings
+        {
+            BehaviorPenaltyWeight = penaltyWeight,
+            GossipThreshold = -1_000,
+        });
+        _ = router.GetTopic(Topic);
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, TestPeers.Multiaddr(1), sent.Add);
+        router.OnRpc(peerId, Graft());
+        Rpc prune = new() { Control = new ControlMessage() };
+        prune.Control.Prune.Add(new ControlPrune { TopicID = Topic, Backoff = 3_600 });
+        router.OnRpc(peerId, prune);
+        Assert.That(((IRoutingStateContainer)router).Mesh[Topic], Does.Not.Contain(peerId));
+        sent.Clear();
+
+        Rpc rpc = Graft();
+        rpc.Control.Ihave.Add(new ControlIHave { TopicID = Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
+        router.OnRpc(peerId, rpc);
+
+        Assert.That(router.GetPeerScore(peerId), Is.EqualTo(penaltyWeight));
+        Assert.Multiple(() =>
+        {
+            Assert.That(sent.SelectMany(response => response.Control?.Prune.Select(p => p.TopicID) ?? []), Is.EqualTo(new[] { Topic }));
+            Assert.That(sent.SelectMany(response => response.Control?.Iwant.SelectMany(want => want.MessageIDs) ?? []),
+                Is.EqualTo(penaltyWeight >= -100 ? new[] { ByteString.CopyFrom([3]) } : []));
+        });
+    }
+
     [Test]
     public void DirectPeers_AreExemptFromTheGraylist()
     {

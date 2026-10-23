@@ -62,6 +62,12 @@ public static class Libp2pMetrics
     public static readonly Counter<long> ProtocolNegotiationFailures =
         Meter.CreateCounter<long>("libp2p.protocol.negotiation_failures", description: "Total failed protocol negotiations");
 
+    public static readonly Counter<long> InboundStreamsRefused =
+        Meter.CreateCounter<long>("libp2p.streams.inbound.refused", description: "Inbound streams refused by an admission limit");
+
+    public static readonly UpDownCounter<long> InboundStreamsActive =
+        Meter.CreateUpDownCounter<long>("libp2p.streams.inbound.active", description: "Inbound streams holding an admission allowance");
+
     // --- Error metrics ---
     public static readonly Counter<long> Errors =
         Meter.CreateCounter<long>("libp2p.errors", description: "Total errors encountered");

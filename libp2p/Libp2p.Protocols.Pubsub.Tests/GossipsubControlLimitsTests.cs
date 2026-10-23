@@ -623,8 +623,7 @@ public class GossipsubControlLimitsTests
         PeerId known = TestPeers.PeerId(5);
         PeerId unknown = TestPeers.PeerId(6);
         Identity signed = TestPeers.Identity(7);
-        setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
-        setup.LocalPeer.ClearReceivedCalls();
+        setup.PeerStore.GetPeerInfo(known).Addrs = [TestPeers.Multiaddr(5)];
 
         setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
             new PeerInfo(),
@@ -650,7 +649,8 @@ public class GossipsubControlLimitsTests
         await using RouterSetup setup = await PrunableSetup(int.MaxValue);
         PeerId known = TestPeers.PeerId(5);
         TaskCompletionSource<ISession> pendingDial = new();
-        DialTo(known).Returns(pendingDial.Task);
+        setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == known), Arg.Any<CancellationToken>())
+            .Returns(pendingDial.Task);
         setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
 
         PeerInfo[] duplicates = Enumerable.Range(0, 100).Select(_ => new PeerInfo { PeerID = ByteString.CopyFrom(known.Bytes) }).ToArray();
@@ -659,15 +659,13 @@ public class GossipsubControlLimitsTests
         Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
 
         pendingDial.SetException(new InvalidOperationException("dial failed"));
-        DialTo(known).Returns(new TaskCompletionSource<ISession>().Task);
+        setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == known), Arg.Any<CancellationToken>())
+            .Returns(new TaskCompletionSource<ISession>().Task);
         setup.LocalPeer.ClearReceivedCalls();
         setup.Router.Reconnect(CancellationToken.None);
         setup.Router.Reconnect(CancellationToken.None);
 
         Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
-
-        Task<ISession> DialTo(PeerId peerId) =>
-            setup.LocalPeer.DialAsync(Arg.Is<Multiaddress[]>(addrs => addrs[0].GetPeerId() == peerId), Arg.Any<CancellationToken>());
     }
 
     private static int DialsTo(ILocalPeer localPeer, PeerId peerId) => localPeer.ReceivedCalls()

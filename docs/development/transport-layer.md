@@ -57,7 +57,7 @@ Connection protocols typically do one or more of the following:
 
 - choose one of `context.SubProtocols` and call `context.Upgrade(downChannel, selectedProtocol)` when negotiating protocols
 - call `context.Upgrade()` and forward bytes when the protocol transforms the stream, such as encryption
-- set `context.State.RemotePublicKey`, `context.State.RemoteAddress`, or other peer metadata discovered during the handshake
+- set `context.State.RemotePublicKey`, `context.State.RemoteAddress`, or other peer metadata discovered during the handshake. Build the key with `PublicKeyDecoder.Decode`, which validates it and returns secp256k1 keys in compressed form, so Identify and signed peer records compare against the same bytes
 - call `context.UpgradeToSession()` when the connection is ready to become a libp2p session
 
 For example, multistream-select negotiates the next protocol with `context.SubProtocols`, Noise and TLS authenticate and encrypt the channel, and Yamux creates the session and multiplexes application streams.

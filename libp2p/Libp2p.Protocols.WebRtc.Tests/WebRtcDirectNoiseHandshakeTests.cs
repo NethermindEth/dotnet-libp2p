@@ -132,4 +132,26 @@ public class WebRtcDirectNoiseHandshakeTests
             () => WebRtcDirectNoiseHandshake.ParseAndValidateRemoteKey(payloadBytes, payloadBytes.Length, staticKey.PublicKey),
             Throws.TypeOf<CryptographicException>());
     }
+
+    /// <remarks>
+    /// The padded key verifies the owner's signature over the static key, so only the
+    /// key check stops the handshake from authenticating a second peer ID.
+    /// </remarks>
+    [Test]
+    public void ParseAndValidateRemoteKey_RejectsPaddedEd25519IdentityKey()
+    {
+        KeyPair staticKey = KeyPair.Generate();
+        Identity owner = new();
+        byte[] sigInput = [.. Encoding.UTF8.GetBytes(PayloadSigPrefix), .. staticKey.PublicKey];
+        NoiseHandshakePayload payload = new()
+        {
+            IdentityKey = new PublicKey { Type = Core.Dto.KeyType.Ed25519, Data = ByteString.CopyFrom([.. owner.PublicKey.Data.ToByteArray(), 0x00]) }.ToByteString(),
+            IdentitySig = ByteString.CopyFrom(owner.Sign(sigInput)),
+        };
+        byte[] payloadBytes = payload.ToByteArray();
+
+        Assert.That(
+            () => WebRtcDirectNoiseHandshake.ParseAndValidateRemoteKey(payloadBytes, payloadBytes.Length, staticKey.PublicKey),
+            Throws.TypeOf<CryptographicException>());
+    }
 }

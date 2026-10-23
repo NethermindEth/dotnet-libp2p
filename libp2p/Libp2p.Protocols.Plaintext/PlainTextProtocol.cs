@@ -14,7 +14,7 @@ namespace Nethermind.Libp2p.Protocols;
 
 /// <summary>
 /// </summary>
-public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
+public class PlainTextProtocol(TimeProvider? timeProvider = null) : SymmetricProtocol, IConnectionProtocol
 {
     public string Id => "/plaintext/2.0.0";
 
@@ -24,6 +24,14 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
     /// fits with room to spare.
     /// </summary>
     private const int MaxExchangeLength = 1 << 16;
+
+    /// <summary>
+    /// How long the remote peer has to send its whole exchange, matching the
+    /// limit go-libp2p puts on an inbound upgrade, security handshake included.
+    /// </summary>
+    private static readonly TimeSpan ExchangeTimeout = TimeSpan.FromSeconds(15);
+
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     protected override async Task ConnectAsync(IChannel channel, IConnectionContext context, bool isListener)
     {
@@ -49,13 +57,17 @@ public class PlainTextProtocol : SymmetricProtocol, IConnectionProtocol
 
     /// <remarks>
     /// The length comes from a peer that has not proven any identity yet, so it
-    /// is checked before any of the message is read.
+    /// is checked before any of the message is read. One deadline covers the
+    /// length and the body together, so sending the bytes slowly does not
+    /// extend it. A peer that misses it fails the read like any closed channel,
+    /// which is logged as a routine connection failure.
     /// </remarks>
-    private static async Task<Exchange> ReadExchangeAsync(IChannel channel)
+    private async Task<Exchange> ReadExchangeAsync(IChannel channel)
     {
+        using CancellationTokenSource deadline = new(ExchangeTimeout, _timeProvider);
         try
         {
-            return await channel.ReadPrefixedProtobufAsync(Exchange.Parser, MaxExchangeLength, CancellationToken.None);
+            return await channel.ReadPrefixedProtobufAsync(Exchange.Parser, MaxExchangeLength, deadline.Token);
         }
         catch (InvalidDataException e)
         {

@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using NoiseHandshakePayload = Nethermind.Libp2p.Protocols.Noise.Dto.NoiseHandshakePayload;
 using Noise;
 using System.Buffers;
@@ -93,7 +94,16 @@ internal static class WebRtcDirectNoiseHandshake
         }
 
         NoiseHandshakePayload envelope = NoiseHandshakePayload.Parser.ParseFrom(payloadBuffer.AsSpan(0, payloadLength));
-        PublicKey remoteKey = PublicKey.Parser.ParseFrom(envelope.IdentityKey);
+        PublicKey remoteKey;
+        try
+        {
+            remoteKey = PublicKeyDecoder.Decode(envelope.IdentityKey);
+        }
+        catch (Libp2pException e)
+        {
+            throw new CryptographicException("Noise handshake identity key is invalid.", e);
+        }
+
         byte[] signature = envelope.IdentitySig.ToByteArray();
         if (signature.Length == 0)
         {

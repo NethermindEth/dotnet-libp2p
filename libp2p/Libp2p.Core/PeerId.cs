@@ -7,6 +7,7 @@ using SimpleBase;
 using Google.Protobuf;
 using Multiformats.Base;
 using Nethermind.Libp2p.Core.Enums;
+using Nethermind.Libp2p.Core.Exceptions;
 using Multihash = Multiformats.Hash.Multihash;
 
 namespace Nethermind.Libp2p.Core;
@@ -30,6 +31,13 @@ public class PeerId : IComparable<PeerId>, IComparable
         }
     }
 
+    /// <summary>
+    /// The Ed25519 key a peer ID carries inline, or <c>null</c> when it does not carry a usable one.
+    /// </summary>
+    /// <remarks>
+    /// The inlined key comes from whoever chose the peer ID, so it goes through
+    /// <see cref="PublicKeyDecoder"/>, and one that does not decode counts as absent.
+    /// </remarks>
     public static PublicKey? ExtractPublicKey(byte[] peerId)
     {
         Multihash multihash = Multihash.Decode(peerId);
@@ -37,13 +45,18 @@ public class PeerId : IComparable<PeerId>, IComparable
         {
             return null;
         }
-        PublicKey? pubKey = PublicKey.Parser.ParseFrom(multihash.Digest);
-        if (pubKey is null || pubKey.Type != KeyType.Ed25519 || multihash.Code != HashType.ID)
+
+        PublicKey pubKey;
+        try
+        {
+            pubKey = PublicKeyDecoder.Decode(ByteString.CopyFrom(multihash.Digest));
+        }
+        catch (Libp2pException)
         {
             return null;
         }
 
-        return pubKey;
+        return pubKey.Type == KeyType.Ed25519 ? pubKey : null;
     }
 
     public PeerId(string peerId)

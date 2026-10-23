@@ -81,15 +81,7 @@ public static class MessageHelper
     }
 
     /// <summary>
-    /// Build a PING request message.
-    /// </summary>
-    public static Message CreatePingRequest() => new()
-    {
-        Type = Message.Types.MessageType.Ping
-    };
-
-    /// <summary>
-    /// Build a PING response message.
+    /// Build a PING response message. The spec deprecates PING: it is only answered for compatibility and never sent.
     /// </summary>
     public static Message CreatePingResponse() => new()
     {

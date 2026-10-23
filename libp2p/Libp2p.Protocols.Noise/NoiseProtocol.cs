@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
 using Noise;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -75,12 +76,7 @@ public class NoiseProtocol : IConnectionProtocol
             throw new Libp2pException("Bad handshake message has been received.");
         }
 
-        PublicKey? msg1KeyDecoded = PublicKey.Parser.ParseFrom(msg1Decoded.IdentityKey);
-
-        if (msg1KeyDecoded is null)
-        {
-            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
-        }
+        PublicKey msg1KeyDecoded = PublicKeyDecoder.Decode(msg1Decoded.IdentityKey);
 
         if (msg1Decoded.IdentitySig is null || msg1Decoded.IdentitySig.IsEmpty)
         {
@@ -200,12 +196,7 @@ public class NoiseProtocol : IConnectionProtocol
             throw new Libp2pException("Bad handshake message has not been received.");
         }
 
-        PublicKey? msg2KeyDecoded = PublicKey.Parser.ParseFrom(msg2Decoded.IdentityKey);
-
-        if (msg2KeyDecoded is null)
-        {
-            throw new Libp2pException($"{nameof(PublicKey)} is absent in the handshake message.");
-        }
+        PublicKey msg2KeyDecoded = PublicKeyDecoder.Decode(msg2Decoded.IdentityKey);
 
         if (msg2Decoded.IdentitySig is null || msg2Decoded.IdentitySig.IsEmpty)
         {

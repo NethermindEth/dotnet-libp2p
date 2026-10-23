@@ -8,11 +8,14 @@
     <Project Path="Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj" />
     <Project Path="Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj" />
     <Project Path="Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj" />
+    <Project Path="Libp2p.Protocols.Mplex/Libp2p.Protocols.Mplex.csproj" />
+    <Project Path="Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj" />
     <Project Path="Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj" />
     <Project Path="Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj" />
+    <Project Path="Libp2p.Protocols.Ping.Tests/Libp2p.Protocols.Ping.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Plaintext/Libp2p.Protocols.Plaintext.csproj" />
     <Project Path="Libp2p.Protocols.Plaintext.Tests/Libp2p.Protocols.Plaintext.Tests.csproj" />
     <Project Path="Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj" />

@@ -145,7 +145,8 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
             ValidateRemoteFingerprint(pc, expectedFingerprint);
 
-            INewConnectionContext connectionContext = context.CreateConnection();
+            using INewConnectionContext connectionContext = context.CreateConnection();
+            using CancellationTokenRegistration closed = connectionContext.Token.Register(pc.close);
             connectionContext.State.LocalAddress = signalingUdp.Client.LocalEndPoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
@@ -203,7 +204,8 @@ public class WebRtcDirectProtocol : ITransportProtocol
             ValidateRemoteFingerprint(pc, offeredFingerprint);
             RTCDataChannel openedNoiseChannel = await noiseOpenTask;
 
-            INewConnectionContext connectionContext = context.CreateConnection();
+            using INewConnectionContext connectionContext = context.CreateConnection();
+            using CancellationTokenRegistration closed = connectionContext.Token.Register(pc.close);
             connectionContext.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Udp);
 

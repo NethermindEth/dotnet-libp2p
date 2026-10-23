@@ -59,7 +59,7 @@ public class PingProtocol : ISessionProtocol
         while (true)
         {
             _logger?.ReadingPing(context.State.RemoteAddress);
-            ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAny);
+            ReadResult read = await channel.ReadAsync(PayloadLength, ReadBlockingMode.WaitAll);
             if (read.Result != IOResult.Ok)
             {
                 break;

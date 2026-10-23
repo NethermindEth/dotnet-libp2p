@@ -64,10 +64,11 @@ internal static class RpcExtensions
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Malformed peer IDs and embedded protobuf keys are invalid wire messages.
+            // A malformed peer ID is an invalid wire message.
             return false;
         }
-        if (pubKey is null || pubKey.Data.Length != Ed25519.PublicKeySize)
+        // The decoder behind ExtractPublicKey already rejects an Ed25519 key of the wrong length.
+        if (pubKey is null)
         {
             return false;
         }

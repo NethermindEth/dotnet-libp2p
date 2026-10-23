@@ -7,24 +7,30 @@ using Org.BouncyCastle.Asn1.X9;
 using Org.BouncyCastle.Crypto.EC;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Security.Cryptography;
+using ECPoint = Org.BouncyCastle.Math.EC.ECPoint;
 
 namespace Nethermind.Libp2p.Core.Dto;
 
 /// <summary>
 /// Turns wire bytes into a <see cref="PublicKey"/>, decoding and validating
 /// together so a caller cannot hold a key that parsed but cannot be used.
-/// Intended as the only entry point for untrusted material; the remaining
-/// <c>PublicKey.Parser.ParseFrom</c> call sites still need migrating.
+/// It is the only entry point for key material that arrives from a remote peer.
 /// </summary>
 public static class PublicKeyDecoder
 {
     private const int Secp256k1CompressedLength = 33;
     private const int Secp256k1UncompressedLength = 65;
 
+    private static readonly X9ECParameters Secp256k1 = CustomNamedCurves.GetByName("secp256k1");
+
     /// <summary>
     /// Decode a protobuf-encoded public key and verify it carries usable
     /// material for its declared type.
     /// </summary>
+    /// <remarks>
+    /// Secp256k1 keys come back in SEC1 compressed form whatever form they
+    /// arrived in, so every encoding of one key derives the same peer ID.
+    /// </remarks>
     /// <exception cref="Libp2pException">The bytes are not a usable key.</exception>
     public static PublicKey Decode(ByteString bytes)
     {
@@ -60,9 +66,7 @@ public static class PublicKeyDecoder
                     }
                     break;
                 case KeyType.Secp256K1:
-                    RejectNonSec1Encoding(publicKey);
-                    X9ECParameters curve = CustomNamedCurves.GetByName("secp256k1");
-                    curve.Curve.DecodePoint(publicKey.Data.ToByteArray());
+                    publicKey.Data = CompressSecp256k1(publicKey.Data);
                     break;
                 case KeyType.Rsa:
                     // No key size bounds: identities generated here use 1024-bit
@@ -105,34 +109,31 @@ public static class PublicKeyDecoder
     }
 
     /// <summary>
-    /// Accept only the SEC1 compressed and uncompressed forms. BouncyCastle
-    /// also decodes the hybrid prefixes and a single zero byte for the point
-    /// at infinity.
+    /// Re-encode a secp256k1 point in SEC1 compressed form, the form go-libp2p,
+    /// rust-libp2p and js-libp2p all serialize before deriving a peer ID.
     /// </summary>
     /// <remarks>
-    /// go-libp2p accepts hybrid too, but it serializes every key to compressed
-    /// before hashing, so all of its spellings share one peer ID. This library
-    /// hashes the bytes as received, so every extra spelling accepted here is
-    /// another peer ID for the same keypair. Compressed and uncompressed still
-    /// give two; canonicalizing them is the follow-up, and would make this
-    /// check unnecessary.
+    /// The peer ID hashes the serialized key, so the uncompressed and hybrid
+    /// encodings of a point would each derive their own ID. Compressed is 33
+    /// bytes, which keeps the serialized key under the 42-byte inlining limit;
+    /// the 65-byte forms are hashed with SHA2-256 instead, so the IDs differ
+    /// in multihash code as well as digest. BouncyCastle checks the point is
+    /// on the curve and that a hybrid prefix matches the parity of y.
     /// </remarks>
-    private static void RejectNonSec1Encoding(PublicKey publicKey)
+    private static ByteString CompressSecp256k1(ByteString data)
     {
-        int length = publicKey.Data.Length;
-        if (length == 0)
-        {
-            throw new Libp2pException("Secp256k1 public key is empty.");
-        }
-
-        byte prefix = publicKey.Data.Span[0];
-        bool compressed = length == Secp256k1CompressedLength && prefix is 0x02 or 0x03;
-        bool uncompressed = length == Secp256k1UncompressedLength && prefix is 0x04;
-
-        if (!compressed && !uncompressed)
+        // Only the two SEC1 point sizes can hold a key, so anything else is
+        // rejected before decoding. That also rules out the one-byte encoding
+        // of the point at infinity, which BouncyCastle would otherwise decode.
+        if (data.Length is not (Secp256k1CompressedLength or Secp256k1UncompressedLength))
         {
             throw new Libp2pException(
-                $"Secp256k1 public key is not a SEC1 compressed or uncompressed point: {length} bytes starting 0x{prefix:x2}.");
+                $"Secp256k1 public key must be {Secp256k1CompressedLength} or {Secp256k1UncompressedLength} bytes, got {data.Length}.");
         }
+
+        ECPoint point = Secp256k1.Curve.DecodePoint(data.ToByteArray());
+
+        // A compressed point that decodes re-encodes to the same bytes.
+        return data.Length == Secp256k1CompressedLength ? data : ByteString.CopyFrom(point.GetEncoded(true));
     }
 }

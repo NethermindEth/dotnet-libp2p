@@ -12,6 +12,7 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
 using Noise;
+using Org.BouncyCastle.Crypto.EC;
 using NSubstitute;
 using NUnit.Framework;
 
@@ -401,9 +402,113 @@ public class NoiseProtocolTests
         dialTask.Wait(5000);
     }
 
+    /// <remarks>
+    /// The listener does not know who is connecting, so no expected peer ID stands
+    /// in the way; only the key check stops the padded key's second peer ID.
+    /// </remarks>
+    [Test]
+    public void Test_ListenerRejects_WhenInitiatorIdentityKeyIsPadded()
+    {
+        MaliciousInitiatorProtocol maliciousDialer = new(MaliciousInitiatorProtocol.CorruptionMode.PaddedIdentityKey, new MultiplexerSettings());
+        (IConnectionContext listenerContext, State listenerState, _) = Context(TestPeers.Identity(2), "/ip4/0.0.0.0/tcp/0");
+        (IConnectionContext dialerContext, _, _) = Context(TestPeers.Identity(1), $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(2)}");
+        IChannel downChannel = new TestChannel();
+
+        Task listenTask = new NoiseProtocol().ListenAsync(downChannel, listenerContext);
+        Task dialTask = maliciousDialer.DialAsync(((TestChannel)downChannel).Reverse(), dialerContext);
+
+        Assert.ThrowsAsync<Libp2pException>(async () => await listenTask.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.That(listenerState.RemotePublicKey, Is.Null, "A rejected handshake must not store an identity.");
+        dialTask.Wait(5000);
+    }
+
+    [Test]
+    public void Test_DialerRejects_WhenResponderIdentityKeyIsPadded()
+    {
+        MaliciousResponderProtocol maliciousListener = new(MaliciousResponderProtocol.CorruptionMode.PaddedIdentityKey, new MultiplexerSettings());
+        (IConnectionContext dialerContext, State dialerState, _) = Context(TestPeers.Identity(1), "/ip4/0.0.0.0/tcp/0");
+        (IConnectionContext listenerContext, _, _) = Context(TestPeers.Identity(2), $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(1)}");
+        IChannel downChannel = new TestChannel();
+
+        Task listenTask = maliciousListener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = new NoiseProtocol().DialAsync(((TestChannel)downChannel).Reverse(), dialerContext);
+
+        Assert.ThrowsAsync<Libp2pException>(async () => await dialTask.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.That(dialerState.RemotePublicKey, Is.Null, "A rejected handshake must not store an identity.");
+        listenTask.Wait(5000);
+    }
+
+    /// <remarks>
+    /// The same keypair must reach the same peer ID whichever SEC1 encoding its
+    /// owner sends, as it does in the plaintext handshake.
+    /// </remarks>
+    [Test]
+    public async Task Test_RemoteIdentity_IsCompressed_WhenInitiatorSendsUncompressedSecp256k1Key()
+    {
+        Identity initiator = new(keyType: Core.Dto.KeyType.Secp256K1);
+        MaliciousInitiatorProtocol uncompressedDialer = new(MaliciousInitiatorProtocol.CorruptionMode.UncompressedIdentityKey, new MultiplexerSettings());
+        (IConnectionContext listenerContext, State listenerState, Task upgraded) = Context(TestPeers.Identity(2), "/ip4/0.0.0.0/tcp/0");
+        (IConnectionContext dialerContext, _, _) = Context(initiator, $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(2)}");
+        IChannel downChannel = new TestChannel();
+
+        Task listenTask = new NoiseProtocol().ListenAsync(downChannel, listenerContext);
+        await uncompressedDialer.DialAsync(((TestChannel)downChannel).Reverse(), dialerContext).WaitAsync(TimeSpan.FromSeconds(10));
+        await upgraded.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(listenerState.RemotePublicKey, Is.EqualTo(initiator.PublicKey));
+            Assert.That(listenerState.RemoteAddress!.GetPeerId(), Is.EqualTo(initiator.PeerId));
+        });
+        await downChannel.CloseAsync();
+        await listenTask.WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    /// <remarks>
+    /// The dialer knows the compressed peer ID it meant to reach, and the responder
+    /// sends the same key uncompressed, which must still match that ID.
+    /// </remarks>
+    [Test]
+    public async Task Test_DialerAccepts_WhenResponderSendsTheDialedSecp256k1KeyUncompressed()
+    {
+        Identity responder = new(keyType: Core.Dto.KeyType.Secp256K1);
+        MaliciousResponderProtocol uncompressedListener = new(MaliciousResponderProtocol.CorruptionMode.UncompressedIdentityKey, new MultiplexerSettings());
+        (IConnectionContext dialerContext, State dialerState, Task upgraded) = Context(TestPeers.Identity(1), $"/ip4/0.0.0.0/tcp/0/p2p/{responder.PeerId}");
+        (IConnectionContext listenerContext, _, _) = Context(responder, $"/ip4/0.0.0.0/tcp/0/p2p/{TestPeers.PeerId(1)}");
+        IChannel downChannel = new TestChannel();
+
+        Task listenTask = uncompressedListener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = new NoiseProtocol().DialAsync(((TestChannel)downChannel).Reverse(), dialerContext);
+        await upgraded.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.That(dialerState.RemotePublicKey, Is.EqualTo(responder.PublicKey));
+        await downChannel.CloseAsync();
+        await Task.WhenAll(listenTask, dialTask).WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// A connection context for <paramref name="identity"/> whose upgrade completes
+    /// <c>Upgraded</c>, which happens only once the handshake has stored the remote identity.
+    /// </summary>
+    private static (IConnectionContext Context, State State, Task Upgraded) Context(Identity identity, string remoteAddress)
+    {
+        State state = new() { RemoteAddress = remoteAddress };
+        TaskCompletionSource upgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Peer.Identity.Returns(identity);
+        context.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(identity)]);
+        context.State.Returns(state);
+        context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        {
+            upgraded.TrySetResult();
+            return new TestChannel();
+        });
+        return (context, state, upgraded.Task);
+    }
+
     private class MaliciousResponderProtocol : NoiseProtocol
     {
-        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey }
+        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey, PaddedIdentityKey, UncompressedIdentityKey }
 
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
@@ -476,6 +581,14 @@ public class NoiseProtocolTests
                     payload = UnusableIdentityKeyPayload();
                     break;
 
+                case CorruptionMode.PaddedIdentityKey:
+                    payload = SignedPayload(context.Peer.Identity, serverStatic.PublicKey, Padded(context.Peer.Identity.PublicKey));
+                    break;
+
+                case CorruptionMode.UncompressedIdentityKey:
+                    payload = SignedPayload(context.Peer.Identity, serverStatic.PublicKey, Uncompressed(context.Peer.Identity.PublicKey));
+                    break;
+
                 default:
                     throw new InvalidOperationException();
             }
@@ -495,7 +608,7 @@ public class NoiseProtocolTests
 
     private class MaliciousInitiatorProtocol : NoiseProtocol
     {
-        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey }
+        public enum CorruptionMode { TamperedSignature, EmptySignature, WrongIdentity, UnusableIdentityKey, PaddedIdentityKey, UncompressedIdentityKey }
 
         private readonly CorruptionMode _mode;
         private readonly Protocol _protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
@@ -582,6 +695,14 @@ public class NoiseProtocolTests
                     payload = UnusableIdentityKeyPayload();
                     break;
 
+                case CorruptionMode.PaddedIdentityKey:
+                    payload = SignedPayload(context.Peer.Identity, clientStatic.PublicKey, Padded(context.Peer.Identity.PublicKey));
+                    break;
+
+                case CorruptionMode.UncompressedIdentityKey:
+                    payload = SignedPayload(context.Peer.Identity, clientStatic.PublicKey, Uncompressed(context.Peer.Identity.PublicKey));
+                    break;
+
                 default:
                     throw new InvalidOperationException();
             }
@@ -603,4 +724,24 @@ public class NoiseProtocolTests
         IdentityKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString(),
         IdentitySig = ByteString.CopyFrom(new byte[64]),
     };
+
+    /// <summary>
+    /// A valid signature by <paramref name="identity"/> over its Noise static key,
+    /// sent with <paramref name="identityKey"/> as the identity key.
+    /// </summary>
+    private static NoiseHandshakePayload SignedPayload(Identity identity, byte[] staticKey, Core.Dto.PublicKey identityKey) => new()
+    {
+        IdentityKey = identityKey.ToByteString(),
+        IdentitySig = ByteString.CopyFrom(identity.Sign([.. Encoding.UTF8.GetBytes("noise-libp2p-static-key:"), .. staticKey])),
+    };
+
+    /// <summary>
+    /// An Ed25519 key with a byte appended: it verifies the same signatures but
+    /// derives a different peer ID.
+    /// </summary>
+    private static Core.Dto.PublicKey Padded(Core.Dto.PublicKey key) =>
+        new() { Type = key.Type, Data = ByteString.CopyFrom([.. key.Data.ToByteArray(), 0x00]) };
+
+    private static Core.Dto.PublicKey Uncompressed(Core.Dto.PublicKey key) =>
+        new() { Type = key.Type, Data = ByteString.CopyFrom(CustomNamedCurves.GetByName("secp256k1").Curve.DecodePoint(key.Data.ToByteArray()).GetEncoded(false)) };
 }
