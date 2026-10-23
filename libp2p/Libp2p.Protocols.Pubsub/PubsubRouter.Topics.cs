@@ -107,6 +107,7 @@ public partial class PubsubRouter
             }
 
             topic.IsSubscribed = true;
+            UpdateRemoteSubscriptionPriority(topicId);
 
             HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
             HashSet<PeerId> promotedPeers = [];
@@ -163,6 +164,7 @@ public partial class PubsubRouter
             }
 
             topic.IsSubscribed = false;
+            UpdateRemoteSubscriptionPriority(topicId);
             foreach (PendingValidation pending in _pendingValidations.Values.Where(p => p.Snapshot.Topic == topicId).ToArray())
             {
                 RemovePendingValidation(pending);

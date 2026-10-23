@@ -182,6 +182,196 @@ public class RemoteSubscriptionLimitsTests
         AssertUsage(router, 0, 0);
     }
 
+    [Test]
+    public async Task JunkAtTheDefaultGlobalLimitCannotExcludeAWantedPeer()
+    {
+        PubsubSettings settings = new();
+        using PubsubRouter router = new(new PeerStore(), settings);
+        IRoutingStateContainer state = router;
+        router.GetTopic("wanted");
+        int junkPeers = settings.MaxRemoteSubscriptions / settings.MaxRemoteSubscriptionsPerPeer;
+        for (int index = 1; index <= junkPeers; index++)
+        {
+            Connect(router, index);
+            router.OnRpc(TestPeers.PeerId(index), new Rpc().WithTopics(
+                Enumerable.Range(0, settings.MaxRemoteSubscriptionsPerPeer).Select(i => $"junk-{index}-{i}"), []));
+        }
+        Assert.That(router.RemoteSubscriptionUsage.Count, Is.EqualTo(settings.MaxRemoteSubscriptions));
+        int honest = junkPeers + 1;
+        List<Rpc> sent = [];
+        Connect(router, honest, sent.Add);
+        router.OnRpc(TestPeers.PeerId(honest), new Rpc().WithTopics(["wanted"], []));
+        bool learned = state.GossipsubPeers.TryGetValue("wanted", out HashSet<PeerId>? members) && members.Contains(TestPeers.PeerId(honest));
+        await router.Heartbeat();
+        bool joined = state.Mesh["wanted"].Contains(TestPeers.PeerId(honest));
+        sent.Clear();
+        router.OnRpc(TestPeers.PeerId(honest), Graft("wanted"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(learned, Is.True, "Unwanted announcements must not exclude a wanted membership.");
+            Assert.That(joined, Is.True, "Heartbeat must discover the honest peer despite global saturation.");
+            Assert.That(state.Mesh["wanted"], Has.Member(TestPeers.PeerId(honest)));
+            Assert.That(sent.SelectMany(rpc => rpc.Control?.Prune ?? []), Is.Empty);
+            Assert.That(router.RemoteSubscriptionUsage.Count, Is.EqualTo(settings.MaxRemoteSubscriptions));
+            Assert.That(router.RemoteSubscriptionUsage.TopicBytes, Is.LessThanOrEqualTo(settings.MaxRemoteSubscriptionTopicBytes));
+        });
+    }
+
+    [TestCase(false, false, false)]
+    [TestCase(true, false, false)]
+    [TestCase(false, true, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, false, true)]
+    [TestCase(true, false, true)]
+    public async Task WantedSubscriptionsReclaimJunkWithinGlobalCountAndByteLimits(bool bytes, bool floodsub, bool direct)
+    {
+        PubsubSettings settings = new();
+        if (bytes) settings.MaxRemoteSubscriptionTopicBytes = 8;
+        else settings.MaxRemoteSubscriptions = 2;
+        settings.DirectPeers = direct ? [TestPeers.Multiaddr(3)] : [];
+        using PubsubRouter router = new(new PeerStore(), settings);
+        await router.StartAsync(new LocalPeerStub(), new CancellationToken(true));
+        router.GetTopic("want");
+        router.GetTopic("aa", subscribe: false);
+        settings.TopicScoreParams["bb"] = new TopicScoreParams();
+        Connect(router, 1);
+        Connect(router, 2, protocol: PubsubRouter.FloodsubProtocolVersion);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["aa"], []));
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["bb"], []));
+        AssertUsage(router, 2, 8);
+        List<Rpc> sent = [];
+        Connect(router, 3, sent.Add, floodsub ? PubsubRouter.FloodsubProtocolVersion : PubsubRouter.GossipsubProtocolVersionV11);
+        router.OnRpc(TestPeers.PeerId(3), new Rpc().WithTopics(["want"], []));
+        AssertUsage(router, bytes ? 1 : 2, bytes ? 8 : 12);
+        IRoutingStateContainer state = router;
+        var table = floodsub ? state.FloodsubPeers : state.GossipsubPeers;
+        Assert.That(table["want"], Has.Member(TestPeers.PeerId(3)));
+        await router.Heartbeat();
+        if (!floodsub && !direct) Assert.That(state.Mesh["want"], Has.Member(TestPeers.PeerId(3)));
+        else Assert.That(state.Mesh["want"], Is.Empty);
+        sent.Clear();
+        router.Publish("want", [1]);
+        Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1), "Reclaimed membership must participate in production forwarding.");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void GraftReclaimsUnwantedGlobalCapacity(bool bytes)
+    {
+        PubsubSettings settings = new();
+        if (bytes) settings.MaxRemoteSubscriptionTopicBytes = 8;
+        else settings.MaxRemoteSubscriptions = 1;
+        using PubsubRouter router = new(new PeerStore(), settings);
+        router.Subscribe("want");
+        Connect(router, 1);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["junk"], []));
+        List<Rpc> sent = [];
+        Connect(router, 2, sent.Add);
+        router.OnRpc(TestPeers.PeerId(2), Graft("want"));
+        AssertUsage(router, 1, 8);
+        Assert.Multiple(() =>
+        {
+            Assert.That(((IRoutingStateContainer)router).GossipsubPeers["want"], Has.Member(TestPeers.PeerId(2)));
+            Assert.That(((IRoutingStateContainer)router).Mesh["want"], Has.Member(TestPeers.PeerId(2)));
+            Assert.That(sent.SelectMany(rpc => rpc.Control?.Prune ?? []), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void LocalSubscriptionChangesProtectAndReleaseRetainedMemberships()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { MaxRemoteSubscriptions = 2 });
+        IRoutingStateContainer state = router;
+        for (int i = 1; i <= 4; i++) Connect(router, i);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["late"], []));
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["junk"], []));
+        router.Subscribe("late");
+        router.Subscribe("want");
+        router.OnRpc(TestPeers.PeerId(3), new Rpc().WithTopics(["want"], []));
+        Assert.That(state.GossipsubPeers.Keys, Is.EquivalentTo(new[] { "late", "want" }));
+        router.Unsubscribe("late");
+        router.Subscribe("next");
+        router.OnRpc(TestPeers.PeerId(4), new Rpc().WithTopics(["next"], []));
+        Assert.That(state.GossipsubPeers.Keys, Is.EquivalentTo(new[] { "want", "next" }));
+        AssertUsage(router, 2, 16);
+        router.UnsubscribeAll();
+        router.Subscribe("last");
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["last"], []));
+        AssertUsage(router, 2, 16);
+        Assert.That(state.GossipsubPeers["last"], Has.Member(TestPeers.PeerId(1)));
+    }
+
+    [Test]
+    public void AnImpossibleWantedMembershipDoesNotEvictAnything()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { MaxRemoteSubscriptionTopicBytes = 12 });
+        Connect(router, 1);
+        Connect(router, 2);
+        Connect(router, 3);
+        router.Subscribe("saved");
+        router.Subscribe("want");
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["saved"], []));
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["x"], []));
+        router.OnRpc(TestPeers.PeerId(3), new Rpc().WithTopics(["want"], []));
+        AssertUsage(router, 2, 12);
+        Assert.That(((IRoutingStateContainer)router).GossipsubPeers.Keys, Is.EquivalentTo(new[] { "saved", "x" }),
+            "Protected state and the entire new membership must fit before any eviction.");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void SubscribedMembershipsRemainSubjectToGlobalLimits(bool bytes)
+    {
+        PubsubSettings settings = new();
+        if (bytes) settings.MaxRemoteSubscriptionTopicBytes = 2;
+        else settings.MaxRemoteSubscriptions = 1;
+        using PubsubRouter router = new(new PeerStore(), settings);
+        router.Subscribe("a");
+        router.Subscribe("b");
+        Connect(router, 1);
+        List<Rpc> sent = [];
+        Connect(router, 2, sent.Add);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["a"], []));
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["b"], []));
+        router.OnRpc(TestPeers.PeerId(2), Graft("b"));
+        AssertUsage(router, 1, 2);
+        Assert.That(((IRoutingStateContainer)router).GossipsubPeers.Keys, Is.EquivalentTo(new[] { "a" }));
+        Assert.That(sent.SelectMany(rpc => rpc.Control?.Prune ?? []).Select(p => p.TopicID), Has.Member("b"));
+    }
+
+    [Test]
+    public async Task EvictionReleasesPartialMetadataAndSurvivesVictimDisconnect()
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { MaxRemoteSubscriptions = 1, EnablePartialMessages = true });
+        await router.StartAsync(new LocalPeerStub(), new CancellationToken(true));
+        router.GetPartialMessagesTopic("junk", new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }, subscribe: false);
+        router.Subscribe("want");
+        List<Rpc> sent = [];
+        TaskCompletionSource closed = Connect(router, 1, sent.Add, PubsubRouter.GossipsubProtocolVersionV13);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc
+        {
+            Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } },
+            Subscriptions = { new Rpc.Types.SubOpts { Topicid = "junk", Subscribe = true, RequestsPartial = true } }
+        });
+        router.SendPartial(TestPeers.PeerId(1), "junk", [1], [2]);
+        Assert.That(sent.Any(rpc => rpc.Partial is not null), Is.True);
+        Connect(router, 2);
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["want"], []));
+        sent.Clear();
+        router.SendPartial(TestPeers.PeerId(1), "junk", [1], [2]);
+        Assert.That(sent, Is.Empty, "Eviction releases partial-message metadata with the membership.");
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([], ["junk"]));
+        closed.SetResult();
+        Assert.That(SpinWait.SpinUntil(() => !((IRoutingStateContainer)router).ConnectedPeers.Contains(TestPeers.PeerId(1)), TimeSpan.FromSeconds(5)), Is.True);
+        lock (router) AssertUsage(router, 1, 8);
+        router.Unsubscribe("want");
+        router.Subscribe("next");
+        router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["next"], []));
+        AssertUsage(router, 1, 8);
+        router.Dispose();
+        AssertUsage(router, 0, 0);
+    }
+
     [TestCase("peer-count", 0)]
     [TestCase("peer-count", -1)]
     [TestCase("peer-bytes", 0)]
