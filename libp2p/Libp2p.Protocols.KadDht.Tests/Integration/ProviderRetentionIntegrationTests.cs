@@ -70,7 +70,7 @@ public class ProviderRetentionIntegrationTests
     [Test]
     public async Task LargeUnixAddress_ParsesButIsOmittedBeforeCustomStore()
     {
-        // unix code 400 and a 1,000,000-byte component length, both unsigned varints.
+        // unix code 400 and a 1,000,000-byte component length, both unsigned varint values.
         byte[] encoded = new byte[1_000_005];
         new byte[] { 0x90, 0x03, 0xc0, 0x84, 0x3d }.CopyTo(encoded, 0);
         Array.Fill(encoded, (byte)'x', 5, 1_000_000);
