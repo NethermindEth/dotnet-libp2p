@@ -32,6 +32,8 @@ public class TransportContext : ITransportContext
         _peer.ListenerReady(this, addr);
     }
 
+    public void ListenerStopped() => _peer.ListenerStopped(this);
+
     public virtual INewConnectionContext CreateConnection()
     {
         return _peer.CreateConnection(_proto, null, IsListener, Activity);

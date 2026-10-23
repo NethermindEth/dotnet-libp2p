@@ -15,6 +15,9 @@ public interface ITransportContext
     PeerResourceLimits ResourceLimits => PeerResourceLimits.Default;
     TimeProvider Clock => TimeProvider.System;
     void ListenerReady(Multiaddress addr);
+    /// <summary>Reports that the listener is unbound. Accepted connections remain owned by the transport until ListenAsync returns.</summary>
+    /// <remarks>Legacy transports may omit this notification; their listen task must finish before peer disposal completes.</remarks>
+    void ListenerStopped() { }
     INewConnectionContext CreateConnection();
     Activity? Activity { get; }
 }
