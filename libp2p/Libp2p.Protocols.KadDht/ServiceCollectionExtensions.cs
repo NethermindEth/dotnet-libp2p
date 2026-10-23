@@ -206,9 +206,6 @@ public static class ServiceCollectionExtensions
         if (peerStore == null) return;
         try
         {
-            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? existingInfo) && existingInfo?.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
-                return;
-
             var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
             foreach (string address in node.Multiaddrs)
             {
@@ -219,6 +216,8 @@ public static class ServiceCollectionExtensions
                     addresses.Add(normalized);
             }
 
+            // Let PeerStore protect configured and signed addresses while allowing
+            // records without usable addresses to receive discovery updates.
             if (addresses.Count > 0)
                 peerStore.Discover(addresses.ToArray(), isTrusted: false);
         }

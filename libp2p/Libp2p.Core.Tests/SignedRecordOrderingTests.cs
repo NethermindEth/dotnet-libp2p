@@ -12,6 +12,104 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class SignedRecordOrderingTests
 {
+    [TestCase("empty", false)]
+    [TestCase("empty", true)]
+    [TestCase("bare", false)]
+    [TestCase("bare", true)]
+    [TestCase("foreign", false)]
+    [TestCase("foreign", true)]
+    public void MetadataOnlyRecordsAllowUnsignedAddressDiscoveryAndRefresh(string shape, bool existingAddresses)
+    {
+        Identity peer = TestPeers.Identity(1);
+        PeerStore store = new();
+        Multiaddress[] recordAddresses = shape switch
+        {
+            "bare" => ["/ip4/192.0.2.1/tcp/4001"],
+            "foreign" => [TestPeers.Multiaddr(2)],
+            _ => [],
+        };
+        if (existingAddresses) store.Discover([Address(peer, 1)], isTrusted: false);
+        List<Multiaddress[]> notifications = [];
+        store.OnNewPeer += notifications.Add;
+        notifications.Clear();
+        ByteString record = SigningHelper.CreateSignedEnvelope(peer, recordAddresses, 5);
+        store.Discover(record);
+        store.Discover([Address(peer, 2)], isTrusted: false);
+        store.Discover([Address(peer, 3)], isTrusted: false);
+        store.Discover(Record(peer, 4));
+
+        PeerStore.PeerInfo info = store.GetPeerInfo(peer.PeerId);
+        Assert.That(info.Addrs, Is.EquivalentTo(new[] { Address(peer, 3) }));
+        Assert.That(info.SignedPeerRecord, Is.EqualTo(record), "Discovery must retain the original envelope and replay watermark.");
+        Assert.That(info.Seq, Is.EqualTo(5UL));
+        Assert.That(notifications, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void AppliedSignedAddressesRemainProtectedAfterAnEmptyRecord()
+    {
+        Identity peer = TestPeers.Identity(1);
+        PeerStore store = new();
+        store.Discover(Record(peer, 1));
+        ByteString empty = SigningHelper.CreateSignedEnvelope(peer, [], 2);
+        store.Discover(empty);
+        store.Discover([Address(peer, 3)], isTrusted: false);
+        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(empty));
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 1) }));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ConfiguredAddressesConvergeRegardlessOfRecordSourceOrder(bool peerExchangeFirst)
+    {
+        Identity peer = TestPeers.Identity(1);
+        PeerStore store = new();
+        store.Discover([Multiaddress.Decode($"/p2p/{peer.PeerId}")]);
+        List<Multiaddress[]> notifications = [];
+        store.OnNewPeer += notifications.Add;
+        notifications.Clear();
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(peer), RemotePublicKey = peer.PublicKey };
+        ByteString record = Record(peer, 2);
+        store.Discover(record, peerExchangeFirst ? null : state);
+        store.Discover(record, peerExchangeFirst ? state : null);
+        store.Discover(record, state);
+
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 2) }));
+        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.GetPeerInfo(peer.PeerId).Seq, Is.EqualTo(2UL));
+        Assert.That(state.VerifiedPeerRecordSequence, Is.EqualTo(2UL));
+        Assert.That(notifications, Has.Count.EqualTo(1));
+    }
+
+    [TestCase(0UL)]
+    [TestCase(2UL)]
+    public void SessionAppliesOnlyTheMatchingDeferredAddresses(ulong seq)
+    {
+        Identity peer = TestPeers.Identity(1);
+        PeerStore store = new();
+        Multiaddress configured = TestPeers.Multiaddr(peer);
+        store.Discover([configured]);
+        State state = new() { RemoteAddress = configured, RemotePublicKey = peer.PublicKey };
+        ByteString record = Record(peer, seq);
+        store.Discover(record);
+        store.Discover(Record(peer, seq, port: 9999), state);
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { configured }), "An equal sequence with different addresses must not replace the retained record.");
+        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        SignedEnvelope sessionRecord = SignedEnvelope.Parser.ParseFrom(record);
+        sessionRecord.PublicKey = ByteString.CopyFrom([.. sessionRecord.PublicKey.ToByteArray(), 0x18, 0x01]);
+        store.Discover(sessionRecord.ToByteString(), state);
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq) }));
+        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+
+        ByteString newer = Record(peer, seq + 1);
+        store.Discover(newer);
+        store.Discover(record, state);
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq) }), "An older session record cannot apply superseded deferred addresses.");
+        store.Discover(newer, state);
+        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq + 1) }));
+        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(newer));
+    }
+
     [TestCase(false, false)]
     [TestCase(false, true)]
     [TestCase(true, false)]

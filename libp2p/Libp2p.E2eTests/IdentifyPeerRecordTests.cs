@@ -18,6 +18,30 @@ public class IdentifyPeerRecordTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public async Task SessionAppliesConfiguredPeerAddressesWhenTheSameRecordArrivedViaPeerExchange(bool push)
+    {
+        Identity remote = TestPeers.Identity(81);
+        PeerStore store = new();
+        store.Discover([Multiformats.Address.Multiaddress.Decode($"/p2p/{remote.PeerId}")]);
+        string address = $"/ip4/192.0.2.7/tcp/4007/p2p/{remote.PeerId}";
+        ByteString record = SigningHelper.CreateSignedEnvelope(remote, [address], 2);
+        store.Discover(record);
+        List<Multiformats.Address.Multiaddress[]> notifications = [];
+        store.OnNewPeer += notifications.Add;
+        notifications.Clear();
+        Identify message = new() { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = record };
+        await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
+        await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
+
+        PeerStore.PeerInfo info = store.GetPeerInfo(remote.PeerId);
+        Assert.That(info.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
+        Assert.That(info.SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(info.Seq, Is.EqualTo(2UL));
+        Assert.That(notifications, Has.Count.EqualTo(1));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task IdentifyAndPushCannotRollBackARecordLearnedFromPeerExchange(bool push)
     {
         Identity remote = TestPeers.Identity(81);

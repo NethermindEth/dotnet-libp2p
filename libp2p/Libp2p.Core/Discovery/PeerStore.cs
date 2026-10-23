@@ -39,11 +39,12 @@ public class PeerStore
     public void Discover(ByteString signedPeerRecord, State? state)
     {
         PublicKey publicKey;
+        SignedEnvelope signedEnvelope;
         PeerRecord peerRecord;
         ulong seq;
         try
         {
-            SignedEnvelope signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
+            signedEnvelope = SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
             publicKey = PublicKeyDecoder.Decode(signedEnvelope.PublicKey);
 
             if (!SigningHelper.VerifyPeerRecord(signedEnvelope, publicKey, keyFromEnvelope: true, out seq))
@@ -100,16 +101,31 @@ public class PeerStore
         // Caller holds _storeLock; envelope and sequence are published together.
         bool StoreRecord(PeerInfo info, bool replaceConfiguredAddresses)
         {
-            if (info.SignedPeerRecord is not null && seq <= (info.Seq ?? 0)) return false;
-            info.SignedPeerRecord = signedPeerRecord;
-            info.Seq = seq;
-            if ((!info.IsConfigured || replaceConfiguredAddresses) && addresses.Length > 0 &&
-                (info.Addrs is null || !info.Addrs.SetEquals(addressSet)))
+            if (info.SignedPeerRecord is not null && seq <= (info.Seq ?? 0))
             {
-                info.Addrs = addressSet;
-                return true;
+                // PX can retain a configured peer's record without applying its
+                // addresses. Its session may apply the same signed payload once,
+                // without replacing the envelope or accepting conflicting equal sequences.
+                if (seq < (info.Seq ?? 0) || !replaceConfiguredAddresses ||
+                    info.DeferredSignedRecordPayload is not { } deferred || deferred != signedEnvelope.Payload) return false;
             }
-            return false;
+            else
+            {
+                info.SignedPeerRecord = signedPeerRecord;
+                info.Seq = seq;
+                info.DeferredSignedRecordPayload = null;
+            }
+            if (addresses.Length == 0) return false;
+            if (info.IsConfigured && !replaceConfiguredAddresses)
+            {
+                info.DeferredSignedRecordPayload = signedEnvelope.Payload;
+                return false;
+            }
+            info.DeferredSignedRecordPayload = null;
+            info.HasSignedAddresses = true;
+            if (info.Addrs is not null && info.Addrs.SetEquals(addressSet)) return false;
+            info.Addrs = addressSet;
+            return true;
         }
     }
 
@@ -138,7 +154,7 @@ public class PeerStore
             lock (_storeLock)
             {
                 PeerInfo? peerInfo = GetOrAdd(peerId, isConfigured: isTrusted, required: isTrusted);
-                if (peerInfo is null || !isTrusted && (peerInfo.IsConfigured || peerInfo.SignedPeerRecord is not null)) return;
+                if (peerInfo is null || !isTrusted && (peerInfo.IsConfigured || peerInfo.HasSignedAddresses)) return;
                 if (peerInfo.Addrs is not null && peerInfo.Addrs.SetEquals(addresses)) return;
                 peerInfo.Addrs = addresses;
             }
@@ -264,6 +280,10 @@ public class PeerStore
     public class PeerInfo
     {
         internal bool IsConfigured;
+        // A newer empty record does not remove the existing addresses' protection.
+        internal bool HasSignedAddresses;
+        // Only configured entries can defer applying a retained record's addresses.
+        internal ByteString? DeferredSignedRecordPayload;
         internal int Sessions;
         internal LinkedListNode<PeerId>? EvictionNode;
         public string? AgentVersion { get; set; }
