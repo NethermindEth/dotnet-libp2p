@@ -37,108 +37,87 @@ public class CertificateListProbeTests
         using X509Certificate2 local = CertificateHelper.CertificateFromIdentity(localKey, TestPeers.Identity(1));
         using X509Certificate2 remote = CertificateHelper.CertificateFromIdentity(remoteKey, TestPeers.Identity(2));
         using X509Certificate2 extra = CertificateHelper.CertificateFromIdentity(extraKey, TestPeers.Identity(3));
+        byte[][] expected = shape switch
+        {
+            1 => [remote.RawData],
+            2 => [remote.RawData, extra.RawData],
+            _ => [remote.RawData, remote.RawData],
+        };
+        BcTlsCrypto crypto = new();
+        BcCertificate chain = new([], expected.Select(der => new CertificateEntry(crypto.CreateCertificate(der), null)).ToArray());
+        using ECDsa remotePrivateKey = remote.GetECDsaPrivateKey()!;
+        var privateKey = PrivateKeyFactory.CreateKey(remotePrivateKey.ExportPkcs8PrivateKey());
+        List<byte[]> emitted = [];
+        byte[]? callbackLeaf = null;
+        byte[][]? elements = null;
+        byte[][]? extraStore = null;
+        bool validated = false;
+        RemoteCertificateValidationCallback validate = (_, certificate, builtChain, _) =>
+        {
+            callbackLeaf = certificate?.GetRawCertData();
+            validated = certificate is X509Certificate2 x509
+                && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(2).ToString());
+            elements = builtChain!.ChainElements.Select(element => element.Certificate.RawData).ToArray();
+            extraStore = builtChain.ChainPolicy.ExtraStore.Select(item => item.RawData).ToArray();
+            return validated;
+        };
+        using TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        using TcpClient sender = new();
+        Task connect = sender.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, deadline.Token).AsTask();
+        using TcpClient receiver = await listener.AcceptTcpClientAsync(deadline.Token);
+        await connect;
+        using SslStream ssl = new(receiver.GetStream(), false);
+        // Bouncy Castle exposes the final Certificate serialization hook, without
+        // OpenSSL/Schannel's sender-side chain building or certificate filtering.
+        TlsProtocol wire = dotnetIsServer
+            ? new RecordingClient(sender.GetStream(), emitted)
+            : new RecordingServer(sender.GetStream(), emitted);
+        Task send = Task.Run(() =>
+        {
+            if (wire is RecordingClient client)
+                client.Connect(new WireClient(crypto, chain, privateKey));
+            else
+                ((RecordingServer)wire).Accept(new WireServer(crypto, chain, privateKey));
+            wire.Stream.WriteByte(42);
+        });
         try
         {
-            byte[][] expected = shape switch
-            {
-                1 => [remote.RawData],
-                2 => [remote.RawData, extra.RawData],
-                _ => [remote.RawData, remote.RawData],
-            };
-            BcTlsCrypto crypto = new();
-            BcCertificate chain = new([], expected.Select(der => new CertificateEntry(crypto.CreateCertificate(der), null)).ToArray());
-            using ECDsa remotePrivateKey = remote.GetECDsaPrivateKey()!;
-            var privateKey = PrivateKeyFactory.CreateKey(remotePrivateKey.ExportPkcs8PrivateKey());
-            List<byte[]> emitted = [];
-            byte[]? callbackLeaf = null;
-            byte[][]? elements = null;
-            byte[][]? extraStore = null;
-            bool validated = false;
-            RemoteCertificateValidationCallback validate = (_, certificate, builtChain, _) =>
-            {
-                callbackLeaf = certificate?.GetRawCertData();
-                validated = certificate is X509Certificate2 x509
-                    && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(2).ToString());
-                elements = builtChain!.ChainElements.Select(element => element.Certificate.RawData).ToArray();
-                extraStore = builtChain.ChainPolicy.ExtraStore.Select(item => item.RawData).ToArray();
-                return validated;
-            };
-            using TcpListener listener = new(IPAddress.Loopback, 0);
-            listener.Start();
-            using TcpClient sender = new();
-            Task connect = sender.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, deadline.Token).AsTask();
-            using TcpClient receiver = await listener.AcceptTcpClientAsync(deadline.Token);
-            await connect;
-            using SslStream ssl = new(receiver.GetStream(), false);
-            // Bouncy Castle exposes the final Certificate serialization hook, without
-            // OpenSSL/Schannel's sender-side chain building or certificate filtering.
-            TlsProtocol wire = dotnetIsServer
-                ? new RecordingClient(sender.GetStream(), emitted)
-                : new RecordingServer(sender.GetStream(), emitted);
-            Task send = Task.Run(() =>
-            {
-                if (wire is RecordingClient client)
-                    client.Connect(new WireClient(crypto, chain, privateKey));
-                else
-                    ((RecordingServer)wire).Accept(new WireServer(crypto, chain, privateKey));
-                wire.Stream.WriteByte(42);
-            });
-            try
-            {
-                if (dotnetIsServer)
-                    await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
-                    {
-                        ServerCertificate = local,
-                        ClientCertificateRequired = true,
-                        EnabledSslProtocols = SslProtocols.Tls13,
-                        RemoteCertificateValidationCallback = validate,
-                    }, deadline.Token);
-                else
-                    await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-                    {
-                        TargetHost = "libp2p",
-                        ClientCertificates = [local],
-                        LocalCertificateSelectionCallback = (_, _, _, _, _) => local,
-                        EnabledSslProtocols = SslProtocols.Tls13,
-                        RemoteCertificateValidationCallback = validate,
-                    }, deadline.Token);
-                byte[] data = new byte[1];
-                await ssl.ReadExactlyAsync(data, deadline.Token);
-                await send.WaitAsync(deadline.Token);
-                Assert.That(data[0], Is.EqualTo(42));
-                Assert.That(emitted, Is.EqualTo(expected), "Capture the actual serialized list, including unrelated and duplicate entries.");
-                Assert.That(validated, Is.True, "Keep self-signature and identity valid to isolate list cardinality.");
-                Assert.That(callbackLeaf, Is.EqualTo(remote.RawData));
-                Assert.That(elements, Is.Not.Null);
-                Assert.That(extraStore, Is.Not.Null);
-                TestContext.Out.WriteLine($"OS={Environment.OSVersion}; runtime={Environment.Version}; receiver={(dotnetIsServer ? "server" : "client")}; wire={emitted.Count}; ChainElements={elements!.Length}; ExtraStore={extraStore!.Length}; leafCopies={extraStore.Count(der => der.SequenceEqual(remote.RawData))}");
-                Assert.That(elements, Has.Length.EqualTo(1), "An unrelated or duplicate transmitted certificate does not extend the trust chain.");
-                Assert.That(elements![0], Is.EqualTo(remote.RawData));
-            }
-            finally
-            {
-                sender.Dispose();
-                receiver.Dispose();
-                await send.WaitAsync(TimeSpan.FromSeconds(5));
-            }
+            if (dotnetIsServer)
+                await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = local,
+                    ClientCertificateRequired = true,
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                    RemoteCertificateValidationCallback = validate,
+                }, deadline.Token);
+            else
+                await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = "libp2p",
+                    ClientCertificates = [local],
+                    LocalCertificateSelectionCallback = (_, _, _, _, _) => local,
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                    RemoteCertificateValidationCallback = validate,
+                }, deadline.Token);
+            byte[] data = new byte[1];
+            await ssl.ReadExactlyAsync(data, deadline.Token);
+            await send.WaitAsync(deadline.Token);
+            Assert.That(data[0], Is.EqualTo(42));
+            Assert.That(emitted, Is.EqualTo(expected), "Capture the actual serialized list, including unrelated and duplicate entries.");
+            Assert.That(validated, Is.True, "Keep self-signature and identity valid to isolate list cardinality.");
+            Assert.That(callbackLeaf, Is.EqualTo(remote.RawData));
+            Assert.That(elements, Is.Not.Null);
+            Assert.That(extraStore, Is.Not.Null);
+            TestContext.Out.WriteLine($"OS={Environment.OSVersion}; runtime={Environment.Version}; receiver={(dotnetIsServer ? "server" : "client")}; wire={emitted.Count}; ChainElements={elements!.Length}; ExtraStore={extraStore!.Length}; leafCopies={extraStore.Count(der => der.SequenceEqual(remote.RawData))}");
+            Assert.That(elements, Has.Length.EqualTo(1), "An unrelated or duplicate transmitted certificate does not extend the trust chain.");
+            Assert.That(elements![0], Is.EqualTo(remote.RawData));
         }
         finally
         {
-            // The pinned parent creates named keys; delete only the exact keys created here.
-            DeleteOwnedNamedKey(local);
-            DeleteOwnedNamedKey(remote);
-            DeleteOwnedNamedKey(extra);
-        }
-    }
-
-    private static void DeleteOwnedNamedKey(X509Certificate2 certificate)
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        using ECDsa? key = certificate.GetECDsaPrivateKey();
-        if (key is ECDsaCng cng)
-        {
-            using CngKey handle = cng.Key;
-            if (!handle.IsEphemeral) handle.Delete();
+            sender.Dispose();
+            receiver.Dispose();
+            await send.WaitAsync(TimeSpan.FromSeconds(5));
         }
     }
 

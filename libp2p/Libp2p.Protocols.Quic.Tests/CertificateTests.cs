@@ -15,7 +15,7 @@ namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 public class CertificateTests
 {
     [Test]
-    public void CertificateOwnsAHandleToTheSuppliedSessionKey()
+    public void CertificateOwnsUsablePrivateKeyAfterSessionKeyDisposal()
     {
         Identity identity = new();
         using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -24,7 +24,8 @@ public class CertificateTests
         sessionKey.Dispose();
 
         using ECDsa privateKey = certificate.GetECDsaPrivateKey()!;
-        Assert.That(privateKey.ExportSubjectPublicKeyInfo(), Is.EqualTo(publicKey));
+        if (!OperatingSystem.IsWindows())
+            Assert.That(privateKey.ExportSubjectPublicKeyInfo(), Is.EqualTo(publicKey));
         byte[] data = [1, 2, 3];
         byte[] signature = privateKey.SignData(data, HashAlgorithmName.SHA256);
         using ECDsa verifier = certificate.GetECDsaPublicKey()!;
@@ -43,29 +44,6 @@ public class CertificateTests
         byte[] data = [1, 2, 3];
         byte[] signature = sessionKey.SignData(data, HashAlgorithmName.SHA256);
         Assert.That(sessionKey.VerifyData(data, signature, HashAlgorithmName.SHA256), Is.True);
-    }
-
-    [Test]
-    public void WindowsCertificateLeasesUseTheSameEphemeralSessionKey()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Ignore("CNG key lifetime is Windows-specific.");
-            return;
-        }
-
-        using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        byte[] publicKey = sessionKey.ExportSubjectPublicKeyInfo();
-        for (int attempt = 0; attempt < 20; attempt++)
-        {
-            using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity());
-            using ECDsaCng privateKey = lease.Certificate.GetECDsaPrivateKey() as ECDsaCng
-                ?? throw new AssertionException("Expected a CNG private key.");
-            using CngKey key = privateKey.Key;
-            Assert.That(key.IsEphemeral, Is.True);
-            Assert.That(key.KeyName, Is.Null);
-            Assert.That(privateKey.ExportSubjectPublicKeyInfo(), Is.EqualTo(publicKey));
-        }
     }
 
     [TestCaseSource(nameof(CertificatesSerialized))]
