@@ -35,7 +35,12 @@ public class RegisteredIdentityTests
         Assert.That(alias, Is.Not.EqualTo(second.Identity.PeerId));
         Multiaddress destination = second.ListenAddresses.Single().ToString().Replace($"/p2p/{second.Identity.PeerId}", $"/p2p/{alias}");
         int connections = 0;
-        first.OnConnected += _ => Interlocked.Increment(ref connections);
+        TaskCompletionSource<ISession> connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        first.OnConnected += session =>
+        {
+            Interlocked.Increment(ref connections);
+            connected.TrySetResult(session);
+        };
         Exception? failure = Assert.CatchAsync(async () =>
             await first.DialAsync(destination, deadline.Token).WaitAsync(deadline.Token));
         // Session shutdown can cancel its pending upgrade before the transport
@@ -45,6 +50,7 @@ public class RegisteredIdentityTests
         Assert.That(connections, Is.Zero);
         Assert.That(firstServices.GetRequiredService<PeerStore>().TryGetPeerInfo(alias, out _), Is.False);
         ISession canonical = await first.DialAsync([.. second.ListenAddresses], deadline.Token).WaitAsync(deadline.Token);
+        Assert.That(await connected.Task.WaitAsync(deadline.Token), Is.SameAs(canonical));
         Assert.That(canonical.RemotePeerId, Is.EqualTo(second.Identity.PeerId));
         Assert.That(connections, Is.EqualTo(1));
     }
