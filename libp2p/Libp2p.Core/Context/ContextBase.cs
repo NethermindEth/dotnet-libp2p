@@ -10,6 +10,9 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
 {
     protected bool isListener = isListener;
     public ILocalPeer Peer => localPeer;
+    public object ConnectionAdmissionScope => localPeer;
+    public PeerResourceLimits ResourceLimits => localPeer.ResourceLimits;
+    public TimeProvider Clock => localPeer.Clock;
     public State State => session.State;
 
     public ActivitySource? ActivitySource { get; } = activitySource;
