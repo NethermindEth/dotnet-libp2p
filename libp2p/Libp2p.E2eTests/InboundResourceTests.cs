@@ -62,7 +62,11 @@ public class InboundResourceTests
         _ = services.GetRequiredService<IPeerFactory>();
         var protocols = services.GetRequiredService<IProtocolStackSettings>().Protocols!.Keys;
         foreach (ProtocolRef protocol in protocols.Where(p => p.Protocol is ISessionListenerProtocol or ISessionProtocol))
+        {
             Assert.That(protocol.InboundLimit, Is.Not.Null, protocol.Id);
+            Assert.That(protocol.InboundLimit!.MaxConcurrent, Is.EqualTo(512), protocol.Id);
+            Assert.That(protocol.InboundLimit.MaxPerPeer, Is.EqualTo(64), protocol.Id);
+        }
         ProtocolRef[] pubsub = protocols.Where(p => p.Protocol is PubsubProtocol).ToArray();
         Assert.That(pubsub, Has.Length.EqualTo(5));
         Assert.That(pubsub.Select(p => p.InboundLimit).Distinct().Count(), Is.EqualTo(1));
@@ -214,6 +218,56 @@ public class InboundResourceTests
         }
     }
 
+    [TestCase("/ip4/127.0.0.1/tcp/0")]
+    [TestCase("/ip6/::1/tcp/0")]
+    public async Task ProductionTcpAdmissionIsIndependentPerLocalPeerAndRecoversAfterExpiry(string address)
+    {
+        if (address.StartsWith("/ip6") && !Socket.OSSupportsIPv6) Assert.Ignore("IPv6 is unavailable.");
+        using ServiceProvider services = new ServiceCollection().AddLibp2p()
+            .AddSingleton(new PeerResourceLimits(1, 1, inboundUpgradeTimeout: TimeSpan.FromSeconds(2)))
+            .BuildServiceProvider();
+        IPeerFactory factory = services.GetRequiredService<IPeerFactory>();
+        await using ILocalPeer first = factory.Create();
+        await using ILocalPeer second = factory.Create();
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(12));
+        await first.StartListenAsync([address], lifetime.Token);
+        await second.StartListenAsync([address], lifetime.Token);
+        try
+        {
+            using TcpClient firstSocket = new();
+            using TcpClient secondSocket = new();
+            await firstSocket.ConnectAsync(first.ListenAddresses.Single().ToEndPoint(), lifetime.Token);
+            Assert.That(await ReadLine(firstSocket.GetStream()), Is.EqualTo("/multistream/1.0.0"));
+            await secondSocket.ConnectAsync(second.ListenAddresses.Single().ToEndPoint(), lifetime.Token);
+            Assert.That(await ReadLine(secondSocket.GetStream()), Is.EqualTo("/multistream/1.0.0"),
+                "Peers sharing the production transport instance must have separate admission scopes.");
+            using TcpClient refused = new();
+            await refused.ConnectAsync(first.ListenAddresses.Single().ToEndPoint(), lifetime.Token);
+            Assert.That(await ReadOrReset(refused), Is.Zero);
+            Assert.That(await ReadOrReset(firstSocket), Is.Zero, "The upgrade deadline closes the admitted silent socket.");
+            // Socket closure can precede protocol teardown. Admission stays charged until teardown ends.
+            while (true)
+            {
+                lifetime.Token.ThrowIfCancellationRequested();
+                using TcpClient recovered = new();
+                await recovered.ConnectAsync(first.ListenAddresses.Single().ToEndPoint(), lifetime.Token);
+                try
+                {
+                    Assert.That(await ReadLine(recovered.GetStream()), Is.EqualTo("/multistream/1.0.0"));
+                    break;
+                }
+                catch (IOException) { await Task.Delay(10, lifetime.Token); }
+            }
+        }
+        finally { lifetime.Cancel(); }
+
+        async Task<int> ReadOrReset(TcpClient client)
+        {
+            try { return await client.GetStream().ReadAsync(new byte[1], lifetime.Token); }
+            catch (IOException) { return 0; }
+        }
+    }
+
     private sealed class HoldingPing : ISessionProtocol
     {
         public string Id => "/ipfs/ping/1.0.0";
@@ -253,8 +307,8 @@ public class InboundResourceTests
         {
             try
             {
-                Assert.That(await channel.ReadLineAsync(context.Token), Is.EqualTo(Id));
-                Assert.That(await channel.ReadLineAsync(context.Token), Is.EqualTo(IdentifyProtocol.ProtocolId));
+                Assert.That(await channel.ReadLineAsync(1024, context.Token), Is.EqualTo(Id));
+                Assert.That(await channel.ReadLineAsync(1024, context.Token), Is.EqualTo(IdentifyProtocol.ProtocolId));
                 if (response)
                 {
                     await channel.WriteLineAsync(Id, context.Token);

@@ -138,6 +138,52 @@ public class ResourceDeadlineTests
         finally { limit.Release(null); await session.DisconnectAsync(); }
     }
 
+    [Test]
+    public async Task InitializationAllowanceIncludesCancelledProtocolCleanup()
+    {
+        Clock clock = new();
+        HeldInitializerProtocol protocol = new();
+        ProtocolRef root = new(protocol);
+        ProtocolStackSettings stack = new() { Protocols = new() { [root] = [new(protocol)] } };
+        await using CleanupInitializerPeer peer = new(stack, clock);
+        LocalPeer.Session session = NewSession(peer, 1);
+        peer.UpgradeToSession(session, root, true, null);
+        Task upgrade = peer.Upgrade(session, new Channel(), root, protocol, null, false, null);
+        try
+        {
+            await protocol.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            clock.Deadlines.Single().Fire();
+            // Run the initializer completion inline, through the point where its cleanup waits.
+            // Its protocol is still executing, so that completion cannot refund admission yet.
+            peer.Initializer.SetCanceled(session.Closed);
+            Assert.That(upgrade.IsCompleted, Is.False);
+            Assert.Throws<Libp2pException>(() => peer.UpgradeToSession(NewSession(peer, 2), root, true, null));
+        }
+        finally
+        {
+            protocol.Release.TrySetResult();
+            await upgrade.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await session.DrainUpgradesAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    private sealed class CleanupInitializerPeer(IProtocolStackSettings stack, TimeProvider clock)
+        : LocalPeer(new Identity(), null, stack, resourceLimits: new PeerResourceLimits(maxConcurrentInitializations: 1), timeProvider: clock)
+    {
+        // Inline continuations make the lifetime transition deterministic.
+        public TaskCompletionSource Initializer { get; } = new();
+        protected override Task ConnectedTo(ISession session, bool isDialer) => Initializer.Task;
+    }
+
+    private sealed class HeldInitializerProtocol : ISessionProtocol
+    {
+        public string Id => "/held-initializer";
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task DialAsync(IChannel channel, ISessionContext context) { Entered.TrySetResult(); return Release.Task; }
+        public Task ListenAsync(IChannel channel, ISessionContext context) => DialAsync(channel, context);
+    }
+
     private sealed class RefusalLogger : ILoggerFactory, ILogger
     {
         public ILogger CreateLogger(string categoryName) => this;
