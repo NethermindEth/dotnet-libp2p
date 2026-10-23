@@ -14,7 +14,8 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>Legacy Mplex interoperability. Prefer Yamux when both peers support it.</summary>
 public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
 {
-    internal const int MaxStreams = 512;
+    internal const int MaxInboundStreams = 512;
+    internal const int MaxOutboundStreams = 512;
     internal const int MaxBufferedBytesPerStream = 4 * 1024 * 1024;
     internal const int MaxBufferedBytesPerConnection = 16 * 1024 * 1024;
     internal const int MaxQueuedFrames = 64;
@@ -80,6 +81,8 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
             FullMode = BoundedChannelFullMode.DropWrite,
             AllowSynchronousContinuations = false,
         });
+        private int _inboundStreams;
+        private int _outboundStreams;
         private int _pendingResets;
         private int _pendingRejections;
         private bool _rejectionWarningLogged;
@@ -95,6 +98,8 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
 
         internal int QueuedFrameCount => _outgoing.Reader.Count;
         internal int ReservedStreamCount { get { lock (_gate) return _streams.Count; } }
+        internal int InboundStreamCount { get { lock (_gate) return _inboundStreams; } }
+        internal int OutboundStreamCount { get { lock (_gate) return _outboundStreams; } }
         internal int RetiredStreamCount { get { lock (_gate) return _streams.Values.Count(stream => stream.Retired); } }
         internal int PendingResetCount { get { lock (_gate) return _pendingResets; } }
         internal int PendingRejectionCount { get { lock (_gate) return _pendingRejections; } }
@@ -135,7 +140,12 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                 await _dialRequests;
                 await writer;
                 await Task.WhenAll(streams.Select(stream => stream.Worker));
-                lock (_gate) _streams.Clear();
+                lock (_gate)
+                {
+                    _streams.Clear();
+                    _inboundStreams = 0;
+                    _outboundStreams = 0;
+                }
                 _writeReady.Writer.TryComplete();
                 _rejectionBudget.Dispose();
                 _sessionClosed.Dispose();
@@ -166,7 +176,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     StreamState? stream;
                     lock (_gate)
                     {
-                        stream = !_closing && _streams.Count < MaxStreams && _nextId <= MplexFrame.MaxStreamId
+                        stream = !_closing && _outboundStreams < MaxOutboundStreams && _nextId <= MplexFrame.MaxStreamId
                             ? AddStream(_nextId++, true, request)
                             : null;
                     }
@@ -191,8 +201,18 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
         {
             StreamState stream = new(id, local, options, _stop.Token);
             _streams.Add((id, local), stream);
+            if (local) _outboundStreams++;
+            else _inboundStreams++;
             stream.Worker = Task.Run(() => RunStreamAsync(stream));
             return stream;
+        }
+
+        // Called under _gate. Cleanup and required reset transmission jointly own admission.
+        private void ReleaseReservation(StreamState stream)
+        {
+            if (!stream.Retired || stream.ResetPending || !_streams.Remove((stream.Id, stream.Local))) return;
+            if (stream.Local) _outboundStreams--;
+            else _inboundStreams--;
         }
 
         private async Task ReadFramesAsync()
@@ -210,7 +230,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if (_streams.ContainsKey((frame.StreamId, false)))
                             throw new InvalidDataException("Duplicate Mplex stream.");
-                        rejected = _closing || _streams.Count >= MaxStreams;
+                        rejected = _closing || _inboundStreams >= MaxInboundStreams;
                         if (!rejected) AddStream(frame.StreamId, false, new UpgradeOptions());
                     }
                     // Only the reader waits for rejection capacity, outside the stream lock.
@@ -371,7 +391,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     // Cleanup and reset transmission may finish in either order; the last releases admission.
                     stream.Retired = true;
                     stream.Stop.Dispose();
-                    if (!stream.ResetPending) _streams.Remove((stream.Id, stream.Local));
+                    ReleaseReservation(stream);
                 }
             }
         }
@@ -505,7 +525,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     if (sent)
                     {
                         stream.ResetPending = false;
-                        if (stream.Retired) _streams.Remove((stream.Id, stream.Local));
+                        ReleaseReservation(stream);
                     }
                 }
                 else
