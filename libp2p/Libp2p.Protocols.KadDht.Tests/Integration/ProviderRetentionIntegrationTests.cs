@@ -25,8 +25,10 @@ public class ProviderRetentionIntegrationTests
     {
         var options = new KadDhtOptions
         {
-            MaxProviderKeys = 2, MaxProvidersPerKey = 1,
-            MaxAddressesPerProvider = 17, MaxProviderRecordBytes = 2048
+            MaxProviderKeys = 2,
+            MaxProvidersPerKey = 1,
+            MaxAddressesPerProvider = 17,
+            MaxProviderRecordBytes = 2048
         };
         using var harness = new WireHarness(path, options);
         var first = new Identity(new byte[32]).PeerId;
@@ -231,7 +233,8 @@ public class ProviderRetentionIntegrationTests
             {
                 return await _protocol.DialAsync(channel, context, new Message
                 {
-                    Type = Message.Types.MessageType.GetProviders, Key = ByteString.CopyFrom(key)
+                    Type = Message.Types.MessageType.GetProviders,
+                    Key = ByteString.CopyFrom(key)
                 }).WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally
