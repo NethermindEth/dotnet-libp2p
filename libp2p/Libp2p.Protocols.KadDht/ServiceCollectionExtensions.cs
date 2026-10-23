@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
     {
         var options = new KadDhtOptions();
         configureOptions?.Invoke(options);
+        WirePeerPolicy.Validate(options);
         services.AddSingleton(options);
 
         services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
@@ -46,7 +47,7 @@ public static class ServiceCollectionExtensions
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<PeerStore>();
             var sharedState = sp.GetRequiredService<SharedDhtState>();
-            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
+            return new Integration.LibP2pKademliaMessageSender(options, localPeer, loggerFactory,
                 onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null,
                 onPingResponse: node => sharedState.AddNodeCallback?.Invoke(node));
         });

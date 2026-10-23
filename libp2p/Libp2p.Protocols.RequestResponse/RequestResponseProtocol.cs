@@ -13,7 +13,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
     where TResponse : class, IMessage<TResponse>, new()
 {
     private readonly string _protocolId;
-    private readonly Func<TRequest, ISessionContext, Task<TResponse>> _handler;
+    private readonly Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> _handler;
     private readonly Func<TRequest, bool>? _expectsResponse;
     private readonly ILogger<RequestResponseProtocol<TRequest, TResponse>>? _logger;
     private readonly int _maxMessageSize;
@@ -27,11 +27,28 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         ILoggerFactory? loggerFactory = null,
         Func<TRequest, bool>? expectsResponse = null,
         int maxMessageSize = int.MaxValue)
+        : this(AdaptHandler(handler), protocolId, loggerFactory, expectsResponse, maxMessageSize)
+    {
+    }
+
+    private static Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> AdaptHandler(
+        Func<TRequest, ISessionContext, Task<TResponse>> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return (request, context, _) => handler(request, context);
+    }
+
+    public RequestResponseProtocol(
+        Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> cancellationHandler,
+        string protocolId,
+        ILoggerFactory? loggerFactory = null,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
 
         _protocolId = protocolId ?? throw new ArgumentNullException(nameof(protocolId));
-        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        _handler = cancellationHandler ?? throw new ArgumentNullException(nameof(cancellationHandler));
         _expectsResponse = expectsResponse;
         _logger = loggerFactory?.CreateLogger<RequestResponseProtocol<TRequest, TResponse>>();
         _maxMessageSize = maxMessageSize;
@@ -43,6 +60,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
+        CancellationToken token = channel.CancellationToken;
         try
         {
             _logger?.LogDebug("Starting ListenAsync for protocol {ProtocolId} from peer {RemotePeerId}",
@@ -53,10 +71,11 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
             _logger?.LogDebug("Successfully deserialized the response");
 
-            TResponse response = await _handler(request, context);
+            TResponse response = await _handler(request, context, token);
 
             if (_expectsResponse?.Invoke(request) != false)
             {
+                token.ThrowIfCancellationRequested();
                 _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
                 _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
 
@@ -69,6 +88,10 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             if (eofResult is not IOResult.Ok and not IOResult.Ended)
                 throw new ChannelClosedException(eofResult);
             await channel.CloseAsync();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

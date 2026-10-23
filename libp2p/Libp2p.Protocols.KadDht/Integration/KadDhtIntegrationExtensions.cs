@@ -45,6 +45,7 @@ public static class KadDhtIntegrationExtensions
         // Configure options
         var options = new KadDhtOptions();
         configure?.Invoke(options);
+        WirePeerPolicy.Validate(options);
 
         // Access the service collection directly (no reflection needed!)
         var services = libp2pBuilder.Services;
@@ -59,7 +60,7 @@ public static class KadDhtIntegrationExtensions
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>();
             var state = sp.GetRequiredService<SharedDhtState>();
-            return new LibP2pKademliaMessageSender(localPeer, loggerFactory,
+            return new LibP2pKademliaMessageSender(options, localPeer, loggerFactory,
                 onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null,
                 onPingResponse: node => state.AddNodeCallback?.Invoke(node));
         });
