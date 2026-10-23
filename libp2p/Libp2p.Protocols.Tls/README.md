@@ -58,13 +58,13 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: Linux transport tests pass. The revised Windows key lifetime remains pending CI.
+- **Platform Validation**: Linux transport tests pass. Host validation of revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on Windows 10.0.26200 / .NET 10.0.12 passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 without skips. The [validation record](../../docs/development/secure-transport-validation.md) contains the exact commands and evidence; all CI gates remain.
 - **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
 - **Crash Lifetime**: A crash or failed shutdown cleanup can leave one key per process run behind. Across repeated crashes this residual is unbounded; no legacy-key sweep is performed. See the [ownership and validation evidence](../../docs/development/secure-transport-validation.md).
 
 ### Received certificate lists
 
-The specification requires rejecting more than one transmitted certificate. The current validation verifies the leaf's self-signature and identity but does not enforce the transmitted list's cardinality. `SslStream` exposes a platform-built `X509Chain`, which can have one element even when the peer sent an unrelated certificate or a duplicate leaf. `ChainElements.Count == 1` therefore cannot enforce this requirement. `ExtraStore` is a platform-specific input to chain building, without a portable exact-list contract. See the [probe and platform evidence](../../docs/development/secure-transport-validation.md).
+The specification requires rejecting more than one transmitted certificate. The current validation verifies the leaf's self-signature and identity but does not enforce the transmitted list's cardinality. `SslStream` exposes a platform-built `X509Chain`, which can have one element even when the peer sent an unrelated certificate or a duplicate leaf. `ChainElements.Count == 1` therefore cannot enforce this requirement. On the tested Windows runtime, a duplicate leaf is also absent from `ExtraStore` in both roles: the callback exposes only the presented leaf, one chain element, and an empty `ExtraStore`, as in the valid single-certificate control. #373 remains unresolved. See the [probe and platform evidence](../../docs/development/secure-transport-validation.md).
 
 ## Testing
 
