@@ -43,6 +43,7 @@ public class PubsubSessionFailureTests
         private readonly TaskCompletionSource<ReadResult> _read = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task ReadStarted => _readStarted.Task;
 
         public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
@@ -54,13 +55,14 @@ public class PubsubSessionFailureTests
 
         public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => throw new NotSupportedException();
         public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => throw new NotSupportedException();
-        public ValueTask CloseAsync() => ValueTask.CompletedTask;
+        public ValueTask CloseAsync() => AbortAsync();
         public ValueTask AbortAsync()
         {
+            _closed.TrySetResult();
             _read.TrySetResult(ReadResult.Aborted);
             return ValueTask.CompletedTask;
         }
-        public TaskAwaiter GetAwaiter() => Task.CompletedTask.GetAwaiter();
+        public TaskAwaiter GetAwaiter() => _closed.Task.GetAwaiter();
     }
 
     [Test]

@@ -131,6 +131,7 @@ public class GraylistTests
         PeerId peerId = Connect(router, TestPeers.Multiaddr(1), sent.Add, PubsubRouter.GossipsubProtocolVersionV12);
         router.OnRpc(peerId, new Rpc().WithTopics([Topic], []));
         router.Publish(Topic, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         MessageId messageId = PubsubSettings.ConcatFromAndSeqno(sent.Last().Publish.Single());
         if (graylisted)
         {
@@ -205,6 +206,7 @@ public class GraylistTests
         sent.Clear();
 
         router.Publish(Topic, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         cancellation.Cancel();
 
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(graylisted ? 1 : 0));

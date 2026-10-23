@@ -42,6 +42,7 @@ public class DeferredValidationTests
         });
 
         Assert.That(router.CompleteValidation(pending!, MessageValidity.Accepted), Is.True);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         validationWork.SetResult();
         Assert.Multiple(() =>
         {
@@ -215,6 +216,7 @@ public class DeferredValidationTests
         Assert.Multiple(() =>
         {
             Assert.That(() => router.CompleteValidation(message, MessageValidity.Accepted), Throws.Nothing);
+            router.FlushOutboundAsync().GetAwaiter().GetResult();
             Assert.That(otherSubscriberDeliveries, Is.EqualTo(1));
             Assert.That(forwarded.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
         });
@@ -222,17 +224,21 @@ public class DeferredValidationTests
     }
 
     [Test]
-    public void ImmediateAcceptanceDeliversLocallyBeforeForwarding()
+    public void ImmediateAcceptanceForwardsBeforeASubscriberWaits()
     {
         using PubsubRouter router = CreateRouter();
         List<string> order = [];
-        router.GetTopic(Topic).OnMessage += (_, _) => order.Add("local");
+        router.GetTopic(Topic).OnMessage += (_, _) =>
+        {
+            router.FlushOutboundAsync().GetAwaiter().GetResult();
+            order.Add("local");
+        };
         ConnectForwardingPeer(router, () => order.Add("forward"));
         router.VerifyMessage = (_, _) => MessageValidity.Accepted;
 
         router.OnRpc(TestPeers.PeerId(1), RpcWith(NewMessage(1)));
 
-        Assert.That(order, Is.EqualTo(new[] { "local", "forward" }));
+        Assert.That(order, Is.EqualTo(new[] { "forward", "local" }));
     }
 
     [Test]
@@ -253,17 +259,16 @@ public class DeferredValidationTests
             ? MessageValidity.Accepted
             : MessageValidity.Deferred;
         int callbacks = 0;
+        byte[][]? deliveredAtCallback = null;
+        byte[][]? forwardedAtCallback = null;
+        ByteString[]? repliesAtCallback = null;
         router.OnDeferredMessage = (_, _) =>
         {
             callbacks++;
-            Assert.Multiple(() =>
-            {
-                Assert.That(delivered, Is.EqualTo(new[] { new byte[] { 1 } }));
-                Assert.That(forwarded.SelectMany(rpc => rpc.Publish).Select(message => message.Data.ToByteArray()),
-                    Is.EqualTo(new[] { new byte[] { 1 } }));
-                Assert.That(replies.SelectMany(rpc => rpc.Control?.Iwant ?? []).SelectMany(iwant => iwant.MessageIDs),
-                    Is.EqualTo(new[] { ByteString.CopyFrom([3]) }));
-            });
+            router.FlushOutboundAsync().GetAwaiter().GetResult();
+            deliveredAtCallback = delivered.ToArray();
+            forwardedAtCallback = forwarded.SelectMany(rpc => rpc.Publish).Select(message => message.Data.ToByteArray()).ToArray();
+            repliesAtCallback = replies.SelectMany(rpc => rpc.Control?.Iwant ?? []).SelectMany(iwant => iwant.MessageIDs).ToArray();
             return Task.CompletedTask;
         };
 
@@ -273,6 +278,9 @@ public class DeferredValidationTests
         rpc.Control.Ihave.Add(new ControlIHave { TopicID = Topic, MessageIDs = { ByteString.CopyFrom([3]) } });
         router.OnRpc(TestPeers.PeerId(1), rpc);
 
+        Assert.That(deliveredAtCallback, Is.EqualTo(new[] { new byte[] { 1 } }));
+        Assert.That(forwardedAtCallback, Is.EqualTo(new[] { new byte[] { 1 } }));
+        Assert.That(repliesAtCallback, Is.EqualTo(new[] { ByteString.CopyFrom([3]) }));
         Assert.That(callbacks, Is.EqualTo(1));
     }
 
