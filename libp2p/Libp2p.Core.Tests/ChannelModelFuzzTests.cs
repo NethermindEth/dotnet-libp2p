@@ -181,6 +181,58 @@ public class ChannelModelFuzzTests
         Assert.That(await eof.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Race_QueuedWrite_AcquiresWriteLockDuringAbort_Aborts(bool endOfWrite)
+    {
+        Channel channel = new();
+        using CancellationTokenSource cancel = new();
+        Task<IOResult> first = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), cancel.Token).AsTask();
+        Task<IOResult> queued = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 })).AsTask();
+        Assert.That(first.IsCompleted, Is.False);
+        Assert.That(queued.IsCompleted, Is.False);
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False);
+
+        // Pause real teardown either before the write direction's EOF is set, or after
+        // it is set but before cancellation reaches the queued semaphore waiter.
+        Channel.ReaderWriter direction = endOfWrite
+            ? (Channel.ReaderWriter)channel.Writer
+            : (Channel.ReaderWriter)channel.Reader;
+        CancellationTokenSource closed = (CancellationTokenSource)typeof(Channel.ReaderWriter)
+            .GetField("_closed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(direction)!;
+        TaskCompletionSource paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim resume = new();
+        using CancellationTokenRegistration registration = closed.Token.Register(() =>
+        {
+            paused.TrySetResult();
+            if (!resume.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The test did not resume channel teardown.");
+        });
+
+        Task abort = Task.Run(async () => await channel.AbortAsync());
+        try
+        {
+            await paused.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(((Channel.ReaderWriter)channel.Writer)._eow, Is.EqualTo(endOfWrite));
+
+            // Retract the first write through caller cancellation. Its finally releases
+            // the semaphore to the queued write while teardown is still paused.
+            cancel.Cancel();
+            await first.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(await queued.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            resume.Set();
+            await abort.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(first, queued).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        ReadResult read = await channel.Reverse.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(read.Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That(read.Data.IsEmpty, Is.True);
+    }
+
     [Test]
     public async Task WriteAfterEof_AlwaysEndsGracefully()
     {
