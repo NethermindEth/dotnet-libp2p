@@ -43,6 +43,7 @@
         "dpkg",
         "dylib",
         "EVP",
+        "finalizers",
         "evenodd",
         "PKEY",
         "fanout",

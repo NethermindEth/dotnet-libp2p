@@ -15,27 +15,57 @@ namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 public class CertificateTests
 {
     [Test]
-    public void WindowsCertificateLeaseDeletesPersistedPrivateKey()
+    public void CertificateOwnsAHandleToTheSuppliedSessionKey()
+    {
+        Identity identity = new();
+        using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] publicKey = sessionKey.ExportSubjectPublicKeyInfo();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, identity);
+        sessionKey.Dispose();
+
+        using ECDsa privateKey = certificate.GetECDsaPrivateKey()!;
+        Assert.That(privateKey.ExportSubjectPublicKeyInfo(), Is.EqualTo(publicKey));
+        byte[] data = [1, 2, 3];
+        byte[] signature = privateKey.SignData(data, HashAlgorithmName.SHA256);
+        using ECDsa verifier = certificate.GetECDsaPublicKey()!;
+        Assert.That(verifier.VerifyData(data, signature, HashAlgorithmName.SHA256), Is.True);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.True);
+    }
+
+    [Test]
+    public void DisposingCertificateLeasePreservesTheBorrowedSessionKey()
+    {
+        using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity());
+        lease.Dispose();
+        lease.Dispose();
+        Assert.That(lease.Certificate.Handle, Is.EqualTo(IntPtr.Zero));
+        byte[] data = [1, 2, 3];
+        byte[] signature = sessionKey.SignData(data, HashAlgorithmName.SHA256);
+        Assert.That(sessionKey.VerifyData(data, signature, HashAlgorithmName.SHA256), Is.True);
+    }
+
+    [Test]
+    public void WindowsCertificateLeasesUseTheSameEphemeralSessionKey()
     {
         if (!OperatingSystem.IsWindows())
         {
-            Assert.Ignore("CNG key persistence is Windows-specific.");
+            Assert.Ignore("CNG key lifetime is Windows-specific.");
             return;
         }
 
         using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        string keyName;
-        using (CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity()))
+        byte[] publicKey = sessionKey.ExportSubjectPublicKeyInfo();
+        for (int attempt = 0; attempt < 20; attempt++)
         {
+            using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity());
             using ECDsaCng privateKey = lease.Certificate.GetECDsaPrivateKey() as ECDsaCng
                 ?? throw new AssertionException("Expected a CNG private key.");
             using CngKey key = privateKey.Key;
-            keyName = key.KeyName ?? throw new AssertionException("Expected a named CNG private key.");
-
-            Assert.That(CngKey.Exists(keyName), Is.True);
+            Assert.That(key.IsEphemeral, Is.True);
+            Assert.That(key.KeyName, Is.Null);
+            Assert.That(privateKey.ExportSubjectPublicKeyInfo(), Is.EqualTo(publicKey));
         }
-
-        Assert.That(CngKey.Exists(keyName), Is.False);
     }
 
     [TestCaseSource(nameof(CertificatesSerialized))]

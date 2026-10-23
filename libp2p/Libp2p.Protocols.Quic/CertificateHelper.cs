@@ -29,40 +29,11 @@ public class CertificateHelper
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
 
     /// <summary>
-    /// Creates a libp2p certificate. On Windows the certificate uses a persisted named CNG key;
-    /// callers must delete that key after the certificate's last TLS use.
+    /// Creates a libp2p certificate using the supplied session key. The returned certificate
+    /// owns its private-key handle and must be disposed after its last TLS use.
     /// </summary>
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
-    {
-        // On Windows, SslStream (SChannel) requires a named CNG key.
-        // Ephemeral keys from ECDsa.Create() cannot be used with SslStream on Windows.
-        ECDsa certKey = sessionKey;
-        if (OperatingSystem.IsWindows())
-        {
-            certKey = CreateWindowsCompatibleKey();
-        }
-
-        try
-        {
-            return CreateCertificate(certKey, identity);
-        }
-        catch
-        {
-            if (certKey is ECDsaCng cngKey)
-            {
-                using CngKey key = cngKey.Key;
-                key.Delete();
-            }
-            throw;
-        }
-        finally
-        {
-            if (!ReferenceEquals(certKey, sessionKey))
-            {
-                certKey.Dispose();
-            }
-        }
-    }
+        => CreateCertificate(sessionKey, identity);
 
     internal static CertificateLease CreateCertificateLease(ECDsa sessionKey, Identity identity) =>
         new(CertificateFromIdentity(sessionKey, identity));
@@ -71,25 +42,7 @@ public class CertificateHelper
     {
         public X509Certificate2 Certificate { get; } = certificate;
 
-        public void Dispose()
-        {
-            try
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    using ECDsa? privateKey = Certificate.GetECDsaPrivateKey();
-                    if (privateKey is ECDsaCng cngKey)
-                    {
-                        using CngKey key = cngKey.Key;
-                        key.Delete();
-                    }
-                }
-            }
-            finally
-            {
-                Certificate.Dispose();
-            }
-        }
+        public void Dispose() => Certificate.Dispose();
     }
 
     private static X509Certificate2 CreateCertificate(ECDsa certKey, Identity identity)
@@ -117,18 +70,6 @@ public class CertificateHelper
         return certRequest.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow.AddYears(100));
-    }
-
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static ECDsa CreateWindowsCompatibleKey()
-    {
-        CngKeyCreationParameters cngParams = new()
-        {
-            ExportPolicy = CngExportPolicies.AllowPlaintextExport,
-            KeyUsage = CngKeyUsages.AllUsages,
-        };
-        using CngKey cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", cngParams);
-        return new ECDsaCng(cngKey);
     }
 
     public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId) =>
