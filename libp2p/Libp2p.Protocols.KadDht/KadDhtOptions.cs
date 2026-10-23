@@ -22,6 +22,18 @@ public class KadDhtOptions
     /// </summary>
     public int KSize { get; set; } = 20;
 
+    /// <summary>Maximum encoded peer identity bytes. Default: 128.</summary>
+    public int MaxPeerIdBytes { get; set; } = 128;
+
+    /// <summary>Closer-peer address inspection slots per peer. Default: 16.</summary>
+    public int MaxAddressesPerPeer { get; set; } = 16;
+
+    /// <summary>Per-response peer limit for encoded and retained payload bytes, independently. Default: 8 KiB.</summary>
+    public int MaxPeerRecordBytes { get; set; } = 8 * 1024;
+
+    /// <summary>Combined closer/provider response budget for encoded and retained bytes, independently. Default: 64 KiB.</summary>
+    public int MaxPeerResponseBytes { get; set; } = 64 * 1024;
+
     /// <summary>
     /// Number of concurrent queries to run (α concurrency parameter)
     /// Default: 10 per libp2p Kademlia DHT spec
