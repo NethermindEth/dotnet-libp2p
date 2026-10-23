@@ -3,6 +3,8 @@
 
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
@@ -440,6 +442,7 @@ internal class MplexProtocolTests
         fixture.CancelSession();
         await fixture.ObserveCompletionAsync();
         await writing.WaitAsync(fixture.Token);
+        Assert.That(fixture.Log.Warnings, Is.Empty);
     }
 
     [Test]
@@ -529,6 +532,394 @@ internal class MplexProtocolTests
         Assert.That(await fixture.ReadBytesAsync(next.Application, 1), Is.EqualTo(new byte[] { 24 }));
     }
 
+    [TestCase(64)]
+    [TestCase(65)]
+    public async Task StreamResetWhileOutgoingQueueIsFullKeepsTheConnectionAlive(int backloggedStreams)
+    {
+        await using MplexFixture fixture = new();
+        await fixture.BacklogAsync(backloggedStreams);
+
+        OpenedStream victim = await fixture.OpenRemoteAsync(100);
+        OpenedStream survivor = await fixture.OpenRemoteAsync(101);
+        await fixture.SendFrameAsync(100, MplexFlag.CloseInitiator);
+        Assert.That((await victim.Application.ReadAsync(1, token: fixture.Token)).Result, Is.EqualTo(IOResult.Ended));
+        await fixture.SendFrameAsync(100, MplexFlag.MessageInitiator, [1]);
+        await fixture.AwaitApplicationCompletionAsync(victim.Application);
+        await fixture.SendFrameAsync(101, MplexFlag.MessageInitiator, [9]);
+        Assert.That(await fixture.ReadBytesAsync(survivor.Application, 1), Is.EqualTo(new byte[] { 9 }));
+        Assert.That(fixture.Completion.IsCompleted, Is.False);
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 1);
+        Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(1));
+        // The already-started frame must finish before the reset can be sent.
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        Assert.That((await fixture.ReadFrameAsync()).Header, Is.EqualTo(new MplexFrame(100, MplexFlag.ResetReceiver, 0)));
+        for (int i = 1; i < backloggedStreams; i++)
+            Assert.That((await fixture.ReadFrameAsync()).Header.Flag, Is.EqualTo(MplexFlag.MessageReceiver));
+        await fixture.WaitUntilAsync(() => fixture.Connection.PendingResetCount == 0 && fixture.Connection.RetiredStreamCount == 0);
+    }
+
+    [TestCase(false, false, "close")]
+    [TestCase(true, false, "close")]
+    [TestCase(false, true, "close")]
+    [TestCase(true, true, "close")]
+    [TestCase(false, false, "abort")]
+    [TestCase(true, false, "abort")]
+    [TestCase(false, true, "abort")]
+    [TestCase(true, true, "abort")]
+    [TestCase(false, true, "cancel")]
+    [TestCase(true, true, "cancel")]
+    [TestCase(false, false, "buffer")]
+    [TestCase(true, true, "buffer")]
+    [TestCase(false, true, "bytes")]
+    [TestCase(true, false, "bytes")]
+    public async Task ResetCausesRemainIsolatedUnderDataSaturation(bool listener, bool local, string cause)
+    {
+        await using MplexFixture fixture = new(listener);
+        if (listener) await fixture.OpenRemoteAsync(MplexFrame.MaxStreamId);
+        using CancellationTokenSource cancellation = new();
+        OpenedStream victim = local
+            ? await fixture.OpenLocalAsync(new UpgradeOptions { CancellationToken = cancellation.Token })
+            : await fixture.OpenRemoteAsync(500);
+        ulong id = local ? (await fixture.ReadFrameAsync()).Header.StreamId : 500;
+        MplexFlag message = local ? MplexFlag.MessageReceiver : MplexFlag.MessageInitiator;
+        MplexFlag close = local ? MplexFlag.CloseReceiver : MplexFlag.CloseInitiator;
+        MplexFlag reset = local ? MplexFlag.ResetInitiator : MplexFlag.ResetReceiver;
+        // In local cases the backlogged remote stream with ID zero shares the numeric ID with the victim.
+        OpenedStream[] backlog = await fixture.BacklogAsync(65);
+        switch (cause)
+        {
+            case "close":
+                await fixture.SendFrameAsync(id, close);
+                Assert.That((await victim.Application.ReadAsync(1, token: fixture.Token)).Result, Is.EqualTo(IOResult.Ended));
+                await fixture.SendFrameAsync(id, message, [1]);
+                break;
+            case "abort":
+                await victim.Application.AbortAsync();
+                break;
+            case "cancel":
+                cancellation.Cancel();
+                break;
+            case "buffer":
+                for (int i = 0; i < MplexProtocol.MaxQueuedFrames + 2; i++)
+                    await fixture.SendFrameAsync(id, message, [1]);
+                break;
+            case "bytes":
+                for (int i = 0; i < 5; i++)
+                    await fixture.SendFrameAsync(id, message, new byte[MplexFrame.MaxPayloadLength]);
+                break;
+        }
+        await fixture.AwaitApplicationCompletionAsync(victim.Application);
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 1);
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(1));
+            Assert.That(fixture.Connection.BufferedByteCount, Is.Zero);
+            Assert.That(fixture.Connection.QueuedFrameCount, Is.EqualTo(64));
+        });
+        // Tombstones discard every frame kind without touching a disposed stream or its buffers.
+        await fixture.SendFrameAsync(id, message, [2, 3]);
+        await fixture.SendFrameAsync(id, close);
+        await fixture.SendFrameAsync(id, local ? MplexFlag.ResetReceiver : MplexFlag.ResetInitiator);
+        await fixture.SendFrameAsync(0, MplexFlag.MessageInitiator, [7]);
+        Assert.That(await fixture.ReadBytesAsync(backlog[0].Application, 1), Is.EqualTo(new byte[] { 7 }));
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        Assert.That((await fixture.ReadFrameAsync()).Header, Is.EqualTo(new MplexFrame(id, reset, 0)));
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 0);
+        Assert.That(fixture.Completion.IsCompleted, Is.False);
+    }
+
+    [Test]
+    public async Task AllAcceptedResetsRetainReservationsUntilSentThenRestoreAdmission()
+    {
+        await using MplexFixture fixture = new();
+        List<OpenedStream> streams = [.. await fixture.BacklogAsync(65)];
+        for (ulong id = 65; id < MplexProtocol.MaxStreams; id++)
+            streams.Add(await fixture.OpenRemoteAsync(id));
+        foreach (OpenedStream stream in streams) await stream.Application.AbortAsync();
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == MplexProtocol.MaxStreams);
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Connection.ReservedStreamCount, Is.EqualTo(MplexProtocol.MaxStreams));
+            Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(MplexProtocol.MaxStreams));
+            Assert.That(fixture.Connection.BufferedByteCount, Is.Zero);
+        });
+        TaskCompletionSource<object?> denied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Enqueue(new UpgradeOptions { CompletionSource = denied });
+        Assert.That(await CaptureFailureAsync(denied.Task.WaitAsync(fixture.Token)), Is.TypeOf<InvalidOperationException>());
+        await fixture.SendFrameAsync(0, MplexFlag.MessageInitiator, new byte[8192]);
+        await fixture.SendFrameAsync(0, MplexFlag.ResetInitiator);
+        for (ulong id = 600; id < 600 + MplexProtocol.MaxRejectedResets; id++)
+            await fixture.SendFrameAsync(id, MplexFlag.NewStream);
+        await fixture.WaitUntilAsync(() => fixture.Connection.PendingRejectionCount == MplexProtocol.MaxRejectedResets);
+        Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(MplexProtocol.MaxStreams + MplexProtocol.MaxRejectedResets));
+        Assert.That(fixture.UpgradeCount, Is.EqualTo(MplexProtocol.MaxStreams));
+
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        HashSet<ulong> resetIds = [];
+        for (int i = 0; i < MplexProtocol.MaxStreams + MplexProtocol.MaxRejectedResets; i++)
+        {
+            WireFrame reset = await fixture.ReadFrameAsync();
+            Assert.That(reset.Header.Flag, Is.EqualTo(MplexFlag.ResetReceiver));
+            Assert.That(resetIds.Add(reset.Header.StreamId), Is.True, "Each obligation is sent exactly once.");
+        }
+        Assert.That(resetIds, Is.EquivalentTo(Enumerable.Range(0, MplexProtocol.MaxStreams).Concat(Enumerable.Range(600, MplexProtocol.MaxRejectedResets)).Select(id => (ulong)id)));
+        await fixture.WaitUntilAsync(() => fixture.Connection.ReservedStreamCount == 0 && fixture.Connection.PendingResetCount == 0);
+        Assert.That(fixture.Connection.PendingRejectionCount, Is.Zero);
+        OpenedStream replacement = await fixture.OpenRemoteAsync(700);
+        await fixture.SendFrameAsync(700, MplexFlag.MessageInitiator, [8]);
+        Assert.That(await fixture.ReadBytesAsync(replacement.Application, 1), Is.EqualTo(new byte[] { 8 }));
+        await fixture.OpenLocalAsync();
+        Assert.That((await fixture.ReadFrameAsync()).Header.Flag, Is.EqualTo(MplexFlag.NewStream));
+    }
+
+    [Test]
+    public async Task ResetTransmissionBeforeCleanupKeepsTheReservationUntilCleanupFinishes()
+    {
+        await using MplexFixture fixture = new();
+        AbortBarrier barrier = fixture.DelayNextAbort();
+        OpenedStream stream = await fixture.OpenRemoteAsync(0);
+        await stream.Application.AbortAsync();
+        await barrier.Entered.Task.WaitAsync(fixture.Token);
+        Assert.That((await fixture.ReadFrameAsync()).Header, Is.EqualTo(new MplexFrame(0, MplexFlag.ResetReceiver, 0)));
+        await fixture.WaitUntilAsync(() => fixture.Connection.PendingResetCount == 0);
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Connection.ReservedStreamCount, Is.EqualTo(1));
+            Assert.That(fixture.Connection.RetiredStreamCount, Is.Zero);
+        });
+        await fixture.SendFrameAsync(0, MplexFlag.MessageInitiator, [1]);
+        barrier.Release.TrySetResult();
+        await fixture.WaitUntilAsync(() => fixture.Connection.ReservedStreamCount == 0);
+        Assert.That(fixture.Connection.BufferedByteCount, Is.Zero);
+    }
+
+    [Test]
+    public async Task DuplicateOpenWhileResetIsPendingStillTerminatesTheConnection()
+    {
+        await using MplexFixture fixture = new();
+        OpenedStream[] streams = await fixture.BacklogAsync(1);
+        await streams[0].Application.AbortAsync();
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 1);
+        await fixture.SendFrameAsync(0, MplexFlag.NewStream);
+        await fixture.ObserveCompletionAsync();
+        Assert.That(fixture.Connection.ReservedStreamCount, Is.Zero);
+        Assert.That(fixture.Connection.PendingResetCount, Is.Zero);
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task RejectionBudgetBackpressuresTheReaderButAcceptedResetCleanupStillFinishes(bool listener, bool failTransport)
+    {
+        await using MplexFixture fixture = new(listener);
+        OpenedStream[] backlog = await fixture.BacklogAsync(65);
+        for (ulong id = 65; id < MplexProtocol.MaxStreams; id++) await fixture.OpenRemoteAsync(id);
+        for (ulong id = 600; id < 600 + MplexProtocol.MaxRejectedResets; id++)
+            await fixture.SendFrameAsync(id, MplexFlag.NewStream);
+        await fixture.WaitUntilAsync(() => fixture.Connection.PendingRejectionCount == MplexProtocol.MaxRejectedResets);
+        await fixture.SendFrameAsync(664, MplexFlag.NewStream);
+        await fixture.WaitUntilAsync(() => fixture.Log.Warnings.Count == 1);
+        Dictionary<string, object?> warning = fixture.Log.Warnings.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(warning["Context"], Is.EqualTo("mplex-test"));
+            Assert.That(warning["Stream"], Is.EqualTo(664UL));
+            Assert.That(warning["Budget"], Is.EqualTo(MplexProtocol.MaxRejectedResets));
+        });
+        Task<IOResult> blockedInbound = fixture.WriteAsync(fixture.Remote,
+            new MplexFrame(1, MplexFlag.MessageInitiator, 1).Encode(new ReadOnlySequence<byte>(new byte[] { 9 })));
+        Assert.That(blockedInbound.IsCompleted, Is.False, "The reader is paused with all rejection permits owned.");
+        await backlog[0].Application.AbortAsync();
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 1);
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Connection.ReservedStreamCount, Is.EqualTo(MplexProtocol.MaxStreams));
+            Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(MplexProtocol.MaxRejectedResets + 1));
+            Assert.That(fixture.Connection.PendingRejectionCount, Is.EqualTo(MplexProtocol.MaxRejectedResets));
+        });
+        if (failTransport)
+        {
+            await fixture.Remote.AbortAsync();
+            await fixture.ObserveCompletionAsync();
+            Assert.That(await blockedInbound.WaitAsync(fixture.Token), Is.AnyOf(IOResult.Ended, IOResult.Aborted));
+            AssertReleased(fixture);
+            return;
+        }
+
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        List<ulong> resets = [];
+        int ordinary = 0;
+        int burst = 0;
+        while (resets.Count < 66 || ordinary < 64)
+        {
+            WireFrame frame = await fixture.ReadFrameAsync();
+            if (frame.Header.Flag == MplexFlag.ResetReceiver)
+            {
+                resets.Add(frame.Header.StreamId);
+                burst++;
+                if (ordinary < 64) Assert.That(burst, Is.LessThanOrEqualTo(MplexProtocol.MaxResetBurst));
+            }
+            else
+            {
+                Assert.That(frame.Header.Flag, Is.EqualTo(MplexFlag.MessageReceiver));
+                ordinary++;
+                burst = 0;
+            }
+        }
+        Assert.That(resets, Is.EqualTo(Enumerable.Range(600, 64).Select(id => (ulong)id).Append(0UL).Append(664UL)),
+            "A newly permitted rejection cannot overtake the accepted reset already in the FIFO.");
+        Assert.That(await blockedInbound.WaitAsync(fixture.Token), Is.EqualTo(IOResult.Ok));
+        Assert.That(await fixture.ReadBytesAsync(backlog[1].Application, 1), Is.EqualTo(new byte[] { 9 }));
+        await fixture.WaitUntilAsync(() => fixture.Connection.PendingResetCount == 0);
+        Assert.That(fixture.Connection.PendingRejectionCount, Is.Zero);
+        Assert.That(fixture.Log.Warnings, Has.Count.EqualTo(1));
+        await fixture.OpenRemoteAsync(665);
+        fixture.CancelSession();
+        await fixture.ObserveCompletionAsync();
+        AssertReleased(fixture);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ShutdownWithAResetInFlightAndTheReaderWaitingReleasesAllResources(bool failTransport)
+    {
+        await using MplexFixture fixture = new();
+        for (ulong id = 0; id < MplexProtocol.MaxStreams; id++) await fixture.OpenRemoteAsync(id);
+        await fixture.SendFrameAsync(600, MplexFlag.NewStream);
+        // A reset has no payload: consume only its first header byte to stall the in-flight write.
+        Assert.That((await fixture.Remote.ReadAsync(1, token: fixture.Token)).Result, Is.EqualTo(IOResult.Ok));
+        for (ulong id = 601; id < 665; id++) await fixture.SendFrameAsync(id, MplexFlag.NewStream);
+        await fixture.WaitUntilAsync(() => fixture.Log.Warnings.Count == 1);
+        Assert.That(fixture.Connection.PendingRejectionCount, Is.EqualTo(MplexProtocol.MaxRejectedResets));
+        if (failTransport) await fixture.Remote.AbortAsync();
+        else fixture.CancelSession();
+        await fixture.ObserveCompletionAsync();
+        AssertReleased(fixture);
+        Assert.That(fixture.Log.Warnings, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task AcceptedResetAndOrdinaryFramesProgressDuringContinuingRejections()
+    {
+        await using MplexFixture fixture = new();
+        AbortBarrier barrier = fixture.DelayNextAbort();
+        OpenedStream victim = await fixture.OpenRemoteAsync(500);
+        await fixture.BacklogAsync(65);
+        for (ulong id = 65; id < MplexProtocol.MaxStreams; id++)
+            if (id != 500) await fixture.OpenRemoteAsync(id);
+        Assert.That(fixture.Connection.ReservedStreamCount, Is.EqualTo(MplexProtocol.MaxStreams));
+        Task rejections = fixture.Track(RejectAsync());
+        await fixture.WaitUntilAsync(() => fixture.Log.Warnings.Count == 1);
+        await victim.Application.AbortAsync();
+        await barrier.Entered.Task.WaitAsync(fixture.Token);
+        Assert.That(fixture.Connection.PendingResetCount, Is.EqualTo(65));
+        // Cleanup is held so admission stays full even after the victim's reset reaches the wire.
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        List<ulong> resetIds = [];
+        int ordinary = 0;
+        int burst = 0;
+        while (resetIds.Count < 129 || ordinary < 64)
+        {
+            WireFrame frame = await fixture.ReadFrameAsync();
+            if (frame.Header.Flag == MplexFlag.ResetReceiver)
+            {
+                resetIds.Add(frame.Header.StreamId);
+                burst++;
+                if (ordinary < 64) Assert.That(burst, Is.LessThanOrEqualTo(MplexProtocol.MaxResetBurst));
+            }
+            else
+            {
+                Assert.That(frame.Header.Flag, Is.EqualTo(MplexFlag.MessageReceiver));
+                ordinary++;
+                burst = 0;
+            }
+        }
+        await rejections.WaitAsync(fixture.Token);
+        Assert.Multiple(() =>
+        {
+            Assert.That(resetIds.Take(65), Is.EqualTo(Enumerable.Range(600, 64).Select(id => (ulong)id).Append(500UL)));
+            Assert.That(resetIds.Skip(65), Is.EqualTo(Enumerable.Range(664, 64).Select(id => (ulong)id)));
+            Assert.That(fixture.Log.Warnings, Has.Count.EqualTo(1));
+            Assert.That(fixture.Connection.ReservedStreamCount, Is.EqualTo(MplexProtocol.MaxStreams));
+        });
+        barrier.Release.TrySetResult();
+        await fixture.WaitUntilAsync(() => fixture.Connection.ReservedStreamCount == MplexProtocol.MaxStreams - 1 && fixture.Connection.PendingResetCount == 0);
+        await fixture.OpenRemoteAsync(800);
+
+        async Task RejectAsync()
+        {
+            for (ulong id = 600; id < 728; id++) await fixture.SendFrameAsync(id, MplexFlag.NewStream);
+        }
+    }
+
+    [Test]
+    public async Task ResetBurstsSkipCanceledOrdinaryFramesWithoutStarvingEligibleData()
+    {
+        await using MplexFixture fixture = new();
+        OpenedStream[] backlog = await fixture.BacklogAsync(65);
+        // Cancel the first queued ordinary frame; it must not consume the fairness turn or reach the wire.
+        await backlog[1].Application.AbortAsync();
+        for (ulong id = 100; id < 124; id++)
+        {
+            OpenedStream stream = await fixture.OpenRemoteAsync(id);
+            await stream.Application.AbortAsync();
+        }
+        await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 25);
+        Assert.That(await fixture.ReadBytesAsync(fixture.Remote, 1), Is.EqualTo(new byte[] { 42 }));
+        int resets = 0;
+        int messages = 0;
+        int burst = 0;
+        List<ulong> ordinaryIds = [];
+        while (resets < 25 || messages < 63)
+        {
+            WireFrame frame = await fixture.ReadFrameAsync();
+            if (frame.Header.Flag == MplexFlag.ResetReceiver)
+            {
+                burst++;
+                resets++;
+                if (messages < 63) Assert.That(burst, Is.LessThanOrEqualTo(MplexProtocol.MaxResetBurst));
+            }
+            else
+            {
+                Assert.That(frame.Header.Flag, Is.EqualTo(MplexFlag.MessageReceiver));
+                if (resets <= 24) Assert.That(burst, Is.EqualTo(MplexProtocol.MaxResetBurst));
+                burst = 0;
+                messages++;
+                ordinaryIds.Add(frame.Header.StreamId);
+            }
+        }
+        Assert.That(ordinaryIds, Is.EqualTo(Enumerable.Range(2, 63).Select(id => (ulong)id)));
+        Assert.That(fixture.Completion.IsCompleted, Is.False);
+    }
+
+    [Test]
+    public async Task IdleWriterWakesForEitherQueue()
+    {
+        await using MplexFixture fixture = new();
+        for (ulong id = 0; id < 10; id++)
+        {
+            OpenedStream stream = await fixture.OpenRemoteAsync(id);
+            _ = fixture.WriteAsync(stream.Application, [3]);
+            Assert.That((await fixture.ReadFrameAsync()).Body, Is.EqualTo(new byte[] { 3 }));
+            await stream.Application.AbortAsync();
+            Assert.That((await fixture.ReadFrameAsync()).Header, Is.EqualTo(new MplexFrame(id, MplexFlag.ResetReceiver, 0)));
+            await fixture.WaitUntilAsync(() => fixture.Connection.ReservedStreamCount == 0);
+        }
+    }
+
+    private static void AssertReleased(MplexFixture fixture)
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Connection.ReservedStreamCount, Is.Zero);
+            Assert.That(fixture.Connection.PendingResetCount, Is.Zero);
+            Assert.That(fixture.Connection.PendingRejectionCount, Is.Zero);
+            Assert.That(fixture.Connection.QueuedFrameCount, Is.Zero);
+            Assert.That(fixture.Connection.BufferedByteCount, Is.Zero);
+        });
+    }
+
     private static byte[] CreatePayload(int length, int seed)
     {
         byte[] payload = new byte[length];
@@ -563,6 +954,8 @@ internal class MplexProtocolTests
         private readonly ConcurrentBag<IChannel> _applications = [];
         private readonly ConcurrentBag<Task> _tasks = [];
         private Exception? _upgradeFailure;
+        private AbortBarrier? _nextAbortBarrier;
+        private readonly List<AbortBarrier> _abortBarriers = [];
         private int _upgradeCount;
 
         public MplexFixture(bool listener = false)
@@ -586,14 +979,50 @@ internal class MplexProtocolTests
             session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(call => Upgrade(call.ArgAt<UpgradeOptions>(0)));
             context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(call => Upgrade(call.ArgAt<UpgradeOptions>(0)));
             Remote = _transport.Reverse();
-            MplexProtocol protocol = new();
-            Completion = listener ? protocol.ListenAsync(_transport, context) : protocol.DialAsync(_transport, context);
+            Connection = new MplexProtocol.Connection(_transport, context, Log);
+            Completion = Connection.RunAsync(listener);
         }
 
+        public RecordingLogger Log { get; } = new();
+        public MplexProtocol.Connection Connection { get; }
         public IChannel Remote { get; }
         public Task Completion { get; }
         public CancellationToken Token => _deadline.Token;
         public int UpgradeCount => Volatile.Read(ref _upgradeCount);
+
+        public async Task WaitUntilAsync(Func<bool> condition)
+        {
+            while (!condition()) await Task.Delay(1, Token);
+        }
+
+        public async Task<OpenedStream[]> BacklogAsync(int count)
+        {
+            OpenedStream[] streams = new OpenedStream[count];
+            for (int i = 0; i < count; i++)
+            {
+                streams[i] = await OpenRemoteAsync((ulong)i);
+                _ = WriteAsync(streams[i].Application, [42]);
+                if (i == 0)
+                {
+                    MplexFrame header = await MplexFrame.ReadAsync(Remote, Token);
+                    Assert.That(header, Is.EqualTo(new MplexFrame(0, MplexFlag.MessageReceiver, 1)));
+                }
+                else
+                {
+                    // Application write completion precedes enqueue; observe the actual queue before proceeding.
+                    await WaitUntilAsync(() => Connection.QueuedFrameCount == i);
+                }
+            }
+            return streams;
+        }
+
+        public AbortBarrier DelayNextAbort()
+        {
+            AbortBarrier barrier = new();
+            _abortBarriers.Add(barrier);
+            _nextAbortBarrier = barrier;
+            return barrier;
+        }
 
         public void Enqueue(UpgradeOptions options) => _requests.Add(options);
         public void FailNextUpgrade(Exception exception) => _upgradeFailure = exception;
@@ -690,6 +1119,7 @@ internal class MplexProtocolTests
 
         public async ValueTask DisposeAsync()
         {
+            foreach (AbortBarrier barrier in _abortBarriers) barrier.Release.TrySetResult();
             CancelSession();
             await _transport.AbortAsync();
             foreach (IChannel application in _applications)
@@ -720,7 +1150,8 @@ internal class MplexProtocolTests
             IChannel application = bridge.Reverse();
             _applications.Add(application);
             _opened.Writer.TryWrite(new OpenedStream(options, application));
-            return bridge;
+            AbortBarrier? barrier = Interlocked.Exchange(ref _nextAbortBarrier, null);
+            return barrier is null ? bridge : new DelayedAbortChannel(bridge, barrier);
         }
 
         private static async Task ObserveAtTeardownAsync(Task task)
@@ -732,6 +1163,41 @@ internal class MplexProtocolTests
             catch (Exception) when (task.IsCompleted)
             {
             }
+        }
+    }
+
+    private sealed class RecordingLogger : ILogger
+    {
+        public ConcurrentQueue<Dictionary<string, object?>> Warnings { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+                Warnings.Enqueue(((IEnumerable<KeyValuePair<string, object?>>)(object)state!).ToDictionary());
+        }
+    }
+
+    private sealed class AbortBarrier
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class DelayedAbortChannel(IChannel inner, AbortBarrier barrier) : IChannel
+    {
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            => inner.ReadAsync(length, blockingMode, token);
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default) => inner.WriteAsync(bytes, token);
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => inner.WriteEofAsync(token);
+        public ValueTask CloseReadAsync() => inner.CloseReadAsync();
+        public ValueTask CloseAsync() => inner.CloseAsync();
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
+        public async ValueTask AbortAsync()
+        {
+            barrier.Entered.TrySetResult();
+            await barrier.Release.Task;
+            await inner.AbortAsync();
         }
     }
 }
