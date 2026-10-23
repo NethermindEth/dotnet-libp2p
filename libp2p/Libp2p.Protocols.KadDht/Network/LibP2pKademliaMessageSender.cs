@@ -23,13 +23,21 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     where TNode : class, IComparable<TNode>
 {
     private readonly ILocalPeer _localPeer;
+    private readonly KadDhtOptions _options;
     private readonly ILogger<LibP2pKademliaMessageSender<TPublicKey, TNode>> _logger;
     private readonly ConcurrentDictionary<TNode, ISession> _activeSessions = new();
     private readonly SemaphoreSlim _connectionSemaphore;
     private bool _disposed;
 
     public LibP2pKademliaMessageSender(ILocalPeer localPeer, ILoggerFactory? loggerFactory = null)
+        : this(new KadDhtOptions(), localPeer, loggerFactory)
     {
+    }
+
+    public LibP2pKademliaMessageSender(KadDhtOptions options, ILocalPeer localPeer, ILoggerFactory? loggerFactory = null)
+    {
+        WirePeerPolicy.Validate(options);
+        _options = options;
         ArgumentNullException.ThrowIfNull(localPeer);
         _localPeer = localPeer;
 
@@ -61,10 +69,9 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 .ConfigureAwait(false);
 
             var neighbours = new List<TNode>();
-            foreach (var wirePeer in response.CloserPeers)
+            foreach (var peer in new WirePeerPolicy(_options).ReadResponse(response, includeProviders: false).Closer)
             {
-                if (ConvertWirePeerToNode(wirePeer) is { } node)
-                    neighbours.Add(node);
+                if (typeof(TNode) == typeof(DhtNode)) neighbours.Add((TNode)(object)peer);
             }
 
             _logger.LogInformation("FIND_NODE returned {Count} neighbours from {Node}", neighbours.Count, receiver);
@@ -96,7 +103,7 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 .ConfigureAwait(false);
 
             // Per spec, a successful PUT echoes back the record
-            success = response.Record != null;
+            success = response.Record is { } record && record.Key.Span.SequenceEqual(key) && record.Value.Span.SequenceEqual(value);
             if (success)
                 _logger.LogInformation("PUT_VALUE completed to {Node}", receiver);
             else
@@ -227,14 +234,6 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         ValueHash256 valueHash => valueHash.Bytes.ToArray(),
         _ => Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty)
     };
-
-    private TNode? ConvertWirePeerToNode(Message.Types.Peer wirePeer)
-    {
-        if (typeof(TNode) != typeof(DhtNode)) return null;
-
-        var dhtNode = MessageHelper.FromWirePeer(wirePeer);
-        return dhtNode is not null ? (TNode)(object)dhtNode : default;
-    }
 
     private Multiaddress? GetMultiaddressForNode(TNode node)
     {
