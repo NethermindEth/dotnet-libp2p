@@ -211,6 +211,19 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         {
             if (_byUfrag.TryGetValue(key, out Row? row))
             {
+                // An address the row already owns is never throttled. SIPSorcery re-checks every
+                // RtpIceChannel.CONNECTED_CHECK_PERIOD (3s) and abandons the pair at
+                // FAILED_TIMEOUT_PERIOD (16s), so throttling a consent check does not slow a peer down,
+                // it disconnects one. A source the row does NOT own is unproven: minting an
+                // integrity-valid request costs an attacker nothing (the key is in the packet), so
+                // answering one unthrottled is a free reflection. The response is smaller than the
+                // request, so this was never an amplifier -- the limiter just bounds the nuisance.
+                bool known = row.Addresses.Contains(source);
+                if (!known && !_rateLimiter.TryAccept(source, datagram.Length, out _))
+                {
+                    return WebRtcDirectRoute<TSession>.Drop;
+                }
+
                 row.LastSeenMs = _nowMs();
                 AttachAddress(row, source);
                 return Answer(WebRtcDirectRouteAction.AnswerStun, key, request, source);
@@ -238,12 +251,9 @@ internal sealed class WebRtcDirectListenerTable<TSession>
 
             row.LastSeenMs = _nowMs();
 
-            // The egress is pinned to the source of the FIRST DTLS record and never moves afterwards.
-            // Records from the ufrag's other attached addresses are still delivered — DTLS authenticates
-            // them itself — but a movable egress would make one off-path packet enough to redirect a live
-            // association, since minting an integrity-valid binding request is free.
-            row.Egress ??= source;
-
+            // Records arriving from any of the ufrag's attached addresses are delivered -- DTLS
+            // authenticates them itself -- but they are answered to Row.Egress, which was fixed at
+            // admission and cannot move.
             return new(WebRtcDirectRouteAction.DeliverToSession, row.Key, null, row.Session, row.Egress);
         }
     }
@@ -284,7 +294,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             return false;
         }
 
-        Row row = new(key, _nowMs(), _nextAdmissionSeq++);
+        Row row = new(key, _nowMs(), _nextAdmissionSeq++, source);
         _byUfrag[key] = row;
         _pendingCount++;
         AttachAddress(row, source);
@@ -444,16 +454,25 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         WebRtcDirectRouteAction action, WebRtcDirectSessionKey key, STUNMessage request, IPEndPoint source) =>
         new(action, key, WebRtcDirectStun.BuildBindingSuccessResponse(request, source, key.ServerUfrag), null, null);
 
-    private sealed class Row(WebRtcDirectSessionKey key, long now, long admissionSeq)
+    private sealed class Row(WebRtcDirectSessionKey key, long now, long admissionSeq, IPEndPoint egress)
     {
         public WebRtcDirectSessionKey Key { get; } = key;
 
         /// <summary>Total admission order, for oldest-first eviction. Never changes once set.</summary>
         public long AdmissionSeq { get; } = admissionSeq;
 
+        /// <summary>
+        /// Where this peer's DTLS replies go, fixed at admission and deliberately without a setter.
+        /// Pinning it to the first DTLS record instead loses a race an attacker can enter: observing one
+        /// binding request reveals server_ufrag, which IS the MESSAGE-INTEGRITY key, so an off-path party
+        /// can mint a valid request, get its address attached, and beat the honest peer to sending a
+        /// record. The admitting request cannot be raced the same way -- by the time an attacker has seen
+        /// the ufrag the row already exists, so it can never be the admitter.
+        /// </summary>
+        public IPEndPoint Egress { get; } = egress;
+
         public long LastSeenMs { get; set; } = now;
         public TSession? Session { get; set; }
-        public IPEndPoint? Egress { get; set; }
         public List<IPEndPoint> Addresses { get; } = [];
     }
 }

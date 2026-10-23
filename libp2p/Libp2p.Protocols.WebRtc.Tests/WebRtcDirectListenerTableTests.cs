@@ -375,7 +375,7 @@ public class WebRtcDirectListenerTableTests
     }
 
     [Test]
-    public void Route_PinsTheEgressToTheFirstDtlsRecordAndNeverMovesIt()
+    public void Route_DeliversFromEveryAttachedAddress_ButNoneOfThemMovesTheEgress()
     {
         WebRtcDirectListenerTable<Session> table = NewTable();
         IPEndPoint first = Peer(40_012);
@@ -389,7 +389,9 @@ public class WebRtcDirectListenerTableTests
         Assert.That(table.Route(first, DtlsRecord).Egress, Is.EqualTo(first));
 
         // The second address is legitimately attached and its records are delivered, but it does not get to
-        // redirect where the association writes.
+        // redirect where the association writes. (This fixture cannot tell "pinned at admission" from
+        // "pinned at first DTLS record", because here they are the same address;
+        // Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst is the one that separates them.)
         WebRtcDirectRoute<Session> fromSecond = table.Route(second, DtlsRecord);
 
         Assert.Multiple(() =>
@@ -535,5 +537,79 @@ public class WebRtcDirectListenerTableTests
             Assert.That(WebRtcDirectListenerTable<Session>.StunOnlyIdleMs, Is.EqualTo(15_000));
             Assert.That(WebRtcDirectListenerTable<Session>.EstablishedIdleMs, Is.EqualTo(300_000));
         });
+    }
+
+    /// <summary>
+    /// Egress is fixed at admission, not at the first DTLS record. Pinning on first-record loses a race an
+    /// off-path attacker can enter: one observed binding request reveals server_ufrag, which IS the
+    /// MESSAGE-INTEGRITY key, so the attacker can mint a valid request, get its address attached, and beat
+    /// the honest peer to sending a record -- after which the server's whole DTLS flight goes to it.
+    /// Flagged by automated security review against the first implementation of this class.
+    /// </summary>
+    [Test]
+    public void Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(4_100);
+        IPEndPoint honest = Peer(41_000);
+        IPEndPoint attacker = Peer(41_001, "198.51.100.9");
+
+        WebRtcDirectRoute<Session> admitted = Establish(table, ufrag, honest, new Session("honest"));
+
+        // The attacker mints an integrity-valid request from its own address and gets attached.
+        Assume.That(table.Route(attacker, BindingRequest(ufrag)).Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+
+        // ...then wins the race to send the first DTLS record.
+        WebRtcDirectRoute<Session> stolen = table.Route(attacker, DtlsRecord);
+
+        Assert.That(stolen.Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+        Assert.That(stolen.Egress, Is.EqualTo(honest), "the attacker's record must still be answered to the admitting peer");
+
+        WebRtcDirectRoute<Session> genuine = table.Route(honest, DtlsRecord);
+        Assert.That(genuine.Egress, Is.EqualTo(honest));
+        Assert.That(admitted.Key, Is.EqualTo(stolen.Key));
+    }
+
+    /// <summary>
+    /// Consent checks from an address the row owns are never throttled -- SIPSorcery re-checks every
+    /// CONNECTED_CHECK_PERIOD (3s) and abandons the pair at FAILED_TIMEOUT_PERIOD (16s), so throttling one
+    /// disconnects a live peer rather than slowing it. A source the row does not own has proven nothing,
+    /// so it goes through the limiter. Flagged by automated security review as unrate-limited reflection.
+    /// </summary>
+    [Test]
+    public void Route_NeverThrottlesAnAttachedAddress_ButThrottlesAFloodOfNewOnes()
+    {
+        WebRtcDirectListenerTable<Session> table = new(() => _clock, new WebRtcDirectRateLimiter(
+            maxEndpointBuckets: 1 << 20,
+            endpointBurst: 4,
+            globalMessageBurst: 1 << 24,
+            globalByteBurst: 1 << 30,
+            nowMs: () => _clock));
+
+        string ufrag = V2Ufrag(4_200);
+        IPEndPoint attached = Peer(42_000);
+        Establish(table, ufrag, attached, new Session("peer"));
+
+        // Far more consent checks than any per-endpoint burst would allow, all from the attached address.
+        for (int i = 0; i < 200; i++)
+        {
+            Assert.That(
+                table.Route(attached, BindingRequest(ufrag)).Action,
+                Is.EqualTo(WebRtcDirectRouteAction.AnswerStun),
+                $"consent check {i} from the attached address was throttled");
+        }
+
+        // A flood of unproven sources for the same ufrag must not all be answered.
+        int answered = 0;
+        for (int i = 0; i < 200; i++)
+        {
+            if (table.Route(Peer(43_000 + i, "198.51.100.9"), BindingRequest(ufrag)).Action
+                == WebRtcDirectRouteAction.AnswerStun)
+            {
+                answered++;
+            }
+        }
+
+        Assert.That(answered, Is.LessThan(200), "answers to unproven addresses must pass the rate limiter");
     }
 }
