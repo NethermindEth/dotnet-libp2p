@@ -8,7 +8,9 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public interface IRoutingStateContainer
 {
+    /// <summary>Remote floodsub memberships. Empty topic keys are removed when the last peer leaves.</summary>
     ConcurrentDictionary<string, HashSet<PeerId>> FloodsubPeers { get; }
+    /// <summary>Remote gossipsub memberships, independent of local subscriptions. Empty topic keys are removed.</summary>
     ConcurrentDictionary<string, HashSet<PeerId>> GossipsubPeers { get; }
     ConcurrentDictionary<string, HashSet<PeerId>> Mesh { get; }
     ConcurrentDictionary<string, HashSet<PeerId>> Fanout { get; }
