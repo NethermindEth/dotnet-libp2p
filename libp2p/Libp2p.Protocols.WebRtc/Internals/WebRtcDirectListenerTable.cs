@@ -305,6 +305,20 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// Evicts the pending row admitted longest ago, and only ever a pending row: that one condition is the
     /// whole of the never-evict invariant.
     /// </summary>
+    // ponytail: evicting a PENDING row lets its ufrag be re-admitted from a different address, which
+    // re-pins the egress. The consequence is denial of one in-flight dial, not a hijack: eviction also
+    // unmaps the honest peer's address, so its next DTLS record is dropped rather than delivered anywhere,
+    // and an attacker re-admitting the ufrag only gets a fresh DTLS handshake of its own -- it cannot
+    // continue the honest peer's, because the libp2p identity is bound at Noise by a prologue carrying both
+    // certificate fingerprints, not by this table. The marginal harm is also small: an attacker able to
+    // fill MaxPendingSessions is already denying every new dial, targeted or not.
+    // Three narrower rules were considered and rejected. Refusing to evict a row that has received a DTLS
+    // record, and tombstoning evicted ufrags, are both driven by attacker-supplied packets, so each
+    // converts a soft cap into a hard one that an attacker can pin shut -- strictly worse. Binding the row
+    // to the DTLS-authenticated certhash is already what Noise does, one layer up.
+    // The real fix is return-routability before any state is allocated: a DTLS HelloVerifyRequest cookie
+    // gate, which SIPSorcery 10.0.14 does not expose through DtlsSrtpTransport (see WebRtcDirectSession).
+    // Raised by automated security review 2026-10-23; recorded rather than papered over.
     // ponytail: a linear scan of the table per eviction, where an admission-ordered index would be O(1).
     // It only runs with the pending cap already full, both caps bound it at MaxPendingSessions +
     // MaxEstablishedSessions rows, and the rate limiter in front of admission caps how often a flood can
