@@ -53,6 +53,68 @@ public class RtcDataChannelAdapterTests
     }
 
     /// <summary>
+    /// Disposing the timer is the whole reason <see cref="RtcDataChannelAdapter"/> is disposable:
+    /// one 20ms timer per dialled connection, left running for the lifetime of the process, is the
+    /// cost of forgetting. The <c>_closed</c> flag already makes a late tick inert, so no observable
+    /// behaviour distinguishes a disposed timer from a live one -- hence the reach into the field.
+    /// <see cref="Timer.Change(int, int)"/> returning false is how a disposed timer answers.
+    /// </summary>
+    [Test]
+    public void Close_DisposesThePollTimer()
+    {
+        RtcDataChannelAdapter adapter = new(DetachedChannel());
+        Timer poll = (Timer)typeof(RtcDataChannelAdapter)
+            .GetField("_bufferedAmountPoll", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(adapter)!;
+
+        // Proves the field holds a live timer, so the assertion after Close() is about disposal
+        // rather than about having found nothing.
+        Assert.That(poll.Change(Timeout.Infinite, Timeout.Infinite), Is.True);
+
+        adapter.Close();
+
+        Assert.That(poll.Change(Timeout.Infinite, Timeout.Infinite), Is.False,
+            "Close() must dispose the poll timer; a live one outlives the connection it was polling.");
+    }
+
+    /// <summary>
+    /// The peer closing the channel is the ordinary way a connection ends, and WebRtcStream only
+    /// learns about it through <see cref="IWebRtcDataChannel.Closed"/>. Driven through SIPSorcery's
+    /// own <c>close()</c> rather than the adapter's, so the <c>onclose</c> subscription itself is
+    /// what is under test.
+    /// </summary>
+    [Test]
+    public void PeerClose_EndsTheChannel()
+    {
+        RTCDataChannel channel = DetachedChannel();
+        using RtcDataChannelAdapter adapter = new(channel);
+        int closed = 0;
+        adapter.Closed += () => Interlocked.Increment(ref closed);
+
+        channel.close();
+
+        Assert.That(closed, Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// A send that cannot reach the transport means the channel is gone, so the seam reports it as
+    /// an <see cref="IOException"/> and ends the channel rather than letting SIPSorcery's own
+    /// failure escape into a stream that would keep writing. A detached channel has no transport,
+    /// which is exactly that case.
+    /// </summary>
+    [Test]
+    [CancelAfter(10_000)]
+    public void SendAsync_OnADeadTransport_FailsAsIoAndEndsTheChannel(CancellationToken token)
+    {
+        using RtcDataChannelAdapter adapter = new(DetachedChannel());
+        int closed = 0;
+        adapter.Closed += () => Interlocked.Increment(ref closed);
+
+        Assert.That(async () => await adapter.SendAsync(new byte[] { 1, 2, 3 }, token), Throws.TypeOf<IOException>());
+        Assert.That(closed, Is.EqualTo(1));
+    }
+
+    /// <summary>
     /// An errored channel is not coming back and SIPSorcery does not follow <c>onerror</c> with
     /// <c>onclose</c>, so a stream told only about <c>onclose</c> waits forever on a peer that has
     /// gone.
