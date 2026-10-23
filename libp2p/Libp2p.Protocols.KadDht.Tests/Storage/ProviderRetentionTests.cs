@@ -215,7 +215,7 @@ public class ProviderRetentionTests
         Assert.That(await exact.AddProviderAsync(new byte[4], record), Is.True);
         Assert.That(await new InMemoryProviderStore(1, 1, 1, identityBytes - 1).AddProviderAsync(new byte[4], record), Is.False);
         Assert.That(await exact.AddProviderAsync(new byte[4], record with { PeerId = new PeerId(new byte[1_000_000]) }), Is.False);
-        // A nonzero ID needs more Base58 characters than the raw precheck accounts for.
+        // A nonzero ID needs more Base58 characters than the initial raw length check accounts for.
         var nonzero = record with { PeerId = new PeerId(Enumerable.Repeat((byte)255, 32).ToArray()) };
         Assert.That(await exact.AddProviderAsync(new byte[4], nonzero), Is.False);
     }
@@ -268,7 +268,7 @@ public class ProviderRetentionTests
     [TestCase(1, -1, 1, 1)]
     [TestCase(1, 1, -1, 1)]
     [TestCase(1, 1, 1, -1)]
-    public void Constructor_RejectsNonpositiveLimits(int providers, int keys, int addresses, int bytes) =>
+    public void Constructor_RejectsZeroAndNegativeLimits(int providers, int keys, int addresses, int bytes) =>
         Assert.Throws<ArgumentOutOfRangeException>(() => new InMemoryProviderStore(providers, keys, addresses, bytes));
 
     [Test]
