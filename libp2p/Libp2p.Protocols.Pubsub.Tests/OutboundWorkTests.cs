@@ -145,6 +145,107 @@ public class OutboundWorkTests
         Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
     }
 
+    [TestCase("subscribe", false)]
+    [TestCase("unsubscribe", false)]
+    [TestCase("graft", false)]
+    [TestCase("prune", false)]
+    [TestCase("subscribe", true)]
+    [TestCase("unsubscribe", true)]
+    [TestCase("graft", true)]
+    [TestCase("prune", true)]
+    public async Task GlobalControlRejectionClosesTheAffectedGenerationWithoutPenalizingEitherPeer(string control, bool bytes)
+    {
+        PubsubSettings settings = Settings();
+        Rpc payload = Payload();
+        if (bytes) settings.MaxOutboundRpcBytes = FrameSize(payload);
+        else settings.MaxOutboundRpcEntries = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        int writes = 0, disconnects = 0;
+        PubsubRouter.PubsubPeer healthy = router.OutboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, (_, _) =>
+            {
+                Interlocked.Increment(ref writes);
+                return ValueTask.FromResult(IOResult.Ok);
+            }, () => ValueTask.CompletedTask, () => { Interlocked.Increment(ref disconnects); return Task.CompletedTask; })!;
+        Assert.That(healthy.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(healthy.Entries, Is.Zero, "The affected peer has already drained its previous write.");
+        await router.OnRpcAsync(healthy.PeerId, new Rpc().WithTopics(["remote"], []));
+        Assert.That(((IRoutingStateContainer)router).GossipsubPeers["remote"], Has.Member(healthy.PeerId));
+        PausedWriter stalled = new();
+        PubsubRouter.PubsubPeer blocker = Open(router, stalled);
+        Assert.That(blocker.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await stalled.Started.Task.WaitAsync(Deadline);
+        Assert.That(blocker.Entries, Is.LessThan(settings.MaxOutboundRpcEntriesPerPeer));
+        Assert.That(blocker.Bytes, Is.LessThan(settings.MaxOutboundRpcBytesPerPeer));
+        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))));
+        Assert.That(healthy.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Dropped));
+        Assert.That(healthy.Terminal, Is.False, "Global exhaustion alone does not close a peer sending optional traffic.");
+        Rpc update = control switch
+        {
+            "subscribe" => new Rpc().WithTopics(["local"], []),
+            "unsubscribe" => new Rpc().WithTopics([], ["local"]),
+            "graft" => new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "local" } } } },
+            _ => new Rpc { Control = new ControlMessage { Prune = { new ControlPrune { TopicID = "local" } } } },
+        };
+        Assert.That(healthy.Send(update), Is.EqualTo(PubsubRouter.SendResult.Closing));
+        await healthy.Completion.WaitAsync(Deadline);
+        Assert.That(writes, Is.EqualTo(1), "A required update must not bypass the global budget.");
+        Assert.That(disconnects, Is.EqualTo(1));
+        Assert.That(healthy.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(blocker.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(healthy.RemoteSubscriptions, Is.Empty);
+        Assert.That(((IRoutingStateContainer)router).GossipsubPeers.ContainsKey("remote"), Is.False);
+        Assert.That(blocker.Terminal, Is.False, "The approved policy does not evict another generation's queued work.");
+        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))), "The stalled write retains ownership of its reservation.");
+        stalled.Result.SetResult(IOResult.Ok);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task GlobalExhaustionRejectsTheRequiredHelloAndRecoveryUsesTheCurrentSnapshot(bool bytes, bool extensions)
+    {
+        PubsubSettings settings = Settings();
+        settings.EnablePartialMessages = extensions;
+        Rpc payload = Payload();
+        if (bytes) settings.MaxOutboundRpcBytes = FrameSize(payload);
+        else settings.MaxOutboundRpcEntries = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        if (!extensions) router.GetTopic("wanted");
+        PausedWriter stalled = new();
+        PubsubRouter.PubsubPeer blocker = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.FloodsubProtocolVersion,
+            new TaskCompletionSource().Task, (frame, token) => RouterTestExtensions.Decode(frame).Subscriptions.Count != 0
+                ? ValueTask.FromResult(IOResult.Ok) : stalled.Write(frame, token), stalled.Abort, stalled.Disconnect)!;
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(blocker.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await stalled.Started.Task.WaitAsync(Deadline);
+        string protocol = extensions ? PubsubRouter.GossipsubProtocolVersionV13 : PubsubRouter.FloodsubProtocolVersion;
+        PausedWriter rejected = new();
+        PubsubRouter.PubsubPeer closing = Open(router, rejected, 2, protocol);
+        await closing.Completion.WaitAsync(Deadline);
+        Assert.That(rejected.Writes, Is.Zero);
+        Assert.That(rejected.Disconnects, Is.EqualTo(1));
+        Assert.That(closing.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(closing.ExtensionsQueued || closing.ExtensionsSent, Is.False);
+        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))));
+        stalled.Result.SetResult(IOResult.Ok);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        List<Rpc> sent = [];
+        PubsubRouter.PubsubPeer replacement = router.OutboundConnection(TestPeers.Multiaddr(2), protocol, new TaskCompletionSource().Task,
+            (frame, _) => { sent.Add(RouterTestExtensions.Decode(frame)); return ValueTask.FromResult(IOResult.Ok); },
+            () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(replacement.Terminal, Is.False);
+        Assert.That(sent, Has.Count.EqualTo(1));
+        if (extensions) Assert.That(sent[0].Control.Extensions.PartialMessages && replacement.ExtensionsSent, Is.True);
+        else Assert.That(sent[0].Subscriptions.Select(sub => (sub.Topicid, sub.Subscribe)), Is.EqualTo(new[] { ("wanted", true) }));
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
     [TestCase(IOResult.Ended)]
     [TestCase(IOResult.Cancelled)]
     [TestCase(IOResult.InternalError)]
