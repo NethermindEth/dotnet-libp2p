@@ -89,7 +89,7 @@ public static class KadDhtProtocolExtensions
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
         var neighbours = findNearest(target).Take(options.KSize)
             .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
-        return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: id => Connection(ctx, id));
+        return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: CreateConnectionResolver(ctx));
     }
 
     private static async Task<Message> HandlePutValue(Message request, KadDhtOptions options,
@@ -149,9 +149,9 @@ public static class KadDhtProtocolExtensions
                     Value = ByteString.CopyFrom(storedValue.Value),
                     TimeReceived = DateTimeOffset.FromUnixTimeSeconds(storedValue.Timestamp).ToString("o")
                 };
-                return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, record: record, connection: id => Connection(ctx, id));
+                return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, record: record, connection: CreateConnectionResolver(ctx));
             }
-            return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, connection: id => Connection(ctx, id));
+            return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, connection: CreateConnectionResolver(ctx));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -247,7 +247,7 @@ public static class KadDhtProtocolExtensions
                     PublicKey = new PublicKey(p.PeerId.Bytes),
                     Multiaddrs = p.Multiaddrs
                 }),
-                closerPeers: findNearest(target), connection: id => Connection(ctx, id));
+                closerPeers: findNearest(target), connection: CreateConnectionResolver(ctx));
             return response;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -279,17 +279,33 @@ public static class KadDhtProtocolExtensions
         catch { }
     }
 
-    private static Message.Types.ConnectionType Connection(ISessionContext context, PeerId peerId)
+    private static Func<PeerId, Message.Types.ConnectionType> CreateConnectionResolver(ISessionContext context)
     {
-        if (context.Peer is LocalPeer local)
+        ILookup<PeerId, CancellationToken>? connected = null;
+        return peerId =>
         {
-            lock (local.Sessions)
+            // Build only when a validated response peer needs a flag, and share the result
+            // across both peer lists. Copy eligible sessions under their collection lock;
+            // converting addresses to peer IDs must not hold up session admission/teardown.
+            if (connected is null)
             {
-                if (local.Sessions.Any(session => session.Connected.IsCompletedSuccessfully &&
-                    !session.Closed.IsCancellationRequested && session.State.RemotePeerId == peerId))
-                    return Message.Types.ConnectionType.Connected;
+                LocalPeer.Session[] sessions = [];
+                if (context.Peer is LocalPeer local)
+                {
+                    lock (local.Sessions)
+                    {
+                        sessions = local.Sessions.Where(session => session.Connected.IsCompletedSuccessfully &&
+                            !session.Closed.IsCancellationRequested).ToArray();
+                    }
+                }
+                connected = sessions.Select(session => (PeerId: session.State.RemotePeerId, session.Closed))
+                    .Where(session => session.PeerId is not null)
+                    .ToLookup(session => session.PeerId!, session => session.Closed);
             }
-        }
-        return Message.Types.ConnectionType.NotConnected;
+            // A session can close after the snapshot, and another session for that same
+            // identity can remain live. Check the retained closure tokens at each lookup.
+            return connected[peerId].Any(closed => !closed.IsCancellationRequested)
+                ? Message.Types.ConnectionType.Connected : Message.Types.ConnectionType.NotConnected;
+        };
     }
 }
