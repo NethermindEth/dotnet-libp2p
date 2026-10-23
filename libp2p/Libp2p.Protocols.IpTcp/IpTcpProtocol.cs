@@ -75,266 +75,219 @@ public class IpTcpProtocol : ITransportProtocol
 
     public static bool IsAddressMatch(Multiaddress addr) => addr.Has<TCP>() && !addr.Has<WebSocket>() && !addr.Has<WebSocketSecure>();
 
+    private static readonly ConditionalWeakTable<object, Admission> Admissions = new();
+
     public async Task ListenAsync(ITransportContext context, Multiaddress listenAddr, CancellationToken token)
     {
         using Socket listener = new(SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint endpoint = listenAddr.ToEndPoint();
-
         listener.Bind(endpoint);
         listener.Listen();
-
-        context.Activity?.SetTag("listen-on-addr", endpoint.Address);
-        context.Activity?.SetTag("listen-on-port", endpoint.Port);
-
-        if (endpoint.Port is 0)
-        {
-            IPEndPoint localIpEndpoint = (IPEndPoint)listener.LocalEndPoint!;
-            listenAddr.ReplaceOrAdd<TCP>(localIpEndpoint.Port);
-        }
-
-        using CancellationTokenRegistration listenerCancellation = token.Register(listener.Close);
-
-        _logger?.LogDebug($"Ready to handle connections at {listenAddr}");
+        if (endpoint.Port == 0) listenAddr.ReplaceOrAdd<TCP>(((IPEndPoint)listener.LocalEndPoint!).Port);
+        Admission admission = Admissions.GetValue(context.ConnectionAdmissionScope, _ => new Admission(context.ResourceLimits));
+        HashSet<Task> active = [];
+        Exception? setupFailure = null;
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        using CancellationTokenRegistration listenerCancellation = lifetime.Token.Register(listener.Close);
         context.ListenerReady(listenAddr);
-        context.Activity?.AddEvent(new ActivityEvent("ready"));
-
-        await Task.Run(async () =>
+        try
         {
-            for (; ; )
+            while (true)
             {
-                Socket client = await listener.AcceptAsync();
-
-                context.Activity?.AddEvent(new ActivityEvent($"connected {client.RemoteEndPoint}"));
-
-                INewConnectionContext? connectionCtx = null;
-                IChannel upChannel;
+                Socket client = await listener.AcceptAsync(lifetime.Token);
+                IDisposable? permit;
+                string scope;
                 try
                 {
-                    connectionCtx = context.CreateConnection();
-                    connectionCtx.Token.Register(client.Close);
-                    connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
-                    upChannel = connectionCtx.Upgrade();
+                    IPAddress source = ((IPEndPoint)client.RemoteEndPoint!).Address;
+                    permit = admission.TryAcquire(source, out scope);
                 }
-                catch (Exception failure)
+                catch
                 {
-                    try { connectionCtx?.Dispose(); }
-                    finally { client.Dispose(); }
-                    if (failure is ChannelClosedException)
-                    {
-                        return;
-                    }
-
+                    client.Dispose();
                     throw;
                 }
-
-                CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
-
-#if DEBUG
-                TriggerDisconnection += localPeerId =>
+                if (permit is null)
                 {
-                    if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
-                    {
-                        _logger?.LogDebug("Triggering disconnection of incoming connection");
-                        client.Close();
-                        internalCts.Cancel();
-                    }
-                };
-#endif
-                Task readTask = Task.Run(async () =>
+                    client.Dispose();
+                    Core.Metrics.Libp2pMetrics.InboundConnectionsRefused.Add(1, new KeyValuePair<string, object?>("scope", scope));
+                    continue;
+                }
+                Task handler = HandleAcceptedAsync(client, permit);
+                lock (active) active.Add(handler);
+                _ = handler.ContinueWith(t =>
                 {
-                    int receiveCapacity = client.ReceiveBufferSize;
-                    byte[] buf = _receiveBufferPool.Rent(receiveCapacity);
-                    try
-                    {
-                        for (; client.Connected;)
-                        {
-                            if (client.Available == 0)
-                            {
-                                await Task.Yield();
-                            }
-
-                            int length = await client.ReceiveAsync(buf.AsMemory(0, receiveCapacity), SocketFlags.None);
-
-                            // WaitAll readers can retain fragments after WriteAsync completes.
-                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, length).ToArray())) != IOResult.Ok)
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    catch (SocketException)
-                    {
-                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
-                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
-                        _ = upChannel.CloseAsync();
-                    }
-                    finally
-                    {
-                        _receiveBufferPool.Return(buf);
-                    }
-                });
-
-                Task writeTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
-                        {
-                            if (!await SendAllAsync(client, data, token))
-                            {
-                                await upChannel.CloseAsync();
-                                break;
-                            }
-                        }
-                    }
-                    catch (SocketException)
-                    {
-                        connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
-                        connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
-                    }
-                    catch (ChannelAbortedException)
-                    {
-                        _logger?.LogDebug("Ctx({Id}): outgoing channel aborted", connectionCtx.Id);
-                    }
-                });
-
-                _ = Task.WhenAny(readTask, writeTask).ContinueWith((t) => { _ = upChannel.CloseAsync(); connectionCtx.Dispose(); });
+                    _ = t.Exception;
+                    lock (active) active.Remove(t);
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
-        }, token);
+        }
+        catch (Exception failure) when (lifetime.IsCancellationRequested && failure is OperationCanceledException or ObjectDisposedException or SocketException) { }
+        finally
+        {
+            lifetime.Cancel();
+            Task[] pending;
+            lock (active) pending = [.. active];
+            await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+        if (setupFailure is not null and not ChannelClosedException)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(setupFailure).Throw();
+
+        async Task HandleAcceptedAsync(Socket client, IDisposable permit)
+        {
+            using (permit)
+            using (client)
+            {
+                try
+                {
+                    await RunConnectionAsync(client, context, null, lifetime.Token, failure =>
+                    {
+                        Interlocked.CompareExchange(ref setupFailure, failure, null);
+                        lifetime.Cancel();
+                    });
+                }
+                catch (Exception failure) { _logger?.LogDebug(failure, "Inbound TCP connection ended"); }
+            }
+        }
     }
 
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
-        Socket client = new(SocketType.Stream, ProtocolType.Tcp);
+        using Socket client = new(SocketType.Stream, ProtocolType.Tcp);
+        await client.ConnectAsync(remoteAddr.ToEndPoint(), token);
+        await RunConnectionAsync(client, context, remoteAddr, token);
+    }
 
-        CancellationTokenSource internalCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        token = CancellationTokenSource.CreateLinkedTokenSource(token).Token;
-
+    private async Task RunConnectionAsync(Socket client, ITransportContext context, Multiaddress? remoteAddr, CancellationToken token, Action<Exception>? onSetupFailure = null)
+    {
+        INewConnectionContext? connection = null;
+        IChannel? channel = null;
+        bool started = false;
+        try
+        {
+            connection = context.CreateConnection();
+            using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, connection.Token);
+            using CancellationTokenRegistration closeSocket = lifetime.Token.Register(client.Close);
+            connection.State.RemoteAddress = client.RemoteEndPoint!.ToMultiaddress(ProtocolType.Tcp);
+            connection.State.LocalAddress = client.LocalEndPoint!.ToMultiaddress(ProtocolType.Tcp);
+            if (remoteAddr?.Get<P2P>() is { } requestedPeerId) connection.State.RemoteAddress.Add(requestedPeerId);
+            channel = connection.Upgrade();
+            started = true;
+            using CancellationTokenRegistration abortChannel = lifetime.Token.Register(() => _ = channel.AbortAsync());
 #if DEBUG
-        TriggerDisconnection += localPeerId =>
-        {
-            if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId)
+            TriggerDisconnectionEvent disconnect = localPeerId =>
             {
-                _logger?.LogDebug("Triggering disconnection of outgoing connection");
-                client.Close();
-                internalCts.Cancel();
-            }
-        };
+                if (localPeerId is null || context.Peer.Identity.PeerId == localPeerId) lifetime.Cancel();
+            };
+            lock (DisconnectionLock) TriggerDisconnection += disconnect;
 #endif
-
-        IPEndPoint remoteEndpoint = remoteAddr.ToEndPoint();
-        _logger?.LogDebug("Dialling {0}:{1}", remoteEndpoint.Address, remoteEndpoint.Port);
-
-        try
-        {
-            await client.ConnectAsync(remoteEndpoint, token);
-        }
-        catch (SocketException e)
-        {
-            _logger?.LogDebug($"Failed to connect {remoteAddr}");
-            _logger?.LogTrace($"Failed with {e.GetType()}: {e.Message}");
-            throw;
-        }
-
-        if (client.LocalEndPoint is null)
-        {
-            throw new Libp2pException($"{nameof(client.LocalEndPoint)} is not set for client connection.");
-        }
-        if (client.RemoteEndPoint is null)
-        {
-            throw new Libp2pException($"{nameof(client.RemoteEndPoint)} is not set for client connection.");
-        }
-
-        INewConnectionContext? connectionCtx = null;
-        IChannel upChannel;
-        try
-        {
-            connectionCtx = context.CreateConnection();
-            connectionCtx.State.RemoteAddress = client.RemoteEndPoint.ToMultiaddress(ProtocolType.Tcp);
-            if (remoteAddr.Get<P2P>() is { } requestedPeerId)
-            {
-                connectionCtx.State.RemoteAddress.Add(requestedPeerId);
-            }
-            connectionCtx.State.LocalAddress = client.LocalEndPoint.ToMultiaddress(ProtocolType.Tcp);
-
-            connectionCtx.Token.Register(client.Close);
-            token.Register(client.Close);
-
-            upChannel = connectionCtx.Upgrade();
-        }
-        catch
-        {
-            try { connectionCtx?.Dispose(); }
-            finally { client.Dispose(); }
-            throw;
-        }
-
-        Task receiveTask = Task.Run(async () =>
-        {
-            int receiveCapacity = client.ReceiveBufferSize;
-            byte[] buf = _receiveBufferPool.Rent(receiveCapacity);
+            Task receive = ReceiveAsync();
+            Task send = SendAsync();
             try
             {
-                while (client.Connected)
-                {
-                    int dataLength = await client.ReceiveAsync(buf.AsMemory(0, receiveCapacity), SocketFlags.None);
-                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
-
-                    // Publish owned storage so later receives cannot overwrite retained fragments.
-                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, dataLength).ToArray()))) != IOResult.Ok)
-                    {
-                        break;
-                    }
-                }
-                _logger?.LogDebug("Ctx({0}): end receiving", connectionCtx.Id);
-            }
-            catch (SocketException e)
-            {
-                _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connectionCtx.Id, e.Message);
+                await Task.WhenAny(receive, send);
             }
             finally
             {
-                _receiveBufferPool.Return(buf);
+                lifetime.Cancel();
+                await channel.AbortAsync();
+                client.Dispose();
+                await Task.WhenAll(receive, send).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+#if DEBUG
+                RemoveDisconnectionHandler(disconnect);
+#endif
             }
-        });
 
-        Task sendTask = Task.Run(async () =>
-        {
-            try
+            async Task ReceiveAsync()
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                int capacity = client.ReceiveBufferSize;
+                byte[] scratch = _receiveBufferPool.Rent(capacity);
+                try
                 {
-                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
-                    if (!await SendAllAsync(client, data, token))
+                    while (true)
                     {
-                        break;
+                        int length = await client.ReceiveAsync(scratch.AsMemory(0, capacity), SocketFlags.None, lifetime.Token);
+                        // WaitAll readers may retain fragments: publish only compact, owned storage.
+                        if (length == 0 || await channel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), lifetime.Token) != IOResult.Ok) return;
                     }
                 }
+                finally { _receiveBufferPool.Return(scratch); }
+            }
 
-                _logger?.LogDebug("Ctx({0}): end sending", connectionCtx.Id);
-            }
-            catch (SocketException e)
+            async Task SendAsync()
             {
-                _logger?.LogDebug("Ctx({0}): end sending, socket exception {1}", connectionCtx.Id, e.Message);
+                await foreach (ReadOnlySequence<byte> data in channel.ReadAllAsync(lifetime.Token))
+                    if (!await SendAllAsync(client, data, lifetime.Token)) return;
             }
-            catch (ChannelAbortedException)
+        }
+        catch (Exception failure)
+        {
+            if (!started) onSetupFailure?.Invoke(failure);
+            throw;
+        }
+        finally
+        {
+            client.Dispose();
+            try
             {
-                _logger?.LogDebug("Ctx({Id}): outgoing channel aborted", connectionCtx.Id);
+                if (channel is not null) await channel.AbortAsync();
             }
             finally
             {
-                client.Close();
+                connection?.Dispose();
+                if (connection is not null) await connection.Completion;
             }
-        });
+        }
+    }
 
-        await Task.WhenAny(receiveTask, sendTask).ContinueWith(t => connectionCtx.Dispose());
+    internal sealed class Admission(PeerResourceLimits limits)
+    {
+        private readonly Dictionary<IPAddress, int> _sources = [];
+        private readonly Lock _lock = new();
+        private int _count;
+        internal int Count { get { lock (_lock) return _count; } }
+        internal int Sources { get { lock (_lock) return _sources.Count; } }
 
-        _ = upChannel.CloseAsync();
-        _logger?.LogDebug("Ctx({0}): dialling ended", connectionCtx.Id);
+        internal IDisposable? TryAcquire(IPAddress source, out string scope)
+        {
+            if (source.IsIPv4MappedToIPv6) source = source.MapToIPv4();
+            lock (_lock)
+            {
+                scope = "total";
+                if (_count >= limits.MaxInboundTcpConnections) return null;
+                scope = "source";
+                _sources.TryGetValue(source, out int count);
+                if (count >= limits.MaxInboundTcpConnectionsPerIp) return null;
+                _sources[source] = count + 1;
+                _count++;
+                return new Permit(this, source);
+            }
+        }
+
+        private sealed class Permit(Admission owner, IPAddress source) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                lock (owner._lock)
+                {
+                    owner._count--;
+                    if (--owner._sources[source] == 0) owner._sources.Remove(source);
+                }
+            }
+        }
     }
 
 #if DEBUG
+    private static readonly Lock DisconnectionLock = new();
+
+    private static void RemoveDisconnectionHandler(TriggerDisconnectionEvent handler)
+    {
+        lock (DisconnectionLock)
+            TriggerDisconnection = (TriggerDisconnectionEvent?)Delegate.Remove(TriggerDisconnection, handler) ?? (_ => { });
+    }
+
     public static TriggerDisconnectionEvent TriggerDisconnection = (_) => { };
 
     public delegate void TriggerDisconnectionEvent(PeerId? localPeerId = null);

@@ -15,6 +15,9 @@ public static class Libp2pMetrics
 
     public static readonly Meter Meter = new(MeterName, "1.0.0");
 
+    public static readonly Counter<long> InboundConnectionsRefused = Meter.CreateCounter<long>("libp2p.connections.inbound.refused");
+    public static readonly Counter<long> DeadlinesExpired = Meter.CreateCounter<long>("libp2p.deadlines.expired");
+
     // --- Connection metrics ---
     public static readonly Counter<long> ConnectionsOpened =
         Meter.CreateCounter<long>("libp2p.connections.opened", description: "Total connections opened");

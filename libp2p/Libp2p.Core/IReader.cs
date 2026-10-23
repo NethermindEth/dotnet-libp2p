@@ -33,10 +33,12 @@ public interface IReader
         }
     }
 
-    async Task<string> ReadLineAsync()
+    Task<string> ReadLineAsync() => ReadLineAsync(CancellationToken.None);
+
+    async Task<string> ReadLineAsync(CancellationToken token)
     {
-        int size = await ReadVarintAsync();
-        return Encoding.UTF8.GetString((await ReadAsync(size).OrThrow()).ToArray()).TrimEnd('\n');
+        int size = await ReadVarintAsync(token);
+        return Encoding.UTF8.GetString((await ReadAsync(size, token: token).OrThrow()).ToArray()).TrimEnd('\n');
     }
 
     Task<int> ReadVarintAsync(CancellationToken token = default)

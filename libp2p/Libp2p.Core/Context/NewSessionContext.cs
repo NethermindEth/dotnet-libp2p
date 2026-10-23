@@ -16,6 +16,8 @@ public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, P
 
     public CancellationToken Token => session.ConnectionToken;
 
+    public Task Completion => session.DrainUpgradesAsync();
+
     public new Activity? Activity { get; } = activitySource?.CreateActivity("New session", ActivityKind.Internal, parentActivity?.Context ?? default);
 
     public void Dispose()

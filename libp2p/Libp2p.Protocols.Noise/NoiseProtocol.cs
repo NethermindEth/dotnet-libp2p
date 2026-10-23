@@ -60,13 +60,13 @@ public class NoiseProtocol : IConnectionProtocol
 
         byte[]? lenBytes = new byte[2];
         BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg0.BytesWritten);
-        await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
-        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg0.BytesWritten));
+        await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes), token: context.Token);
+        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg0.BytesWritten), token: context.Token);
 
-        lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
+        lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
 
         int len = BinaryPrimitives.ReadInt16BigEndian(lenBytes.AsSpan());
-        ReadOnlySequence<byte> received = await downChannel.ReadAsync(len).OrThrow();
+        ReadOnlySequence<byte> received = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
         NoiseHandshakePayload? msg1Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg1.BytesRead));
@@ -132,8 +132,8 @@ public class NoiseProtocol : IConnectionProtocol
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.WriteMessage(payload.ToByteArray(), buffer);
         BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten);
-        await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes));
-        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten));
+        await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes), token: context.Token);
+        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten), token: context.Token);
         Transport? transport = msg2.Transport;
 
         _logger?.LogDebug("Established connection to {peer}", context.State.RemoteAddress);
@@ -143,7 +143,7 @@ public class NoiseProtocol : IConnectionProtocol
 
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel, _logger);
+        await ExchangeData(transport, downChannel, upChannel, _logger, context.Token);
 
         _ = upChannel.CloseAsync();
         _ = downChannel.CloseAsync();
@@ -159,10 +159,10 @@ public class NoiseProtocol : IConnectionProtocol
             _protocol.Create(false,
                 s: serverStatic.PrivateKey);
 
-        byte[]? lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
+        byte[]? lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
         short len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
         byte[] buffer = new byte[Protocol.MaxMessageLength];
-        ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len).OrThrow();
+        ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
 
         byte[] msg = Encoding.UTF8.GetBytes(PayloadSigPrefix)
@@ -182,11 +182,11 @@ public class NoiseProtocol : IConnectionProtocol
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.WriteMessage(payload.ToByteArray(), buffer.AsSpan(2));
         BinaryPrimitives.WriteInt16BigEndian(buffer.AsSpan(), (short)msg1.BytesWritten);
-        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg1.BytesWritten + 2));
+        await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg1.BytesWritten + 2), token: context.Token);
 
-        lenBytes = (await downChannel.ReadAsync(2).OrThrow()).ToArray();
+        lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
         len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
-        ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len).OrThrow();
+        ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);
         NoiseHandshakePayload? msg2Decoded = NoiseHandshakePayload.Parser.ParseFrom(buffer.AsSpan(0, msg2.BytesRead));
@@ -242,7 +242,7 @@ public class NoiseProtocol : IConnectionProtocol
 
         IChannel upChannel = context.Upgrade(upgradeOptions);
 
-        await ExchangeData(transport, downChannel, upChannel, _logger);
+        await ExchangeData(transport, downChannel, upChannel, _logger, context.Token);
 
         _ = upChannel.CloseAsync();
         _ = downChannel.CloseAsync();
@@ -270,14 +270,17 @@ public class NoiseProtocol : IConnectionProtocol
         }
     }
 
-    private static Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger)
+    private static async Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger, CancellationToken connectionToken)
     {
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(connectionToken);
+        CancellationToken token = lifetime.Token;
+        using CancellationTokenRegistration abort = token.Register(() => { _ = upChannel.AbortAsync(); _ = downChannel.AbortAsync(); });
         // UP -> DOWN
         Task upToDown = Task.Run(async () =>
         {
             for (; ; )
             {
-                ReadResult dataReadResult = await upChannel.ReadAsync(MaxPlaintextPerMessage, ReadBlockingMode.WaitAny);
+                ReadResult dataReadResult = await upChannel.ReadAsync(MaxPlaintextPerMessage, ReadBlockingMode.WaitAny, token: token);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
@@ -288,7 +291,7 @@ public class NoiseProtocol : IConnectionProtocol
 
                 int bytesWritten = transport.WriteMessage(dataReadResult.Data.ToArray(), buffer.AsSpan(2));
                 BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten));
+                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten), token: token);
                 if (writeResult != IOResult.Ok)
                 {
                     logger?.LogDebug("End sending, due to {}", writeResult);
@@ -301,7 +304,7 @@ public class NoiseProtocol : IConnectionProtocol
         {
             for (; ; )
             {
-                ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll);
+                ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll, token: token);
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving packet length failed due to {}", lengthBytesReadResult.Result);
@@ -310,7 +313,7 @@ public class NoiseProtocol : IConnectionProtocol
 
                 int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytesReadResult.Data.ToArray().AsSpan());
 
-                ReadResult dataReadResult = await downChannel.ReadAsync(length);
+                ReadResult dataReadResult = await downChannel.ReadAsync(length, token: token);
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
@@ -322,7 +325,7 @@ public class NoiseProtocol : IConnectionProtocol
 
                 if (bytesRead != 0)
                 {
-                    IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead));
+                    IOResult writeResult = await upChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, bytesRead), token: token);
                     if (writeResult != IOResult.Ok)
                     {
                         logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
@@ -332,6 +335,13 @@ public class NoiseProtocol : IConnectionProtocol
             }
         });
 
-        return Task.WhenAny(upToDown, downToUp);
+        try { await Task.WhenAny(upToDown, downToUp); }
+        finally
+        {
+            lifetime.Cancel();
+            await upChannel.AbortAsync();
+            await downChannel.AbortAsync();
+            await Task.WhenAll(upToDown, downToUp).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
     }
 }
