@@ -45,8 +45,10 @@ public static class KadDhtProtocolExtensions
         ArgumentNullException.ThrowIfNull(findNearest);
 
         var dhtOptions = options ?? new KadDhtOptions();
+        ProviderRecordLimits.Validate(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys,
+            dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes);
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
-        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, loggerFactory);
+        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys, dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes, loggerFactory);
         var dhtValidator = validator ?? DefaultRecordValidator.Instance;
 
         builder = builder.AddRequestResponseProtocol<Message, Message>(
@@ -165,7 +167,13 @@ public static class KadDhtProtocolExtensions
 
             foreach (var wirePeer in request.ProviderPeers)
             {
+                if (!ProviderRecordLimits.CanFitIdentity(request.Key.Length, wirePeer.Id.Length, options.MaxProviderRecordBytes))
+                    continue;
+
                 var providerPeerId = new PeerId(wirePeer.Id.ToByteArray());
+                if (!ProviderRecordLimits.TryGetAddressBudget(request.Key.Length, wirePeer.Id.Length,
+                    providerPeerId.ToString(), options.MaxProviderRecordBytes, out long remaining))
+                    continue;
 
                 if (senderPeerId != null && !providerPeerId.Equals(senderPeerId))
                 {
@@ -175,14 +183,28 @@ public static class KadDhtProtocolExtensions
                     continue;
                 }
 
+                var addresses = new List<string>();
+                for (int i = 0; i < Math.Min(wirePeer.Addrs.Count, options.MaxAddressesPerProvider); i++)
+                {
+                    var encoded = wirePeer.Addrs[i];
+                    // Bound work and allocation before copying or invoking the address parser.
+                    if (encoded.Length > remaining) continue;
+                    try
+                    {
+                        string address = Multiaddress.Decode(encoded.ToByteArray()).ToString();
+                        if (!string.IsNullOrEmpty(address) && ProviderRecordLimits.TryRetainAddress(address, ref remaining))
+                            addresses.Add(address);
+                    }
+                    catch
+                    {
+                        // Malformed addresses consume their inspection slot but are not retained.
+                    }
+                }
+
                 var providerRecord = new ProviderRecord
                 {
                     PeerId = providerPeerId,
-                    Multiaddrs = wirePeer.Addrs.Select(a =>
-                    {
-                        try { return Multiformats.Address.Multiaddress.Decode(a.ToByteArray()).ToString(); }
-                        catch { return ""; }
-                    }).Where(s => !string.IsNullOrEmpty(s)).ToArray(),
+                    Multiaddrs = addresses.AsReadOnly(),
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     Ttl = options.ProviderRecordTtl
                 };
