@@ -710,7 +710,7 @@ internal class MplexProtocolTests
     [TestCase(true, false)]
     [TestCase(false, true)]
     [TestCase(true, true)]
-    public async Task RejectionBudgetBackpressuresTheReaderButAcceptedResetCleanupStillFinishes(bool listener, bool failTransport)
+    public async Task RejectionBudgetPausesTheReaderButAcceptedResetCleanupStillFinishes(bool listener, bool failTransport)
     {
         await using MplexFixture fixture = new(listener);
         OpenedStream[] backlog = await fixture.BacklogAsync(65);
