@@ -173,7 +173,7 @@ internal class MplexProtocolTests
     {
         await using MplexFixture fixture = new();
         OpenedStream stream = await fixture.OpenRemoteAsync(8);
-        await fixture.SendFrameAsync(8, MplexFlag.NewStream);
+        await fixture.SendFrameAsync(8, MplexFlag.NewStream, expectDisconnect: true);
         await fixture.ObserveCompletionAsync();
         Assert.That((await stream.Application.ReadAsync(1, token: fixture.Token)).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That(fixture.UpgradeCount, Is.EqualTo(1));
@@ -185,7 +185,7 @@ internal class MplexProtocolTests
     {
         await using MplexFixture fixture = new();
         OpenedStream stream = await fixture.OpenRemoteAsync(1);
-        await fixture.SendBytesAsync(Convert.FromHexString(hex));
+        await fixture.SendBytesAsync(Convert.FromHexString(hex), expectDisconnect: true);
         await fixture.ObserveCompletionAsync();
         Assert.That((await stream.Application.ReadAsync(1, token: fixture.Token)).Result, Is.EqualTo(IOResult.Aborted));
     }
@@ -700,7 +700,7 @@ internal class MplexProtocolTests
         OpenedStream[] streams = await fixture.BacklogAsync(1);
         await streams[0].Application.AbortAsync();
         await fixture.WaitUntilAsync(() => fixture.Connection.RetiredStreamCount == 1);
-        await fixture.SendFrameAsync(0, MplexFlag.NewStream);
+        await fixture.SendFrameAsync(0, MplexFlag.NewStream, expectDisconnect: true);
         await fixture.ObserveCompletionAsync();
         Assert.That(fixture.Connection.ReservedStreamCount, Is.Zero);
         Assert.That(fixture.Connection.PendingResetCount, Is.Zero);
@@ -1068,15 +1068,18 @@ internal class MplexProtocolTests
             }
         }
 
-        public async Task SendFrameAsync(ulong id, MplexFlag flag, byte[]? payload = null)
+        public async Task SendFrameAsync(ulong id, MplexFlag flag, byte[]? payload = null, bool expectDisconnect = false)
         {
             payload ??= [];
-            await SendBytesAsync(new MplexFrame(id, flag, payload.Length).Encode(new ReadOnlySequence<byte>(payload)));
+            await SendBytesAsync(new MplexFrame(id, flag, payload.Length).Encode(new ReadOnlySequence<byte>(payload)), expectDisconnect);
         }
 
-        public async Task SendBytesAsync(ReadOnlyMemory<byte> bytes)
+        public async Task SendBytesAsync(ReadOnlyMemory<byte> bytes, bool expectDisconnect = false)
         {
-            Assert.That(await Remote.WriteAsync(new ReadOnlySequence<byte>(bytes), Token), Is.EqualTo(IOResult.Ok));
+            IOResult result = await Remote.WriteAsync(new ReadOnlySequence<byte>(bytes), Token);
+            // Protocol rejection can abort the transport before the consumed write is acknowledged.
+            if (expectDisconnect) Assert.That(result, Is.AnyOf(IOResult.Ok, IOResult.Ended, IOResult.Aborted));
+            else Assert.That(result, Is.EqualTo(IOResult.Ok));
         }
 
         public Task<WireFrame> ReadFrameAsync() => ReadFrameAsync(Token);
@@ -1149,9 +1152,11 @@ internal class MplexProtocolTests
             TestChannel bridge = new();
             IChannel application = bridge.Reverse();
             _applications.Add(application);
-            _opened.Writer.TryWrite(new OpenedStream(options, application));
+            // Claim the barrier before publishing: another stream may upgrade as soon as the test resumes.
             AbortBarrier? barrier = Interlocked.Exchange(ref _nextAbortBarrier, null);
-            return barrier is null ? bridge : new DelayedAbortChannel(bridge, barrier);
+            IChannel protocol = barrier is null ? bridge : new DelayedAbortChannel(bridge, barrier);
+            _opened.Writer.TryWrite(new OpenedStream(options, application));
+            return protocol;
         }
 
         private static async Task ObserveAtTeardownAsync(Task task)
