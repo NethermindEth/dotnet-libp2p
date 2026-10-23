@@ -19,7 +19,7 @@ public class PeerId : IComparable<PeerId>, IComparable
 
     public PeerId(PublicKey publicKey)
     {
-        byte[] serializedPublicKey = publicKey.ToByteArray();
+        byte[] serializedPublicKey = PublicKeyDecoder.Normalize(publicKey, out _).ToByteArray();
 
         if (serializedPublicKey.Length <= 42)
         {
@@ -32,7 +32,7 @@ public class PeerId : IComparable<PeerId>, IComparable
     }
 
     /// <summary>
-    /// The Ed25519 key a peer ID carries inline, or <c>null</c> when it does not carry a usable one.
+    /// The canonical public key a peer ID carries inline, or <c>null</c> when it does not carry a usable one.
     /// </summary>
     /// <remarks>
     /// The inlined key comes from whoever chose the peer ID, so it goes through
@@ -41,7 +41,7 @@ public class PeerId : IComparable<PeerId>, IComparable
     public static PublicKey? ExtractPublicKey(byte[] peerId)
     {
         Multihash multihash = Multihash.Decode(peerId);
-        if (multihash.Code != HashType.ID)
+        if (multihash.Code != HashType.ID || multihash.Digest.Length > 42)
         {
             return null;
         }
@@ -56,7 +56,9 @@ public class PeerId : IComparable<PeerId>, IComparable
             return null;
         }
 
-        return pubKey.Type == KeyType.Ed25519 ? pubKey : null;
+        // Re-derivation enforces the inclusive 42-byte limit and exact canonical
+        // protobuf/multihash encoding, including complete consumption of peerId.
+        return new PeerId(pubKey).Bytes.AsSpan().SequenceEqual(peerId) ? pubKey : null;
     }
 
     public PeerId(string peerId)

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
-using Org.BouncyCastle.Math.EC.Rfc8032;
 using System.Buffers.Binary;
 using System.Text;
 using Nethermind.Libp2p.Core.Dto;
@@ -31,6 +30,10 @@ internal static class RpcExtensions
             .ToArray();
 
         msg.Signature = ByteString.CopyFrom(identity.Sign(signingContent));
+        if (PeerId.ExtractPublicKey(from) is null)
+        {
+            msg.Key = PublicKeyDecoder.Decode(identity.PublicKey.ToByteString()).ToByteString();
+        }
         rpc.Publish.Add(msg);
         return rpc;
     }
@@ -52,7 +55,7 @@ internal static class RpcExtensions
             return !message.HasSignature && !message.HasFrom && !message.HasSeqno && !message.HasKey;
         }
 
-        if (message.Signature.Length != Ed25519.SignatureSize)
+        if (message.Signature.IsEmpty)
         {
             return false;
         }
@@ -60,14 +63,21 @@ internal static class RpcExtensions
         PublicKey? pubKey;
         try
         {
-            pubKey = PeerId.ExtractPublicKey(message.From.ToArray());
+            if (message.HasKey)
+            {
+                pubKey = PublicKeyDecoder.Decode(message.Key);
+                if (!new PeerId(pubKey).Bytes.AsSpan().SequenceEqual(message.From.Span)) return false;
+            }
+            else
+            {
+                pubKey = PeerId.ExtractPublicKey(message.From.ToByteArray());
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // A malformed peer ID is an invalid wire message.
             return false;
         }
-        // The decoder behind ExtractPublicKey already rejects an Ed25519 key of the wrong length.
         if (pubKey is null)
         {
             return false;
@@ -75,12 +85,15 @@ internal static class RpcExtensions
 
         Message msgToBeVerified = message.Clone();
         msgToBeVerified.ClearSignature();
+        // Go and Rust sign before attaching the key. Keep all other fields,
+        // including unknown fields, and never mutate the received message.
+        msgToBeVerified.ClearKey();
 
         byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
             .Concat(msgToBeVerified.ToByteArray())
             .ToArray();
 
-        return Ed25519.Verify(message.Signature.ToByteArray(), 0, pubKey.Data.ToByteArray(), 0, msgToSign, 0, msgToSign.Length);
+        return new Identity(pubKey).VerifySignature(msgToSign, message.Signature.ToByteArray());
     }
 
     public static T Ensure<T>(this Rpc self, Func<Rpc, T> accessor)

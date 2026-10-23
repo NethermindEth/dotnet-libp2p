@@ -4,6 +4,7 @@
 using System.Buffers;
 using Google.Protobuf;
 using Multiformats.Address;
+using Multiformats.Hash;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
@@ -80,7 +81,7 @@ public class PlainTextProtocolTests
         };
         Exchange exchange = new()
         {
-            Id = ByteString.CopyFrom(new PeerId(truncated).Bytes),
+            Id = ByteString.CopyFrom(Multihash.Encode(truncated.ToByteArray(), HashType.ID)),
             Pubkey = truncated.ToByteString(),
         };
 
@@ -264,7 +265,7 @@ public class PlainTextProtocolTests
         PublicKey expanded = Expanded(new Identity(keyType: KeyType.Secp256K1).PublicKey, hybrid);
         Exchange exchange = new()
         {
-            Id = ByteString.CopyFrom(new PeerId(expanded).Bytes),
+            Id = ByteString.CopyFrom(Multihash.Sum(HashType.SHA2_256, expanded.ToByteArray())),
             Pubkey = expanded.ToByteString(),
         };
 
@@ -275,7 +276,7 @@ public class PlainTextProtocolTests
     public void Test_Handshake_Fails_WhenDialedAddressNamesTheUncompressedSecp256k1PeerId()
     {
         Identity remote = new(keyType: KeyType.Secp256K1);
-        PeerId uncompressedPeerId = new(Expanded(remote.PublicKey, hybrid: false));
+        PeerId uncompressedPeerId = new((byte[])Multihash.Sum(HashType.SHA2_256, Expanded(remote.PublicKey, hybrid: false).ToByteArray()));
         State state = new() { RemoteAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{uncompressedPeerId}" };
 
         AssertHandshakeRejected(state, ExpandedExchange(remote, hybrid: false));

@@ -565,7 +565,7 @@ public class GossipsubControlLimitsTests
             Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(6), [TestPeers.Multiaddr(6)], 1));
         unusable.PublicKey = new Core.Dto.PublicKey { Type = (Core.Dto.KeyType)7, Data = ByteString.CopyFrom([1, 2, 3]) }.ToByteString();
         ByteString badRecord = notProtobuf ? ByteString.CopyFrom([0xff, 0xff, 0xff, 0xff]) : unusable.ToByteString();
-        PeerId badRecordPeer = notProtobuf ? TestPeers.PeerId(6) : new PeerId(Core.Dto.PublicKey.Parser.ParseFrom(unusable.PublicKey));
+        PeerId badRecordPeer = notProtobuf ? TestPeers.PeerId(6) : new PeerId(Multiformats.Hash.Multihash.Encode(unusable.PublicKey.ToByteArray(), Multiformats.Hash.HashType.ID));
         List<PeerId?> discovered = [];
         setup.PeerStore.OnNewPeer += addresses => discovered.Add(addresses[0].GetPeerId());
 
@@ -609,6 +609,36 @@ public class GossipsubControlLimitsTests
 
         Assert.That(discovered, Is.Empty);
         Assert.That(setup.PeerStore.TryGetPeerInfo(signer.PeerId, out _), Is.False);
+    }
+
+    [Test]
+    public async Task Prune_CanonicalizesSignerAndRetainsNewestOriginalEnvelope()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        const string secondTopic = "replay";
+        setup.Router.GetTopic(secondTopic);
+        setup.Router.OnRpc(setup.RemotePeerId, new Rpc().WithTopics([secondTopic], []));
+        await setup.Router.Heartbeat();
+        Assert.That(((IRoutingStateContainer)setup.Router).Mesh[secondTopic], Does.Contain(setup.RemotePeerId));
+        Identity signer = new(keyType: Core.Dto.KeyType.Secp256K1);
+        Core.Dto.SignedEnvelope envelope = Core.Dto.SignedEnvelope.Parser.ParseFrom(SignedRecord(signer));
+        byte[] point = Org.BouncyCastle.Crypto.EC.CustomNamedCurves.GetByName("secp256k1").Curve.DecodePoint(signer.PublicKey.Data.ToByteArray()).GetEncoded(false);
+        Core.Dto.PublicKey key = new() { Type = Core.Dto.KeyType.Secp256K1, Data = ByteString.CopyFrom(point) };
+        envelope.PublicKey = ByteString.CopyFrom([.. key.ToByteArray(), 0x18, 0x01]);
+        ByteString original = envelope.ToByteString();
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
+            new PeerInfo { PeerID = ByteString.CopyFrom(signer.PeerId.Bytes), SignedPeerRecord = original }));
+
+        Assert.That(setup.PeerStore.TryGetPeerInfo(signer.PeerId, out var info), Is.True);
+        Assert.That(info!.SignedPeerRecord, Is.EqualTo(original));
+
+        ByteString stale = Core.Dto.SigningHelper.CreateSignedEnvelope(signer,
+            [Multiaddress.Decode($"/ip4/192.0.2.1/tcp/9999/p2p/{signer.PeerId}")], 0);
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(secondTopic,
+            new PeerInfo { PeerID = ByteString.CopyFrom(signer.PeerId.Bytes), SignedPeerRecord = stale }));
+        Assert.That(info.SignedPeerRecord, Is.EqualTo(original));
+        Assert.That(info.Seq, Is.EqualTo(1UL));
     }
 
     /// <remarks>

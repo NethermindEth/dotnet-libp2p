@@ -35,7 +35,7 @@ public class PeerStore
     /// </remarks>
     public void Discover(ByteString signedPeerRecord) => Discover(signedPeerRecord, null);
 
-    /// <summary>Stores a verified record at the session's current sequence or above when the retained record is missing or older.</summary>
+    /// <summary>Stores newer signed records from every source, preserving the session watermark when a retained record is missing.</summary>
     public void Discover(ByteString signedPeerRecord, State? state)
     {
         PublicKey publicKey;
@@ -63,15 +63,24 @@ public class PeerStore
             .Select(ai => Multiaddress.Decode(ai.Multiaddr.ToByteArray()))
             .Where(a => a.GetPeerId() == peerId)
             .ToArray();
+        HashSet<Multiaddress> addressSet = [.. addresses];
+        bool announce = false;
 
         if (state is null)
         {
-            if (addresses.Length > 0) Discover(addresses, isTrusted: false);
+            lock (_storeLock)
+            {
+                // A valid signature authenticates the record, not its source.
+                // PX entries remain in the ordinary discovered eviction tier.
+                PeerInfo? info = GetOrAdd(peerId, isConfigured: false, required: false);
+                if (info is null) return;
+                announce = StoreRecord(info, replaceConfiguredAddresses: false);
+                if (!announce) return;
+            }
+            onNewPeer?.Invoke(addresses);
             return;
         }
         if (state.RemotePeerId != peerId) return;
-        HashSet<Multiaddress> addressSet = [.. addresses];
-        bool announce = false;
         lock (state.PeerRecordLock)
         {
             lock (_storeLock)
@@ -80,19 +89,28 @@ public class PeerStore
                 if (info.SignedPeerRecord is not null) state.RecordVerifiedPeerRecordSequence(info.Seq ?? 0);
                 ulong? priorSeq = state.VerifiedPeerRecordSequence;
                 state.RecordVerifiedPeerRecordSequence(seq);
-                if ((priorSeq is null || seq >= priorSeq) && (info.SignedPeerRecord is null || seq > (info.Seq ?? 0)))
+                if (priorSeq is null || seq >= priorSeq)
                 {
-                    info.SignedPeerRecord = signedPeerRecord;
-                    info.Seq = seq;
-                    if (addresses.Length > 0 && (info.Addrs is null || !info.Addrs.SetEquals(addressSet)))
-                    {
-                        info.Addrs = addressSet;
-                        announce = true;
-                    }
+                    announce = StoreRecord(info, replaceConfiguredAddresses: true);
                 }
             }
         }
         if (announce) onNewPeer?.Invoke(addresses);
+
+        // Caller holds _storeLock; envelope and sequence are published together.
+        bool StoreRecord(PeerInfo info, bool replaceConfiguredAddresses)
+        {
+            if (info.SignedPeerRecord is not null && seq <= (info.Seq ?? 0)) return false;
+            info.SignedPeerRecord = signedPeerRecord;
+            info.Seq = seq;
+            if ((!info.IsConfigured || replaceConfiguredAddresses) && addresses.Length > 0 &&
+                (info.Addrs is null || !info.Addrs.SetEquals(addressSet)))
+            {
+                info.Addrs = addressSet;
+                return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>Adds deliberately configured peer addresses, protected from untrusted discovery.</summary>
