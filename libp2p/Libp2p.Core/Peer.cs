@@ -99,6 +99,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         public Activity? Activity { get; } = activity;
         public TaskCompletionSource<Multiaddress> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Multiaddress? Address;
         public bool Stopping;
     }
@@ -135,6 +136,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 throw;
             }
             ObserveLateFailure(listener.Completion.Task);
+            ObserveLateFailure(listener.Stopped.Task);
             _ = RunListenerAsync(context, transport, addr, listener);
             starts.Add(WaitForListenerAsync(listener, addr));
         }
@@ -198,8 +200,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 lock (Sessions)
                 {
                     _listeners.Remove(context);
-                    if (failure is null) listener.Completion.TrySetResult();
-                    else listener.Completion.TrySetException(failure);
+                    if (failure is null)
+                    {
+                        listener.Stopped.TrySetResult();
+                        listener.Completion.TrySetResult();
+                    }
+                    else
+                    {
+                        listener.Stopped.TrySetException(failure);
+                        listener.Completion.TrySetException(failure);
+                    }
                 }
             }
         }
@@ -217,6 +227,16 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
     }
 
+    public void ListenerStopped(object sender)
+    {
+        lock (Sessions)
+        {
+            if (!_listeners.TryGetValue(sender, out ListenerRegistration? listener)) return;
+            StopAdvertising(listener);
+            listener.Stopped.TrySetResult();
+        }
+    }
+
     public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
     {
         try
@@ -226,6 +246,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 if (_disposal is not null) throw new ChannelClosedException();
                 session ??= new(this, activity);
                 session.RegisterConnection();
+                session.IsListenerConnection = isListener;
                 if (isListener) session.StartUpgradeDeadline();
                 // Instrumentation can synchronously reenter shutdown.
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
@@ -247,46 +268,47 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
         bool initializationAcquired = false;
-        Session? displaced = null;
+        Session? replaced = null;
         try
         {
             lock (Sessions)
             {
                 if (_disposal is not null) throw new ChannelClosedException();
-                Session? existing = Sessions.FirstOrDefault(s => s.State.RemotePeerId == remotePeerId && s.DuplicateSessionFailure is null);
+                Session? existing = FindSession(remotePeerId);
                 if (existing is not null)
                 {
-                    // During simultaneous dialing both ends must keep the same connection.
-                    // Never replace a session already published to callers. While initializing,
-                    // prefer the connection dialed by the peer with the smaller identity.
-                    // An accepted inbound session wins over a later outbound registration:
-                    // its remote end may have already completed initialization.
+                    // Prefer the connection dialed by the smaller peer during simultaneous
+                    // initialization. Keep the original alive until the alternative finishes:
+                    // an eager transport can register a connection its remote end rejected.
                     bool preferListener = Identity.PeerId.CompareTo(remotePeerId) > 0;
-                    if (existing.Connected.IsCompletedSuccessfully || existing.IsListenerSession || !isListener || !preferListener)
+                    if (existing.Connected.IsCompletedSuccessfully || existing.IsListenerSession || !isListener || !preferListener ||
+                        existing.Replacement is { } candidate && CanAwaitSession(candidate))
                     {
                         session.DuplicateSessionFailure = new SessionExistsException(remotePeerId);
                         throw session.DuplicateSessionFailure;
                     }
-                    displaced = existing;
+                    replaced = existing;
                 }
                 if (!session.TryBeginInitialization()) throw new Libp2pException("Concurrent initialization limit reached.");
                 initializationAcquired = true;
                 session.RegisterSession();
                 session.IsListenerSession = isListener;
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
-                if (displaced is not null) displaced.DuplicateSessionFailure = new SessionExistsException(remotePeerId);
-                Sessions.Add(session);
+                if (replaced is null) Sessions.Add(session);
+                else
+                {
+                    session.Replaces = replaced;
+                    replaced.Replacement = session;
+                }
                 // A collection subscriber can dispose the peer before cancellation runs.
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
             }
-            if (displaced is not null) ObserveLateFailure(displaced.DisconnectAsync());
             _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
             // Collection notifications and logging can close an already registered session.
             if (session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
         }
         catch
         {
-            if (displaced?.DuplicateSessionFailure is not null) ObserveLateFailure(displaced.DisconnectAsync());
             ObserveLateFailure(initializationAcquired ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
             throw;
         }
@@ -314,7 +336,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         try
         {
             await initialization;
-            connected = session.TrySetConnected();
+            connected = await CompleteInitializationAsync(session);
             if (connected) OnConnected?.Invoke(session);
         }
         catch (Exception failure)
@@ -338,6 +360,47 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         {
             if (connected) session.EndInitialization();
             else await FinishFailedInitializationAsync(session);
+        }
+    }
+
+    private async Task<bool> CompleteInitializationAsync(Session session)
+    {
+        while (true)
+        {
+            Task? alternative;
+            Session? displaced = null;
+            bool connected = false;
+            lock (Sessions)
+            {
+                if (session.Replaces is { } original)
+                {
+                    if (_disposal is not null || !CanAwaitSession(session)) return false;
+                    if (original.Connected.IsCompletedSuccessfully && CanAwaitSession(original)) return false;
+                    Sessions.Add(session);
+                    connected = session.TrySetConnected();
+                    if (connected)
+                    {
+                        session.Replaces = null;
+                        original.DuplicateSessionFailure = new SessionExistsException(session.RemotePeerId);
+                        displaced = original;
+                    }
+                    alternative = null;
+                }
+                else
+                {
+                    alternative = session.Replacement?.Connected;
+                    if (alternative is null || alternative.IsCompleted) return session.TrySetConnected();
+                }
+            }
+            if (alternative is null)
+            {
+                if (displaced is not null) ObserveLateFailure(displaced.DisconnectAsync());
+                return connected;
+            }
+            // Do not publish the old connection while the preferred alternative is undecided.
+            // Both initialization allowances stay owned until their initializers actually finish.
+            try { await alternative.WaitAsync(session.ConnectionToken); }
+            catch (Exception) when (!session.ConnectionToken.IsCancellationRequested) { }
         }
     }
 
@@ -434,7 +497,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     {
         lock (Sessions)
         {
-            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId && CanAwaitSession(s));
+            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId && CanAwaitSession(s)) ??
+                _connections.FirstOrDefault(s => s.Replaces is not null && s.State.RemotePeerId == peerId && CanAwaitSession(s));
         }
     }
 
@@ -446,6 +510,13 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         await session.Connected.WaitAsync(token);
         session.ConnectionToken.ThrowIfCancellationRequested();
         return session;
+    }
+
+    private static async Task<ISession> WaitForReplacementAsync(Session session, PeerId remotePeerId, CancellationToken token)
+    {
+        ISession connected = await WaitForSessionAsync(session, token);
+        if (connected.RemotePeerId != remotePeerId) throw new Libp2pException("Replacement session has a different peer identity.");
+        return connected;
     }
 
     private Task<ISession> WaitForExistingSessionAsync(PeerId peerId, Session session, CancellationToken token)
@@ -510,7 +581,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token, PendingDial pending)
     {
-        List<(Session? Session, CancellationTokenSource Cancellation, Task? Transport, Task<ISession> Attempt)> active = [];
+        List<(Session? Session, CancellationTokenSource Cancellation, Task? Transport, Task<ISession> Attempt, bool Borrowed)> active = [];
         Task<ISession>? winningAttempt = null;
 
         try
@@ -539,7 +610,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 while (next < resolvedAddrs.Count || active.Count > 0)
                 {
                     waitCancellation.Token.ThrowIfCancellationRequested();
-                    while (next < resolvedAddrs.Count && active.Count < MaxConcurrentDials)
+                    while (next < resolvedAddrs.Count && active.Count(dial => !dial.Borrowed) < MaxConcurrentDials)
                     {
                         waitCancellation.Token.ThrowIfCancellationRequested();
                         Multiaddress addr = resolvedAddrs[next++];
@@ -547,7 +618,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         Task? transport = null;
                         Session? owner = null;
                         Task<ISession> attempt = DialAsyncCore(addr, cancellation.Token, dial => transport = dial, session => owner = session, pending);
-                        active.Add((owner, cancellation, transport, attempt));
+                        active.Add((owner, cancellation, transport, attempt, false));
                     }
 
                     Task<ISession> completed = await Task.WhenAny(active.Select(dial => dial.Attempt)).WaitAsync(waitCancellation.Token);
@@ -557,24 +628,41 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         winningAttempt = completed;
                         return session;
                     }
-                    if (GetTaskException(completed) is SessionExistsException duplicate)
+                    var completedDial = active.First(dial => dial.Attempt == completed);
+                    Session? failedOwner = completedDial.Session;
+                    SessionExistsException? duplicate = GetTaskException(completed) as SessionExistsException;
+                    Session? replacement;
+                    lock (Sessions)
                     {
-                        Session? replacement = FindSession(remotePeerId);
-                        if (replacement is not null)
-                        {
-                            // Do not join this PendingDial from inside its own attempt, and do
-                            // not transfer cancellation ownership of an inbound connection.
-                            try
-                            {
-                                ISession session = await WaitForSessionAsync(replacement, waitCancellation.Token);
-                                winningAttempt = active.FirstOrDefault(dial => ReferenceEquals(dial.Session, session)).Attempt;
-                                return session;
-                            }
-                            catch (OperationCanceledException) when (waitCancellation.IsCancellationRequested) { throw; }
-                            catch { /* Preserve the original duplicate rejection if its replacement failed. */ }
-                        }
-                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(duplicate).Throw();
+                        replacement = FindSession(remotePeerId) ?? _connections.FirstOrDefault(s =>
+                            s.IsListenerConnection && !ReferenceEquals(s, failedOwner) &&
+                            s.State.RemotePeerId == remotePeerId && CanAwaitSession(s));
                     }
+                    if (replacement is not null && (duplicate is not null || replacement.Connected.IsCompletedSuccessfully))
+                    {
+                        // Do not join this PendingDial from inside its own attempt or take
+                        // cancellation ownership of the alternative connection.
+                        try
+                        {
+                            ISession session = await WaitForReplacementAsync(replacement, remotePeerId, waitCancellation.Token);
+                            winningAttempt = active.FirstOrDefault(dial => ReferenceEquals(dial.Session, session)).Attempt;
+                            return session;
+                        }
+                        catch (OperationCanceledException) when (waitCancellation.IsCancellationRequested) { throw; }
+                        catch { /* Preserve the original failure if the alternative did not initialize. */ }
+                    }
+                    else if (replacement is not null && replacement.IsListenerConnection &&
+                        !active.Any(dial => ReferenceEquals(dial.Session, replacement)))
+                    {
+                        // A lazy inbound session can register after the redundant outbound
+                        // connection closes. Race its readiness against address fallback; this
+                        // borrowed wait neither owns the connection nor occupies a transport slot.
+                        CancellationTokenSource cancellation = new();
+                        active.Add((replacement, cancellation, null,
+                            WaitForReplacementAsync(replacement, remotePeerId, cancellation.Token), true));
+                    }
+                    if (duplicate is not null)
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(duplicate).Throw();
 
                     try
                     {
@@ -582,7 +670,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     }
                     catch (Exception failure)
                     {
-                        failures.Add(failure);
+                        if (!completedDial.Borrowed) failures.Add(failure);
                     }
 
                     int index = active.FindIndex(dial => dial.Attempt == completed);
@@ -686,14 +774,14 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             {
                 await session.DisconnectAsync();
                 Libp2pMetrics.DialFailures.Add(1);
-                if (dialingResult.IsCanceled && session.DuplicateSessionFailure is null)
+                if (dialingResult.IsCanceled && session.GetDuplicateFailure() is null)
                 {
                     dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
                     dialActivity?.Dispose();
                     throw new OperationCanceledException(token);
                 }
 
-                Exception? innerException = session.DuplicateSessionFailure ?? GetTaskException(dialingResult);
+                Exception? innerException = session.GetDuplicateFailure() ?? GetTaskException(dialingResult);
                 if (innerException is SessionExistsException)
                 {
                     dialActivity?.SetStatus(ActivityStatusCode.Error, innerException.Message);
@@ -716,7 +804,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 Libp2pMetrics.DialFailures.Add(1);
                 dialActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 dialActivity?.Dispose();
-                if (session.DuplicateSessionFailure is { } duplicate) throw duplicate;
+                if (session.GetDuplicateFailure() is { } duplicate) throw duplicate;
                 throw;
             }
 
@@ -1095,7 +1183,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             if (_disposal is not null) return new(_disposal.Task);
             _disposal = disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
             sessions = [.. _connections.Union(Sessions)];
-            listeners = [.. _listeners.Values.Select(listener => listener.Completion.Task)];
+            listeners = [.. _listeners.Values.Select(listener => listener.Stopped.Task)];
         }
         // Collection/metric notifications can synchronously reenter disposal while
         // admission holds the lifecycle boundary. Run cancellation after it is released.
