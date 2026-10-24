@@ -411,10 +411,11 @@ public partial class PubsubRouter
     {
         await peer.Stop.Task.ConfigureAwait(false);
         await peer.DeadlineTimer.DisposeAsync().ConfigureAwait(false);
+        // Remove the generation and register its reconnection before anything observing its token can run.
+        RemovePeer(peer.PeerId, peer.Address, peer);
         // Abort independently of the writer: cancellation cannot retract a partly consumed chunk.
         try { peer.TokenSource.Cancel(); }
         catch (Exception ex) { logger?.LogWarning(ex, "Pubsub peer cancellation failed"); }
-        RemovePeer(peer.PeerId, peer.Address, peer);
         if (peer.Abort is not null)
         {
             try { await peer.Abort().ConfigureAwait(false); }
