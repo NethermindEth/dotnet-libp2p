@@ -87,7 +87,47 @@ native results; real process-handle tests complement those deterministic seams.
 Test cleanup is restricted to acknowledged unique test keys after child exit,
 with public-key fingerprints checked when available.
 
-## Candidate validation and host replay
+## Corrected Windows validation and replay
+
+The host executed `9314cce7e980e028534629f0468d5a01659f1b44` on 2026-10-24,
+03:46:10–03:47:21 UTC, using Windows 10.0.26200 (win-x64), SDK 10.0.401 and
+runtime 10.0.12. The immutable `9314cce7-corrected` snapshot contains exact
+commands, platform metadata, source/test/CI SHA-256 hashes, full logs, NUnit XML,
+a summary and a read-only cleanup observation. All 461 recorded input hashes
+match the retained candidate. The three commands exited 0, with builds treating
+warnings as errors. No Windows execution took place on the Linux worker.
+
+| Corrected Windows suite | Passed / executed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| QUIC, ownership and recovery | 74 / 74 | 0 | 0 |
+| TLS | 32 / 32 | 0 | 0 |
+| Registered transport/recovery/alias controls | 7 / 7 | 0 | 0 |
+| Total | 113 / 113 | 0 | 0 |
+
+The QUIC XML includes all 17 `WindowsProcessKeyRecoveryTests` cases and excludes
+only their `ChildProcess` entry point. All five creation checks passed, including
+ownership inspection of enumerated survivors and managed close/reopen. The
+crash/restart test passed all three cycles, proving death of the exact owner,
+persistence before recovery, orphan removal and live-owner survival. The
+contention/abandonment case passed its acknowledged lock barriers and successor
+recovery checks. The independent worker-handle termination check also passed.
+
+The seven registered cases comprise Noise/TLS/QUIC failure/retry and application
+traffic, both expected-peer alias controls, and both Windows TLS/QUIC crash/restart
+cases. They validate recovery through the registered builders while a separate
+live peer remains usable, mutual authentication, expected-peer rejection,
+successful retry, collection and bidirectional application traffic. Per-test
+owned-key/process cleanup assertions passed. The cleanup observation was read
+only and performed no broad process or key cleanup.
+
+These are results for the exact tested revision above, not execution of a later
+documentation commit. This documentation update changes no production, test,
+dependency, build or CI input, so the matching Windows evidence can be reused.
+Any subsequent Windows-sensitive input change requires fresh matching results.
+Independent re-review and final verification remain publication gates. These
+runs do not establish external-client interoperability or resolve #373.
+
+### Initial failed run and corrected test boundaries
 
 The first candidate, `7a70772074ed1cb071eab78e3b09f49c9c0123d1`, was executed by
 the host on Windows 10.0.26200 / runtime 10.0.12 / SDK 10.0.401. The immutable
@@ -101,8 +141,8 @@ before revision. No Windows execution took place on the Linux implementation hos
 | TLS | 32 / 32 | 0 | 0 |
 | Registered transport/recovery/alias controls | 7 / 7 | 0 | 0 |
 
-The QUIC run excluded the `ChildProcess` entry point. These results establish a
-failed initial candidate, not acceptance of this revision. The failures were:
+The initial QUIC run excluded the `ChildProcess` entry point. This failed
+snapshot remains historical. Both following cases passed in the corrected run:
 
 - `CrashRestartRecoversOnlyTheDeadIncarnation`: immediately after the harness's
   kill/wait returned, the recorded owner was still live by the kernel-handle
@@ -127,26 +167,28 @@ failed initial candidate, not acceptance of this revision. The failures were:
   proves death and orphan presence before starting contenders. Contention,
   abandonment, successor recovery and live-owner assertions remain enforced.
 
-The production ownership/recovery implementation and every CI minimum are
-unchanged by these test-harness corrections. New Windows-sensitive test inputs
-require a fresh host snapshot for the corrected candidate, including revision,
-source/test/CI hashes, environment, exact commands, executed cases and cleanup.
-Do not reuse the initial snapshot as execution of changed inputs. Independent
-review and final verification remain host publication gates.
+The production ownership/recovery implementation and every CI minimum were
+unchanged by these test-harness corrections. The corrected snapshot validates
+the revised test inputs; the initial snapshot must not be reused for them.
+
+### Portable replay commands
 
 Use the repository's Microsoft.Testing.Platform runner. The existing full Windows
 minimums remain QUIC 32, TLS 32 and registered controls 5. Added gates require 17
 creation/recovery cases and two registered crash/restart cases; child entry-point
 methods are excluded from those minimums. Windows skips do not count as execution.
-Run from `libp2p`, with `TEMP`/`TMP` configured by the host:
+The recorded host run combined the recovery cases into the full QUIC suite and
+both registered recovery cases into the registered controls. Replay its commands
+from repository root, with `TEMP`/`TMP` configured by the host. Only the private
+settings/output paths are replaced below; filters, timeouts and execution floors
+match the recorded invocation. The QUIC floor was 49; 74 cases actually executed.
+No CI minimum was reduced.
 
 ```powershell
 "<RunSettings><NUnit><TestOutputXml>$env:TEMP/secure-transport-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/secure-transports.xml"
-dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --settings "$env:TEMP/secure-transports.xml"
-dotnet test --project Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~WindowsProcessKeyRecoveryTests&FullyQualifiedName!~ChildProcess" --minimum-expected-tests 17 --settings "$env:TEMP/secure-transports.xml"
-dotnet test --project Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --settings "$env:TEMP/secure-transports.xml"
-dotnet test --project Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 5
-dotnet test --project Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~RegisteredWindowsKeyRecoveryTests&FullyQualifiedName!~ChildListener" --minimum-expected-tests 2 --settings "$env:TEMP/secure-transports.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 49 --timeout 5m --settings "$env:TEMP/secure-transports.xml" --filter "FullyQualifiedName!~ChildProcess"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 5m --settings "$env:TEMP/secure-transports.xml"
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 7 --timeout 5m --settings "$env:TEMP/secure-transports.xml" --filter "(FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredWindowsKeyRecoveryTests)&FullyQualifiedName!~ChildListener"
 ```
 
 For red-before-green Windows recovery evidence, the host can disable only the
@@ -222,6 +264,9 @@ dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tes
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredWindowsKeyRecoveryTests' --minimum-expected-tests 5
 ```
 
-The native Windows failures have code corrections and require a fresh host run;
-Linux skips do not establish their resolution. No commits or publication were
-performed by the implementer.
+The subsequent corrected Windows run at
+`9314cce7e980e028534629f0468d5a01659f1b44`, recorded above, establishes the native
+results that these Linux skips could not. Both previously failing cases passed.
+No production/test/CI inputs changed while incorporating that evidence; independent
+re-review and final verification remain required. The implementer performed no
+commits or publication.
