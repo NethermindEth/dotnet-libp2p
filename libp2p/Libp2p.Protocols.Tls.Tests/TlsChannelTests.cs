@@ -107,10 +107,15 @@ public class TlsChannelTests
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(key, TestPeers.Identity(2));
         using SslStream native = new(new ChannelStream(down.Reverse(), leaveOpen: true));
+        Task? nativeHandshake = null;
+        Task? sent = null;
+        Task<IOResult>? reply = null;
+        Exception? failure = null;
+        string phase = "native handshake";
         try
         {
-            if (receiverIsServer)
-                await native.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            nativeHandshake = receiverIsServer
+                ? native.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
                 {
                     TargetHost = "libp2p",
                     EnabledSslProtocols = SslProtocols.Tls13,
@@ -120,9 +125,8 @@ public class TlsChannelTests
                     LocalCertificateSelectionCallback = (_, _, _, _, _) => certificate,
                     RemoteCertificateValidationCallback = (_, remote, _, _) =>
                         remote is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(1).ToString()),
-                }, timeout.Token);
-            else
-                await native.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                }, timeout.Token)
+                : native.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
                 {
                     ServerCertificate = certificate,
                     ClientCertificateRequired = true,
@@ -132,29 +136,63 @@ public class TlsChannelTests
                     RemoteCertificateValidationCallback = (_, remote, _, _) =>
                         remote is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(1).ToString()),
                 }, timeout.Token);
+            await nativeHandshake;
 
             // Send immediately after Finished, before awaiting the receiver's upgrade.
             byte[] payload = Enumerable.Range(0, 65539).Select(i => (byte)i).ToArray();
-            Task sent = native.WriteAsync(payload, timeout.Token).AsTask();
+            phase = "start native payload write";
+            sent = native.WriteAsync(payload, timeout.Token).AsTask();
+            phase = "receiver upgrade";
             await upgraded.Task.WaitAsync(timeout.Token);
+            phase = "receive native payload";
             ReadResult received = await up.Reverse().ReadAsync(payload.Length, token: timeout.Token);
             Assert.That(received.Result, Is.EqualTo(IOResult.Ok));
             Assert.That(received.Data.ToArray(), Is.EqualTo(payload));
+            phase = "complete native payload write";
             await sent;
-            Task<IOResult> reply = up.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token).AsTask();
+            phase = "start application reply";
+            reply = up.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token).AsTask();
             byte[] echoed = new byte[payload.Length];
+            phase = "receive application reply";
             await native.ReadExactlyAsync(echoed, timeout.Token);
+            phase = "complete application reply";
             await reply;
+            phase = "authentication assertions";
             Assert.That(echoed, Is.EqualTo(payload));
             Assert.That(native.IsMutuallyAuthenticated, Is.True);
             Assert.That(protocol.LastNegotiatedApplicationProtocol!.Value.Protocol.Length, Is.EqualTo(alpn ? 6 : 0));
             Assert.That(context.State.RemotePublicKey, Is.EqualTo(TestPeers.Identity(2).PublicKey));
         }
+        catch (Exception ex)
+        {
+            failure = ex;
+            TestContext.Error.WriteLine($"Native TLS failure during {phase}: server={receiverIsServer}, alpn={alpn}, " +
+                $"nativeHandshake={nativeHandshake?.Status}, nativeWrite={sent?.Status}, reply={reply?.Status}, " +
+                $"upgrade={upgraded.Task.Status}, receiver={run.Status}, cancelled={timeout.IsCancellationRequested}, " +
+                $"OS={Environment.OSVersion}, runtime={Environment.Version}");
+            throw;
+        }
         finally
         {
+            if (failure is not null) timeout.Cancel();
             await up.CloseAsync();
             await down.CloseAsync();
-            await run.WaitAsync(TimeSpan.FromSeconds(5));
+            // A timeout in the exchange must retain its original operation/stack.
+            // The receiver commonly observes the same cancellation during cleanup.
+            try { await run.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception ex) when (failure is not null)
+            {
+                TestContext.Error.WriteLine($"TLS receiver cleanup after {phase}: {ex}");
+            }
+            foreach (Task? pending in new Task?[] { nativeHandshake, sent, reply })
+            {
+                if (pending is null) continue;
+                try { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (Exception ex) when (failure is not null)
+                {
+                    TestContext.Error.WriteLine($"Native TLS I/O cleanup after {phase}: {ex}");
+                }
+            }
         }
     }
 

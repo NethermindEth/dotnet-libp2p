@@ -3,10 +3,13 @@
 <!-- cspell:words pathlib runsettings backpressure Psks nonblocking GOCACHE GOMODCACHE hashlib hexdigest -->
 
 The production `/tls/1.0.0` backend now uses Bouncy Castle 2.6.2 in both roles.
-Windows and Linux certificate-list enforcement and lifecycle checks passed.
-Native interoperability and pinned Go TLS/Yamux interoperability are recorded
-below. The Windows candidate passed all 126 checks without skips. **Host-managed
-independent re-review and final verification of the final head remain required.**
+Recorded Windows and Linux certificate-list enforcement and lifecycle checks
+passed. Native interoperability and pinned Go TLS/Yamux interoperability are
+recorded below. The Windows 10 candidate passed all 126 checks without skips.
+A subsequent Windows CI run timed out in two native interoperability controls;
+the failing phase needs a Windows replay with the revised test diagnostics.
+**Windows CI validation is unresolved; host-managed independent re-review and
+final verification of the final head remain required.**
 The [parent validation record](secure-transport-validation.md) is unchanged.
 
 ## Contract, implementation and scope
@@ -139,12 +142,15 @@ status describe collection time; the completed Windows run below supersedes
 that pending status. The snapshot remains unchanged as an execution record.
 
 At documentation checkpoint `e7e84b07f9c387f2a9e6b0fd078de0b7b49bd350`, all
-**466 Linux input hashes and 461 Windows input hashes** match the current files.
-The source, build, and CI inputs are unchanged from the tested candidate;
-the subsequent changes contain evidence and documentation only. The Linux input
-digest remains `5c7410f4c31af8cdcee230fd1a6e9b59a72d6455aeac5c5eec1bd99636a181cb`.
-These results are reused after checking their inputs, without rerunning
-unchanged suites. Repeat the comparison before reusing them on a later head:
+**466 Linux input hashes and 461 Windows input hashes** matched the files then.
+That comparison also passed at `a03053656ab4634bd094ed5d0d68130aba3496ff`.
+The production source, build, and CI inputs remain unchanged from the tested
+candidate. The later native interoperability diagnostics change
+`TlsChannelTests.cs`, so the earlier complete TLS-suite results cannot establish
+the revised test's Windows outcome. The retained Linux input digest is
+`5c7410f4c31af8cdcee230fd1a6e9b59a72d6455aeac5c5eec1bd99636a181cb`.
+Only reuse results whose relevant inputs match; repeat the comparison on a later
+head:
 
 ```sh
 python3 - <<'PY'
@@ -290,6 +296,28 @@ empty, unrelated-extra, and duplicate-extra lists. Controls above the native
 size boundaries and at the TLS protocol bound also pass. The repeated mutual
 authentication and key-lifetime TLS case that failed before the wakeup
 correction now passes.
+
+The supplied log from subsequent [Windows CI run 40107696514](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/40107696514/job/120912701724)
+reports failures in `NativeSslStreamInteroperatesInBothRoles(False,False)` and
+`NativeSslStreamInteroperatesInBothRoles(False,True)`, each at the unchanged
+15-second deadline. Both use the production TLS client against a native server.
+The reported stack comes from awaiting the receiver during test cleanup, which
+could replace the original exchange failure. The revised test preserves that
+failure, reports the pending phase and task states, and observes its outstanding
+I/O after closing the channels. A controlled local failure injection confirms
+the original test masked the exchange error in all four roles/ALPN combinations;
+the revised test retains it. This establishes the diagnostic correction, not the
+cause of the Windows timeout. The four unchanged interoperability controls pass
+on Linux before and after the diagnostic change. The Windows CI failure remains
+unresolved pending replay; the older passing Windows 10 record remains history.
+
+Run the focused native controls on the failing Windows runner before the full
+suites below, and retain the failure phase, task states, runtime metadata and
+NUnit XML:
+
+```powershell
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~NativeSslStreamInteroperatesInBothRoles" --minimum-expected-tests 4 --timeout 90s --settings "$env:TEMP/tls373.xml"
+```
 
 The [earlier failed checkpoint result](evidence/windows-065245c-tls-cardinality-candidate.json)
 on `065245ca722dccc281d808df5dbaebe9b40c08f5` passed TLS 57/57 and QUIC 32/32,
