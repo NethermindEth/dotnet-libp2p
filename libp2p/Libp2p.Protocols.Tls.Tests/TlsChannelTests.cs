@@ -107,10 +107,15 @@ public class TlsChannelTests
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(key, TestPeers.Identity(2));
         using SslStream native = new(new ChannelStream(down.Reverse(), leaveOpen: true));
+        Task? nativeHandshake = null;
+        Task? sent = null;
+        Task<IOResult>? reply = null;
+        Exception? failure = null;
+        string phase = "native handshake";
         try
         {
-            if (receiverIsServer)
-                await native.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            nativeHandshake = receiverIsServer
+                ? native.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
                 {
                     TargetHost = "libp2p",
                     EnabledSslProtocols = SslProtocols.Tls13,
@@ -120,9 +125,8 @@ public class TlsChannelTests
                     LocalCertificateSelectionCallback = (_, _, _, _, _) => certificate,
                     RemoteCertificateValidationCallback = (_, remote, _, _) =>
                         remote is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(1).ToString()),
-                }, timeout.Token);
-            else
-                await native.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                }, timeout.Token)
+                : native.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
                 {
                     ServerCertificate = certificate,
                     ClientCertificateRequired = true,
@@ -132,29 +136,63 @@ public class TlsChannelTests
                     RemoteCertificateValidationCallback = (_, remote, _, _) =>
                         remote is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, TestPeers.PeerId(1).ToString()),
                 }, timeout.Token);
+            await nativeHandshake;
 
             // Send immediately after Finished, before awaiting the receiver's upgrade.
             byte[] payload = Enumerable.Range(0, 65539).Select(i => (byte)i).ToArray();
-            Task sent = native.WriteAsync(payload, timeout.Token).AsTask();
+            phase = "start native payload write";
+            sent = native.WriteAsync(payload, timeout.Token).AsTask();
+            phase = "receiver upgrade";
             await upgraded.Task.WaitAsync(timeout.Token);
+            phase = "receive native payload";
             ReadResult received = await up.Reverse().ReadAsync(payload.Length, token: timeout.Token);
             Assert.That(received.Result, Is.EqualTo(IOResult.Ok));
             Assert.That(received.Data.ToArray(), Is.EqualTo(payload));
+            phase = "complete native payload write";
             await sent;
-            Task<IOResult> reply = up.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token).AsTask();
+            phase = "start application reply";
+            reply = up.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token).AsTask();
             byte[] echoed = new byte[payload.Length];
+            phase = "receive application reply";
             await native.ReadExactlyAsync(echoed, timeout.Token);
+            phase = "complete application reply";
             await reply;
+            phase = "authentication assertions";
             Assert.That(echoed, Is.EqualTo(payload));
             Assert.That(native.IsMutuallyAuthenticated, Is.True);
             Assert.That(protocol.LastNegotiatedApplicationProtocol!.Value.Protocol.Length, Is.EqualTo(alpn ? 6 : 0));
             Assert.That(context.State.RemotePublicKey, Is.EqualTo(TestPeers.Identity(2).PublicKey));
         }
+        catch (Exception ex)
+        {
+            failure = ex;
+            TestContext.Error.WriteLine($"Native TLS failure during {phase}: server={receiverIsServer}, alpn={alpn}, " +
+                $"nativeHandshake={nativeHandshake?.Status}, nativeWrite={sent?.Status}, reply={reply?.Status}, " +
+                $"upgrade={upgraded.Task.Status}, receiver={run.Status}, cancelled={timeout.IsCancellationRequested}, " +
+                $"OS={Environment.OSVersion}, runtime={Environment.Version}");
+            throw;
+        }
         finally
         {
+            if (failure is not null) timeout.Cancel();
             await up.CloseAsync();
             await down.CloseAsync();
-            await run.WaitAsync(TimeSpan.FromSeconds(5));
+            // A timeout in the exchange must retain its original operation/stack.
+            // The receiver commonly observes the same cancellation during cleanup.
+            try { await run.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception ex) when (failure is not null)
+            {
+                TestContext.Error.WriteLine($"TLS receiver cleanup after {phase}: {ex}");
+            }
+            foreach (Task? pending in new Task?[] { nativeHandshake, sent, reply })
+            {
+                if (pending is null) continue;
+                try { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (Exception ex) when (failure is not null)
+                {
+                    TestContext.Error.WriteLine($"Native TLS I/O cleanup after {phase}: {ex}");
+                }
+            }
         }
     }
 
@@ -266,6 +304,93 @@ public class TlsChannelTests
             }
         }
         await Task.WhenAll(Exchange(pair.ClientApplication), Exchange(pair.ServerApplication)).WaitAsync(deadline.Token);
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task PeerTeardownAfterCloseNotifyPreservesEof(bool clientFinishesFirst, bool holdCloseWrite)
+    {
+        ClosingChannel? held = null;
+        await using Pair pair = await Pair.StartAsync(transport: (channel, client) =>
+            client != clientFinishesFirst ? held = new ClosingChannel(channel, holdCloseWrite) : channel);
+        IChannel first = clientFinishesFirst ? pair.ClientApplication : pair.ServerApplication;
+        IChannel last = clientFinishesFirst ? pair.ServerApplication : pair.ClientApplication;
+        Task firstPump = clientFinishesFirst ? pair.Client : pair.Server;
+        Task lastPump = clientFinishesFirst ? pair.Server : pair.Client;
+        held!.Armed = true;
+        try
+        {
+            // Only close_notify can be written after this application EOF. Delay
+            // its transport acknowledgement, or the following transport EOF.
+            await last.WriteEofAsync();
+            Assert.That((await first.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result, Is.EqualTo(IOResult.Ended));
+            await first.WriteEofAsync();
+            await held.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstPump.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(lastPump.IsCompleted, Is.False, "The other pump must still own its closing I/O.");
+            if (holdCloseWrite)
+                await held.ReadHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            held.Release.TrySetResult();
+            if (holdCloseWrite)
+            {
+                await held.Acknowledged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                held.ReleaseRead.TrySetResult();
+            }
+            await lastPump.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That((await last.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result, Is.EqualTo(IOResult.Ended));
+            Assert.That((await first.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+            Assert.That(held.ClosingResult, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            held.Release.TrySetResult();
+            held.ReleaseRead.TrySetResult();
+        }
+    }
+
+    [Test]
+    public async Task TransportAbortWithoutPeerCloseNotifyIsNotCleanEof()
+    {
+        await using Pair pair = await Pair.StartAsync();
+        await pair.ClientApplication.WriteEofAsync();
+        Assert.That((await pair.ServerApplication.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Result, Is.EqualTo(IOResult.Ended));
+        // Our alert arrived, but the peer never sent its own. Transport
+        // completion alone must not turn that truncated direction into TLS EOF.
+        await pair.ServerDown.AbortAsync();
+        Exception? failure = Assert.CatchAsync(async () => await pair.Client.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.That(failure, Is.InstanceOf<IOException>());
+        Assert.That((await pair.ClientApplication.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CallerCancellationWinsOverConcurrentTransportAbort()
+    {
+        await using Pair pair = await Pair.StartAsync();
+        using ManualResetEventSlim release = new();
+        // This callback runs before the pump's linked registrations. The source
+        // token is cancelled, but the linked tokens cannot observe it yet.
+        using CancellationTokenRegistration registration = pair.Cancellation.Token.Register(() =>
+        {
+            pair.ClientDown.AbortAsync().GetAwaiter().GetResult();
+            release.Wait(TimeSpan.FromSeconds(5));
+        });
+        Task cancel = Task.Run(pair.Cancellation.Cancel);
+        try
+        {
+            foreach (Task pump in new[] { pair.Client, pair.Server })
+            {
+                Exception? failure = Assert.CatchAsync(async () => await pump.WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.That(failure, Is.InstanceOf<OperationCanceledException>());
+            }
+            Assert.That(cancel.IsCompleted, Is.False, "Both pumps finished before linked cancellation was released.");
+        }
+        finally
+        {
+            release.Set();
+            await cancel.WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Test]
@@ -395,6 +520,58 @@ public class TlsChannelTests
         public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 
+    private sealed class ClosingChannel(IChannel inner, bool holdCloseWrite) : IChannel
+    {
+        public bool Armed { get; set; }
+        public IOResult? ClosingResult { get; private set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReadHeld { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Acknowledged { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken CancellationToken => inner.CancellationToken;
+        public async ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode mode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+        {
+            ReadResult result = await inner.ReadAsync(length, mode, token);
+            if (Armed && holdCloseWrite && length != 5 && result.Result == IOResult.Ok)
+            {
+                // The transport has consumed the final record body but the TLS
+                // owner has not received its continuation. Peer teardown is real.
+                ReadHeld.TrySetResult();
+                await ReleaseRead.Task.WaitAsync(token);
+            }
+            return result;
+        }
+        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            IOResult result = await inner.WriteAsync(bytes, token);
+            if (!Armed || !holdCloseWrite) return result;
+            Assert.That(result, Is.EqualTo(IOResult.Ok), "The peer consumed our close_notify before tearing down.");
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(token);
+            // Model a transport reporting teardown after consuming the alert but
+            // before acknowledging its write. The real shared channel is closed.
+            ClosingResult = await inner.WriteEofAsync(token);
+            Acknowledged.TrySetResult();
+            return ClosingResult.Value;
+        }
+        public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
+        {
+            if (Armed && !holdCloseWrite)
+            {
+                Entered.TrySetResult();
+                await Release.Task.WaitAsync(token);
+            }
+            IOResult result = await inner.WriteEofAsync(token);
+            ClosingResult ??= result;
+            return result;
+        }
+        public ValueTask CloseAsync() => inner.CloseAsync();
+        public ValueTask AbortAsync() => inner.AbortAsync();
+        public ValueTask CloseReadAsync() => inner.CloseReadAsync();
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
+    }
+
     private sealed class Pair : IAsyncDisposable
     {
         private readonly TestChannel _network = new();
@@ -409,11 +586,11 @@ public class TlsChannelTests
         public IChannel ServerApplication => _serverUp.Reverse();
         public Task Client { get; private set; } = null!;
         public Task Server { get; private set; } = null!;
-        public static async Task<Pair> StartAsync(bool fragmented = false)
+        public static async Task<Pair> StartAsync(bool fragmented = false, Func<IChannel, bool, IChannel>? transport = null)
         {
             Pair pair = new();
-            pair.ClientDown = new(pair._network, fragmented);
-            pair.ServerDown = new(pair._network.Reverse(), fragmented);
+            pair.ClientDown = new(transport?.Invoke(pair._network, true) ?? pair._network, fragmented);
+            pair.ServerDown = new(transport?.Invoke(pair._network.Reverse(), false) ?? pair._network.Reverse(), fragmented);
             pair.ServerUp = new(pair._serverUp);
             pair.ClientUp = new(pair._clientUp);
             TaskCompletionSource clientUpgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);

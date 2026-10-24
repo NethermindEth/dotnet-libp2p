@@ -104,7 +104,15 @@ public class TlsProtocolTests
 
             ValueTask<IOResult> writeTask = listenerUpChannel.Reverse().WriteVarintAsync(sent);
             received = await upChannel.Reverse().ReadVarintAsync().WaitAsync(TimeSpan.FromSeconds(15));
-            await writeTask;
+            Assert.That(await writeTask, Is.EqualTo(IOResult.Ok));
+
+            // Successful exchange must close gracefully. CloseAsync aborts a
+            // channel and can make the peer fail before its own cleanup starts.
+            Assert.That(await upChannel.Reverse().WriteEofAsync(), Is.EqualTo(IOResult.Ok));
+            Assert.That((await listenerUpChannel.Reverse().ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(15))).Result, Is.EqualTo(IOResult.Ended));
+            Assert.That(await listenerUpChannel.Reverse().WriteEofAsync(), Is.EqualTo(IOResult.Ok));
+            Assert.That((await upChannel.Reverse().ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(15))).Result, Is.EqualTo(IOResult.Ended));
+            await Task.WhenAll(listenTask, dialTask).WaitAsync(TimeSpan.FromSeconds(15));
         }
         finally
         {
@@ -112,7 +120,13 @@ public class TlsProtocolTests
                 upChannel.CloseAsync().AsTask(),
                 listenerUpChannel.CloseAsync().AsTask(),
                 downChannel.CloseAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(15));
-            await Task.WhenAll(listenTask, dialTask).WaitAsync(TimeSpan.FromSeconds(15));
+            // Observe owned work after a failed assertion/handshake without
+            // replacing that original failure with teardown's expected abort.
+            foreach (Task task in new[] { listenTask, dialTask })
+            {
+                try { await task.WaitAsync(TimeSpan.FromSeconds(15)); }
+                catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
+            }
         }
 
         // Assert
