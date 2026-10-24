@@ -52,7 +52,8 @@ parent's process-owned Windows key, through the existing certificate lease.
 Temporary PKCS#8 bytes are cleared. Channel writes receive stable owned arrays.
 Cancellation reaches actual I/O; partial-write debt is aborted before owned work
 is awaited and credentials are released. Clean close drains data and close alerts
-before paired EOFs. Missing `close_notify` and truncated records fail. Upgrade
+before transport EOFs. Peer `close_notify` closes only its write half; the
+application can still send its reply after reading EOF. Missing `close_notify` and truncated records fail. Upgrade
 lifecycle exceptions keep their category after authentication.
 
 Managed TLS changes cipher selection and reliance on OS crypto policy. See the
@@ -101,12 +102,38 @@ with resumption disabled. Its resumption-enabled server also exhibited an
 incidental, variable session-ticket ceiling near 65 KiB. These observations
 motivated the explicit policy decision; they are not candidate limits.
 
-## Candidate validation and replay
+
+The original eight parent red controls can also be replayed without moving HEAD.
+This substitutes only the pinned parent TLS source and the original checkpoint's
+wire tests; all other production source stays in the supplied checkout. Expect
+exit **2**, four passing single/empty controls and four extra-entry failures:
+
+```sh
+python3 - <<'PYTHON'
+import os, subprocess
+from pathlib import Path
+p = Path(os.environ['TMPDIR'])
+for revision, source, target in [
+    ('f94d0d071518dd43085303f6f24b5de7b2660e82', 'libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs', 'ParentTlsProtocol.cs'),
+    ('2515bb8df7976a1497baa3718b397c8aa3b9988c', 'libp2p/Libp2p.E2eTests/TlsCertificateListTests.cs', 'ParentCertificateListTests.cs'),
+]:
+    (p / target).write_bytes(subprocess.check_output(['git', 'show', revision + ':' + source]))
+(p / 'tls373-red.targets').write_text(f"""<Project><Target Name="Tls373Red" BeforeTargets="CoreCompile">
+<ItemGroup Condition="'$(MSBuildProjectName)' == 'Libp2p.Protocols.Tls'"><Compile Remove="TlsProtocol.cs;TlsHandshake.cs;TlsChannel.cs"/><Compile Include="{p / 'ParentTlsProtocol.cs'}"/></ItemGroup>
+<ItemGroup Condition="'$(MSBuildProjectName)' == 'Libp2p.E2eTests'"><Compile Remove="TlsCertificateListTests.cs"/><Compile Include="{p / 'ParentCertificateListTests.cs'}"/></ItemGroup>
+</Target></Project>""")
+(p / 'tls373-red.xml').write_text('<RunSettings><NUnit><TestOutputXml>' + str(p / 'tls373-red-results') + '</TestOutputXml></NUnit></RunSettings>')
+PYTHON
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts/parent" -p:TreatWarningsAsErrors=true -p:CustomBeforeMicrosoftCommonTargets="$TMPDIR/tls373-red.targets" -- --filter FullyQualifiedName~TlsCertificateListTests --minimum-expected-tests 8 --timeout 180s --settings "$TMPDIR/tls373-red.xml"
+```
+
+## Replay and retained evidence
 
 The [Linux candidate snapshot](evidence/linux-tls-cardinality-candidate.json)
 records source hashes, exact commands, discovered/executed counts, outcomes,
 report hashes, interoperability and benchmark measurements. The candidate is
-uncommitted work on checkpoint `2515bb8df7976a1497baa3718b397c8aa3b9988c`;
+uncommitted work on checkpoint `065245ca722dccc281d808df5dbaebe9b40c08f5`
+(which retains the interrupted work from `2515bb8df7976a1497baa3718b397c8aa3b9988c`);
 the host owns the eventual commit. Windows results below must apply to that
 committed candidate, not the earlier native baseline.
 
@@ -128,6 +155,13 @@ lengths, nested allocation bounds and close ordering. Noise, QUIC and affected
 Core lifecycle/channel tests remain. Linux QUIC's three Windows-only cases stay
 excluded by their original conditions; the Windows minimum stays 32.
 
+Final Linux results: TLS **58/58**, registered paths **76/76**, Noise **38/38**,
+Core lifecycle/channel checks **123/123**, and QUIC **29 passed, 3 original
+Windows-only skips**. All commands exited zero and use Release with warnings as
+errors. Before the final completion-signal correction, five additional runs of
+the read-wakeup fix passed all 40 registered identity cases (200 cases). Those
+repetitions are labeled separately from the final-candidate suite.
+
 From repository root, using the existing session `TMPDIR`:
 
 ```sh
@@ -137,18 +171,25 @@ from pathlib import Path
 p = Path(os.environ['TMPDIR'])
 (p / 'tls373.xml').write_text('<RunSettings><NUnit><TestOutputXml>' + str(p / 'tls373-results') + '</TestOutputXml></NUnit></RunSettings>')
 PY
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 57 --timeout 180s --settings "$TMPDIR/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 58 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredProtocolsUseCanonicalIdentitiesAndVerifySignatures' --minimum-expected-tests 76 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 29 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38 --timeout 180s --settings "$TMPDIR/tls373.xml"
-dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~PeerLifecycleTests|FullyQualifiedName~SessionCancellationTests|FullyQualifiedName~SessionLifetimeCompatibilityTests|FullyQualifiedName~ChannelTests' --minimum-expected-tests 1 --timeout 180s --settings "$TMPDIR/tls373.xml"
+dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~PeerLifecycleTests|FullyQualifiedName~SessionCancellationTests|FullyQualifiedName~SessionLifetimeCompatibilityTests|FullyQualifiedName~ChannelTests' --minimum-expected-tests 123 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
 ```
 
-One earlier 72-case registered run hit the existing 15-second RSA-case deadline
-while other compilation was active. That unchanged case passed its isolated
-retry; the final suite result and any remaining limitation are recorded in the
-candidate snapshot. No assertion, deadline or execution minimum was relaxed.
+Earlier registered runs intermittently stalled during dialing or negotiation.
+The continuation reproduced this in a diagnostic run: a read completed between
+the pump's processing check and its wait-set construction. Filtering completed
+reads out of that set lost the wakeup. The owner now includes all consumable
+reads regardless of completion, excluding only reads held behind backpressure.
+The new 1000-round bidirectional request/reply regression failed against the
+retained pump and passes after this correction. Final suite and repetition
+results are recorded in the candidate snapshot. The same review also corrected the channel-completion wait
+signals: they stay in the wait set until the owner observes them, including a
+racing completion.
+No existing assertion, deadline or execution minimum was relaxed.
 
 Go interoperability uses the checked-in [driver](../../tests/tls-interop/run.py)
 and pinned module. It runs the existing transport-interop application, exercises
@@ -161,12 +202,65 @@ dotnet build samples/transport-interop/TransportInterop.csproj -c Release --arti
 python3 tests/tls-interop/run.py --dotnet-dll "$TMPDIR/artifacts/bin/TransportInterop/release/TransportInterop.dll" --go-peer "$TMPDIR/tls373-go-peer" --output "$TMPDIR/tls373-interop"
 ```
 
+The pinned Go `TestNewIdentityCertificates` and `TestVectors` reference tests
+also run separately:
+
+```sh
+GOCACHE="$TMPDIR/go-build" GOMODCACHE="$TMPDIR/go-mod" go -C tests/tls-interop test github.com/libp2p/go-libp2p/p2p/security/tls -run 'TestNewIdentityCertificates|TestVectors' -count=1 -v
+```
+
 The driver owns and stops only its child services. The existing transport
 benchmark's upload, download and stream-open-exchange scenarios compare the
 parent TLS backend with the candidate; measurements and limitations are retained
 in the snapshot. They are small loopback scenarios, not a full throughput study.
 
-## Required Windows candidate run
+| Existing benchmark (three processes each) | Parent median | Candidate median |
+| --- | ---: | ---: |
+| Upload, 32 KiB | 0.3431 MiB/s | 0.3508 MiB/s |
+| Download, 32 KiB | 0.2342 MiB/s | 0.2385 MiB/s |
+| Stream open and exchange | 137.9538 ms | 130.5586 ms |
+
+All 18 final processes completed. Prior measurements varied substantially; this
+small loopback workload does not establish general throughput or cipher
+performance. The interrupted candidate's earlier dial timeouts preceded the
+reproduced wakeup correction. The parent backend was compiled from its exact
+revision by replacing only the TLS compile inputs, without moving HEAD. Replay:
+
+```sh
+python3 - <<'PYTHON'
+import os, subprocess
+from pathlib import Path
+p = Path(os.environ['TMPDIR'])
+source = subprocess.check_output(['git', 'show', 'f94d0d071518dd43085303f6f24b5de7b2660e82:libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs'])
+(p / 'ParentTlsProtocol.cs').write_bytes(source)
+(p / 'tls373-parent.targets').write_text('<Project><Target Name="Tls373ParentBackend" BeforeTargets="CoreCompile" Condition="\'$(MSBuildProjectName)\' == \'Libp2p.Protocols.Tls\'"><ItemGroup><Compile Remove="TlsProtocol.cs;TlsHandshake.cs;TlsChannel.cs"/><Compile Include="' + str(p / 'ParentTlsProtocol.cs') + '"/></ItemGroup></Target></Project>')
+PYTHON
+dotnet build libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true
+dotnet build libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj -c Release --artifacts-path "$TMPDIR/artifacts/parent" -p:TreatWarningsAsErrors=true -p:CustomBeforeMicrosoftCommonTargets="$TMPDIR/tls373-parent.targets"
+for backend in candidate parent; do
+  root="$TMPDIR/artifacts"
+  if [ "$backend" = parent ]; then root="$root/parent"; fi
+  for metric in upload download stream-open-exchange; do
+    for sample in 0 1 2; do
+      dotnet "$root/bin/Libp2p.Transport.Benchmarks/release/Libp2p.Transport.Benchmarks.dll" "$TMPDIR/benchmark-$backend-$metric-$sample.json" tcp-tls-yamux "$metric"
+    done
+  done
+done
+```
+
+## Windows checkpoint and required revised-candidate run
+
+The [host-supplied checkpoint result](evidence/windows-tls-cardinality-candidate.json)
+on `065245ca722dccc281d808df5dbaebe9b40c08f5` passed TLS 57/57 and QUIC 32/32,
+without skips. Registered cases passed 35/36; the TLS repeated-authentication
+lifetime case timed out, including in an isolated recheck (2/3 transport cases
+passed). Thus all 31 cardinality/identity cases passed on real Windows, including
+one-cert, unrelated/duplicate extras and protocol-size controls in both roles,
+but **that checkpoint was not passing validation**. It predates the pump wakeup
+correction. The certificate validator and handshake-source hashes match the
+current code; the pump hash does not. Do not transfer these results to the revised
+candidate or mark the Windows timeout fixed before rerunning it.
+
 
 Run after the host commits the candidate; retain commit ID, `dotnet --info`, full
 logs, exit codes and NUnit XML. Use the host's existing `TEMP`:
@@ -175,7 +269,7 @@ logs, exit codes and NUnit XML. Use the host's existing `TEMP`:
 "<RunSettings><NUnit><TestOutputXml>$env:TEMP/tls373-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/tls373.xml"
 git rev-parse HEAD
 dotnet --info
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 57 --timeout 180s --settings "$env:TEMP/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 58 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 36 --timeout 180s --settings "$env:TEMP/tls373.xml"
 ```

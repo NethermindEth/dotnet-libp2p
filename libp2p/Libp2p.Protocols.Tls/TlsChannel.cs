@@ -28,10 +28,12 @@ internal static class TlsChannel
         // EOFs are published. Wake the owner; do not cancel delivery of that EOF.
         using CancellationTokenSource downSignal = CancellationTokenSource.CreateLinkedTokenSource(token, downToken);
         Task downClosed = Task.Delay(Timeout.Infinite, downSignal.Token);
+        bool downCompletionObserved = false;
         IChannel? upChannel = null;
         CancellationToken upToken = default;
         CancellationTokenRegistration upRegistration = default;
         TaskCompletionSource upClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool upSignalObserved = false;
         bool upCompletionObserved = false;
         bool upEofPublished = false;
         bool applicationEof = false;
@@ -55,6 +57,7 @@ internal static class TlsChannel
                 bool progress = false;
                 if (upChannel is not null && upToken.IsCancellationRequested && !upCompletionObserved)
                 {
+                    upSignalObserved = true;
                     if (!upEofPublished) throw new IOException("Upgraded TLS channel was closed.");
                     // A completed channel's remaining read distinguishes graceful
                     // application EOF from forced abort. Do not cancel the final
@@ -156,9 +159,12 @@ internal static class TlsChannel
                     progress = true;
                 }
 
-                if (downToken.IsCancellationRequested && !handshake.PeerClosed
-                    && networkRead is not { IsCompleted: true })
-                    throw new IOException("TLS transport closed without close_notify.");
+                if (downToken.IsCancellationRequested)
+                {
+                    downCompletionObserved = true;
+                    if (!handshake.PeerClosed && networkRead is not { IsCompleted: true })
+                        throw new IOException("TLS transport closed without close_notify.");
+                }
 
                 if (upChannel is not null && applicationWrite is null && engine.GetAvailableInputBytes() > 0)
                 {
@@ -227,12 +233,21 @@ internal static class TlsChannel
 
                 if (progress) continue;
                 List<Task> pending = [cancelled];
-                if (!downClosed.IsCompleted) pending.Add(downClosed);
-                if (upChannel is not null && !upCompletionObserved && !upClosed.Task.IsCompleted) pending.Add(upClosed.Task);
-                // Completed reads can be held behind a blocked writer. Waiting on
-                // them again would spin while the corresponding writer is blocked.
-                if (networkRead is { IsCompleted: false }) pending.Add(networkRead);
-                if (applicationRead is { IsCompleted: false }) pending.Add(applicationRead);
+                // Latch signals only after the owner handles them. A completion
+                // racing this wait-set construction must still wake the owner.
+                if (!downCompletionObserved) pending.Add(downClosed);
+                if (upChannel is not null && !upSignalObserved) pending.Add(upClosed.Task);
+                // Keep every consumable read in the wait set, even if it completed
+                // after the checks above. Filtering by IsCompleted here loses that
+                // wakeup and can strand a request until unrelated traffic arrives.
+                // Exclude reads held behind backpressure to avoid a busy loop.
+                if (networkRead is not null && !handshake.PeerClosed && applicationWrite is null
+                    && engine.GetAvailableInputBytes() == 0 && engine.GetAvailableOutputBytes() == 0)
+                    pending.Add(networkRead);
+                if (applicationRead is not null &&
+                    ((networkWrite is null && engine.GetAvailableOutputBytes() == 0)
+                    || (upToken.IsCancellationRequested && upEofPublished && !upCompletionObserved)))
+                    pending.Add(applicationRead);
                 if (networkWrite is not null) pending.Add(networkWrite);
                 if (applicationWrite is not null) pending.Add(applicationWrite);
                 await Task.WhenAny(pending);

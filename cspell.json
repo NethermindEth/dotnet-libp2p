@@ -14,6 +14,7 @@
         "autoremove",
         "aspnet",
         "autotls",
+        "backpressure",
         "bafz",
         "buildtransitive",
         "cbor",
@@ -201,6 +202,7 @@
         "xcassets",
         "xlink",
         "xord",
+        "wakeup",
         "yamux"
     ],
     "ignorePaths": [
@@ -332,6 +334,25 @@
             ],
             "ignoreRegExpList": [
                 "/\\bh1:[A-Za-z0-9+/=]+/g"
+            ]
+        },
+        {
+            "filename": "{cspell.json,docs/development/evidence/*-tls-cardinality-candidate.json}",
+            "words": [
+                "Filecoin",
+                "Holochain",
+                "Multiformat",
+                "Softhash",
+                "Varsig",
+                "Zeroxcert",
+                "Symetric",
+                "Unwarp",
+                "subtests",
+                "testcasecount",
+                "GOCACHE",
+                "GOMODCACHE",
+                "GOTOOLCHAIN",
+                "GOMAXPROCS"
             ]
         }
     ]
