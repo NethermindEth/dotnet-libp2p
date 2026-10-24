@@ -13,6 +13,7 @@ using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 public readonly record struct TestNode(PeerId Id)
 {
     public Multiaddress[]? Addresses { get; init; }
@@ -52,35 +53,39 @@ public static class KadDhtProtocolExtensions
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys, dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes, loggerFactory);
         var dhtValidator = validator ?? DefaultRecordValidator.Instance;
 
-        builder = builder.AddRequestResponseProtocol<Message, Message>(
-            async (request, ctx, token) =>
-            {
-                TryTrackPeer(ctx, onPeerSeen, dhtOptions);
-
-                return request.Type switch
-                {
-                    Message.Types.MessageType.Ping => MessageHelper.CreatePingResponse(),
-
-                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest, ctx, dhtOptions),
-
-                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, dhtValidator, loggerFactory, token),
-
-                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtOptions, dhtValueStore, findNearest, loggerFactory, ctx, token),
-
-                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory, token),
-
-                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, findNearest, loggerFactory, ctx, token),
-
-                    _ => new Message()
-                };
-            },
-            baseId,
-            maxMessageSize: dhtOptions.MaxMessageSize,
-            isExposed: isExposed,
-            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider);
-
-        return builder;
+        var handler = new DhtHandlerServices(dhtOptions, dhtValueStore, dhtProviderStore, dhtValidator,
+            findNearest, onPeerSeen);
+        var protocol = CreateProtocol(dhtOptions, _ => handler, loggerFactory, baseId);
+        if (builder is IProtocolFactoryBuilder factories)
+        {
+            factories.AddProtocolFactory(_ => new ProtocolRef(protocol, isExposed) { AcceptInbound = dhtOptions.Mode == KadDhtMode.Server });
+            return builder;
+        }
+        return builder.AddProtocol(protocol, isExposed);
     }
+
+    internal sealed record DhtHandlerServices(KadDhtOptions Options, IValueStore Values, IProviderStore Providers,
+        IRecordValidator Validator, Func<PublicKey, IEnumerable<DhtNode>> FindNearest, Action<DhtNode>? OnPeerSeen);
+
+    internal static RequestResponseProtocol<Message, Message> CreateProtocol(KadDhtOptions options,
+        Func<ISessionContext, DhtHandlerServices> resolve, ILoggerFactory? loggerFactory = null, string? baseId = null) =>
+        new(async (request, ctx, token) =>
+        {
+            // Resolve and initialize the peer's routing callbacks before observing this request.
+            var handler = resolve(ctx);
+            TryTrackPeer(ctx, handler.OnPeerSeen, handler.Options);
+            return request.Type switch
+            {
+                Message.Types.MessageType.Ping => MessageHelper.CreatePingResponse(),
+                Message.Types.MessageType.FindNode => HandleFindNode(request, handler.FindNearest, ctx, handler.Options),
+                Message.Types.MessageType.PutValue => await HandlePutValue(request, handler.Options, handler.Values, handler.Validator, loggerFactory, token),
+                Message.Types.MessageType.GetValue => await HandleGetValue(request, handler.Options, handler.Values, handler.Validator, handler.FindNearest, loggerFactory, ctx, token),
+                Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, handler.Options, handler.Providers, loggerFactory, token),
+                Message.Types.MessageType.GetProviders => await HandleGetProviders(request, handler.Options, handler.Providers, handler.FindNearest, loggerFactory, ctx, token),
+                _ => new Message()
+            };
+        }, baseId ?? options.ProtocolId, loggerFactory,
+            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider, maxMessageSize: options.MaxMessageSize);
 
     private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<DhtNode>> findNearest, ISessionContext ctx, KadDhtOptions options)
     {
@@ -132,7 +137,7 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleGetValue(Message request, KadDhtOptions options, IValueStore valueStore,
+    private static async Task<Message> HandleGetValue(Message request, KadDhtOptions options, IValueStore valueStore, IRecordValidator validator,
         Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory, ISessionContext ctx, CancellationToken token)
     {
         try
@@ -141,7 +146,8 @@ public static class KadDhtProtocolExtensions
             var closerPeers = findNearest(target);
 
             var storedValue = await valueStore.GetValueAsync(request.Key.ToByteArray(), token);
-            if (storedValue != null)
+            if (storedValue is { Value.Length: > 0 } && storedValue.Value.Length <= options.MaxValueSize &&
+                validator.Validate(request.Key.ToByteArray(), storedValue.Value))
             {
                 var record = new Record
                 {

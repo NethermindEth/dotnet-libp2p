@@ -105,3 +105,67 @@ This migration intentionally changes the public API. Generic routing and lookup 
 ## License
 
 This project is MIT-licensed. The separate `Nethermind.Kademlia` package has its own license metadata.
+
+## Builder and compatibility migration
+
+Automatic protocol activation now happens at `Build()`, after builder `Services`
+registrations are complete. Supplied services remain available during configuration;
+new builder registrations resolve at build time, including nested constructor and factory
+dependencies. Builder registrations take precedence over the supplied provider. The first
+successful build freezes registrations and subsequent builds return the same factory.
+Late service or protocol changes throw `InvalidOperationException`. Dispose the builder
+(or the containing DI provider) after its peers; it disposes its own services and
+implicitly created protocols while leaving explicit instances and supplied services owned
+by their original registration. A failed build can be corrected and retried.
+
+`AddKadDht`, `AddKadDht` on `IServiceCollection`, and `WithKadDht` share the same
+request handler. The standard builder creates routing state and runtime identity lazily
+once per peer; it does not require an `ILocalPeer` singleton. `GetKadDht()`,
+`GetProtocol<KadDhtProtocol>()`, and `RunKadDhtAsync()` still work. The runtime is
+not a second negotiated listener. Client mode keeps outbound dialing available while
+refusing inbound DHT negotiation and omitting DHT from Identify. The additive
+`ProtocolRef.AcceptInbound` flag controls listener negotiation separately from
+`IsExposed`; other protocol registrations keep their previous defaults. Custom builders can implement the additive
+`IPeerServiceBuilder` and `IProtocolFactoryBuilder` capabilities. Existing builder
+interfaces have no new mandatory members. Handler-only custom builders remain supported.
+
+Retrieve a client's peer-bound service with
+`((IPeerServices)peer).GetPeerService<DhtClient>()`. The existing singleton-peer DI
+pattern also retains `GetRequiredService<KadDhtProtocol>()` and now registers `DhtClient`.
+Explicit store arguments override registered stores; registered stores override defaults.
+Store instances retain their configured capacities and existing DI sharing semantics,
+while each peer has its own routing state. Use a separate provider per peer when stores
+must also be isolated.
+
+`DhtClient` retains its original constructor and string methods and adds a constructor
+accepting `IDhtMessageSender`, `IValueStore`, `IRecordValidator`, and `KadDhtOptions`.
+The old constructor is obsolete. `DhtClient` now implements `IDisposable` and `IAsyncDisposable`; peer disposal
+cancels and drains its active operations. Dispose manually constructed clients after use; prefer asynchronous disposal when operations are active.
+Both paths validate PUTs and cached/remote GET results,
+select valid remote candidates through the validator, and propagate caller cancellation.
+Rejected local writes do not count as storage successes. A valid lookup can return a
+value even when cache capacity prevents storing it. Default production validation uses
+`CompositeRecordValidator`, including signed IPNS validation. GET responses must carry
+the requested record key. Local and wire reads revalidate custom or legacy store content.
+These intentional behavior changes reject records previously accepted without validation.
+For binary keys and values (including IPNS), use the byte-oriented `KadDhtProtocol` API;
+the legacy string client continues to encode and decode UTF-8.
+
+Public API inspection found exported signatures for both `TestNode` types,
+`TestNodeAddressBook`, `PublicKeyKeyOperator`, `KademliaSessionManager`, `ISessionManager`,
+`SessionOptions`, the generic network sender, and the legacy value store. Absence of
+in-tree consumers does not establish external usage. No public type, constructor, or
+method was removed or internalized. Both `TestNode` types, the address book, key operator,
+session manager, generic sender, old client constructor, and `SharedDhtState.ValueStore`
+are deprecated with `Obsolete` warnings. Existing consumers using warnings-as-errors must
+migrate or acknowledge those warnings specifically at their legacy call sites.
+Use `DhtNode`, `KadDhtProtocol`, `IDhtMessageSender`, and `IValueStore` for new code.
+The compatibility session manager adapts legacy nodes at its boundary and runs the
+routing algorithm on `DhtNode`; production DI does not register TestNode-based services.
+The internal test transport helper lives in the test assembly.
+
+`SharedDhtState.ValueStore` is a synchronous compatibility facade over the authoritative
+`IValueStore`, with no second dictionary or cleanup timer. Standalone `DhtValueStore`
+construction remains supported; reads filter expiration, and explicit store cleanup
+reclaims expired entries. The facade does not own or dispose its backing store. Production
+operations use the asynchronous store directly. There is no wire ID or protobuf change.
