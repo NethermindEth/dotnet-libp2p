@@ -25,21 +25,30 @@ public partial class PubsubRouter
         public long PeerBytes { get; }
         public int Entries { get; }
         public long Bytes { get; }
+        public int OptionalEntries { get; }
+        public long OptionalBytes { get; }
+        public TimeSpan Timeout { get; }
         public OutboundLimits(PubsubSettings settings)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(settings.MaxOutboundRpcEntriesPerPeer);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(settings.MaxOutboundRpcBytesPerPeer);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(settings.MaxOutboundRpcEntries);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(settings.MaxOutboundRpcBytes);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(settings.OutboundRpcTimeout);
+            Timeout = TimeSpan.FromMilliseconds(settings.OutboundRpcTimeout);
             PeerEntries = settings.MaxOutboundRpcEntriesPerPeer;
             PeerBytes = settings.MaxOutboundRpcBytesPerPeer;
             Entries = settings.MaxOutboundRpcEntries;
             Bytes = settings.MaxOutboundRpcBytes;
+            // Keep one peer's allocation, capped at half the total (rounded up), for required
+            // control. Optional-only stalled peers cannot consume the initial hello or mesh budget.
+            OptionalEntries = Entries - (int)Math.Min(PeerEntries, ((long)Entries + 1) / 2);
+            OptionalBytes = Bytes - Math.Min(PeerBytes, Bytes / 2 + Bytes % 2);
         }
     }
 
     internal enum SendResult { Admitted, Dropped, Closing }
-    internal sealed record OutboundFrame(byte[] Bytes, bool Extensions, IwantPromiseTracker.Promise? Promise);
+    internal sealed record OutboundFrame(byte[] Bytes, bool Extensions, IwantPromiseTracker.Promise? Promise, long AdmittedAt);
 
     internal sealed partial class PubsubPeer
     {
@@ -49,6 +58,8 @@ public partial class PubsubRouter
         internal readonly SemaphoreSlim Wake = new(0, 1);
         internal Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>>? Write;
         internal Func<ValueTask>? Abort;
+        internal ITimer DeadlineTimer = null!;
+        internal OutboundFrame? ActiveFrame;
         internal int IncomingStreams; // Owned by the router lock.
         internal int Entries;
         internal long Bytes;
@@ -121,8 +132,10 @@ public partial class PubsubRouter
                 necessary |= extensions;
                 long length = rpc.CalculateSize();
                 long size = length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length);
-                if (size > int.MaxValue || peer.Entries >= _outboundLimits.PeerEntries || _outboundEntries >= _outboundLimits.Entries ||
-                    size > _outboundLimits.PeerBytes - peer.Bytes || size > _outboundLimits.Bytes - _outboundBytes)
+                int entryLimit = necessary ? _outboundLimits.Entries : _outboundLimits.OptionalEntries;
+                long byteLimit = necessary ? _outboundLimits.Bytes : _outboundLimits.OptionalBytes;
+                if (size > int.MaxValue || peer.Entries >= _outboundLimits.PeerEntries || _outboundEntries >= entryLimit ||
+                    size > _outboundLimits.PeerBytes - peer.Bytes || size > byteLimit - _outboundBytes)
                 {
                     dropReason = "capacity";
                     if (necessary) TerminateUnderLock(peer, disconnect: true);
@@ -131,6 +144,7 @@ public partial class PubsubRouter
                 else
                 {
                     // Reserve before allocation. The queue owns bytes, never the caller's mutable RPC.
+                    long admittedAt = _timeProvider.GetTimestamp();
                     reserved = (int)size;
                     peer.Entries++;
                     peer.Bytes += size;
@@ -142,8 +156,9 @@ public partial class PubsubRouter
                     VarInt.Encode((int)length, bytes, ref offset);
                     rpc.WriteTo(bytes.AsSpan(offset));
                     promise = _iwantPromises.Reserve(peer.PeerId, peer, SamplePromiseId(rpc));
-                    peer.Queue.Enqueue(new(bytes, extensions, promise));
+                    peer.Queue.Enqueue(new(bytes, extensions, promise, admittedAt));
                     peer.ExtensionsQueued |= extensions;
+                    if (peer.Entries == 1) RefreshDeadlineUnderLock(peer);
                     result = SendResult.Admitted;
                 }
             }
@@ -187,6 +202,7 @@ public partial class PubsubRouter
     private void TerminateUnderLock(PubsubPeer peer, bool disconnect)
     {
         peer.DisconnectRequired |= disconnect;
+        if (!peer.Terminal) peer.DeadlineTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         peer.Terminal = true;
         peer.Stop.TrySetResult();
         _iwantPromises.ClearOwner(peer);
@@ -200,6 +216,36 @@ public partial class PubsubRouter
         _outboundEntries--;
         _outboundBytes -= size;
         if (peer.Entries == 0) peer.Idle.TrySetResult();
+        if (!peer.Terminal) RefreshDeadlineUnderLock(peer);
+    }
+
+    private static OutboundFrame? OldestFrameUnderLock(PubsubPeer peer) =>
+        peer.ActiveFrame ?? (peer.Queue.TryPeek(out OutboundFrame? frame) ? frame : null);
+
+    private void RefreshDeadlineUnderLock(PubsubPeer peer)
+    {
+        OutboundFrame? oldest = OldestFrameUnderLock(peer);
+        TimeSpan remaining = oldest is null ? Timeout.InfiniteTimeSpan
+            : _outboundLimits.Timeout - _timeProvider.GetElapsedTime(oldest.AdmittedAt);
+        peer.DeadlineTimer.Change(oldest is not null && remaining <= TimeSpan.Zero ? TimeSpan.Zero : remaining, Timeout.InfiniteTimeSpan);
+    }
+
+    private void ExpireOutbound(PubsubPeer peer)
+    {
+        lock (_outboundLock)
+        {
+            if (peer.Terminal || OldestFrameUnderLock(peer) is not { } oldest) return;
+            // A callback may already have been scheduled when the previous frame completed.
+            if (_timeProvider.GetElapsedTime(oldest.AdmittedAt) < _outboundLimits.Timeout)
+            {
+                RefreshDeadlineUnderLock(peer);
+                return;
+            }
+            TerminateUnderLock(peer, disconnect: true);
+        }
+        peer.Signal();
+        OverloadDisconnects.Add(1, new KeyValuePair<string, object?>("reason", "timeout"));
+        logger?.LogDebug("Closing stalled pubsub generation for {peerId}", peer.PeerId);
     }
 
     private void StopPeer(PubsubPeer peer)
@@ -222,10 +268,18 @@ public partial class PubsubRouter
                     {
                         if (peer.Terminal) return;
                         if (peer.Write is null || !peer.Queue.TryDequeue(out frame)) break;
+                        peer.ActiveFrame = frame;
                     }
                     try
                     {
+                        // Timer callbacks may be delayed; never start or accept a write past its deadline.
+                        if (_timeProvider.GetElapsedTime(frame.AdmittedAt) >= _outboundLimits.Timeout)
+                        {
+                            ExpireOutbound(peer);
+                            return;
+                        }
                         IOResult result = await peer.Write(frame.Bytes, peer.TokenSource.Token).ConfigureAwait(false);
+                        if (_timeProvider.GetElapsedTime(frame.AdmittedAt) >= _outboundLimits.Timeout) ExpireOutbound(peer);
                         DateTime deadline = result == IOResult.Ok
                             ? _timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(_settings.IWantFollowupTime) : default;
                         lock (_outboundLock)
@@ -252,7 +306,11 @@ public partial class PubsubRouter
                         // The write has terminated, including any partly consumed chunk.
                         int size = frame.Bytes.Length;
                         frame = null;
-                        lock (_outboundLock) ReleaseUnderLock(peer, size);
+                        lock (_outboundLock)
+                        {
+                            peer.ActiveFrame = null;
+                            ReleaseUnderLock(peer, size);
+                        }
                     }
                     if (peer.Terminal) return;
                 }
@@ -273,6 +331,7 @@ public partial class PubsubRouter
     private async Task TeardownPeerAsync(PubsubPeer peer)
     {
         await peer.Stop.Task.ConfigureAwait(false);
+        await peer.DeadlineTimer.DisposeAsync().ConfigureAwait(false);
         // Abort independently of the writer: cancellation cannot retract a partly consumed chunk.
         try { peer.TokenSource.Cancel(); }
         catch (Exception ex) { logger?.LogWarning(ex, "Pubsub peer cancellation failed"); }

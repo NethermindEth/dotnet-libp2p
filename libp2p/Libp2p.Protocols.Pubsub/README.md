@@ -152,7 +152,7 @@ Remote unsubscribe and disconnect release membership and partial-message metadat
 
 ## Outbound work and incoming dispatch
 
-Configure these positive capacities before constructing the router:
+Configure these positive limits before constructing the router:
 
 | Setting | Default | Scope |
 | --- | --- | --- |
@@ -160,6 +160,7 @@ Configure these positive capacities before constructing the router:
 | `MaxOutboundRpcBytesPerPeer` | 4 MiB | Encoded bytes, including framing, per peer |
 | `MaxOutboundRpcEntries` | 4,096 | Frames across the router, including draining connections |
 | `MaxOutboundRpcBytes` | 64 MiB | Encoded bytes across the router, including draining connections |
+| `OutboundRpcTimeout` | 30,000 ms | Maximum outbound frame residence, from admission through write completion |
 | `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
 | `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs |
 
@@ -178,14 +179,23 @@ a fresh connection advertises the current snapshot. Insufficient capacity for th
 the new connection again. Automatic connections retain the existing retry policy; with
 `AutoConnect = false`, the application owns recovery.
 
-The same required-control policy applies when other peers occupy the router-wide budget. A peer
-with an empty queue can therefore lose its session, and new sessions can fail their initial
-subscription or extension advertisement until capacity is available. Closing the affected generation
-prevents keeping a live connection with an unannounced local state change; it does not attribute
-misbehavior to that peer. Optional traffic still drops without closing the recipient. There is no
-write deadline, capacity waiter, retry backlog for dropped frames, or eviction of another peer's
-queued frames. Stalled writes remain charged until they finish or teardown aborts them, so these
-limits bound retention rather than guarantee availability under sustained global saturation.
+Required control has reserved headroom **within** both router-wide limits: the smaller of one
+peer's limit and half the router-wide limit, rounded up, is unavailable to optional traffic.
+With the defaults, optional traffic can occupy at most 4,064 entries and 60 MiB; required control
+can use the full 4,096 entries and 64 MiB. This keeps optional-only stalled peers from consuming
+the space for healthy peers' subscription, mesh and initial extension announcements. The limits
+include mixed payload/control frames in full. A one-entry router-wide limit leaves no optional
+entry capacity. If required traffic also exhausts the total budget, or an individual required
+frame cannot fit, its recipient still closes rather than retaining inconsistent subscription or
+mesh state. No capacity waiters, retry backlog or separate control queue are created.
+
+`OutboundRpcTimeout` is a positive construction-time deadline measured with monotonic time.
+Every frame must complete within this interval after admission, including queue residence and
+waiting for a reply stream to attach. Expiry closes the generation holding the stalled work,
+aborts its stream and disconnects its owning session without a score penalty. One owned timer
+per generation tracks its oldest outstanding frame and is disposed during teardown. Queued
+frames release capacity on teardown; an active write remains charged until the underlying
+operation actually terminates, even after cancellation or abort has been requested.
 
 IWANT promises reserve bounded tracking capacity only after admission. Queue residence and stalled
 writes do not consume the follow-up deadline. A successful channel write starts that deadline;
@@ -206,7 +216,7 @@ ordering and exception isolation and run outside the router lock. An admitted fr
 not an acknowledgement of delivery.
 
 The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
-`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity` or `serialization`)
+`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`)
 and no peer or topic labels.
 
 ## Stopping the router
