@@ -80,13 +80,13 @@ public class WindowsProcessKeyRecoveryTests
     {
         if (!OperatingSystem.IsWindows()) return;
         await using IsolatedTestProcess live = Child("certificate");
-        string[] liveKey = await live.Read("ready");
+        string[] liveKey = await CertificateReport(live);
         try
         {
             for (int run = 0; run < 3; run++)
             {
                 await using IsolatedTestProcess crashed = Child("certificate");
-                string[] orphan = await crashed.Read("ready");
+                string[] orphan = await CertificateReport(crashed);
                 try
                 {
                     Ownership owner = ParseReport(orphan);
@@ -96,7 +96,7 @@ public class WindowsProcessKeyRecoveryTests
                     Assert.That(EnumerateKeyNames(), Does.Contain(orphan[0]), "Abnormal termination bypasses ProcessExit cleanup.");
                     using (CngKey persisted = CngKey.Open(orphan[0])) Assert.That(ReadOwner(persisted), Is.EqualTo(owner));
                     await using IsolatedTestProcess restarted = Child("certificate");
-                    string[] replacement = await restarted.Read("ready");
+                    string[] replacement = await CertificateReport(restarted);
                     try
                     {
                         Assert.That(replacement[0], Is.Not.EqualTo(orphan[0]));
@@ -134,6 +134,7 @@ public class WindowsProcessKeyRecoveryTests
         await using IsolatedTestProcess child = Child(role);
         string[] report = await child.Read("ready");
         Ownership owner = ParseNativeReport(report);
+        child.AssertOwnsProcess(owner.ProcessId, owner.CreationTime);
         try
         {
             // Creation is outside the recovery mutex. Inspect any visible entry while
@@ -214,21 +215,25 @@ public class WindowsProcessKeyRecoveryTests
     {
         if (!OperatingSystem.IsWindows()) return;
         await using IsolatedTestProcess live = Child("certificate");
-        string[] liveKey = await live.Read("ready");
+        string[] liveKey = await CertificateReport(live);
         await using IsolatedTestProcess crashed = Child("certificate");
-        string[] orphan = await crashed.Read("ready");
+        string[] orphan = await CertificateReport(crashed);
         try
         {
-            await crashed.Kill();
+            // Establish exclusive recovery access while the future orphan is still
+            // live, then create the orphan inside that acknowledged critical section.
             await using IsolatedTestProcess holder = Child("hold-recovery");
             await holder.Read("locked");
+            await crashed.Kill();
+            Assert.That(QueryOwner(ParseReport(orphan)), Is.EqualTo(OwnerState.Dead));
+            Assert.That(EnumerateKeyNames(), Does.Contain(orphan[0]), "The exact orphan exists at the held-mutex barrier before any contender starts.");
             await using IsolatedTestProcess contender = Child("recover");
             Assert.That(await contender.Read("ready"), Is.EqualTo(new[] { "False" }), "The other process reached recovery and skipped the held mutex.");
             await contender.WaitForSuccess();
             Assert.That(EnumerateKeyNames(), Does.Contain(orphan[0]));
             // A creator must still finish initialization while recovery is blocked.
             await using IsolatedTestProcess creator = Child("certificate");
-            string[] created = await creator.Read("ready");
+            string[] created = await CertificateReport(creator);
             try
             {
                 using Mutex retained = OpenRecoveryMutex(); // Preserve the abandoned kernel object.
@@ -261,7 +266,7 @@ public class WindowsProcessKeyRecoveryTests
         string[][] reports = [];
         try
         {
-            reports = await Task.WhenAll(children.Select(child => child.Read("ready")));
+            reports = await Task.WhenAll(children.Select(CertificateReport));
             Assert.That(reports.Select(report => report[0]).Distinct().Count(), Is.EqualTo(3));
             Assert.That(reports.Select(report => report[1]).Distinct().Count(), Is.EqualTo(3));
             Assert.That(Recover(), Is.True);
@@ -288,7 +293,7 @@ public class WindowsProcessKeyRecoveryTests
             new NamedWaitHandleOptions { CurrentUserOnly = true, CurrentSessionOnly = false });
         Assert.That(Recover(), Is.False);
         await using IsolatedTestProcess creator = Child("certificate");
-        string[] report = await creator.Read("ready");
+        string[] report = await CertificateReport(creator);
         try
         {
             using (CngKey key = CngKey.Open(report[0])) Assert.That(ReadOwner(key), Is.EqualTo(ParseReport(report)));
@@ -360,6 +365,14 @@ public class WindowsProcessKeyRecoveryTests
             Assert.That(EnumerateKeyNames(), Does.Not.Contain(owner.KeyName));
         }
         finally { if (CngKey.Exists(owner.KeyName)) key.Delete(); }
+    }
+
+    private static async Task<string[]> CertificateReport(IsolatedTestProcess child)
+    {
+        string[] report = await child.Read("ready");
+        Ownership owner = ParseReport(report);
+        child.AssertOwnsProcess(owner.ProcessId, owner.CreationTime);
+        return report;
     }
 
     private static IsolatedTestProcess Child(string role) => new(typeof(WindowsProcessKeyRecoveryTests).Assembly,

@@ -64,8 +64,8 @@ those conditions, change TLS wire behavior, or resolve certificate-list issue #3
 
 ## Creation feasibility evidence (host run, before this candidate)
 
-The approved plan records the read-only creation-proof bundle at
-`/root/hammer-workspace/implementation/audit1-20261023/cng-creation-proof`.
+The approved plan records a host-run creation-proof bundle with source hashes,
+platform metadata, exact commands and exact-key cleanup records.
 On Windows 10.0.26200, runtime 10.0.12, SDK 10.0.401, the host ran
 `dotnet run --project cng-creation-probe/Probe.csproj -c Release -p:TreatWarningsAsErrors=true`.
 All five cases passed: kill after native creation, kill after property persistence,
@@ -89,13 +89,50 @@ with public-key fingerprints checked when available.
 
 ## Candidate validation and host replay
 
-No candidate Windows execution is claimed on Linux. Host results must record the
-candidate revision, production/test/CI hashes, OS/SDK/runtime, exact commands,
-executed names/counts/skips, outcomes and exact-key cleanup records. The authorized
-results inbox is
-`/root/hammer-workspace/implementation/audit1-20261023/windows-key-validation`.
-It was absent during implementation. Compare all relevant hashes before reusing
-results; changed Windows-sensitive inputs require fresh host validation.
+The first candidate, `7a70772074ed1cb071eab78e3b09f49c9c0123d1`, was executed by
+the host on Windows 10.0.26200 / runtime 10.0.12 / SDK 10.0.401. The immutable
+results snapshot includes NUnit XML, command logs, input hashes and a read-only
+process cleanup observation. All 461 recorded input hashes matched the candidate
+before revision. No Windows execution took place on the Linux implementation host.
+
+| Initial Windows suite | Passed / executed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| QUIC, including all 17 recovery cases | 71 / 73 | 2 | 0 |
+| TLS | 32 / 32 | 0 | 0 |
+| Registered transport/recovery/alias controls | 7 / 7 | 0 | 0 |
+
+The QUIC run excluded the `ChildProcess` entry point. These results establish a
+failed initial candidate, not acceptance of this revision. The failures were:
+
+- `CrashRestartRecoversOnlyTheDeadIncarnation`: immediately after the harness's
+  kill/wait returned, the recorded owner was still live by the kernel-handle
+  check. [.NET 10.0.12 process status](https://github.com/dotnet/runtime/blob/v10.0.12/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.Windows.cs#L259-L289)
+  accepts an exit code before checking whether the process object has signaled;
+  [WaitForExitAsync](https://github.com/dotnet/runtime/blob/v10.0.12/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.cs#L1367-L1469)
+  can take that path. The harness now uses bounded `WaitForExit(int)`, which
+  [waits on the retained process handle](https://github.com/dotnet/runtime/blob/v10.0.12/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.Windows.cs#L149-L171).
+  Every stage reports its actual worker PID and, on Windows, exact creation
+  FILETIME. The harness validates these against the process it launched; CNG
+  ownership reports must match that same incarnation. It terminates only that
+  retained process and independently tests that the worker handle has signaled.
+  A launcher/worker mismatch now fails explicitly; the original logs did not
+  record enough identity information to establish such a mismatch.
+- `RecoverySkipsContentionAndRevalidatesAfterAbandonment`: the orphan was absent
+  despite the contender correctly skipping the held mutex. NUnit enumerated the
+  assembly's certificate test source, which called the production helper and
+  performed recovery before the selected holder test acquired its mutex. Test
+  cases now defer certificate construction until execution, preserving every
+  vector, case name and expected result. The holder also acknowledges acquisition
+  while the future orphan is live; the test then kills that exact owner and
+  proves death and orphan presence before starting contenders. Contention,
+  abandonment, successor recovery and live-owner assertions remain enforced.
+
+The production ownership/recovery implementation and every CI minimum are
+unchanged by these test-harness corrections. New Windows-sensitive test inputs
+require a fresh host snapshot for the corrected candidate, including revision,
+source/test/CI hashes, environment, exact commands, executed cases and cleanup.
+Do not reuse the initial snapshot as execution of changed inputs. Independent
+review and final verification remain host publication gates.
 
 Use the repository's Microsoft.Testing.Platform runner. The existing full Windows
 minimums remain QUIC 32, TLS 32 and registered controls 5. Added gates require 17
@@ -122,7 +159,7 @@ that artifact. Do not move this checkout's HEAD or reuse a candidate marker as a
 parent-created key. Windows candidate evidence and independent review remain
 host publication gates.
 
-## Local validation record
+## Initial local validation record
 
 Implementation used base `f94d0d071518dd43085303f6f24b5de7b2660e82` without
 moving HEAD or committing. Linux x64, SDK 10.0.402, runtime 10.0.13:
@@ -154,5 +191,37 @@ version 2 caused `UnprovenOwnershipIsRejected("future")` to fail (11 passed,
 1 failed, exit 2); restoring the guard returned the full suite to green. This
 validates the ownership guard, not native Windows crash recovery. Earlier compiler
 and spelling failures were corrected before the final checks. Candidate Windows
-crash reproduction, recovery, native ABI and registered-path execution remain
-pending the host; the preliminary creation probe is kept separate above.
+crash reproduction, recovery, native ABI and registered-path execution were
+pending the host at that point; the failed initial Windows run is recorded above.
+The preliminary creation probe remains separate from candidate validation.
+
+## Revision validation
+
+The correction changes only the isolated-process harness, certificate test data,
+process-key tests and this record. Linux x64, SDK 10.0.402, runtime 10.0.13:
+
+| Check | Executed outcome | Windows-only skips |
+| --- | --- | ---: |
+| Focused harness tests, Debug | 2 passed | 0 |
+| Full QUIC, Release | 54 passed | 21 |
+| Full TLS, Release | 32 passed | 0 |
+| Registered controls/recovery fixture, Release | 5 passed | 3 |
+
+All builds treat warnings as errors. The first harness attempt exposed the Unix
+runtime's estimated wall-clock `Process.StartTime`, which differs between process
+instances. Exact creation-time comparison is therefore restricted to Windows's
+raw FILETIME; PID acknowledgement and retained-process termination checks run on
+both platforms. No Windows ownership or liveness assertion was relaxed.
+
+From repository root, using one configured temporary artifact root:
+
+```sh
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~Isolated' --minimum-expected-tests 2
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 54
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredWindowsKeyRecoveryTests' --minimum-expected-tests 5
+```
+
+The native Windows failures have code corrections and require a fresh host run;
+Linux skips do not establish their resolution. No commits or publication were
+performed by the implementer.

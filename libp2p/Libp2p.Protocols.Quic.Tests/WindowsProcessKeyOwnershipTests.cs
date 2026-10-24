@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers.Binary;
+using System.Diagnostics;
 using Nethermind.Libp2p.Core.TestsBase;
 using static Nethermind.Libp2p.Protocols.Quic.WindowsProcessKey;
 
@@ -23,6 +24,20 @@ public class WindowsProcessKeyOwnershipTests
         Assert.That(await child.Read("ready"), Is.EqualTo(new[] { "acknowledged" }));
         child.Send("finish", "finish");
         await child.WaitForSuccess();
+        Assert.That(child.HasTerminated, Is.True);
+    }
+
+    [Test]
+    public async Task IsolatedKillWaitsForTheAcknowledgedProcessToTerminate()
+    {
+        await using IsolatedTestProcess child = new(typeof(WindowsProcessKeyOwnershipTests).Assembly,
+            $"{typeof(WindowsProcessKeyOwnershipTests).FullName}.{nameof(IsolatedProcessAcknowledgesAndExits)}", "harness");
+        Assert.That(await child.Read("ready"), Is.EqualTo(new[] { "acknowledged" }));
+        using Process worker = Process.GetProcessById(child.ProcessId);
+        _ = worker.SafeHandle; // Retain this incarnation before killing the directly launched worker.
+        if (OperatingSystem.IsWindows()) Assert.That(worker.StartTime.ToFileTimeUtc(), Is.EqualTo(child.CreationTime));
+        await child.Kill();
+        Assert.That(worker.WaitForExit(0), Is.True, "The independently retained worker handle must be signaled when Kill returns.");
     }
 
     [Test]
