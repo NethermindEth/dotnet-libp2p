@@ -62,7 +62,7 @@ jobs:
           dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 57
           dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
@@ -98,16 +98,16 @@ jobs:
           "<RunSettings><NUnit><TestOutputXml>$env:RUNNER_TEMP/secure-transport-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test QUIC
-        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test TLS
-        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 57 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Build registered transport tests
         run: dotnet build Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
 
       - name: Test registered transport lifetime and parent identity guarantees
-        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 5
+        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~TlsCertificateListTests" --minimum-expected-tests 36 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Upload certificate probe observations
         if: always()

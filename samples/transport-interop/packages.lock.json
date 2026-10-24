@@ -738,6 +738,7 @@
       "Nethermind.Libp2p.Protocols.Tls": {
         "type": "Project",
         "dependencies": {
+          "BouncyCastle.Cryptography": "[2.6.2, )",
           "Microsoft.Extensions.Logging": "[10.0.0, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Quic": "[1.0.0, )"
