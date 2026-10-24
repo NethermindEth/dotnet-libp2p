@@ -104,11 +104,15 @@ public class RemoteSubscriptionLimitsTests
         Assert.That(state.Mesh, Is.Empty, "Remote announcements must not establish local interest.");
         ITopic topic = router.GetTopic("late");
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh["late"], Has.Member(TestPeers.PeerId(1)));
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         AssertUsage(router, 1, 8);
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh["late"], Has.Member(TestPeers.PeerId(1)));
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([], ["late"]));
         AssertUsage(router, 0, 0);
@@ -136,8 +140,10 @@ public class RemoteSubscriptionLimitsTests
         router.OnRpc(TestPeers.PeerId(1), subscriptions);
         sent.Clear();
         router.SendPartial(TestPeers.PeerId(1), "b", [1], [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent, Is.Empty, "A rejected subscription must not retain partial-message metadata.");
         router.SendPartial(TestPeers.PeerId(1), "a", [1], [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.Select(r => r.Partial).Where(p => p is not null).Count(), Is.EqualTo(1));
         Rpc duplicate = new();
         duplicate.Subscriptions.Add(new Rpc.Types.SubOpts { Topicid = "a", Subscribe = true, RequestsPartial = false, SupportsSendingPartial = true });
@@ -145,6 +151,7 @@ public class RemoteSubscriptionLimitsTests
         AssertUsage(router, 1, 2);
         sent.Clear();
         router.SendPartial(TestPeers.PeerId(1), "a", [1], [2], [3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.Single().Partial.HasPartialMessage, Is.False, "Duplicate announcements update partial-message options without a charge.");
         Assert.That(sent.Single().Partial.PartsMetadata.ToByteArray(), Is.EqualTo(new byte[] { 3 }));
         sent.Clear();
@@ -155,6 +162,7 @@ public class RemoteSubscriptionLimitsTests
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([], ["a"]));
         sent.Clear();
         router.SendPartial(TestPeers.PeerId(1), "a", [1], [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent, Is.Empty, "Unsubscribe releases partial-message metadata.");
         router.OnRpc(TestPeers.PeerId(1), Graft("b"));
         Assert.That(((IRoutingStateContainer)router).Mesh["b"], Has.Member(TestPeers.PeerId(1)));
@@ -203,6 +211,7 @@ public class RemoteSubscriptionLimitsTests
         router.OnRpc(TestPeers.PeerId(honest), new Rpc().WithTopics(["wanted"], []));
         bool learned = state.GossipsubPeers.TryGetValue("wanted", out HashSet<PeerId>? members) && members.Contains(TestPeers.PeerId(honest));
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         bool joined = state.Mesh["wanted"].Contains(TestPeers.PeerId(honest));
         sent.Clear();
         router.OnRpc(TestPeers.PeerId(honest), Graft("wanted"));
@@ -247,10 +256,12 @@ public class RemoteSubscriptionLimitsTests
         var table = floodsub ? state.FloodsubPeers : state.GossipsubPeers;
         Assert.That(table["want"], Has.Member(TestPeers.PeerId(3)));
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         if (!floodsub && !direct) Assert.That(state.Mesh["want"], Has.Member(TestPeers.PeerId(3)));
         else Assert.That(state.Mesh["want"], Is.Empty);
         sent.Clear();
         router.Publish("want", [1]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1), "Reclaimed membership must participate in production forwarding.");
     }
 
@@ -263,6 +274,7 @@ public class RemoteSubscriptionLimitsTests
         else settings.MaxRemoteSubscriptions = 1;
         using PubsubRouter router = new(new PeerStore(), settings);
         router.Subscribe("want");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Connect(router, 1);
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["junk"], []));
         List<Rpc> sent = [];
@@ -286,16 +298,22 @@ public class RemoteSubscriptionLimitsTests
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["late"], []));
         router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["junk"], []));
         router.Subscribe("late");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("want");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(TestPeers.PeerId(3), new Rpc().WithTopics(["want"], []));
         Assert.That(state.GossipsubPeers.Keys, Is.EquivalentTo(new[] { "late", "want" }));
         router.Unsubscribe("late");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("next");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(TestPeers.PeerId(4), new Rpc().WithTopics(["next"], []));
         Assert.That(state.GossipsubPeers.Keys, Is.EquivalentTo(new[] { "want", "next" }));
         AssertUsage(router, 2, 16);
         router.UnsubscribeAll();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("last");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["last"], []));
         AssertUsage(router, 2, 16);
         Assert.That(state.GossipsubPeers["last"], Has.Member(TestPeers.PeerId(1)));
@@ -309,7 +327,9 @@ public class RemoteSubscriptionLimitsTests
         Connect(router, 2);
         Connect(router, 3);
         router.Subscribe("saved");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("want");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["saved"], []));
         router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["x"], []));
         router.OnRpc(TestPeers.PeerId(3), new Rpc().WithTopics(["want"], []));
@@ -327,7 +347,9 @@ public class RemoteSubscriptionLimitsTests
         else settings.MaxRemoteSubscriptions = 1;
         using PubsubRouter router = new(new PeerStore(), settings);
         router.Subscribe("a");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("b");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Connect(router, 1);
         List<Rpc> sent = [];
         Connect(router, 2, sent.Add);
@@ -346,6 +368,7 @@ public class RemoteSubscriptionLimitsTests
         await router.StartAsync(new LocalPeerStub(), new CancellationToken(true));
         router.GetPartialMessagesTopic("junk", new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }, subscribe: false);
         router.Subscribe("want");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         List<Rpc> sent = [];
         TaskCompletionSource closed = Connect(router, 1, sent.Add, PubsubRouter.GossipsubProtocolVersionV13);
         router.OnRpc(TestPeers.PeerId(1), new Rpc
@@ -354,18 +377,22 @@ public class RemoteSubscriptionLimitsTests
             Subscriptions = { new Rpc.Types.SubOpts { Topicid = "junk", Subscribe = true, RequestsPartial = true } }
         });
         router.SendPartial(TestPeers.PeerId(1), "junk", [1], [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.Any(rpc => rpc.Partial is not null), Is.True);
         Connect(router, 2);
         router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["want"], []));
         sent.Clear();
         router.SendPartial(TestPeers.PeerId(1), "junk", [1], [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent, Is.Empty, "Eviction releases partial-message metadata with the membership.");
         router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics([], ["junk"]));
         closed.SetResult();
         Assert.That(SpinWait.SpinUntil(() => !((IRoutingStateContainer)router).ConnectedPeers.Contains(TestPeers.PeerId(1)), TimeSpan.FromSeconds(5)), Is.True);
         lock (router) AssertUsage(router, 1, 8);
         router.Unsubscribe("want");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Subscribe("next");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(TestPeers.PeerId(2), new Rpc().WithTopics(["next"], []));
         AssertUsage(router, 1, 8);
         router.Dispose();

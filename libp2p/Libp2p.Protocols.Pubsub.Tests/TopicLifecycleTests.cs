@@ -25,6 +25,7 @@ public class TopicLifecycleTests
         topic.OnMessage += (_, _) => deliveries++;
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(receivedFrom, CreateMessage(topicName, author, 1));
 
         Assert.Multiple(() =>
@@ -34,6 +35,7 @@ public class TopicLifecycleTests
         });
 
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(receivedFrom, CreateMessage(topicName, author, 2));
 
         Assert.Multiple(() =>
@@ -60,10 +62,12 @@ public class TopicLifecycleTests
         router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
         router.OnRpc(peerId, CreateMessage(topicName, TestPeers.Identity(2), 1));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh[topicName], Has.Member(peerId), "Exercise removal of an established mesh.");
         sent.Clear();
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -73,10 +77,13 @@ public class TopicLifecycleTests
 
         sent.Clear();
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent, Is.Empty);
 
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -109,6 +116,7 @@ public class TopicLifecycleTests
         secondSent.Clear();
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         router.OutboundConnection(TestPeers.Multiaddr(5), PubsubRouter.GossipsubProtocolVersionV11, thirdConnectionClosed.Task, thirdSent.Add);
 
@@ -148,10 +156,12 @@ public class TopicLifecycleTests
         router.OnRpc(gossipPeerId, new Rpc().WithTopics([topicName], []));
         state.Fanout.GetOrAdd(topicName, []).Add(fanoutPeerId);
         router.Publish(topicName, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         fanoutSent.Clear();
         gossipSent.Clear();
 
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(gossipSent.Any(rpc => rpc.Control?.Ihave.Any(ihave => ihave.TopicID == topicName) is true), Is.True);
 
@@ -176,6 +186,7 @@ public class TopicLifecycleTests
         sent.Clear();
 
         router.Publish(topicName, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
         connectionClosed.SetResult();
@@ -193,6 +204,7 @@ public class TopicLifecycleTests
 
         router.OutboundConnection(peerAddress, PubsubRouter.GossipsubProtocolVersionV11, connectionClosed.Task, sent.Add);
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         sent.Clear();
 
         Rpc rpc = new() { Control = new ControlMessage() };
@@ -250,10 +262,12 @@ public class TopicLifecycleTests
         router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
         router.OnRpc(fanoutPeer, new Rpc().WithTopics([topicName], []));
         router.Publish(topicName, [1]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Fanout[topicName], Has.Member(fanoutPeer));
         sent.Clear();
 
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -278,17 +292,22 @@ public class TopicLifecycleTests
         IRoutingStateContainer state = router;
 
         router.Publish(topicName, [1]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.GossipsubPeers, Does.Not.ContainKey(topicName));
         Assert.That(state.Fanout, Contains.Key(topicName));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Multiaddress address = TestPeers.Multiaddr(3);
         List<Rpc> sent = [];
         router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
         router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topicName], []));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Publish(topicName, [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(state.Fanout[topicName], Has.Member(address.GetPeerId()!));
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
@@ -338,19 +357,24 @@ public class TopicLifecycleTests
         router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task, sent.Add);
         router.OnRpc(peerId, new Rpc().WithTopics([topicName], []));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh[topicName], Has.Member(peerId));
         sent.Clear();
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.Single().Control.Prune.Single().Backoff, Is.EqualTo(61));
         if (publishBeforeResubscribe)
         {
             router.Publish(topicName, [1]);
+            router.FlushOutboundAsync().GetAwaiter().GetResult();
             Assert.That(state.Fanout[topicName], Has.Member(peerId));
         }
         sent.Clear();
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -386,10 +410,12 @@ public class TopicLifecycleTests
             router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics(["first", "second"], []));
         }
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         sent.Clear();
         fail = true;
 
         Assert.DoesNotThrow(router.UnsubscribeAll);
+        await router.FlushOutboundAsync();
 
         Assert.Multiple(() =>
         {
@@ -404,7 +430,7 @@ public class TopicLifecycleTests
     }
 
     [Test]
-    public async Task HelloAndHeartbeat_AreSentUnderTheLifecycleLock()
+    public async Task HelloHeartbeatAndUnsubscribe_AreWrittenInOrderOutsideTheLifecycleLock()
     {
         const string topicName = "ordered-topic";
         using PubsubRouter router = new(new PeerStore());
@@ -417,10 +443,13 @@ public class TopicLifecycleTests
         Assert.That(sent.Single().Rpc.Subscriptions.Single().Subscribe, Is.True);
         router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topicName], []));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(sent.Any(entry => entry.Rpc.Control?.Graft.Count > 0), Is.True);
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
-        Assert.That(sent.All(entry => entry.Ordered), Is.True);
+        Assert.That(sent.All(entry => !entry.Ordered), Is.True);
+        Assert.That(sent.First().Rpc.Subscriptions.Single().Subscribe, Is.True);
         Assert.That(sent.Last().Rpc.Subscriptions.Single().Subscribe, Is.False);
     }
 
@@ -444,7 +473,9 @@ public class TopicLifecycleTests
         using CancellationTokenRegistration registration = disconnected.Register(() => cleanupFinished.TrySetResult());
         router.OnRpc(peerId, new Rpc().WithTopics(["mesh-topic", "fanout-topic"], []));
         await state.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.Publish("fanout-topic", [1]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh["mesh-topic"], Has.Member(peerId));
         Assert.That(state.Fanout["fanout-topic"], Has.Member(peerId));
 

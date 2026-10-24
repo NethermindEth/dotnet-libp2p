@@ -12,10 +12,18 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
+    private readonly int _maxIncomingEntries;
+    private readonly long _maxIncomingBytes;
+    private int _incomingEntries;
+    private long _incomingBytes;
+    internal (int Entries, long Bytes) IncomingUsage { get { lock (this) return (_incomingEntries, _incomingBytes); } }
+
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
+    internal async Task OnRpcAsync(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true, CancellationToken token = default)
     {
+        long reservedBytes = 0;
+        CancellationToken peerLifetime = default;
         List<PendingValidation> deferredMessages = [];
         try
         {
@@ -38,9 +46,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     bool admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
                     peerState.TryGetValue(peerId, out admittedPeer);
-                    if (admitted)
+                    peerLifetime = admittedPeer?.TokenSource.Token ?? default;
+                    if (admitted && admittedPeer?.Terminal != true && rpc.Publish.Any(message => IsLocallySubscribed(message.Topic)))
                     {
-                        interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                        long bytes = rpc.CalculateSize();
+                        if (bytes > 0 && _incomingEntries < _maxIncomingEntries && bytes <= _maxIncomingBytes - _incomingBytes)
+                        {
+                            _incomingEntries++;
+                            _incomingBytes += bytes;
+                            reservedBytes = bytes;
+                            interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                        }
                     }
                 }
             }
@@ -50,9 +66,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 // The router lock used to serialize these calculations. Bound them explicitly now
                 // that it does not, so the transient memory does not scale with peer count.
-                _messageIdCalculations.Wait();
+                using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+                    token, _stopped.Token, peerLifetime);
+                await _messageIdCalculations.WaitAsync(admission.Token).ConfigureAwait(false);
                 try
                 {
+                    lock (this)
+                    {
+                        if (admission.IsCancellationRequested || admittedPeer?.Terminal == true ||
+                            (admittedPeer is not null && (!peerState.TryGetValue(peerId, out PubsubPeer? current) || !ReferenceEquals(current, admittedPeer)))) return;
+                        if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId)) return;
+                        interestedMessages = interestedMessages.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                    }
                     publishIds = ComputeMessageIds(interestedMessages);
                 }
                 finally
@@ -69,10 +94,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 lock (this)
                 {
-                    if (_stopped.IsCancellationRequested)
-                    {
-                        return;
-                    }
+                    if (_stopped.IsCancellationRequested || token.IsCancellationRequested || admittedPeer?.Terminal == true ||
+                        (admittedPeer is not null && (!peerState.TryGetValue(peerId, out PubsubPeer? current) || !ReferenceEquals(current, admittedPeer)))) return;
 
                     RemoveExpiredPendingValidations();
 
@@ -163,14 +186,30 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || _stopped.IsCancellationRequested ||
+            peerLifetime.IsCancellationRequested)
+        {
+        }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Exception while processing RPC");
+        }
+        finally
+        {
+            if (reservedBytes != 0)
+            {
+                lock (this)
+                {
+                    _incomingEntries--;
+                    _incomingBytes -= reservedBytes;
+                }
+            }
         }
     }
 
     private bool ShouldIgnoreRpc(PeerId peerId, bool isDirectPeer)
     {
+        if (peerState.GetValueOrDefault(peerId)?.Terminal == true) return true;
         if (!isDirectPeer && ShouldGraylistPeer(peerId))
         {
             logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
@@ -362,6 +401,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             peerState.GetValueOrDefault(recipient)?.Send(idontwant);
         }
 
+        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        {
+            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+        }
+
         foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
         {
             foreach (Delegate handler in OnMessage?.GetInvocationList() ?? [])
@@ -390,11 +434,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     LogSubscriberError(ex, topic);
                 }
             }
-        }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
         }
     }
 
@@ -706,7 +745,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (!meshPeer.Control.TrySendIdontwant(_settings.MaxIdontwantMessages))
+            if (!meshPeer.Control.TryReserveIdontwantAttempt(_settings.MaxIdontwantMessages))
             {
                 continue;
             }
@@ -970,7 +1009,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         peerMessages.GetOrAdd(peerId, _ => new Rpc())
             .Ensure(r => r.Control.Iwant)
             .Add(iwant);
-        _iwantPromises.Add(peerId, selected, DateTime.UtcNow.AddMilliseconds(_settings.IWantFollowupTime));
     }
 
     private void HandleIwant(PeerId peerId, IEnumerable<ControlIWant> iwants, ConcurrentDictionary<PeerId, Rpc> peerMessages)
@@ -1023,7 +1061,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
+            if (control.TryReserveIwantResponseAttempt(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
             {
                 messages.Add(message);
                 responseBytes += serializedMessageSize;
