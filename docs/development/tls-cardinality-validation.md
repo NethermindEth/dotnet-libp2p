@@ -9,7 +9,8 @@ recorded below. The Windows 10 candidate passed all 126 checks without skips.
 A subsequent Windows CI run timed out in two native interoperability controls.
 The diagnostics were retained, and a forced retry-flight regression now
 demonstrates and repairs an input/output deadlock. The repaired source passes
-Linux TLS 62/62 and registered paths 76/76. **Windows CI validation of the repair,
+Linux TLS 68/68 and registered paths 76/76, including the close-ordering repair
+below. **Windows CI validation of the repairs,
 host-managed independent re-review and final verification remain required.**
 The [parent validation record](secure-transport-validation.md) is unchanged.
 
@@ -200,7 +201,7 @@ from pathlib import Path
 p = Path(os.environ['TMPDIR'])
 (p / 'tls373.xml').write_text('<RunSettings><NUnit><TestOutputXml>' + str(p / 'tls373-results') + '</TestOutputXml></NUnit></RunSettings>')
 PY
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 62 --timeout 180s --settings "$TMPDIR/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 68 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredProtocolsUseCanonicalIdentitiesAndVerifySignatures' --minimum-expected-tests 76 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 29 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38 --timeout 180s --settings "$TMPDIR/tls373.xml"
@@ -349,7 +350,8 @@ Fresh parent regressions also pass: Noise 38/38, Core lifecycle/channel 123/123,
 and Linux QUIC 29 passed with its three original Windows-only exclusions.
 The CI log does not include a retry trace, so attributing its Windows failures
 to this deadlock remains an inference until the repaired source passes there.
-Fresh Windows TLS 62/62, QUIC 32/32 and registered 36/36 evidence is required.
+Fresh Windows evidence for the current source requires TLS 68/68, QUIC 32/32
+and registered controls 36/36.
 
 The transport interoperability application builds with the repair. A new pinned
 Go interoperability run is unavailable in this session: the installed Go is
@@ -387,10 +389,52 @@ match:
 "<RunSettings><NUnit><TestOutputXml>$env:TEMP/tls373-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/tls373.xml"
 git rev-parse HEAD
 dotnet --info
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 62 --timeout 180s --settings "$env:TEMP/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 68 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 36 --timeout 180s --settings "$env:TEMP/tls373.xml"
 ```
+
+## Close ordering repair after independent review
+
+Independent review of `b2959809878b404ac5e855ec44c67ed0a4eeb042` confirmed a
+close-ordering race in the new adapter. A peer could finish transport teardown
+while the local pump was still acknowledging its close alert or publishing
+transport EOF. The error path then aborted an already published application EOF.
+Another interleaving signalled transport completion after consuming the final
+record body but before its read continuation reached the TLS owner.
+
+The adapter now drains that read before deciding whether the peer sent
+`close_notify`. An ended/aborted transport during the local close-alert write or
+final transport EOF does not invalidate a received peer close. Clean cleanup
+half-closes the channels, preserving published EOF. Application writes still
+fail on transport errors; blocked plaintext delivery is aborted on transport
+completion. Missing peer close alerts and truncated records remain failures.
+Caller cancellation retains its category even when transport abort arrives
+before linked cancellation callbacks run. This follows the independent read and
+write closure contract in [RFC 8446 section 6.1](https://www.rfc-editor.org/rfc/rfc8446.html#section-6.1).
+
+Four barrier-controlled cases force either peer to finish first during close
+acknowledgement or transport EOF, including a consumed-but-unparsed peer alert.
+A fifth controls the cancellation callback ordering. With the exact `b295980`
+pump and identical test source, all five fail; the missing-alert negative control
+passes. With the repair all six pass, and the complete TLS suite passes 68/68.
+The [separate close-ordering evidence](evidence/linux-shutdown-tls-cardinality-candidate.json)
+records commands, NUnit report hashes and final input hashes. All 60 parallel
+repetitions of the 28-case adapter class passed (six workers, 1680 test cases),
+and registered transport/identity cases passed 76/76. Earlier retry and Windows records remain unchanged historical evidence.
+Both TLS CI minima increase to 68; existing deadlines and exclusions are unchanged.
+
+Focused replay from repository root, with the existing session `TMPDIR`:
+
+```sh
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~PeerTeardownAfterCloseNotifyPreservesEof|FullyQualifiedName~CallerCancellationWinsOverConcurrentTransportAbort|FullyQualifiedName~TransportAbortWithoutPeerCloseNotifyIsNotCleanEof' --minimum-expected-tests 6 --timeout 90s --settings "$TMPDIR/tls373.xml"
+```
+
+Fresh Windows Server validation of the current source, pinned Go interoperability,
+host-managed independent re-review and final verification remain required. The
+Windows suite commands above now require TLS 68/68, QUIC 32/32 and registered
+36/36, on the failing Windows Server/.NET 10.0.13 environment. A local Linux pass
+does not establish that the published Windows CI failure has been repaired.
 
 ## QUIC boundary and handoff
 

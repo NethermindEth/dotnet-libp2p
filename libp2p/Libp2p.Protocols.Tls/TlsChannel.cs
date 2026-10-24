@@ -78,7 +78,11 @@ internal static class TlsChannel
                 if (networkWrite is { IsCompleted: true })
                 {
                     IOResult result = await networkWrite;
-                    if (result != IOResult.Ok && !(handshake.PeerClosed && networkWriteIsClose && downToken.IsCancellationRequested))
+                    // Teardown can race our close-alert acknowledgement before
+                    // a completed read's peer alert reaches the engine. Continue
+                    // draining input; only receipt of close_notify permits clean
+                    // completion below. No application write is covered here.
+                    if (!(networkWriteIsClose && IsTransportEnded(result)))
                         Check(result, token);
                     networkWrite = null;
                     progress = true;
@@ -162,8 +166,13 @@ internal static class TlsChannel
                 if (downToken.IsCancellationRequested)
                 {
                     downCompletionObserved = true;
-                    if (!handshake.PeerClosed && networkRead is not { IsCompleted: true })
-                        throw new IOException("TLS transport closed without close_notify.");
+                    // Completion can precede a consumed record's ReadAsync
+                    // continuation. The actual read, not this signal, determines
+                    // whether the final bytes contain close_notify or truncation.
+                    // A blocked plaintext delivery prevents reading another
+                    // record, so transport abort must release that delivery.
+                    if (!handshake.PeerClosed && applicationWrite is not null)
+                        throw new IOException("TLS transport closed during application delivery.");
                 }
 
                 if (upChannel is not null && applicationWrite is null && engine.GetAvailableInputBytes() > 0)
@@ -213,7 +222,9 @@ internal static class TlsChannel
                     {
                         // Publishing EOF can complete the transport channel. Only
                         // explicit caller cancellation applies to this final operation.
-                        Check(await downChannel.WriteEofAsync(cancellationToken), cancellationToken);
+                        IOResult result = await downChannel.WriteEofAsync(cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!IsTransportEnded(result)) Check(result, cancellationToken);
                         clean = true;
                         return;
                     }
@@ -259,6 +270,12 @@ internal static class TlsChannel
                 await Task.WhenAny(pending);
             }
         }
+        catch (IOException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller token can be cancelled before its linked registrations
+            // run. A peer abort racing those callbacks is still cancellation.
+            throw new OperationCanceledException("TLS connection was cancelled.", ex, cancellationToken);
+        }
         catch (Exception ex) when (ex is OperationCanceledException or IOException
             && upChannel is not null && upChannel.GetAwaiter().IsCompleted && !cancellationToken.IsCancellationRequested)
         {
@@ -287,8 +304,13 @@ internal static class TlsChannel
                 catch (Exception) { /* Preserve the original failure; observe shutdown failures. */ }
             }
             upRegistration.Dispose();
-            if (upChannel is not null) await upChannel.CloseAsync();
-            await downChannel.CloseAsync();
+            // Full close aborts pending reads in Core.Channel, including a peer
+            // consuming an already published EOF. Half-close preserves that EOF.
+            if (!clean)
+            {
+                if (upChannel is not null) await upChannel.CloseAsync();
+                await downChannel.CloseAsync();
+            }
         }
     }
 
@@ -306,6 +328,8 @@ internal static class TlsChannel
         token.ThrowIfCancellationRequested();
         throw new IOException($"TLS channel I/O failed: {result}.");
     }
+
+    private static bool IsTransportEnded(IOResult result) => result is IOResult.Ended or IOResult.Aborted;
 
     private readonly record struct Chunk(IOResult Result, byte[] Data);
 }
