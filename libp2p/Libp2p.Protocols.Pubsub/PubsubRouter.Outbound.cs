@@ -47,7 +47,16 @@ public partial class PubsubRouter
         }
     }
 
-    internal enum SendResult { Admitted, Dropped, Closing }
+    /// <summary>Outcome of one <see cref="PubsubPeer.Send"/>. Admission queues work; it never acknowledges delivery.</summary>
+    internal enum SendResult
+    {
+        /// <summary>Every frame of the RPC was queued.</summary>
+        Admitted,
+        /// <summary>Optional content was not queued. Required control in the same RPC, if any, was queued and the generation stays open.</summary>
+        Dropped,
+        /// <summary>Required control could not be queued, or the generation was already terminal; its owning session is closing.</summary>
+        Closing,
+    }
     internal sealed record OutboundFrame(byte[] Bytes, bool Extensions, IwantPromiseTracker.Promise? Promise, long AdmittedAt);
 
     internal sealed partial class PubsubPeer
@@ -117,71 +126,141 @@ public partial class PubsubRouter
     private SendResult AdmitOutbound(PubsubPeer peer, Rpc original)
     {
         SendResult result;
-        string? dropReason = null;
+        string? reason, optionalReason = null;
+        bool required;
         lock (_outboundLock)
         {
             if (peer.Terminal || _stopped.IsCancellationRequested) return SendResult.Closing;
-            bool necessary = original.Subscriptions.Count != 0 || original.Control?.Graft.Count > 0 ||
-                original.Control?.Prune.Count > 0 || peer.NeedsExtensions;
-            int reserved = 0;
-            IwantPromiseTracker.Promise? promise = null;
-            try
+            if (TryPrepareFrames(peer, original, out Rpc first, out Rpc? optional, out required))
             {
-                Rpc rpc = peer.AddExtensionsIfNeeded(peer.RemoveUnsupportedPartialSubscriptionOptions(original));
-                bool extensions = !peer.ExtensionsQueued && rpc.Control?.Extensions is not null;
-                necessary |= extensions;
-                long length = rpc.CalculateSize();
-                long size = length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length);
-                int entryLimit = necessary ? _outboundLimits.Entries : _outboundLimits.OptionalEntries;
-                long byteLimit = necessary ? _outboundLimits.Bytes : _outboundLimits.OptionalBytes;
-                if (size > int.MaxValue || peer.Entries >= _outboundLimits.PeerEntries || _outboundEntries >= entryLimit ||
-                    size > _outboundLimits.PeerBytes - peer.Bytes || size > byteLimit - _outboundBytes)
+                result = AdmitFrameUnderLock(peer, first, required, out reason);
+                // The control frame is queued ahead of the optional frame, which drops independently.
+                if (optional is not null && result == SendResult.Admitted)
                 {
-                    dropReason = "capacity";
-                    if (necessary) TerminateUnderLock(peer, disconnect: true);
-                    result = necessary ? SendResult.Closing : SendResult.Dropped;
-                }
-                else
-                {
-                    // Reserve before allocation. The queue owns bytes, never the caller's mutable RPC.
-                    long admittedAt = _timeProvider.GetTimestamp();
-                    reserved = (int)size;
-                    peer.Entries++;
-                    peer.Bytes += size;
-                    _outboundEntries++;
-                    _outboundBytes += size;
-                    if (peer.Idle.Task.IsCompleted) peer.Idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                    byte[] bytes = new byte[reserved];
-                    int offset = 0;
-                    VarInt.Encode((int)length, bytes, ref offset);
-                    rpc.WriteTo(bytes.AsSpan(offset));
-                    promise = _iwantPromises.Reserve(peer.PeerId, peer, SamplePromiseId(rpc));
-                    peer.Queue.Enqueue(new(bytes, extensions, promise, admittedAt));
-                    peer.ExtensionsQueued |= extensions;
-                    if (peer.Entries == 1) RefreshDeadlineUnderLock(peer);
-                    result = SendResult.Admitted;
+                    result = AdmitFrameUnderLock(peer, optional, required: false, out optionalReason);
                 }
             }
-            catch
+            else
             {
-                _iwantPromises.Cancel(promise);
-                if (reserved != 0) ReleaseUnderLock(peer, reserved);
-                if (necessary) TerminateUnderLock(peer, disconnect: true);
-                dropReason = "serialization";
-                result = necessary ? SendResult.Closing : SendResult.Dropped;
+                reason = "serialization";
+                if (required) TerminateUnderLock(peer, disconnect: true);
+                result = required ? SendResult.Closing : SendResult.Dropped;
             }
         }
         peer.Signal();
-        if (dropReason is not null)
+        RecordDrop(peer, required, reason);
+        RecordDrop(peer, required: false, optionalReason);
+        return result;
+    }
+
+    private void RecordDrop(PubsubPeer peer, bool required, string? reason)
+    {
+        if (reason is null) return;
+        OutboundDrops.Add(1, new KeyValuePair<string, object?>("reason", reason));
+        if (required)
         {
-            OutboundDrops.Add(1, new KeyValuePair<string, object?>("reason", dropReason));
-            if (result == SendResult.Closing)
+            OverloadDisconnects.Add(1, new KeyValuePair<string, object?>("reason", reason));
+            logger?.LogDebug("Closing pubsub generation for {peerId}: {reason}", peer.PeerId, reason);
+        }
+    }
+
+    // Applies peer-specific transformations without mutating the caller's RPC, then separates required control
+    // from optional content so payload can never occupy the headroom reserved for control.
+    private static bool TryPrepareFrames(PubsubPeer peer, Rpc original, out Rpc first, out Rpc? optional, out bool required)
+    {
+        try
+        {
+            first = peer.AddExtensionsIfNeeded(peer.RemoveUnsupportedPartialSubscriptionOptions(original));
+            required = HasRequiredControl(first);
+            optional = null;
+            if (required && HasOptionalContent(first)) (first, optional) = Split(first);
+            return true;
+        }
+        catch
+        {
+            // Nothing was reserved; classify the loss by the caller's RPC.
+            first = original;
+            optional = null;
+            required = HasRequiredControl(original) || peer.NeedsExtensions;
+            return false;
+        }
+    }
+
+    private static bool HasRequiredControl(Rpc rpc) =>
+        rpc.Subscriptions.Count != 0 ||
+        rpc.Control is { } control && (control.Graft.Count != 0 || control.Prune.Count != 0 || control.Extensions is not null);
+
+    private static bool HasOptionalContent(Rpc rpc) =>
+        rpc.Publish.Count != 0 || rpc.Partial is not null ||
+        rpc.Control is { } control && (control.Ihave.Count != 0 || control.Iwant.Count != 0 || control.Idontwant.Count != 0);
+
+    // The halves reference the caller's message instances only until serialization completes under the lock.
+    private static (Rpc Required, Rpc Optional) Split(Rpc rpc)
+    {
+        Rpc required = new() { Subscriptions = { rpc.Subscriptions } };
+        Rpc optional = new() { Publish = { rpc.Publish }, Partial = rpc.Partial };
+        if (rpc.Control is { } control)
+        {
+            if (control.Graft.Count != 0 || control.Prune.Count != 0 || control.Extensions is not null)
             {
-                OverloadDisconnects.Add(1, new KeyValuePair<string, object?>("reason", dropReason));
-                logger?.LogDebug("Closing pubsub generation for {peerId}: {reason}", peer.PeerId, dropReason);
+                required.Control = new() { Graft = { control.Graft }, Prune = { control.Prune }, Extensions = control.Extensions };
+            }
+            if (control.Ihave.Count != 0 || control.Iwant.Count != 0 || control.Idontwant.Count != 0)
+            {
+                optional.Control = new() { Ihave = { control.Ihave }, Iwant = { control.Iwant }, Idontwant = { control.Idontwant } };
             }
         }
-        return result;
+        return (required, optional);
+    }
+
+    // Required frames use the full budgets and close the generation when they cannot fit; optional frames use
+    // the lower optional budgets and drop newest. Both charge the same per-peer limits.
+    private SendResult AdmitFrameUnderLock(PubsubPeer peer, Rpc rpc, bool required, out string? dropReason)
+    {
+        int reserved = 0;
+        IwantPromiseTracker.Promise? promise = null;
+        try
+        {
+            bool extensions = !peer.ExtensionsQueued && rpc.Control?.Extensions is not null;
+            long length = rpc.CalculateSize();
+            long size = length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length);
+            int entryLimit = required ? _outboundLimits.Entries : _outboundLimits.OptionalEntries;
+            long byteLimit = required ? _outboundLimits.Bytes : _outboundLimits.OptionalBytes;
+            if (size > int.MaxValue || peer.Entries >= _outboundLimits.PeerEntries || _outboundEntries >= entryLimit ||
+                size > _outboundLimits.PeerBytes - peer.Bytes || size > byteLimit - _outboundBytes)
+            {
+                dropReason = "capacity";
+            }
+            else
+            {
+                // Reserve before allocation. The queue owns bytes, never the caller's mutable RPC.
+                long admittedAt = _timeProvider.GetTimestamp();
+                reserved = (int)size;
+                peer.Entries++;
+                peer.Bytes += size;
+                _outboundEntries++;
+                _outboundBytes += size;
+                if (peer.Idle.Task.IsCompleted) peer.Idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                byte[] bytes = new byte[reserved];
+                int offset = 0;
+                VarInt.Encode((int)length, bytes, ref offset);
+                rpc.WriteTo(bytes.AsSpan(offset));
+                promise = _iwantPromises.Reserve(peer.PeerId, peer, SamplePromiseId(rpc));
+                peer.Queue.Enqueue(new(bytes, extensions, promise, admittedAt));
+                peer.ExtensionsQueued |= extensions;
+                if (peer.Entries == 1) RefreshDeadlineUnderLock(peer);
+                dropReason = null;
+                return SendResult.Admitted;
+            }
+        }
+        catch
+        {
+            _iwantPromises.Cancel(promise);
+            if (reserved != 0) ReleaseUnderLock(peer, reserved);
+            dropReason = "serialization";
+        }
+        if (required) TerminateUnderLock(peer, disconnect: true);
+        return required ? SendResult.Closing : SendResult.Dropped;
     }
 
     private static IEnumerable<MessageId> SamplePromiseId(Rpc rpc)
