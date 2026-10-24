@@ -14,6 +14,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
 using Multiformats.Address.Net;
+using Multiformats.Address.Protocols;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
@@ -40,27 +41,53 @@ public class TlsCertificateListTests
     [TestCase(true, 1)]
     [TestCase(true, 2)]
     [TestCase(true, 3)]
+    [TestCase(false, 4)]
+    [TestCase(true, 4)]
+    [TestCase(false, 5)]
+    [TestCase(true, 5)]
+    [TestCase(false, 7)]
+    [TestCase(true, 7)]
+    [TestCase(false, 8)]
+    [TestCase(true, 8)]
+    [TestCase(false, 9)]
+    [TestCase(true, 9)]
+    [TestCase(false, 10)]
+    [TestCase(true, 10)]
+    [TestCase(false, 11)]
+    [TestCase(true, 11)]
+    [TestCase(false, 12)]
+    [TestCase(true, 12)]
+    [TestCase(false, 14)]
+    [TestCase(true, 14)]
+    [TestCase(false, 13)]
+    [TestCase(false, 15)]
+    [TestCase(true, 15)]
+    [TestCase(false, 16)]
+    [TestCase(true, 16)]
     public async Task RegisteredTlsRequiresExactlyOneReceivedCertificate(bool receiverIsServer, int shape)
     {
-        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(15));
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(shape == 14 ? 30 : 15));
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using ECDsa extraKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using X509Certificate2 leaf = CertificateHelper.CertificateFromIdentity(key, TestPeers.Identity(2));
         using X509Certificate2 extra = CertificateHelper.CertificateFromIdentity(extraKey, TestPeers.Identity(3));
         Assert.That(CertificateHelper.ValidateCertificate(leaf, TestPeers.PeerId(2).ToString()), Is.True);
         Assert.That(CertificateHelper.ValidateCertificate(extra, TestPeers.PeerId(3).ToString()), Is.True);
+        using X509Certificate2 presented = PresentCertificate(leaf, shape);
+        bool accepted = shape is 1 or 4 or 14;
         byte[][] expected = shape switch
         {
             0 => [],
-            1 => [leaf.RawData],
-            2 => [leaf.RawData, extra.RawData],
-            _ => [leaf.RawData, leaf.RawData],
+            2 => [presented.RawData, extra.RawData],
+            3 or 5 => [presented.RawData, presented.RawData],
+            _ => [presented.RawData],
         };
         BcTlsCrypto crypto = new();
         BcCertificate credentialsCertificate = new([], [new CertificateEntry(crypto.CreateCertificate(leaf.RawData), null)]);
         BcCertificate transmitted = new([], expected.Select(der => new CertificateEntry(crypto.CreateCertificate(der), null)).ToArray());
         using ECDsa signingKey = leaf.GetECDsaPrivateKey()!;
-        byte[] exported = signingKey.ExportPkcs8PrivateKey();
+        using ECDsa wrongSigningKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] exported = (shape == 15 ? wrongSigningKey : signingKey).ExportPkcs8PrivateKey();
         ModernBc::Org.BouncyCastle.Crypto.AsymmetricKeyParameter privateKey;
         try { privateKey = PrivateKeyFactory.CreateKey(exported); }
         finally { CryptographicOperations.ZeroMemory(exported); }
@@ -72,6 +99,9 @@ public class TlsCertificateListTests
             .BuildServiceProvider();
         await using ILocalPeer peer = services.GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(1));
         ObservedTlsProtocol observed = services.GetRequiredService<ObservedTlsProtocol>();
+        if (shape == 11) observed.BeforeHandshake = state => state.RemotePublicKey = TestPeers.Identity(3).PublicKey;
+        if (shape == 12) observed.BeforeHandshake = state =>
+            state.RemoteAddress = $"{state.RemoteAddress!.GetEndpointPart()}/p2p/{TestPeers.PeerId(3)}";
         int publishedSessions = 0;
         peer.OnConnected += _ => Interlocked.Increment(ref publishedSessions);
         using TcpListener rawListener = new(IPAddress.Loopback, 0);
@@ -104,17 +134,28 @@ public class TlsCertificateListTests
                 await NegotiateAsync(stream, receiverIsServer, deadline.Token);
                 ObservedContext context = await observed.Entered.Task.WaitAsync(deadline.Token);
                 ModernBc::Org.BouncyCastle.Tls.TlsProtocol wire = receiverIsServer
-                    ? new RecordingClient(stream, transmitted, emitted)
-                    : new RecordingServer(stream, transmitted, emitted);
+                    ? new RecordingClient(stream, transmitted, emitted, omitFinished: shape == 16)
+                    : new RecordingServer(stream, transmitted, emitted, omitFinished: shape == 16);
                 send = Task.Run(() =>
                 {
-                    if (wire is RecordingClient client)
-                        client.Connect(new WireClient(crypto, credentialsCertificate, privateKey));
-                    else
-                        ((RecordingServer)wire).Accept(new WireServer(crypto, credentialsCertificate, privateKey));
+                    try
+                    {
+                        if (wire is RecordingClient client)
+                            client.Connect(new WireClient(crypto, credentialsCertificate, privateKey));
+                        else
+                            ((RecordingServer)wire).Accept(new WireServer(crypto, credentialsCertificate, privateKey, requestCertificate: shape != 13));
+                    }
+                    finally
+                    {
+                        if (shape == 16)
+                        {
+                            try { socket.Client.Shutdown(SocketShutdown.Send); }
+                            catch (Exception ex) when (ex is SocketException or ObjectDisposedException) { }
+                        }
+                    }
                     // TLS 1.3 clients can return before the receiver rejects their list.
                     // Sending bytes here must never cause rejected peers to upgrade.
-                    if (shape != 1) wire.Stream.WriteByte(42);
+                    if (!accepted) wire.Stream.WriteByte(42);
                     else
                     {
                         string hello = ReadLine(wire.Stream);
@@ -123,7 +164,7 @@ public class TlsCertificateListTests
                 });
 
                 await Task.WhenAny(context.Upgraded.Task, observed.Finished.Task).WaitAsync(deadline.Token);
-                if (shape == 1)
+                if (accepted)
                 {
                     Assert.That(context.Upgraded.Task.IsCompletedSuccessfully, Is.True, "Valid one-certificate TLS must upgrade.");
                     await send.WaitAsync(deadline.Token);
@@ -149,7 +190,7 @@ public class TlsCertificateListTests
                 if (send is not null)
                 {
                     try { await send.WaitAsync(TimeSpan.FromSeconds(5)); }
-                    catch (IOException) when (shape != 1) { /* The receiver rejects the wire list. */ }
+                    catch (IOException) when (!accepted) { /* The receiver rejects the wire list. */ }
                 }
                 if (dial is not null)
                 {
@@ -158,9 +199,46 @@ public class TlsCertificateListTests
                 }
                 Assert.That(emitted, Is.EqualTo(expected), "Capture the final serialized DER list, including duplicate entries.");
                 bool upgraded = observed.Entered.Task.IsCompletedSuccessfully && observed.Entered.Task.Result.Upgraded.Task.IsCompleted;
-                TestContext.Out.WriteLine($"PRODUCTION_CERTIFICATE_LIST OS={Environment.OSVersion}; runtime={Environment.Version}; receiver={(receiverIsServer ? "server" : "client")}; shape={shape}; wireCount={emitted.Count}; upgraded={upgraded}; publishedSessions={publishedSessions}");
+                TestContext.Out.WriteLine($"PRODUCTION_CERTIFICATE_LIST OS={Environment.OSVersion}; runtime={Environment.Version}; receiver={(receiverIsServer ? "server" : "client")}; shape={shape}; wireCount={emitted.Count}; certificateBytes={expected.Sum(der => der.Length)}; upgraded={upgraded}; publishedSessions={publishedSessions}");
             }
         }
+    }
+
+    private static X509Certificate2 PresentCertificate(X509Certificate2 seed, int shape)
+    {
+        if (shape == 9)
+        {
+            byte[] der = seed.RawData;
+            der[^1] ^= 1; // Invalid self-signature, valid CertificateVerify signing key.
+            return X509CertificateLoader.LoadCertificate(der);
+        }
+        if (shape is not (4 or 5 or 7 or 8 or 10 or 14))
+            return X509CertificateLoader.LoadCertificate(seed.RawData);
+        using ECDsa key = seed.GetECDsaPrivateKey()!;
+        int target = shape switch { 4 => 128 * 1024, 5 => 20 * 1024, 14 => 0xFFFFFF - 9, _ => 0 };
+        int padding = target == 0 ? 0 : target - seed.RawData.Length - 24;
+        for (int attempt = 0; attempt < 64; attempt++)
+        {
+            System.Security.Cryptography.X509Certificates.CertificateRequest request = new(seed.SubjectName, key, HashAlgorithmName.SHA256);
+            foreach (X509Extension extension in seed.Extensions)
+            {
+                byte[] data = extension.RawData;
+                if (shape == 10 && extension.Oid!.Value == "1.3.6.1.4.1.53594.1.1") data[^1] ^= 1;
+                request.CertificateExtensions.Add(new X509Extension(extension.Oid!, data, extension.Critical));
+            }
+            if (target != 0) request.CertificateExtensions.Add(new X509Extension("1.3.6.1.4.1.53594.999", new byte[padding], false));
+            DateTimeOffset before = shape == 8 ? DateTimeOffset.UtcNow.AddDays(1) : DateTimeOffset.UtcNow.AddDays(-2);
+            DateTimeOffset after = shape == 7 ? DateTimeOffset.UtcNow.AddDays(-1) : DateTimeOffset.UtcNow.AddDays(2);
+            X509Certificate2 result = request.CreateSelfSigned(before, after);
+            if (target == 0 || result.RawData.Length == target)
+            {
+                Assert.That(CertificateHelper.ValidateCertificate(result, TestPeers.PeerId(2).ToString()), Is.EqualTo(shape is 4 or 5 or 14));
+                return result;
+            }
+            padding += target - result.RawData.Length;
+            result.Dispose();
+        }
+        throw new InvalidOperationException("Unable to generate exact protocol-boundary certificate.");
     }
 
     // The regular builder retains Noise-first ordering. The raw server refuses Noise,
@@ -174,12 +252,14 @@ public class TlsCertificateListTests
     public sealed class ObservedTlsProtocol(TlsProtocol protocol) : IConnectionProtocol
     {
         public string Id => protocol.Id;
+        public Action<State>? BeforeHandshake { get; set; }
         public TaskCompletionSource<ObservedContext> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<Exception?> Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task DialAsync(IChannel channel, IConnectionContext context) => RunAsync(channel, context, false);
         public Task ListenAsync(IChannel channel, IConnectionContext context) => RunAsync(channel, context, true);
         private async Task RunAsync(IChannel channel, IConnectionContext context, bool listener)
         {
+            BeforeHandshake?.Invoke(context.State);
             ObservedContext observer = new(context);
             Entered.TrySetResult(observer);
             try
@@ -273,8 +353,13 @@ public class TlsCertificateListTests
         Assert.That(encoded.Position, Is.EqualTo(encoded.Length));
     }
 
-    private sealed class RecordingClient(Stream stream, BcCertificate transmitted, List<byte[]> emitted) : TlsClientProtocol(stream)
+    private sealed class RecordingClient(Stream stream, BcCertificate transmitted, List<byte[]> emitted, bool omitFinished) : TlsClientProtocol(stream)
     {
+        protected override void Send13FinishedMessage()
+        {
+            if (omitFinished) throw new IOException("Deliberately omitted Finished after CertificateVerify.");
+            base.Send13FinishedMessage();
+        }
         protected override void Send13CertificateMessage(BcCertificate certificate)
         {
             Capture(transmitted, Context, emitted);
@@ -282,8 +367,13 @@ public class TlsCertificateListTests
         }
     }
 
-    private sealed class RecordingServer(Stream stream, BcCertificate transmitted, List<byte[]> emitted) : TlsServerProtocol(stream)
+    private sealed class RecordingServer(Stream stream, BcCertificate transmitted, List<byte[]> emitted, bool omitFinished) : TlsServerProtocol(stream)
     {
+        protected override void Send13FinishedMessage()
+        {
+            if (omitFinished) throw new IOException("Deliberately omitted Finished after CertificateVerify.");
+            base.Send13FinishedMessage();
+        }
         protected override void Send13CertificateMessage(BcCertificate certificate)
         {
             Capture(transmitted, Context, emitted);
@@ -295,11 +385,12 @@ public class TlsCertificateListTests
         new BcDefaultTlsCredentialedSigner(new TlsCryptoParameters(context), crypto, key, certificate,
             SignatureAndHashAlgorithm.GetInstance(HashAlgorithm.sha256, SignatureAlgorithm.ecdsa));
 
-    private sealed class WireServer(BcTlsCrypto crypto, BcCertificate certificate, ModernBc::Org.BouncyCastle.Crypto.AsymmetricKeyParameter key) : DefaultTlsServer(crypto)
+    private sealed class WireServer(BcTlsCrypto crypto, BcCertificate certificate, ModernBc::Org.BouncyCastle.Crypto.AsymmetricKeyParameter key, bool requestCertificate) : DefaultTlsServer(crypto)
     {
         protected override ProtocolVersion[] GetSupportedVersions() => [ProtocolVersion.TLSv13];
         public override TlsCredentials GetCredentials() => Credentials(m_context, crypto, certificate, key);
-        public override BcRequest GetCertificateRequest() => new([], [SignatureAndHashAlgorithm.GetInstance(HashAlgorithm.sha256, SignatureAlgorithm.ecdsa)], null, null);
+        public override BcRequest GetCertificateRequest() => requestCertificate
+            ? new([], [SignatureAndHashAlgorithm.GetInstance(HashAlgorithm.sha256, SignatureAlgorithm.ecdsa)], null, null) : null!;
         public override void NotifyClientCertificate(BcCertificate clientCertificate) { }
     }
 
