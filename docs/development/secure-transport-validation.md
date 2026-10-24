@@ -103,12 +103,17 @@ README. #373 remains unresolved and must not have a closing reference in the PR.
 The existing Windows TLS job continues to run the six probes and upload their
 NUnit XML observations.
 
-## Session-key lifetime (#402, partial mitigation)
+## Parent session-key lifetime (#402, historical partial mitigation)
 
-The parent creates a fresh persisted named Windows CNG key on every helper call;
-both registered TLS roles and QUIC dial/listen use this helper. Only lease disposal
-deletes it. This source trace confirms the crash-leak premise; the audit's Windows
-GC and timing experiment was not independently executed on this Linux host.
+This section records the parent implementation and its Windows evidence. The
+[current recovery contract and validation status](windows-process-key-recovery.md)
+extend that implementation for newly marked keys after abnormal exit.
+
+Before PR #416, the helper created a fresh persisted named Windows CNG key on
+every call; both registered TLS roles and QUIC dial/listen use this helper. Only
+lease disposal deleted it. That source trace confirmed the original crash-leak
+premise; the audit's Windows GC and timing experiment was not independently
+executed on this Linux host.
 
 Independent review F1 against `0aa5b634f6803be8309a696b9a73189ecffb592e` correctly
 identified that the initial in-memory replacement breaks the Windows credential
@@ -151,7 +156,7 @@ keys remain; this is unbounded across repeated restarts. The revision removes
 per-connection key churn, not this residual. Multiple separately loaded helper
 assemblies each own one key. The Windows transport results below validate the
 compatible reuse and normal-exit paths; they do not eliminate this crash leak.
-#402 remains partial and must not have a closing reference in the PR.
+In PR #416, #402 remained partial and had no closing reference.
 
 `WindowsCertificateKeyTests` covers sequential and concurrent certificate leases
 with distinct input keys, shared key-name/public-key fingerprints, independent
@@ -258,7 +263,7 @@ documentation-only edits do not change those inputs. The recorded Windows run
 supplies the native-platform results that Linux could not establish. All existing
 independent review, final verification, and CI gates remain.
 
-## PR handoff
+## Parent PR handoff (historical)
 
 The only closing reference is:
 
@@ -268,6 +273,8 @@ Closes #371
 
 #373 remains unresolved because the Windows callback loses transmitted duplicate
 entries. #402 is a partial mitigation of per-attempt key creation and retains one
-possible orphan per crashed process run. Neither issue has a closing reference.
+possible orphan per crashed process run. Neither issue had a closing reference in
+the parent. The current #402 follow-up uses the closing reference and dependency
+in the [recovery record](windows-process-key-recovery.md).
 The stacked dependency on PR #411 and target branch stated above must remain in
 the PR description. The host owns publication and issue closure.

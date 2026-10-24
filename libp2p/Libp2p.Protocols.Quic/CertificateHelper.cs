@@ -52,6 +52,7 @@ public class CertificateHelper
     private static WindowsCertificateKey CreateWindowsProcessKey()
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        WindowsProcessKey.Recover();
         WindowsCertificateKey owner = new();
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
@@ -59,8 +60,8 @@ public class CertificateHelper
             try { owner.DeleteAtProcessExit(); }
             catch (CryptographicException)
             {
-                // Shutdown cleanup is best effort. A crash or deletion failure can leave
-                // this one key behind. Never search for or delete keys owned by other runs.
+                // Shutdown cleanup is best effort. A later process can recover this
+                // marked key after proving this process incarnation has terminated.
             }
         };
         return owner;
@@ -74,11 +75,8 @@ public class CertificateHelper
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         public WindowsCertificateKey()
         {
-            using CngKey key = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", new CngKeyCreationParameters
-            {
-                ExportPolicy = CngExportPolicies.AllowPlaintextExport,
-                KeyUsage = CngKeyUsages.AllUsages,
-            });
+            WindowsProcessKey.Ownership owner = WindowsProcessKey.CurrentOwner();
+            using CngKey key = CngKey.Create(CngAlgorithm.ECDsaP256, owner.KeyName, WindowsProcessKey.CreationParameters(owner));
             try { _key = new ECDsaCng(key); }
             catch
             {
