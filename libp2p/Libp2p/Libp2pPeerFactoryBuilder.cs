@@ -10,9 +10,17 @@ using Nethermind.Libp2p.Protocols.WebRtc;
 
 namespace Nethermind.Libp2p;
 
-public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>(serviceProvider),
+public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactoryBuilder, Libp2pPeerFactory>,
     ILibp2pPeerFactoryBuilder
 {
+    public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
+    {
+        if (serviceProvider?.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>() is null)
+            Services.AddSingleton<Nethermind.Libp2p.Core.Discovery.PeerStore>();
+        if (serviceProvider?.GetService<IdentifyNotifier>() is null)
+            Services.AddSingleton<IdentifyNotifier>();
+    }
+
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IpTcpProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(QuicProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(NoiseProtocol))]
@@ -44,30 +52,35 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced()
     {
+        EnsureConfigurable();
         enforcePlaintext = true;
         return this;
     }
 
     public ILibp2pPeerFactoryBuilder WithPubsub()
     {
+        EnsureConfigurable();
         addPubsub = true;
         return this;
     }
 
     public ILibp2pPeerFactoryBuilder WithRelay()
     {
+        EnsureConfigurable();
         addRelay = true;
         return this;
     }
 
     public ILibp2pPeerFactoryBuilder WithQuic()
     {
+        EnsureConfigurable();
         addQuic = true;
         return this;
     }
 
     public ILibp2pPeerFactoryBuilder WithWebSockets()
     {
+        EnsureConfigurable();
 #if LIBP2P_WEBSOCKETS
         addWebSockets = true;
         return this;
@@ -78,6 +91,7 @@ public class Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = defaul
 
     public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
     {
+        EnsureConfigurable();
         addWebRtcDirect = true;
         return this;
     }

@@ -15,7 +15,7 @@ namespace Nethermind.Libp2p.Core;
 
 public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
     ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null)
-    : ILocalPeer
+    : ILocalPeer, IPeerServices
 {
     private const int ConnectionTimeout = 15_000;
     private const int MaxConcurrentDials = 16;
@@ -250,7 +250,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
     }
 
-    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
+    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol, bool isListener = false)
     {
         if (_protocolStackSettings.Protocols is null)
         {
@@ -262,7 +262,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pSetupException($"{protocol} is not added");
         }
 
-        return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
+        return _protocolStackSettings.Protocols[protocol].Where(p => !isListener || p.AcceptInbound).Select(p => p.Protocol);
     }
 
 
@@ -272,20 +272,49 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
-    /// <summary>
-    /// Get a protocol instance by type.
-    /// </summary>
-    /// <typeparam name="T">The protocol type to retrieve.</typeparam>
-    /// <returns>The protocol instance, or null if not found.</returns>
+    private readonly Dictionary<Type, object> _peerServices = [];
+    private readonly HashSet<Type> _initializingServices = [];
+    private readonly List<object> _ownedPeerServices = [];
+
+    /// <summary>Gets or creates a service owned by this local peer.</summary>
+    public TService? GetPeerService<TService>() where TService : class
+    {
+        lock (Sessions)
+        {
+            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            if (_peerServices.TryGetValue(typeof(TService), out var service)) return (TService)service;
+            if (!_initializingServices.Add(typeof(TService)))
+                throw new InvalidOperationException($"Circular peer service dependency resolving {typeof(TService)}.");
+            try
+            {
+                var registration = PeerServiceRegistry.Get(_protocolStackSettings, typeof(TService));
+                service = registration?.Factory(this);
+                if (service is not null)
+                {
+                    _peerServices.Add(typeof(TService), service);
+                    if (registration!.OwnsInstance) _ownedPeerServices.Add(service);
+                }
+                return (TService?)service;
+            }
+            finally { _initializingServices.Remove(typeof(TService)); }
+        }
+    }
+
+    /// <summary>Gets an installed protocol or a peer-bound protocol service by type.</summary>
     public T? GetProtocol<T>() where T : class, IProtocol
     {
-        return GetProtocolInstance<T>() as T;
+        return GetProtocolInstance<T>() as T ??
+            (PeerServiceRegistry.Get(_protocolStackSettings, typeof(T)) is not null ? GetPeerService<T>() : null);
     }
 
     /// <summary>Gets the first installed protocol matching the type and wire identifier.</summary>
     public T? GetProtocol<T>(string protocolId) where T : class, IProtocol
     {
-        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId && p.Protocol is T)?.Protocol as T;
+        var installed = _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId && p.Protocol is T)?.Protocol as T;
+        if (installed is not null) return installed;
+        if (PeerServiceRegistry.Get(_protocolStackSettings, typeof(T)) is null) return null;
+        var service = GetPeerService<T>();
+        return service?.Id == protocolId ? service : null;
     }
 
     public Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
@@ -973,7 +1002,24 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         try
         {
             try { await Task.WhenAll(sessions.Select(session => session.DisconnectAsync())); }
-            finally { peerActivity?.Dispose(); }
+            finally
+            {
+                try
+                {
+                    List<Exception> failures = [];
+                    foreach (object service in _ownedPeerServices.AsEnumerable().Reverse().Distinct(ReferenceEqualityComparer.Instance))
+                    {
+                        try
+                        {
+                            if (service is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
+                            else if (service is IDisposable disposable) disposable.Dispose();
+                        }
+                        catch (Exception ex) { failures.Add(ex); }
+                    }
+                    if (failures.Count > 0) throw new AggregateException(failures);
+                }
+                finally { peerActivity?.Dispose(); }
+            }
             disposal.TrySetResult();
         }
         catch (Exception exception)
