@@ -32,12 +32,13 @@ public class WebRtcDirectFingerprintEnforcementTests
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Observation dialer = new(listener ? "matching" : fingerprint, operations.Token, release.Task);
         Observation acceptor = new(listener ? fingerprint : "matching", operations.Token, release.Task);
-        await using ServiceProvider dialerServices = Services(dialer);
-        await using ServiceProvider listenerServices = Services(acceptor);
+        bool injectFingerprint = fingerprint != "matching";
+        await using ServiceProvider dialerServices = Services(dialer, injectFingerprint);
+        await using ServiceProvider listenerServices = Services(acceptor, injectFingerprint);
         await using ILocalPeer dialerPeer = dialerServices.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer listenerPeer = listenerServices.GetRequiredService<IPeerFactory>().Create();
-        WebRtcDirectProtocol dialerProtocol = RegisteredTransport(dialerServices);
-        WebRtcDirectProtocol listenerProtocol = RegisteredTransport(listenerServices);
+        WebRtcDirectProtocol dialerProtocol = RegisteredTransport(dialerServices, injectFingerprint);
+        WebRtcDirectProtocol listenerProtocol = RegisteredTransport(listenerServices, injectFingerprint);
         ITransportContext dialerContext = dialer.Context(dialerPeer);
         ITransportContext listenerContext = acceptor.Context(listenerPeer);
 
@@ -97,10 +98,10 @@ public class WebRtcDirectFingerprintEnforcementTests
 
         Assert.That(deadline.IsCancellationRequested, Is.False, "Transport deadline expired.");
         Observation target = listener ? acceptor : dialer;
-        AssertRead(target);
         if (fingerprint == "matching")
         {
-            AssertRead(listener ? dialer : acceptor);
+            Assert.That(dialer.Reads, Is.Zero, "Positive controls must use the production fingerprint reader.");
+            Assert.That(acceptor.Reads, Is.Zero, "Positive controls must use the production fingerprint reader.");
             Assert.That(dialFailure, Is.Null);
             Assert.That(acceptor.FailedOffer.Task.IsCompleted, Is.False);
             Assert.That(dialer.Connections, Is.EqualTo(1));
@@ -108,6 +109,7 @@ public class WebRtcDirectFingerprintEnforcementTests
         }
         else
         {
+            AssertRead(target);
             Exception? failure = listener ? listenerFailure : dialFailure;
             Assert.That(failure, Is.TypeOf<InvalidOperationException>().With.Message.EqualTo(Rejection));
             Assert.That(target.Connections, Is.Zero, "Rejected certificates must not create a connection.");
@@ -115,18 +117,33 @@ public class WebRtcDirectFingerprintEnforcementTests
         }
     }
 
-    private static ServiceProvider Services(Observation observation)
-        => new ServiceCollection()
+    private static ServiceProvider Services(Observation observation, bool injectFingerprint)
+    {
+        IServiceCollection services = new ServiceCollection()
             .AddLibp2p(builder => builder.WithWebRtcDirect())
-            .AddSingleton(new WebRtcDirectProtocol(observation.Read, new OfferLoggerFactory(observation)))
-            .BuildServiceProvider();
+            .AddSingleton<ILoggerFactory>(new OfferLoggerFactory(observation));
+        // Matching controls leave transport construction to the normal builder/public constructor.
+        // Only rejection controls replace the runtime read to inject a null or changed fingerprint.
+        if (injectFingerprint)
+        {
+            services.AddSingleton(provider => new WebRtcDirectProtocol(observation.Read, provider.GetRequiredService<ILoggerFactory>()));
+        }
+        return services.BuildServiceProvider();
+    }
 
-    private static WebRtcDirectProtocol RegisteredTransport(ServiceProvider services)
+    private static WebRtcDirectProtocol RegisteredTransport(ServiceProvider services, bool injectFingerprint)
     {
         IProtocolStackSettings stack = services.GetRequiredService<IProtocolStackSettings>();
         WebRtcDirectProtocol protocol = (WebRtcDirectProtocol)stack.TopProtocols!
             .Single(reference => reference.Protocol is WebRtcDirectProtocol).Protocol;
-        Assert.That(protocol, Is.SameAs(services.GetRequiredService<WebRtcDirectProtocol>()));
+        if (injectFingerprint)
+        {
+            Assert.That(protocol, Is.SameAs(services.GetRequiredService<WebRtcDirectProtocol>()));
+        }
+        else
+        {
+            Assert.That(services.GetService<WebRtcDirectProtocol>(), Is.Null, "The builder must construct the transport without a test registration.");
+        }
         Assert.That(stack.Protocols![stack.TopProtocols!.Single(reference => reference.Protocol == protocol)]
             .Select(reference => reference.Protocol).Single(), Is.InstanceOf<MultistreamProtocol>());
         return protocol;
@@ -170,6 +187,7 @@ public class WebRtcDirectFingerprintEnforcementTests
         public State State { get; } = new();
         public DtlsFingerprint? Expected { get; set; }
         public RTCDtlsFingerprint? Actual { get; private set; }
+        private Task? _channelClosed;
         public int Reads;
         public int Connections;
 
@@ -201,8 +219,9 @@ public class WebRtcDirectFingerprintEnforcementTests
                 connection.Peer.Returns(peer);
                 connection.Token.Returns(token);
                 connection.State.Returns(State);
-                connection.Upgrade(Arg.Any<IChannel>(), Arg.Any<UpgradeOptions?>()).Returns(_ =>
+                connection.Upgrade(Arg.Any<IChannel>(), Arg.Any<UpgradeOptions?>()).Returns(call =>
                 {
+                    _channelClosed = WaitForChannelCloseAsync(call.Arg<IChannel>());
                     Upgraded.TrySetResult();
                     return release;
                 });
@@ -218,7 +237,10 @@ public class WebRtcDirectFingerprintEnforcementTests
             // upgrade is asserted after real progress, never inferred from waiting a while.
             if (Volatile.Read(ref Reads) != 0) await Closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             if (Volatile.Read(ref Connections) != 0) await Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            if (_channelClosed is not null) await _channelClosed.WaitAsync(TimeSpan.FromSeconds(5));
         }
+
+        private static async Task WaitForChannelCloseAsync(IChannel channel) => await channel;
     }
 
     private sealed class OfferLoggerFactory(Observation observation) : ILoggerFactory
