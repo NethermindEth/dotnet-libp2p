@@ -1,0 +1,374 @@
+{
+  "status": "Prerequisite and red-baseline evidence; production implementation not complete",
+  "production_revision": "f94d0d071518dd43085303f6f24b5de7b2660e82",
+  "environment": {
+    "os": "Ubuntu 22.04",
+    "kernel": "5.15.0.86",
+    "architecture": "x64",
+    "sdk": "10.0.402",
+    "runtime": "10.0.13",
+    "native_tls": "OpenSSL 3.0.2, distribution build 2026-09-17",
+    "wire_sender": "BouncyCastle.Cryptography 2.6.2"
+  },
+  "test_inputs_sha256": {
+    "libp2p/Libp2p.Protocols.Tls.Tests/NativeCertificateSizeTests.cs": "48a5268773feafa7aea31597f96a9513057bd2ebb548744f23764222407c6ba5",
+    "libp2p/Libp2p.E2eTests/TlsCertificateListTests.cs": "e01a1abb3029941328c3bb409a670c6cd658b2d733cf318e3f8391acbe41f22e",
+    "libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj": "4776e7e15c9fdf8c9cda5fdafc7e2c43a559836f84d3f1b57283a3fdeee8ad9b"
+  },
+  "reports": [
+    {
+      "suite": "tls",
+      "exit_code": 0,
+      "nunit_xml_sha256": "aacc9962725ca39659e781462a3b802572159407476415aa853d9ad99f2ecb08",
+      "summary": {
+        "result": "Passed",
+        "total": "36",
+        "passed": "36",
+        "failed": "0",
+        "skipped": "0",
+        "inconclusive": "0",
+        "start-time": "2026-10-23 22:49:35Z",
+        "end-time": "2026-10-23 22:49:43Z"
+      },
+      "cases": [
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ApplicationProtocols_ContainsLibp2pProtocol",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateFromIdentity_CreatesSelfSignedCertificate",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsExpiredCertificate",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsNotYetValidCertificate",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ProtocolId_MatchesLibp2pSpec",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateFromIdentity_HasCorrectValidityPeriod",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_SignaturePrefix_MatchesLibp2pSpec",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ExtractPublicKey_RejectsMultipleLibp2pExtensions",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsPeerIdMismatch",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsCertificateWithoutLibp2pExtension",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_AcceptsValidLibp2pCertificate",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,1)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; wire=1; ChainElements=1; ExtraStore=1; leafCopies=1"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,2)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; wire=2; ChainElements=1; ExtraStore=2; leafCopies=1"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,3)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; wire=2; ChainElements=1; ExtraStore=2; leafCopies=2"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,1)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; wire=1; ChainElements=1; ExtraStore=0; leafCopies=0"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,2)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; wire=2; ChainElements=1; ExtraStore=1; leafCopies=0"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,3)",
+          "result": "Passed",
+          "observations": [
+            "OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; wire=2; ChainElements=1; ExtraStore=1; leafCopies=1"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateFromIdentity_CreatesValidCertificate",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateValidation_FailsForWrongPeerId",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateValidation_Succeeds",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateUsesP256SessionKey",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsHandshake_BidirectionalData",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateRejectsUnexpectedDialedPeer(False)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateRejectsUnexpectedDialedPeer(True)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsProtocol_HasCorrectId",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsIdentityConflictIsRejected",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsHandshake_OverNetworkStream",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(False,False)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(False,True)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(True,False)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.IpTcpPeerIdentityTests.Test_DialPassesExpectedPeerIdToSecurityProtocol(False)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.IpTcpPeerIdentityTests.Test_DialPassesExpectedPeerIdToSecurityProtocol(True)",
+          "result": "Passed"
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(False,False)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; allowTlsResume=False; sampleAcceptedDer=102391; sampleRejectedDer=102392; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=102400; handshakeMessageAtSample=102404"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(False,True)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; allowTlsResume=True; sampleAcceptedDer=102391; sampleRejectedDer=102392; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=102400; handshakeMessageAtSample=102404"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(True,False)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; allowTlsResume=False; sampleAcceptedDer=102391; sampleRejectedDer=102392; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=102400; handshakeMessageAtSample=102404"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(True,True)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; allowTlsResume=True; sampleAcceptedDer=65114; sampleRejectedDer=65115; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=65123; handshakeMessageAtSample=65127"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "registered_cardinality_red",
+      "exit_code": 2,
+      "nunit_xml_sha256": "e61d2e54d92b54b3d6421c25af9d1e387ed98b267fb01f202d9085cd33725c40",
+      "summary": {
+        "result": "Failed",
+        "total": "8",
+        "passed": "4",
+        "failed": "4",
+        "skipped": "0",
+        "inconclusive": "0",
+        "start-time": "2026-10-23 22:50:15Z",
+        "end-time": "2026-10-23 22:50:16Z"
+      },
+      "cases": [
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,0)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; shape=0; wireCount=0; upgraded=False; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,1)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; shape=1; wireCount=1; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,2)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; shape=2; wireCount=2; upgraded=True; publishedSessions=0"
+          ],
+          "failure": "Reject the received list before upgrading.\nAssert.That(context.Upgraded.Task.IsCompleted, Is.False)\n  Expected: False\n  But was:  True"
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,3)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=client; shape=3; wireCount=2; upgraded=True; publishedSessions=0"
+          ],
+          "failure": "Reject the received list before upgrading.\nAssert.That(context.Upgraded.Task.IsCompleted, Is.False)\n  Expected: False\n  But was:  True"
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,0)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; shape=0; wireCount=0; upgraded=False; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,1)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; shape=1; wireCount=1; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,2)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; shape=2; wireCount=2; upgraded=True; publishedSessions=0"
+          ],
+          "failure": "Reject the received list before upgrading.\nAssert.That(context.Upgraded.Task.IsCompleted, Is.False)\n  Expected: False\n  But was:  True"
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,3)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Unix 5.15.0.86; runtime=10.0.13; receiver=server; shape=3; wireCount=2; upgraded=True; publishedSessions=0"
+          ],
+          "failure": "Reject the received list before upgrading.\nAssert.That(context.Upgraded.Task.IsCompleted, Is.False)\n  Expected: False\n  But was:  True"
+        }
+      ]
+    },
+    {
+      "suite": "parent_registered_controls",
+      "exit_code": 0,
+      "nunit_xml_sha256": "d604084681023284c2f1187e934af520728e9def6496bc3f2cfba1c78b8b47ad",
+      "summary": {
+        "result": "Passed",
+        "total": "5",
+        "passed": "5",
+        "failed": "0",
+        "skipped": "0",
+        "inconclusive": "0",
+        "start-time": "2026-10-23 22:50:34Z",
+        "end-time": "2026-10-23 22:50:38Z"
+      },
+      "cases": [
+        {
+          "name": "Libp2p.E2eTests.RegisteredIdentityTests.RegisteredSecurityRejectsAnAliasExpectedPeerId(False)",
+          "result": "Passed"
+        },
+        {
+          "name": "Libp2p.E2eTests.RegisteredIdentityTests.RegisteredSecurityRejectsAnAliasExpectedPeerId(True)",
+          "result": "Passed"
+        },
+        {
+          "name": "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"noise\")",
+          "result": "Passed"
+        },
+        {
+          "name": "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"tls\")",
+          "result": "Passed"
+        },
+        {
+          "name": "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"quic\")",
+          "result": "Passed"
+        }
+      ]
+    }
+  ],
+  "inspected_sources": [
+    {
+      "name": "libp2p_tls_spec",
+      "url": "https://raw.githubusercontent.com/libp2p/specs/c750236de43cd8b246a824b377dfdb26bae686db/tls/tls.md",
+      "sha256": "0478417f1d37a85501845f38369fb4b979b1a7be0d639174933bed7e33cce908"
+    },
+    {
+      "name": "go_tls_validator",
+      "url": "https://raw.githubusercontent.com/libp2p/go-libp2p/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/tls/crypto.go",
+      "sha256": "ea7758276c3fdb630aab5b04d41f12686716512ee8a45a971087695cfd52cf22"
+    },
+    {
+      "name": "go_tls_reference_tests",
+      "url": "https://raw.githubusercontent.com/libp2p/go-libp2p/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/tls/crypto_test.go",
+      "sha256": "19b0176a516468d2e092633565d6f0da52a2b7e32a3dffbae2e6974d5021deaf"
+    },
+    {
+      "name": "bc_certificate_parser",
+      "url": "https://raw.githubusercontent.com/bcgit/bc-csharp/release-2.6.2/crypto/src/tls/Certificate.cs",
+      "sha256": "f1f64c9ad8d81d7a4127250ce72acbe96b5985446df48f450a6cee2b1a5c99aa"
+    },
+    {
+      "name": "openssl_ticket_constructor",
+      "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.2/ssl/statem/statem_srvr.c",
+      "sha256": "5b8de9d1fa7a58d2ffa4f97341c3944f79ae537aa65dedd050ff7f3cf98ceac4"
+    },
+    {
+      "name": "openssl_session_encoder",
+      "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.2/ssl/ssl_asn1.c",
+      "sha256": "44d77b0d8b2e8319e9a17a77168f80316eedaaf5388caa1864ac426debcd6531"
+    },
+    {
+      "name": "runtime_quic_certificate_event",
+      "url": "https://raw.githubusercontent.com/dotnet/runtime/v10.0.13/src/libraries/System.Net.Quic/src/System/Net/Quic/QuicConnection.cs",
+      "sha256": "47c20306607a20bf476daa31303594d25fb81c738774e7d0d48b57919c6e7ece"
+    }
+  ],
+  "unverified": [
+    "Windows baseline and candidate execution",
+    "Production Bouncy Castle adapter and its lifecycle tests",
+    "Native interop against the replacement backend",
+    "Real Go TLS/Yamux interoperability",
+    "Final-candidate independent review"
+  ],
+  "pending_decisions": [
+    "Windows native size results before selecting adapter bounds",
+    "Approved-plan amendment for removing incidental server session-ticket size failures while preserving ingress cap"
+  ],
+  "command_document": "../tls-cardinality-validation.md#replay-and-retained-evidence"
+}
