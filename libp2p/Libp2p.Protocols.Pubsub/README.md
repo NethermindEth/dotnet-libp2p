@@ -131,6 +131,29 @@ router.UnsubscribeAll();
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
 It also removes pending validations for the topic and releases their capacity; their later `CompleteValidation` calls return `false`, even after resubscribing. Already accepted callbacks queued for dispatch may finish concurrently with unsubscribe. Application validation work is not cancelled.
 
+## Mesh admission and prune backoff
+
+GRAFT admission requires a nonnegative peer score. Rejected negative-score and premature
+GRAFTs receive PRUNE without peer exchange (PX); both refresh the local backoff.
+Heartbeat pruning also records backoff, including pruning for excess mesh degree.
+Gossipsub v1.0 receives topic-only PRUNE; v1.1–v1.3 also receive the backoff duration.
+
+Received nonzero PRUNE backoff is capped at **24 hours**, before converting its wire
+`uint64` seconds or calculating a deadline. This is a local defensive policy, not a
+protocol maximum. An omitted or zero duration uses configured `PruneBackoff`.
+Configured local `PruneBackoff` and `UnsubscribeBackoff` (milliseconds) remain authoritative,
+including durations longer than 24 hours. Negative local durations are treated as zero;
+zero unsubscribe backoff permits immediate re-entry. Wire durations round up to whole seconds.
+
+Backoff uses the router's injected UTC `TimeProvider`. Refresh preserves a later existing
+deadline within a retention horizon of the maximum of 24 hours and the two configured local
+durations. Deadlines saturate at the maximum representable date. Receipt of PRUNE removes
+the peer from the mesh before processing backoff or PX, so extreme durations cannot leave
+membership intact or abort later controls in that RPC.
+
+These rules follow [gossipsub v1.1 scoring and backoff](https://github.com/libp2p/specs/blob/c750236de43cd8b246a824b377dfdb26bae686db/pubsub/gossipsub/gossipsub-v1.1.md);
+the 24-hour cap is this implementation's policy.
+
 ## Remote subscription limits
 
 Remote membership is retained independently of local subscriptions so a later local subscription can discover peers. Configure these positive settings before constructing the router:
