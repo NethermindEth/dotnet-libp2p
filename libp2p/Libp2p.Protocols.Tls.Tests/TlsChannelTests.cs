@@ -248,6 +248,27 @@ public class TlsChannelTests
     }
 
     [Test]
+    public async Task RepeatedBidirectionalRequestsProgressWithoutUnrelatedTraffic()
+    {
+        await using Pair pair = await Pair.StartAsync();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        // Each reply is the only event that can release the next request. This
+        // exercises reads completing while the owner assembles its I/O wait set.
+        async Task Exchange(IChannel application)
+        {
+            for (int i = 0; i < 1000; i++)
+            {
+                byte[] payload = BitConverter.GetBytes(i);
+                Assert.That(await application.WriteAsync(new ReadOnlySequence<byte>(payload), deadline.Token), Is.EqualTo(IOResult.Ok));
+                ReadResult reply = await application.ReadAsync(payload.Length, token: deadline.Token);
+                Assert.That(reply.Result, Is.EqualTo(IOResult.Ok));
+                Assert.That(reply.Data.ToArray(), Is.EqualTo(payload));
+            }
+        }
+        await Task.WhenAll(Exchange(pair.ClientApplication), Exchange(pair.ServerApplication)).WaitAsync(deadline.Token);
+    }
+
+    [Test]
     public async Task PeerWriteEofAllowsReplyAfterReadingEof()
     {
         await using Pair pair = await Pair.StartAsync();
