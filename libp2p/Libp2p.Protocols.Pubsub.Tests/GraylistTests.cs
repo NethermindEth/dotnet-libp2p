@@ -249,7 +249,8 @@ public class GraylistTests
         IRoutingStateContainer state = router;
         _ = router.GetTopic(Topic);
         router.VerifyMessage = (_, _) => MessageValidity.Rejected;
-        PeerId peerId = Connect(router, address, _ => { });
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, address, sent.Add);
 
         Rpc rpc = Graft().WithTopics([Topic], []);
         for (int i = 0; i < invalidCount; i++)
@@ -265,7 +266,10 @@ public class GraylistTests
         Assert.Multiple(() =>
         {
             Assert.That(subscribed, Is.EqualTo(allowed));
-            Assert.That(state.Mesh[Topic].Contains(peerId), Is.EqualTo(allowed && !direct));
+            // Processing the rest of an RPC still does not admit a negative-score GRAFT.
+            Assert.That(state.Mesh[Topic], Does.Not.Contain(peerId));
+            Assert.That(sent.SelectMany(response => response.Control?.Prune ?? []).Select(prune => prune.TopicID),
+                Is.EqualTo(allowed ? new[] { Topic } : Array.Empty<string>()));
         });
     }
 

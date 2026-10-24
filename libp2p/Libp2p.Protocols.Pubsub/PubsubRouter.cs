@@ -714,7 +714,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     meshEntry.Value.Remove(peerId);
                     RecordPeerLeaveMesh(peerId, topic);
 
-                    ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                    RefreshBackoff(peerId, topic, LocalBackoff(_settings.PruneBackoff));
+                    ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
                          .Ensure(r => r.Control.Prune)
                          .Add(prune);
@@ -733,7 +734,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         .Where(p => !meshPeers.Contains(p)
                             && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= DateTime.Now))
+                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
 
                     foreach (PeerId peerId in peersToGraft)
@@ -781,10 +782,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         meshPeers.Remove(peerId);
                         RecordPeerLeaveMesh(peerId, topic);
 
-                        ControlPrune prune = new() { TopicID = topic, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                        RefreshBackoff(peerId, topic, LocalBackoff(_settings.PruneBackoff));
+                        ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
 
                         // Only include PX if peer has non-negative score
-                        if (GetPeerScore(peerId) >= 0)
+                        if (peerState.GetValueOrDefault(peerId)?.SupportsPeerExchange is true && GetPeerScore(peerId) >= 0)
                         {
                             prune.Peers.AddRange(meshPeers
                                 .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
