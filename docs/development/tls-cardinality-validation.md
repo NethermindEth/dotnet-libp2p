@@ -1,11 +1,12 @@
 # TLS certificate-list cardinality (#373)
 
-<!-- cspell:words pathlib runsettings backpressure Psks nonblocking GOCACHE GOMODCACHE -->
+<!-- cspell:words pathlib runsettings backpressure Psks nonblocking GOCACHE GOMODCACHE hashlib hexdigest -->
 
 The production `/tls/1.0.0` backend now uses Bouncy Castle 2.6.2 in both roles.
-Linux enforcement, lifecycle, native interoperability and pinned Go TLS/Yamux
-interoperability have been executed. **Fresh Windows candidate execution and
-host-managed independent review are still required before final verification.**
+Windows and Linux certificate-list enforcement and lifecycle checks passed.
+Native interoperability and pinned Go TLS/Yamux interoperability are recorded
+below. The Windows candidate passed all 126 checks without skips. **Host-managed
+independent re-review and final verification of the final head remain required.**
 The [parent validation record](secure-transport-validation.md) is unchanged.
 
 ## Contract, implementation and scope
@@ -131,11 +132,31 @@ dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -
 
 The [Linux candidate snapshot](evidence/linux-tls-cardinality-candidate.json)
 records source hashes, exact commands, discovered/executed counts, outcomes,
-report hashes, interoperability and benchmark measurements. The candidate is
-uncommitted work on checkpoint `065245ca722dccc281d808df5dbaebe9b40c08f5`
-(which retains the interrupted work from `2515bb8df7976a1497baa3718b397c8aa3b9988c`);
-the host owns the eventual commit. Windows results below must apply to that
-committed candidate, not the earlier native baseline.
+report hashes, interoperability and benchmark measurements. It was collected
+after the pump corrections, before the host committed the tested source as
+`19d9aa1d746d8e659d09cb82df4686772e41c1c0`. Its checkpoint and pending-Windows
+status describe collection time; the completed Windows run below supersedes
+that pending status. The snapshot remains unchanged as an execution record.
+
+At documentation checkpoint `e7e84b07f9c387f2a9e6b0fd078de0b7b49bd350`, all
+**466 Linux input hashes and 461 Windows input hashes** match the current files.
+The source, build, and CI inputs are unchanged from the tested candidate;
+the subsequent changes contain evidence and documentation only. The Linux input
+digest remains `5c7410f4c31af8cdcee230fd1a6e9b59a72d6455aeac5c5eec1bd99636a181cb`.
+These results are reused after checking their inputs, without rerunning
+unchanged suites. Repeat the comparison before reusing them on a later head:
+
+```sh
+python3 - <<'PY'
+import hashlib, json
+from pathlib import Path
+for name in ['linux-tls-cardinality-candidate.json', 'windows-tls-cardinality-candidate.json']:
+    record = json.loads((Path('docs/development/evidence') / name).read_text())
+    for path, expected in record['inputs'].items():
+        assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected, path
+    print(name, len(record['inputs']), 'input hashes match')
+PY
+```
 
 Registered authentication tests use `AddLibp2p`, TCP and production multistream
 negotiation, with an observer forwarding to the actual TLS implementation.
@@ -248,22 +269,42 @@ for backend in candidate parent; do
 done
 ```
 
-## Windows checkpoint and required revised-candidate run
+## Windows candidate validation and replay
 
-The [host-supplied checkpoint result](evidence/windows-tls-cardinality-candidate.json)
+The [host-supplied Windows result](evidence/windows-tls-cardinality-candidate.json)
+on committed candidate `19d9aa1d746d8e659d09cb82df4686772e41c1c0` passed:
+
+| Suite | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| TLS | 58 | 0 | 0 |
+| QUIC | 32 | 0 | 0 |
+| Registered transport and certificate-list cases | 36 | 0 | 0 |
+| Total | 126 | 0 | 0 |
+
+The host executed these on real Windows 10.0.26200 with SDK 10.0.401 and runtime
+10.0.12, in Release with warnings as errors and unchanged test deadlines. All
+three commands exited zero. The raw NUnit XML counts and SHA256 hashes were
+checked against the committed portable record, along with the exit-code files
+and runtime metadata. Both roles pass the one-certificate controls and reject
+empty, unrelated-extra, and duplicate-extra lists. Controls above the native
+size boundaries and at the TLS protocol bound also pass. The repeated mutual
+authentication and key-lifetime TLS case that failed before the wakeup
+correction now passes.
+
+The [earlier failed checkpoint result](evidence/windows-065245c-tls-cardinality-candidate.json)
 on `065245ca722dccc281d808df5dbaebe9b40c08f5` passed TLS 57/57 and QUIC 32/32,
 without skips. Registered cases passed 35/36; the TLS repeated-authentication
 lifetime case timed out, including in an isolated recheck (2/3 transport cases
 passed). Thus all 31 cardinality/identity cases passed on real Windows, including
 one-cert, unrelated/duplicate extras and protocol-size controls in both roles,
 but **that checkpoint was not passing validation**. It predates the pump wakeup
-correction. The certificate validator and handshake-source hashes match the
-current code; the pump hash does not. Do not transfer these results to the revised
-candidate or mark the Windows timeout fixed before rerunning it.
+correction and remains historical failure evidence. The later passing result
+above establishes the revised pump's Windows behavior.
 
-
-Run after the host commits the candidate; retain commit ID, `dotnet --info`, full
-logs, exit codes and NUnit XML. Use the host's existing `TEMP`:
+Replay the Windows suites with the commands below. Retain commit ID,
+`dotnet --info`, full logs, exit codes and NUnit XML. Use the host's existing
+`TEMP`; existing results remain reusable only while their relevant input hashes
+match:
 
 ```powershell
 "<RunSettings><NUnit><TestOutputXml>$env:TEMP/tls373-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/tls373.xml"
@@ -284,9 +325,18 @@ observations nor this adapter prove QUIC duplicate-entry visibility. QUIC
 cardinality remains a separate representation limitation, and its parent
 identity and key-lifetime regressions remain intact.
 
-The production-enforcement finding is addressed in code and Linux tests. Fresh
-Windows candidate evidence and host independent review remain pending. Do not
-publish the historical baseline as final Windows proof.
+The production-enforcement finding is addressed in code and demonstrated on
+Windows and Linux. Host-supplied independent review of `19d9aa1` reported no
+code defects, passed TLS 58/58 and registered paths 76/76, and ran the full E2E
+suite with 277 passed and two pre-existing skips. Its fault injection removed
+all three cardinality checks and made six extra-entry cases fail; the reviewer
+then restored the source. These are reviewer-reported checks, separate from
+the implementation's Linux and host Windows execution records above.
+
+That review applies to `19d9aa1`; it does not approve a later head. The host must
+complete the normal same-session independent re-review and final verification
+on the final head, including these documentation changes, before publication.
+Platform result reuse remains conditional on matching source/build/CI inputs.
 
 Required PR description text:
 

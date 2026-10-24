@@ -58,7 +58,8 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: Linux transport tests pass. Recorded validation of revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on Windows 10.0.26200 / .NET 10.0.12 passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 without skips. The [validation record](../../docs/development/secure-transport-validation.md) links a portable results snapshot, replay commands, and the CI artifact configuration; all CI gates remain.
+- **Platform Validation**: Candidate `19d9aa1d746d8e659d09cb82df4686772e41c1c0` passed TLS 58/58, QUIC 32/32, and registered controls 36/36 on real Windows 10.0.26200 / .NET 10.0.12, without skips or changed deadlines. Linux passed TLS 58/58 and registered paths 76/76. The [#373 validation record](../../docs/development/tls-cardinality-validation.md) links the portable results and input hashes; the current source/build/CI inputs match both platform manifests. Final independent re-review and verification remain required for the final head.
+- **Parent Validation**: The earlier native backend at revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 on Windows without skips. The historical [parent validation record](../../docs/development/secure-transport-validation.md), replay commands, and CI gates are retained.
 - **Windows Keys**: The shared certificate helper retains the named CNG key needed by native QUIC. TLS uses the certificate's actual key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
 - **Crash Lifetime**: A crash or failed shutdown cleanup can leave one key per process run behind. Across repeated crashes this residual is unbounded; no legacy-key sweep is performed. See the [ownership and validation evidence](../../docs/development/secure-transport-validation.md).
 
@@ -96,10 +97,10 @@ contracts remain. QUIC stays on MsQuic and has a separate certificate callback
 representation; this change does not establish QUIC list cardinality.
 
 See the [#373 validation record](../../docs/development/tls-cardinality-validation.md)
-for historical Windows/Linux red evidence, current Linux enforcement and native
-and Go interoperability results, limits, replay commands, and the outstanding
-fresh Windows candidate validation requirement. The six original native
-visibility probes and parent validation evidence are retained.
+for Windows/Linux enforcement results, historical failed checkpoints, native
+and Go interoperability results, limits, replay commands, and the remaining
+final-review and verification gates. The six original native visibility probes
+and parent validation evidence are retained.
 
 ## Testing
 
