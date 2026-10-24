@@ -111,7 +111,7 @@ internal static class TlsChannel
 
                 if (!engine.IsClosed && !handshake.PeerClosed && networkRead is { IsCompleted: true }
                     && applicationWrite is null && engine.GetAvailableInputBytes() == 0
-                    && engine.GetAvailableOutputBytes() == 0)
+                    && (!handshake.Complete || engine.GetAvailableOutputBytes() == 0))
                 {
                     Chunk chunk = await networkRead;
                     networkRead = null;
@@ -219,8 +219,13 @@ internal static class TlsChannel
                     }
                 }
                 else if (networkRead is null && applicationWrite is null
-                    && engine.GetAvailableInputBytes() == 0 && engine.GetAvailableOutputBytes() == 0)
+                    && engine.GetAvailableInputBytes() == 0
+                    && (!handshake.Complete || engine.GetAvailableOutputBytes() == 0))
                 {
+                    // A peer may finish writing HRR plus CCS before reading our
+                    // CCS and second ClientHello. Handshake input must progress
+                    // while that bounded response flight is queued. After Finished,
+                    // retain the application record/output backpressure boundary.
                     networkRead = ReadAsync(downChannel, record.Length - received, token);
                     progress = true;
                 }
@@ -242,7 +247,8 @@ internal static class TlsChannel
                 // wakeup and can strand a request until unrelated traffic arrives.
                 // Exclude reads held behind backpressure to avoid a busy loop.
                 if (networkRead is not null && !handshake.PeerClosed && applicationWrite is null
-                    && engine.GetAvailableInputBytes() == 0 && engine.GetAvailableOutputBytes() == 0)
+                    && engine.GetAvailableInputBytes() == 0
+                    && (!handshake.Complete || engine.GetAvailableOutputBytes() == 0))
                     pending.Add(networkRead);
                 if (applicationRead is not null &&
                     ((networkWrite is null && engine.GetAvailableOutputBytes() == 0)

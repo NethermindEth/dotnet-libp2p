@@ -3,10 +3,14 @@
 <!-- cspell:words pathlib runsettings backpressure Psks nonblocking GOCACHE GOMODCACHE hashlib hexdigest -->
 
 The production `/tls/1.0.0` backend now uses Bouncy Castle 2.6.2 in both roles.
-Windows and Linux certificate-list enforcement and lifecycle checks passed.
-Native interoperability and pinned Go TLS/Yamux interoperability are recorded
-below. The Windows candidate passed all 126 checks without skips. **Host-managed
-independent re-review and final verification of the final head remain required.**
+Recorded Windows and Linux certificate-list enforcement and lifecycle checks
+passed. Native interoperability and pinned Go TLS/Yamux interoperability are
+recorded below. The Windows 10 candidate passed all 126 checks without skips.
+A subsequent Windows CI run timed out in two native interoperability controls.
+The diagnostics were retained, and a forced retry-flight regression now
+demonstrates and repairs an input/output deadlock. The repaired source passes
+Linux TLS 62/62 and registered paths 76/76. **Windows CI validation of the repair,
+host-managed independent re-review and final verification remain required.**
 The [parent validation record](secure-transport-validation.md) is unchanged.
 
 ## Contract, implementation and scope
@@ -139,12 +143,16 @@ status describe collection time; the completed Windows run below supersedes
 that pending status. The snapshot remains unchanged as an execution record.
 
 At documentation checkpoint `e7e84b07f9c387f2a9e6b0fd078de0b7b49bd350`, all
-**466 Linux input hashes and 461 Windows input hashes** match the current files.
-The source, build, and CI inputs are unchanged from the tested candidate;
-the subsequent changes contain evidence and documentation only. The Linux input
-digest remains `5c7410f4c31af8cdcee230fd1a6e9b59a72d6455aeac5c5eec1bd99636a181cb`.
-These results are reused after checking their inputs, without rerunning
-unchanged suites. Repeat the comparison before reusing them on a later head:
+**466 Linux input hashes and 461 Windows input hashes** matched the files then.
+That comparison also passed at `a03053656ab4634bd094ed5d0d68130aba3496ff`.
+The native interoperability diagnostics changed `TlsChannelTests.cs`. The
+subsequent retry repair changes `TlsChannel.cs`, adds `TlsRetryTests.cs`, and
+raises both TLS CI minima to 62. The older complete TLS-suite results cannot
+establish this repair's Windows outcome. Its [separate Linux record](evidence/linux-retry-tls-cardinality-candidate.json)
+retains the repaired input hashes and regression results. The original Linux input digest is
+`5c7410f4c31af8cdcee230fd1a6e9b59a72d6455aeac5c5eec1bd99636a181cb`.
+Only reuse results whose relevant inputs match; repeat the comparison on a later
+head:
 
 ```sh
 python3 - <<'PY'
@@ -192,7 +200,7 @@ from pathlib import Path
 p = Path(os.environ['TMPDIR'])
 (p / 'tls373.xml').write_text('<RunSettings><NUnit><TestOutputXml>' + str(p / 'tls373-results') + '</TestOutputXml></NUnit></RunSettings>')
 PY
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 58 --timeout 180s --settings "$TMPDIR/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 62 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredProtocolsUseCanonicalIdentitiesAndVerifySignatures' --minimum-expected-tests 76 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 29 --timeout 180s --settings "$TMPDIR/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38 --timeout 180s --settings "$TMPDIR/tls373.xml"
@@ -291,6 +299,75 @@ size boundaries and at the TLS protocol bound also pass. The repeated mutual
 authentication and key-lifetime TLS case that failed before the wakeup
 correction now passes.
 
+The supplied log from subsequent [Windows CI run 40107696514](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/40107696514/job/120912701724)
+reports failures in `NativeSslStreamInteroperatesInBothRoles(False,False)` and
+`NativeSslStreamInteroperatesInBothRoles(False,True)`, each at the unchanged
+15-second deadline. Both use the production TLS client against a native server.
+The reported stack comes from awaiting the receiver during test cleanup, which
+could replace the original exchange failure. The revised test preserves that
+failure, reports the pending phase and task states, and observes its outstanding
+I/O after closing the channels. A controlled local failure injection confirms
+the original test masked the exchange error in all four roles/ALPN combinations;
+the revised test retains it. This establishes the diagnostic correction, not the
+cause of the Windows timeout. The four unchanged interoperability controls pass
+on Linux before and after the diagnostic change. The Windows CI failure remains
+unresolved for that checkpoint; the older passing Windows 10 record remains history.
+
+The host then replayed exact diagnostic checkpoint
+`56db959aaf8610a89c3db49043b6a107aabe27b0` in [Windows CI run 40109816912](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/40109816912/job/120918996332).
+On Windows Server 10.0.26100.0 / .NET 10.0.13, TLS passed 56/58: the same two
+native-server cases timed out during the native handshake, with a blocked
+`SslStream.ForceAuthenticationAsync` write ending when the deadline cancelled
+the receiver. The host's Windows desktop 10.0.26200 / .NET 10.0.12 replay of the
+same checkpoint passed TLS 58/58, QUIC 32/32 and registered controls 36/36.
+Those platform observations are retained separately from the repair's results;
+the local pass does not override the CI failure.
+
+### Retry-flight deadlock repair
+
+The new regression forces a TLS 1.3 HelloRetryRequest by limiting only the test
+server to P-256. It confirms a retry occurred and writes the retry plus
+compatibility ChangeCipherSpec in one channel write. The peer does not read the
+client response until that complete write drains. The production client emits
+its own ChangeCipherSpec and queues a second ClientHello. The old pump refused
+to consume more input while that ClientHello remained queued, so each peer
+waited for the other to read. The test observes the blocked client write and
+unchanged authenticated state before requiring the peer flight to drain.
+
+The pump now permits handshake input to progress while its response flight is
+queued. Engine access remains serialized and encrypted writes remain ordered.
+Record validation and handshake reassembly limits remain intact; after Finished,
+the existing one-record application backpressure still applies. Group defaults,
+certificate authentication and the 15-second native deadlines are unchanged.
+
+The same four regression cases, including fragmented input and cancellation
+with output blocked, all fail at the flight-drain wait when built with the exact
+old pump. They pass with the repaired pump. The complete Linux TLS suite passes
+62/62 and registered transport/identity cases pass 76/76, in Release with
+warnings as errors. This proves the retry deadlock and local correction.
+Fresh parent regressions also pass: Noise 38/38, Core lifecycle/channel 123/123,
+and Linux QUIC 29 passed with its three original Windows-only exclusions.
+The CI log does not include a retry trace, so attributing its Windows failures
+to this deadlock remains an inference until the repaired source passes there.
+Fresh Windows TLS 62/62, QUIC 32/32 and registered 36/36 evidence is required.
+
+The transport interoperability application builds with the repair. A new pinned
+Go interoperability run is unavailable in this session: the installed Go is
+1.18.1, the driver requires 1.23+, and downloading Go 1.23.12 returned HTTP 404.
+Earlier Go results below remain historical; they are not new executions of this
+repair. Replay with the documented Go toolchain and commands before claiming
+current-candidate Go interoperability.
+
+Run the focused native and retry controls on the failing Windows runner before
+the full suites below, and retain the failure phase, task states, runtime
+metadata and NUnit XML:
+
+```powershell
+"<RunSettings><NUnit><TestOutputXml>$env:TEMP/tls373-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/tls373.xml"
+dotnet --info
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~NativeSslStreamInteroperatesInBothRoles|FullyQualifiedName~TlsRetryTests" --minimum-expected-tests 8 --timeout 90s --settings "$env:TEMP/tls373.xml"
+```
+
 The [earlier failed checkpoint result](evidence/windows-065245c-tls-cardinality-candidate.json)
 on `065245ca722dccc281d808df5dbaebe9b40c08f5` passed TLS 57/57 and QUIC 32/32,
 without skips. Registered cases passed 35/36; the TLS repeated-authentication
@@ -310,7 +387,7 @@ match:
 "<RunSettings><NUnit><TestOutputXml>$env:TEMP/tls373-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:TEMP/tls373.xml"
 git rev-parse HEAD
 dotnet --info
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 58 --timeout 180s --settings "$env:TEMP/tls373.xml"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 62 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$env:TEMP/tls373.xml"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --filter "FullyQualifiedName~TlsCertificateListTests|FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 36 --timeout 180s --settings "$env:TEMP/tls373.xml"
 ```
