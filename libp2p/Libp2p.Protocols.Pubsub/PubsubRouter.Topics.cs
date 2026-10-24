@@ -120,7 +120,7 @@ public partial class PubsubRouter
                         gPeers.TryGetValue(topicId, out HashSet<PeerId>? remotePeers) && remotePeers.Contains(peerId) &&
                         peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
                         GetPeerScore(peerId) >= 0 &&
-                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= DateTime.Now) &&
+                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= _timeProvider.GetUtcNow().UtcDateTime) &&
                         meshPeers.Add(peerId))
                     {
                         RecordPeerJoinMesh(peerId, topicId);
@@ -175,14 +175,7 @@ public partial class PubsubRouter
                 foreach (PeerId peerId in removedMesh)
                 {
                     RecordPeerLeaveMesh(peerId, topicId);
-                    if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
-                    {
-                        DateTime backoffUntil = DateTime.Now.AddMilliseconds(_settings.UnsubscribeBackoff);
-                        if (!peer.Backoff.TryGetValue(topicId, out DateTime existingBackoff) || existingBackoff < backoffUntil)
-                        {
-                            peer.Backoff[topicId] = backoffUntil;
-                        }
-                    }
+                    RefreshBackoff(peerId, topicId, LocalBackoff(_settings.UnsubscribeBackoff));
                 }
             }
 
@@ -197,11 +190,7 @@ public partial class PubsubRouter
                 msg.WithTopics([], [topicId]);
                 if (removedMesh?.Contains(peerId) is true)
                 {
-                    msg.Ensure(r => r.Control.Prune).Add(new ControlPrune
-                    {
-                        TopicID = topicId,
-                        Backoff = (ulong)Math.Ceiling(_settings.UnsubscribeBackoff / 1000.0),
-                    });
+                    msg.Ensure(r => r.Control.Prune).Add(CreatePrune(peerId, topicId, _settings.UnsubscribeBackoff));
                 }
             }
         }
