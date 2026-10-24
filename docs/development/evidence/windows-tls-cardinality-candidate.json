@@ -1,6 +1,6 @@
 {
-  "revision": "065245ca722dccc281d808df5dbaebe9b40c08f5",
-  "status": "failed",
+  "revision": "19d9aa1d746d8e659d09cb82df4686772e41c1c0",
+  "status": "passed",
   "hostSupplied": true,
   "platform": "Windows 10.0.26200",
   "sdk": "10.0.401",
@@ -8,12 +8,11 @@
   "suites": [
     {
       "name": "tls",
-      "total": 57,
-      "passed": 57,
+      "total": 58,
+      "passed": 58,
       "failed": 0,
       "skipped": 0,
-      "xmlSha256": "e5c37db3dd919c79e2ca90f989a0544c779364b1ce2c4387a38d0a3c1b529ed8",
-      "failures": []
+      "xmlSha256": "9a0afc07c730965c27030845bb2806cfa4577fb3ce35975177b923b613786388"
     },
     {
       "name": "quic",
@@ -21,36 +20,15 @@
       "passed": 32,
       "failed": 0,
       "skipped": 0,
-      "xmlSha256": "eec66fab6bf037ec2fbdad237569b3bdac78492e646e789d4e630df6159dcf6b",
-      "failures": []
+      "xmlSha256": "b75355f73f4b1aec225934c143a39f415e61aa7f5c6816a9130a616c84c7f092"
     },
     {
       "name": "registered",
       "total": 36,
-      "passed": 35,
-      "failed": 1,
+      "passed": 36,
+      "failed": 0,
       "skipped": 0,
-      "xmlSha256": "1443540555d451471a1ae0ccd8f71d261b4e6902ce29b8c4d5b687a741effbfb",
-      "failures": [
-        {
-          "name": "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"tls\")",
-          "message": "System.Threading.Tasks.TaskCanceledException : A task was canceled."
-        }
-      ]
-    },
-    {
-      "name": "registered-recheck",
-      "total": 3,
-      "passed": 2,
-      "failed": 1,
-      "skipped": 0,
-      "xmlSha256": "02e4f957412b4ae213761dd47ad18bf5618a9ae6cf4434b619752247db1837c4",
-      "failures": [
-        {
-          "name": "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"tls\")",
-          "message": "System.Threading.Tasks.TaskCanceledException : A task was canceled."
-        }
-      ]
+      "xmlSha256": "c1b508c70dc42264fdefa1485097ccd9badbf120d3e41c6a7b840d6d7b433e1b"
     }
   ],
   "inputs": {
@@ -59,7 +37,7 @@
     ".github/workflows/performance-report.yml": "fe76439604cc66e73612136b8c3f1b4fffd70d6055afaa7c54e4cdda9f53736f",
     ".github/workflows/performance.yml": "0656506900266bc9bf972d3ddba2b3bc7a7d0731233158f5a9be81e6db116b89",
     ".github/workflows/publish.yml": "067a3773ce30677be1e4c2e6a39f268c0d9797fe081c588730be5c768fd2f046",
-    ".github/workflows/test.yml": "acb8a1b172867dff2eb83dcf215f4773bb5876a3fc21dfff86e40973895882a4",
+    ".github/workflows/test.yml": "b1d5cf8b0ef4291925e49174f545bbf59fa31f34f8fe6c9071285e44f7e145aa",
     "Directory.Build.props": "2aeb8208fdd199560b8d32a393a9f97a24cc4660941d6e3e57f4382c63b4214c",
     "global.json": "6e01e7ec8212b6c05fa2ce399f6208b07634f199bbac2aaf761d7200505675f2",
     "libp2p/Directory.Build.props": "421d5cbcf3832ef2228a655d15e8564323887e23a30a5943c13b0869da9e6746",
@@ -441,11 +419,11 @@
     "libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj": "a5bf2181ed834815104e70960c36444b4546edc41c72b1d590e8d16f49fc969e",
     "libp2p/Libp2p.Protocols.Tls.Tests/Libp2pSpecComplianceTests.cs": "1e3b91a00bc87372d27e047336a0ed39e1702270f126d6fba8f07ab700c25683",
     "libp2p/Libp2p.Protocols.Tls.Tests/NativeCertificateSizeTests.cs": "48a5268773feafa7aea31597f96a9513057bd2ebb548744f23764222407c6ba5",
-    "libp2p/Libp2p.Protocols.Tls.Tests/TlsChannelTests.cs": "ec3f77e2d018cefc0c2187d2e9b871f2341e71c97c424d31c9ae6d7095c6b796",
+    "libp2p/Libp2p.Protocols.Tls.Tests/TlsChannelTests.cs": "6ae7236e147cc95cb5b44189e90348bc43469c487c3f637926fb6e5da625cf69",
     "libp2p/Libp2p.Protocols.Tls.Tests/TlsProtocolTests.cs": "48d5414c0328ae052a73a739f240cd52b23f25c4431795730a4eca547f8771fc",
     "libp2p/Libp2p.Protocols.Tls.Tests/Using.cs": "4fb5db41ddaae647a5fc6d1a83f403e44551b34e739777b3be3fdd5a56463443",
     "libp2p/Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj": "a9dfea1c795c043a1c40e606e31e980178bc9c28272dd9ea940974bda17a11fb",
-    "libp2p/Libp2p.Protocols.Tls/TlsChannel.cs": "eb795ad5a2db9106108283e90a5e2e5bec2bc6b4ae79d0ae351a74b15a294925",
+    "libp2p/Libp2p.Protocols.Tls/TlsChannel.cs": "7e8acbf788e41547e4177dbb685bc1c07d712f0408a0defe0db070d335884c68",
     "libp2p/Libp2p.Protocols.Tls/TlsHandshake.cs": "01ce7bedba7219927c65c0c943dc271f62bd91fc375be00892555ae93f3f6ac5",
     "libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs": "fd479871308156dcfd3a6443800bd99be12d0bac02880b4f6681550778b07eb4",
     "libp2p/Libp2p.Protocols.WebRtc.Tests/CertificateHelperTests.cs": "1e5fcecd5c3823d571fc118bb664119ba6826f08f9a33fe9233be6f8204e3c79",
@@ -517,8 +495,8 @@
     "libp2p/nuget.config": "8cc5fd28269e9edffc7fadf6a0e39f0442723e14e265ced402230a0a783b3f33"
   },
   "notes": [
-    "All suites ran with existing assertions and test deadlines. No skips.",
-    "TLS repeated mutual-authentication test timed out in the full filtered suite and again in isolation. This is not a passing candidate.",
-    "Raw commands, metadata, logs and NUnit XML were retained by the host. Windows results apply to this exact source revision, not later changes."
+    "All 126 checks passed without skipped cases or changed deadlines.",
+    "The revised TLS pump resolves the repeated mutual-authentication failure observed at checkpoint 065245c. Retain the earlier failed result as history.",
+    "Raw commands, metadata, logs, exit codes and NUnit XML were retained by the host. Results apply to this exact source revision; reuse requires matching source and inputs."
   ]
 }
