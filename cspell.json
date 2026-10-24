@@ -229,6 +229,7 @@
                 "bradfitz",
                 "buger",
                 "cespare",
+                "containerd",
                 "cpuguy",
                 "cpuid",
                 "davecgh",
@@ -239,6 +240,7 @@
                 "decred",
                 "difflib",
                 "easyjson",
+                "ebpf",
                 "errcheck",
                 "francoispqt",
                 "fsnotify",
@@ -301,6 +303,7 @@
                 "pbnjay",
                 "pbtypes",
                 "pmezard",
+                "pprof",
                 "qpack",
                 "randutil",
                 "raulk",
@@ -315,6 +318,7 @@
                 "shurcoo",
                 "sirupsen",
                 "smtpd",
+                "sourcegraph",
                 "spaolacci",
                 "srtp",
                 "ssdp",
@@ -330,7 +334,8 @@
                 "wlynxg",
                 "xerrors",
                 "xxhash",
-                "yuin"
+                "yuin",
+                "zipkin"
             ],
             "ignoreRegExpList": [
                 "/\\bh1:[A-Za-z0-9+/=]+/g"
