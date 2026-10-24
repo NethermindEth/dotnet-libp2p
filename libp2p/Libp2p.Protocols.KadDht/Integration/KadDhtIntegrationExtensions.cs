@@ -42,85 +42,8 @@ public static class KadDhtIntegrationExtensions
                 "Use AddLibp2p() to create the builder.");
         }
 
-        // Configure options
-        var options = new KadDhtOptions();
-        configure?.Invoke(options);
-        WirePeerPolicy.Validate(options);
-
-        // Access the service collection directly (no reflection needed!)
-        var services = libp2pBuilder.Services;
-
-        var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
-        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes);
-        var dhtValidator = CompositeRecordValidator.CreateDefault();
-
-        services.AddSingleton<LibP2pKademliaMessageSender>(sp =>
-        {
-            var localPeer = sp.GetRequiredService<ILocalPeer>();
-            var loggerFactory = sp.GetService<ILoggerFactory>();
-            var peerStore = sp.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>();
-            var state = sp.GetRequiredService<SharedDhtState>();
-            return new LibP2pKademliaMessageSender(options, localPeer, loggerFactory,
-                onPeerDiscovered: peerStore is not null ? node => ServiceCollectionExtensions.StorePeerAddresses(node, peerStore) : null,
-                onPingResponse: node => state.AddNodeCallback?.Invoke(node));
-        });
-        services.AddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<LibP2pKademliaMessageSender>());
-        services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
-            sp.GetRequiredService<LibP2pKademliaMessageSender>());
-
-        // Shared state for routing table access from incoming request handlers
-        var sharedState = new SharedDhtState();
-        sharedState.KValue = options.KSize;
-        services.AddSingleton(sharedState);
-
-        services.AddSingleton<KadDhtProtocol>(serviceProvider =>
-            {
-                var localPeer = serviceProvider.GetRequiredService<ILocalPeer>();
-                var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
-                var messageSender = serviceProvider.GetRequiredService<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
-                var dhtMessageSender = serviceProvider.GetRequiredService<IDhtMessageSender>();
-
-                var protocol = new KadDhtProtocol(
-                    localPeer,
-                    messageSender,
-                    dhtMessageSender,
-                    options,
-                    dhtValueStore,
-                    dhtProviderStore,
-                    loggerFactory,
-                    bootstrapNodes: bootstrapNodes);
-
-                if (protocol.RoutingTable != null)
-                    sharedState.SetRoutingTable(protocol.RoutingTable);
-
-                // Wire the AddNode callback now that the protocol is fully initialized.
-                // Incoming connections that arrived before this point will have been
-                // buffered in SharedDhtState; from now on they go straight to AddNode.
-                sharedState.AddNodeCallback = protocol.AddNode;
-
-                return protocol;
-            });
-
-        // Register the high level session protocol once
-        builder = builder.AddProtocol<KadDhtProtocol>();
-
-        // Add the request-response protocol handlers
-        return builder.AddKadDhtProtocols(
-            findNearest: publicKey => sharedState.GetKNearestPeers(publicKey),
-            onPeerSeen: node =>
-            {
-                // Delegate to SharedDhtState.AddNodeCallback which is set once
-                // KadDhtProtocol is resolved from DI. Before that, AddNodeCallback
-                // is null and the peer is safely skipped (it will be re-discovered
-                // during bootstrap or future lookups).
-                sharedState.AddNodeCallback?.Invoke(node);
-            },
-            baseId: options.ProtocolId,
-            isExposed: options.Mode == KadDhtMode.Server,
-            options: options,
-            valueStore: dhtValueStore,
-            providerStore: dhtProviderStore,
-            validator: dhtValidator);
+        ServiceCollectionExtensions.ConfigureBuilder(libp2pBuilder, configure, bootstrapNodes, valueStore, providerStore);
+        return builder;
     }
 
     /// <summary>

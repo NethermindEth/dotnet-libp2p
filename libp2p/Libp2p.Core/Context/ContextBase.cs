@@ -17,7 +17,7 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
     public Activity? Activity { get; } = activity;
 
 
-    public IEnumerable<IProtocol> SubProtocols => localPeer.GetProtocolsFor(protocol);
+    public IEnumerable<IProtocol> SubProtocols => localPeer.GetProtocolsFor(protocol, isListener);
 
     public string Id { get; } = session.Id;
 

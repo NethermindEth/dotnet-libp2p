@@ -1,15 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Nethermind.Libp2p.Core;
 
 namespace Libp2p.Protocols.KadDht.Storage;
 
-/// <summary>
-/// Represents a stored value in the DHT.
-/// </summary>
 public sealed record DhtValue
 {
     public required byte[] Key { get; init; }
@@ -21,159 +17,66 @@ public sealed record DhtValue
     public DateTime ExpiresAt { get; init; }
 }
 
-/// <summary>
-/// Distributed value store for DHT. Stores key-value pairs with TTL and metadata.
-/// Thread-safe for concurrent access.
-/// </summary>
+/// <summary>Legacy synchronous facade over IValueStore. Prefer the asynchronous store API.</summary>
 public sealed class DhtValueStore
 {
-    private readonly ConcurrentDictionary<string, DhtValue> _store = new();
-    private readonly ILogger<DhtValueStore> _logger;
+    internal IValueStore Store { get; }
     private readonly TimeSpan _defaultTtl;
-    private readonly System.Threading.Timer _cleanupTimer;
 
     public DhtValueStore(ILoggerFactory? loggerFactory = null, TimeSpan? defaultTtl = null, TimeSpan? cleanupInterval = null)
-    {
-        _logger = loggerFactory?.CreateLogger<DhtValueStore>() ?? NullLogger<DhtValueStore>.Instance;
-        _defaultTtl = defaultTtl ?? TimeSpan.FromHours(24);
+        : this(new InMemoryValueStore(int.MaxValue, loggerFactory), defaultTtl ?? TimeSpan.FromHours(24)) { }
 
-        var interval = cleanupInterval ?? TimeSpan.FromHours(1);
-        _cleanupTimer = new System.Threading.Timer(CleanupExpiredValues, null, interval, interval);
+    internal DhtValueStore(IValueStore store, TimeSpan defaultTtl)
+    {
+        Store = store;
+        _defaultTtl = defaultTtl;
     }
 
-    /// <summary>
-    /// Store or update a value in the DHT.
-    /// </summary>
     public bool Put(byte[] key, byte[] value, byte[]? signature = null, long? timestamp = null, byte[]? publisher = null)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
-
-        var keyStr = Convert.ToBase64String(key);
-        var now = DateTime.UtcNow;
-        var ts = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        var dhtValue = new DhtValue
+        long ts = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var previous = Store.GetValueAsync(key).GetAwaiter().GetResult();
+        if (previous is not null && previous.Timestamp >= ts) return false;
+        return Store.PutValueAsync(key, new StoredValue
         {
-            Key = key,
             Value = value,
             Signature = signature,
             Timestamp = ts,
-            Publisher = publisher,
-            StoredAt = now,
-            ExpiresAt = now.Add(_defaultTtl)
-        };
-
-        // Check if we should update (newer timestamp wins)
-        if (_store.TryGetValue(keyStr, out var existing))
-        {
-            if (ts <= existing.Timestamp)
-            {
-                _logger.LogDebug("Ignoring PUT for key {Key} - existing value is newer (ts: {ExistingTs} vs {NewTs})",
-                    keyStr.Substring(0, Math.Min(16, keyStr.Length)), existing.Timestamp, ts);
-                return false;
-            }
-        }
-
-        _store[keyStr] = dhtValue;
-        _logger.LogInformation("Stored value for key {Key} (ts: {Timestamp}, expires: {Expires})",
-            keyStr.Substring(0, Math.Min(16, keyStr.Length)), ts, dhtValue.ExpiresAt);
-        return true;
+            Publisher = publisher is not null ? new PeerId(publisher) : null,
+            Ttl = _defaultTtl
+        }).GetAwaiter().GetResult();
     }
 
-    /// <summary>
-    /// Retrieve a value from the DHT.
-    /// </summary>
     public DhtValue? Get(byte[] key)
     {
         ArgumentNullException.ThrowIfNull(key);
-
-        var keyStr = Convert.ToBase64String(key);
-        if (_store.TryGetValue(keyStr, out var value))
+        var value = Store.GetValueAsync(key).GetAwaiter().GetResult();
+        return value is null ? null : new DhtValue
         {
-            // Check if expired
-            if (value.ExpiresAt < DateTime.UtcNow)
-            {
-                _store.TryRemove(keyStr, out _);
-                _logger.LogDebug("Key {Key} expired, removed from store", keyStr.Substring(0, Math.Min(16, keyStr.Length)));
-                return null;
-            }
-
-            _logger.LogDebug("Found value for key {Key}", keyStr.Substring(0, Math.Min(16, keyStr.Length)));
-            return value;
-        }
-
-        _logger.LogDebug("Key {Key} not found in store", keyStr.Substring(0, Math.Min(16, keyStr.Length)));
-        return null;
+            Key = key,
+            Value = value.Value,
+            Signature = value.Signature,
+            Timestamp = value.Timestamp,
+            Publisher = value.Publisher?.Bytes.ToArray(),
+            StoredAt = value.StoredAt,
+            ExpiresAt = value.StoredAt.Add(value.Ttl)
+        };
     }
 
-    /// <summary>
-    /// Check if a key exists in the store (and is not expired).
-    /// </summary>
-    public bool Contains(byte[] key)
-    {
-        return Get(key) is not null;
-    }
-
-    /// <summary>
-    /// Get the number of stored values.
-    /// </summary>
-    public int Count => _store.Count;
-
-    /// <summary>
-    /// Get all stored keys.
-    /// </summary>
-    public IEnumerable<byte[]> GetAllKeys()
-    {
-        foreach (var kvp in _store)
-        {
-            if (kvp.Value.ExpiresAt >= DateTime.UtcNow)
-            {
-                yield return kvp.Value.Key;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Remove a value from the store.
-    /// </summary>
+    public bool Contains(byte[] key) => Get(key) is not null;
+    public int Count => Store.Count;
+    public IEnumerable<byte[]> GetAllKeys() => Store.GetAllKeys()
+        .Where(key => Store.HasValueAsync(key).GetAwaiter().GetResult()).Select(key => key.ToArray());
     public bool Remove(byte[] key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        var keyStr = Convert.ToBase64String(key);
-        return _store.TryRemove(keyStr, out _);
+        return Store.RemoveValueAsync(key).GetAwaiter().GetResult();
     }
-
-    /// <summary>
-    /// Clear all values from the store.
-    /// </summary>
     public void Clear()
     {
-        _store.Clear();
-        _logger.LogInformation("Cleared all values from store");
+        foreach (var key in Store.GetAllKeys().ToArray()) Store.RemoveValueAsync(key).GetAwaiter().GetResult();
     }
-
-    private void CleanupExpiredValues(object? state)
-    {
-        var now = DateTime.UtcNow;
-        var expiredKeys = _store
-            .Where(kvp => kvp.Value.ExpiresAt < now)
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in expiredKeys)
-        {
-            _store.TryRemove(key, out _);
-        }
-
-        if (expiredKeys.Count > 0)
-        {
-            _logger.LogDebug("Cleaned up {Count} expired values", expiredKeys.Count);
-        }
-    }
-
-    public void Dispose()
-    {
-        _cleanupTimer?.Dispose();
-    }
+    public void Dispose() { } // The backing store belongs to its registration owner.
 }

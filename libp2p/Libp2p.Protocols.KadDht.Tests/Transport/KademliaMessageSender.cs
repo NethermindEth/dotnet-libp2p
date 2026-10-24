@@ -12,6 +12,7 @@ using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, TestNode>
 {
     private readonly ILocalPeer _localPeer;
