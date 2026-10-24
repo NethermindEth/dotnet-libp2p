@@ -182,12 +182,18 @@ the new connection again. Automatic connections retain the existing retry policy
 Required control has reserved headroom **within** both router-wide limits: the smaller of one
 peer's limit and half the router-wide limit, rounded up, is unavailable to optional traffic.
 With the defaults, optional traffic can occupy at most 4,064 entries and 60 MiB; required control
-can use the full 4,096 entries and 64 MiB. This keeps optional-only stalled peers from consuming
-the space for healthy peers' subscription, mesh and initial extension announcements. The limits
-include mixed payload/control frames in full. A one-entry router-wide limit leaves no optional
-entry capacity. If required traffic also exhausts the total budget, or an individual required
-frame cannot fit, its recipient still closes rather than retaining inconsistent subscription or
-mesh state. No capacity waiters, retry backlog or separate control queue are created.
+can use the full 4,096 entries and 64 MiB. This keeps stalled peers' optional traffic from
+consuming the space for healthy peers' subscription, mesh and initial extension announcements.
+An RPC that combines required control with payloads, partial messages, IHAVE, IWANT or IDONTWANT
+is queued as two frames: a control-only frame checked against the full limits, followed by the
+optional frame checked against the optional limits. Optional content therefore never occupies the
+reserved headroom, including when a remote peer provokes a combined response such as a PRUNE with
+IWANT replies. Dropping the optional frame leaves the control frame queued and the generation open.
+Control-only frames remain bounded by the per-peer limits and `OutboundRpcTimeout`. A one-entry
+router-wide limit leaves no optional entry capacity. If required traffic also exhausts the total
+budget, or an individual required frame cannot fit, its recipient still closes rather than retaining
+inconsistent subscription or mesh state. No capacity waiters, retry backlog or separate control
+queue are created.
 
 `OutboundRpcTimeout` is a positive construction-time deadline measured with monotonic time.
 Every frame must complete within this interval after admission, including queue residence and

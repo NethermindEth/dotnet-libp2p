@@ -291,6 +291,126 @@ public class OutboundWorkTests
         Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task MixedRpcsCannotCarryOptionalContentIntoTheRequiredReserve(bool bytes)
+    {
+        PubsubSettings settings = Settings();
+        Rpc control = new() { Control = new ControlMessage { Prune = { new ControlPrune { TopicID = "t" } } } };
+        Rpc optional = Payload();
+        optional.Control = new ControlMessage { Iwant = { new ControlIWant { MessageIDs = { ByteString.CopyFrom([1]) } } } };
+        Rpc Mixed()
+        {
+            Rpc rpc = control.Clone();
+            rpc.Publish.Add(optional.Publish);
+            rpc.Control.Iwant.Add(optional.Control.Iwant);
+            return rpc;
+        }
+        long split = FrameSize(control) + FrameSize(optional);
+        // Optional traffic may occupy exactly one split optional frame beside one control frame.
+        if (bytes) settings.MaxOutboundRpcBytes = 2L * split;
+        else settings.MaxOutboundRpcEntries = 4;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        PausedWriter first = new(), second = new();
+        PubsubRouter.PubsubPeer stalled = Open(router, first, 1, PubsubRouter.GossipsubProtocolVersionV11);
+        PubsubRouter.PubsubPeer blocker = Open(router, second, 2, PubsubRouter.GossipsubProtocolVersionV11);
+        Assert.That(stalled.Send(Mixed()), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await first.Started.Task.WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((2, split)), "A mixed RPC is queued as a control frame and an optional frame.");
+        Assert.That(router.IwantPromiseCount, Is.EqualTo(1));
+        Assert.That(blocker.Send(Mixed()), Is.EqualTo(PubsubRouter.SendResult.Dropped), "Optional content drops at optional capacity; its control is queued.");
+        await second.Started.Task.WaitAsync(Deadline);
+        Assert.That(blocker.Terminal, Is.False);
+        Assert.That(router.OutboundUsage, Is.EqualTo((3, split + FrameSize(control))));
+        Assert.That(router.IwantPromiseCount, Is.EqualTo(1), "A dropped request creates no promise.");
+        ConcurrentQueue<Rpc> sent = [];
+        int disconnects = 0;
+        PubsubRouter.PubsubPeer healthy = router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, (frame, _) =>
+            {
+                sent.Enqueue(RouterTestExtensions.Decode(frame));
+                return ValueTask.FromResult(IOResult.Ok);
+            }, () => ValueTask.CompletedTask, () => { Interlocked.Increment(ref disconnects); return Task.CompletedTask; })!;
+        Assert.That(healthy.Send(Mixed()), Is.EqualTo(PubsubRouter.SendResult.Dropped));
+        await healthy.Idle.Task.WaitAsync(Deadline);
+        Assert.That(sent.Select(rpc => (rpc.Control?.Prune.Count ?? 0, rpc.Publish.Count, rpc.Control?.Iwant.Count ?? 0)),
+            Is.EqualTo(new[] { (1, 0, 0) }), "Only the control frame is written; payload never rides on it.");
+        Assert.That(healthy.Send(new Rpc().WithTopics(["wanted"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await healthy.Idle.Task.WaitAsync(Deadline);
+        Assert.That(sent, Has.Count.EqualTo(2));
+        Assert.That(disconnects, Is.Zero);
+        Assert.That(healthy.Terminal, Is.False);
+        Assert.That(healthy.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(blocker.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(router.IwantPromiseCount, Is.EqualTo(1));
+        Assert.That(router.OutboundUsage, Is.EqualTo((3, split + FrameSize(control))), "Stalled frames stay charged; healthy writes release theirs.");
+        first.Result.SetResult(IOResult.Ok);
+        second.Result.SetResult(IOResult.Ok);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task PruneAndIwantResponseToOneRpcSplitSoTheReplyNeverEntersTheReserve(bool saturated)
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = settings.LowestDegree = settings.HighestDegree = 1;
+        settings.DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign;
+        settings.GetMessageId = message => new MessageId(message.Data.ToByteArray());
+        // Optional traffic may hold one entry; required control may use both.
+        if (saturated) settings.MaxOutboundRpcEntries = 2;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("topic");
+        PausedWriter stalledWriter = new();
+        PubsubRouter.PubsubPeer stalled = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.FloodsubProtocolVersion,
+            new TaskCompletionSource().Task, (frame, token) => RouterTestExtensions.Decode(frame).Subscriptions.Count != 0
+                ? ValueTask.FromResult(IOResult.Ok) : stalledWriter.Write(frame, token), stalledWriter.Abort, stalledWriter.Disconnect)!;
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        if (saturated)
+        {
+            Assert.That(stalled.Send(Payload()), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+            await stalledWriter.Started.Task.WaitAsync(Deadline);
+        }
+        PubsubRouter.PubsubPeer meshPeer = router.OutboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, (_, _) => ValueTask.FromResult(IOResult.Ok), () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+        await router.OnRpcAsync(meshPeer.PeerId, new Rpc().WithTopics(["topic"], []));
+        await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "topic" } } } });
+        Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Is.EqualTo(new[] { meshPeer.PeerId }));
+        await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Publish = { new Message { Topic = "topic", Data = ByteString.CopyFrom([7]) } } });
+        ConcurrentQueue<Rpc> sent = [];
+        int disconnects = 0;
+        PubsubRouter.PubsubPeer requester = router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV10,
+            new TaskCompletionSource().Task, (frame, _) =>
+            {
+                sent.Enqueue(RouterTestExtensions.Decode(frame));
+                return ValueTask.FromResult(IOResult.Ok);
+            }, () => ValueTask.CompletedTask, () => { Interlocked.Increment(ref disconnects); return Task.CompletedTask; })!;
+        await router.OnRpcAsync(requester.PeerId, new Rpc().WithTopics(["topic"], []));
+        await requester.Idle.Task.WaitAsync(Deadline);
+        Assert.That(sent.Select(rpc => rpc.Subscriptions.Count), Is.EqualTo(new[] { 1 }), "The hello precedes the reply.");
+        // A full mesh answers GRAFT with PRUNE; the IWANT reply is optional payload in the same response RPC.
+        await router.OnRpcAsync(requester.PeerId, new Rpc
+        {
+            Control = new ControlMessage
+            {
+                Graft = { new ControlGraft { TopicID = "topic" } },
+                Iwant = { new ControlIWant { MessageIDs = { ByteString.CopyFrom([7]) } } },
+            },
+        });
+        await requester.Idle.Task.WaitAsync(Deadline);
+        (int Prune, int Publish)[] replies = sent.Skip(1).Select(rpc => (rpc.Control?.Prune.Count ?? 0, rpc.Publish.Count)).ToArray();
+        Assert.That(replies, Is.EqualTo(saturated ? new[] { (1, 0) } : new[] { (1, 0), (0, 1) }));
+        Assert.That(requester.Terminal, Is.False);
+        Assert.That(disconnects, Is.Zero);
+        Assert.That(requester.Score.BehaviorPenalty, Is.Zero);
+        Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Is.EqualTo(new[] { meshPeer.PeerId }));
+        Assert.That(router.OutboundUsage, Is.EqualTo(saturated ? (1, (long)FrameSize(Payload())) : (0, 0L)));
+        stalledWriter.Result.TrySetResult(IOResult.Ok);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
     [Test]
     public async Task OneEntryGlobalBudgetIsReservedForRequiredControl()
     {
