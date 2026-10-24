@@ -37,6 +37,8 @@ public class PubsubSettings
     public int MaxOutboundRpcEntries { get; set; } = 4_096;
     /// <summary>Outbound encoded bytes across all peers, including draining generations.</summary>
     public long MaxOutboundRpcBytes { get; set; } = 64L * 1024 * 1024;
+    /// <summary>Maximum milliseconds from outbound admission through write completion, including waiting for a reply stream. Configure before router construction.</summary>
+    public int OutboundRpcTimeout { get; set; } = 30_000;
     /// <summary>Incoming RPCs retained while awaiting or performing message-ID calculation and dispatch.</summary>
     public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
     /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs.</summary>

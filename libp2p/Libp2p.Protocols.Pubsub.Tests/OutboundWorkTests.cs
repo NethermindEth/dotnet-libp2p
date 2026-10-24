@@ -28,10 +28,10 @@ public class OutboundWorkTests
         Rpc rpc = Payload();
         if (bytes)
         {
-            if (global) settings.MaxOutboundRpcBytes = 2L * FrameSize(rpc);
+            if (global) settings.MaxOutboundRpcBytes = 4L * FrameSize(rpc);
             else settings.MaxOutboundRpcBytesPerPeer = 2L * FrameSize(rpc);
         }
-        else if (global) settings.MaxOutboundRpcEntries = 2;
+        else if (global) settings.MaxOutboundRpcEntries = 4;
         else settings.MaxOutboundRpcEntriesPerPeer = 2;
         await using PubsubRouter router = new(new PeerStore(), settings);
         PausedWriter writer = new();
@@ -52,8 +52,16 @@ public class OutboundWorkTests
     public async Task GlobalCapacityIncludesOtherPeersAndDrainingGenerations(bool bytes)
     {
         PubsubSettings settings = Settings();
-        if (bytes) settings.MaxOutboundRpcBytes = FrameSize(Payload());
-        else settings.MaxOutboundRpcEntries = 1;
+        if (bytes)
+        {
+            settings.MaxOutboundRpcBytesPerPeer = FrameSize(Payload());
+            settings.MaxOutboundRpcBytes = 2L * FrameSize(Payload());
+        }
+        else
+        {
+            settings.MaxOutboundRpcEntriesPerPeer = 1;
+            settings.MaxOutboundRpcEntries = 2;
+        }
         await using PubsubRouter router = new(new PeerStore(), settings);
         PausedWriter first = new() { ReleaseOnAbort = false };
         PubsubRouter.PubsubPeer old = Open(router, first);
@@ -153,12 +161,12 @@ public class OutboundWorkTests
     [TestCase("unsubscribe", true)]
     [TestCase("graft", true)]
     [TestCase("prune", true)]
-    public async Task GlobalControlRejectionClosesTheAffectedGenerationWithoutPenalizingEitherPeer(string control, bool bytes)
+    public async Task GlobalOptionalExhaustionPreservesRequiredControlForHealthyPeers(string control, bool bytes)
     {
         PubsubSettings settings = Settings();
         Rpc payload = Payload();
-        if (bytes) settings.MaxOutboundRpcBytes = FrameSize(payload);
-        else settings.MaxOutboundRpcEntries = 1;
+        if (bytes) settings.MaxOutboundRpcBytes = 2L * FrameSize(payload);
+        else settings.MaxOutboundRpcEntries = 2;
         await using PubsubRouter router = new(new PeerStore(), settings);
         int writes = 0, disconnects = 0;
         PubsubRouter.PubsubPeer healthy = router.OutboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV11,
@@ -178,7 +186,7 @@ public class OutboundWorkTests
         await stalled.Started.Task.WaitAsync(Deadline);
         Assert.That(blocker.Entries, Is.LessThan(settings.MaxOutboundRpcEntriesPerPeer));
         Assert.That(blocker.Bytes, Is.LessThan(settings.MaxOutboundRpcBytesPerPeer));
-        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))));
+        PubsubRouter.SendResult excessOptional = blocker.Send(payload);
         Assert.That(healthy.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Dropped));
         Assert.That(healthy.Terminal, Is.False, "Global exhaustion alone does not close a peer sending optional traffic.");
         Rpc update = control switch
@@ -188,15 +196,17 @@ public class OutboundWorkTests
             "graft" => new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "local" } } } },
             _ => new Rpc { Control = new ControlMessage { Prune = { new ControlPrune { TopicID = "local" } } } },
         };
-        Assert.That(healthy.Send(update), Is.EqualTo(PubsubRouter.SendResult.Closing));
-        await healthy.Completion.WaitAsync(Deadline);
-        Assert.That(writes, Is.EqualTo(1), "A required update must not bypass the global budget.");
-        Assert.That(disconnects, Is.EqualTo(1));
+        Assert.That(healthy.Send(update), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await healthy.Idle.Task.WaitAsync(Deadline);
+        Assert.That(excessOptional, Is.EqualTo(PubsubRouter.SendResult.Dropped), "Optional traffic must leave shared headroom for control.");
+        Assert.That(writes, Is.EqualTo(2));
+        Assert.That(disconnects, Is.Zero);
+        Assert.That(healthy.Terminal, Is.False);
         Assert.That(healthy.Score.BehaviorPenalty, Is.Zero);
         Assert.That(blocker.Score.BehaviorPenalty, Is.Zero);
-        Assert.That(healthy.RemoteSubscriptions, Is.Empty);
-        Assert.That(((IRoutingStateContainer)router).GossipsubPeers.ContainsKey("remote"), Is.False);
-        Assert.That(blocker.Terminal, Is.False, "The approved policy does not evict another generation's queued work.");
+        Assert.That(healthy.RemoteSubscriptions, Has.Count.EqualTo(1));
+        Assert.That(((IRoutingStateContainer)router).GossipsubPeers["remote"], Has.Member(healthy.PeerId));
+        Assert.That(blocker.Terminal, Is.False);
         Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))), "The stalled write retains ownership of its reservation.");
         stalled.Result.SetResult(IOResult.Ok);
         await router.FlushOutboundAsync().WaitAsync(Deadline);
@@ -207,13 +217,13 @@ public class OutboundWorkTests
     [TestCase(true, false)]
     [TestCase(false, true)]
     [TestCase(true, true)]
-    public async Task GlobalExhaustionRejectsTheRequiredHelloAndRecoveryUsesTheCurrentSnapshot(bool bytes, bool extensions)
+    public async Task GlobalOptionalExhaustionAllowsTheRequiredHelloWithTheCurrentSnapshot(bool bytes, bool extensions)
     {
         PubsubSettings settings = Settings();
         settings.EnablePartialMessages = extensions;
         Rpc payload = Payload();
-        if (bytes) settings.MaxOutboundRpcBytes = FrameSize(payload);
-        else settings.MaxOutboundRpcEntries = 1;
+        if (bytes) settings.MaxOutboundRpcBytes = 2L * FrameSize(payload);
+        else settings.MaxOutboundRpcEntries = 2;
         await using PubsubRouter router = new(new PeerStore(), settings);
         if (!extensions) router.GetTopic("wanted");
         PausedWriter stalled = new();
@@ -224,25 +234,79 @@ public class OutboundWorkTests
         Assert.That(blocker.Send(payload), Is.EqualTo(PubsubRouter.SendResult.Admitted));
         await stalled.Started.Task.WaitAsync(Deadline);
         string protocol = extensions ? PubsubRouter.GossipsubProtocolVersionV13 : PubsubRouter.FloodsubProtocolVersion;
-        PausedWriter rejected = new();
-        PubsubRouter.PubsubPeer closing = Open(router, rejected, 2, protocol);
-        await closing.Completion.WaitAsync(Deadline);
-        Assert.That(rejected.Writes, Is.Zero);
-        Assert.That(rejected.Disconnects, Is.EqualTo(1));
-        Assert.That(closing.Score.BehaviorPenalty, Is.Zero);
-        Assert.That(closing.ExtensionsQueued || closing.ExtensionsSent, Is.False);
-        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))));
-        stalled.Result.SetResult(IOResult.Ok);
-        await router.FlushOutboundAsync().WaitAsync(Deadline);
         List<Rpc> sent = [];
         PubsubRouter.PubsubPeer replacement = router.OutboundConnection(TestPeers.Multiaddr(2), protocol, new TaskCompletionSource().Task,
             (frame, _) => { sent.Add(RouterTestExtensions.Decode(frame)); return ValueTask.FromResult(IOResult.Ok); },
             () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
-        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        await replacement.Idle.Task.WaitAsync(Deadline);
         Assert.That(replacement.Terminal, Is.False);
         Assert.That(sent, Has.Count.EqualTo(1));
         if (extensions) Assert.That(sent[0].Control.Extensions.PartialMessages && replacement.ExtensionsSent, Is.True);
         else Assert.That(sent[0].Subscriptions.Select(sub => (sub.Topicid, sub.Subscribe)), Is.EqualTo(new[] { ("wanted", true) }));
+        Assert.That(router.OutboundUsage, Is.EqualTo((1, (long)FrameSize(payload))));
+        Assert.That(blocker.Terminal, Is.False);
+        stalled.Result.SetResult(IOResult.Ok);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public async Task DefaultBudgetsKeepControlHeadroomWhenSeventeenPeersNeverRead()
+    {
+        PubsubSettings settings = Settings();
+        settings.EnablePartialMessages = true;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        Rpc payload = Payload(1_000_000);
+        for (int index = 1; index <= 17; index++)
+        {
+            PubsubRouter.PubsubPeer stalled = Open(router, new PausedWriter(), index);
+            for (int n = 0; n < 5; n++) stalled.Send(payload);
+        }
+        long optionalBytes = settings.MaxOutboundRpcBytes - settings.MaxOutboundRpcBytesPerPeer;
+        long remaining = optionalBytes - router.OutboundUsage.Bytes;
+        Assert.That(remaining, Is.InRange(1, FrameSize(payload) - 1));
+        Rpc filler = Payload((int)remaining - (FrameSize(payload) - 1_000_000));
+        Assert.That(FrameSize(filler), Is.EqualTo(remaining));
+        Assert.That(Open(router, new PausedWriter(), 18).Send(filler), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(router.OutboundUsage.Bytes, Is.EqualTo(60L * 1024 * 1024));
+        ConcurrentQueue<Rpc> sent = [];
+        int disconnects = 0;
+        PubsubRouter.PubsubPeer healthy = router.OutboundConnection(TestPeers.Multiaddr(100), PubsubRouter.GossipsubProtocolVersionV13,
+            new TaskCompletionSource().Task, (frame, _) =>
+            {
+                sent.Enqueue(RouterTestExtensions.Decode(frame));
+                return ValueTask.FromResult(IOResult.Ok);
+            }, () => ValueTask.CompletedTask, () => { Interlocked.Increment(ref disconnects); return Task.CompletedTask; })!;
+        await healthy.Idle.Task.WaitAsync(Deadline);
+        Assert.That(healthy.ExtensionsSent, Is.True);
+        Assert.That(healthy.Send(Payload()), Is.EqualTo(PubsubRouter.SendResult.Dropped));
+        Assert.That(healthy.Send(new Rpc().WithTopics(["wanted"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await healthy.Idle.Task.WaitAsync(Deadline);
+        Assert.That(sent, Has.Count.EqualTo(2));
+        Assert.That(sent.Last().Subscriptions[0].Topicid, Is.EqualTo("wanted"));
+        Assert.That(disconnects, Is.Zero);
+        Assert.That(healthy.Terminal, Is.False);
+        Assert.That(router.OutboundUsage.Bytes, Is.EqualTo(optionalBytes));
+        await router.DisposeAsync();
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public async Task OneEntryGlobalBudgetIsReservedForRequiredControl()
+    {
+        PubsubSettings settings = Settings();
+        settings.MaxOutboundRpcEntries = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        PausedWriter writer = new();
+        PubsubRouter.PubsubPeer peer = Open(router, writer);
+        Assert.That(peer.Send(Payload()), Is.EqualTo(PubsubRouter.SendResult.Dropped));
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+        Assert.That(peer.Send(new Rpc().WithTopics(["wanted"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await writer.Started.Task.WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage.Entries, Is.EqualTo(1));
+        writer.Result.SetResult(IOResult.Ok);
+        await peer.Idle.Task.WaitAsync(Deadline);
+        Assert.That(peer.Terminal, Is.False);
         Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
     }
 
@@ -405,6 +469,7 @@ public class OutboundWorkTests
     [TestCase(nameof(PubsubSettings.MaxOutboundRpcBytesPerPeer))]
     [TestCase(nameof(PubsubSettings.MaxOutboundRpcEntries))]
     [TestCase(nameof(PubsubSettings.MaxOutboundRpcBytes))]
+    [TestCase(nameof(PubsubSettings.OutboundRpcTimeout))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcEntries))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcBytes))]
     public void CapacitiesArePositiveAtConstruction(string name)

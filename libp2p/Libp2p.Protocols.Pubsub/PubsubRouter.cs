@@ -1019,6 +1019,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         if (peerState.TryGetValue(peerId, out PubsubPeer? existing)) return existing;
         PubsubPeer peer = WithRetainedScore(new PubsubPeer(this, peerId, protocolId, _settings, policy, disconnect)
         { Address = addr, InitiatedBy = initiation }, out RetainedScore? restored);
+        peer.DeadlineTimer = _timeProvider.CreateTimer(_ => ExpireOutbound(peer), null,
+            Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         peer.Teardown = TeardownPeerAsync(peer);
         peer.Completion = RunWriterAsync(peer);
         Track(peer.Completion);
