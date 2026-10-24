@@ -61,6 +61,7 @@ public static class ServiceCollectionExtensions
             ?? fallback?.GetService<KadDhtOptions>() ?? new KadDhtOptions();
         configure?.Invoke(options);
         WirePeerPolicy.Validate(options);
+        options.ValidateStreamLimits();
         if (configure is not null) services.AddSingleton(options);
         else services.TryAddSingleton(options);
         if (!services.Any(d => d.ServiceType == typeof(IRecordValidator)))
@@ -114,8 +115,10 @@ public static class ServiceCollectionExtensions
                     if (ctx.Peer is not IPeerServices services)
                         throw new InvalidOperationException("The local peer does not support peer services.");
                     return services.GetPeerService<DhtRuntime>()!.Handler;
-                }, sp.GetService<ILoggerFactory>());
-                return new ProtocolRef(handler, options.Mode == KadDhtMode.Server) { AcceptInbound = options.Mode == KadDhtMode.Server };
+                }, sp.GetService<ILoggerFactory>(), timeProvider: sp.GetService<TimeProvider>());
+                return new ProtocolRef(handler, options.Mode == KadDhtMode.Server,
+                    new InboundStreamLimit(options.MaxInboundStreams, options.MaxInboundStreamsPerPeer))
+                { AcceptInbound = options.Mode == KadDhtMode.Server };
             });
         }
         else
@@ -144,7 +147,8 @@ public static class ServiceCollectionExtensions
                 // Handler-only builders have no local runtime to initialize. A configured runtime must initialize successfully.
                 if (sp.GetService<ILocalPeer>() is { Identity: not null }) sp.GetService<KadDhtProtocol>();
                 return handler;
-            }, loggerFactory), options.Mode == KadDhtMode.Server);
+            }, loggerFactory, timeProvider: sp.GetService<TimeProvider>()), options.Mode == KadDhtMode.Server,
+                new InboundStreamLimit(options.MaxInboundStreams, options.MaxInboundStreamsPerPeer));
         }
     }
 

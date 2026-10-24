@@ -76,7 +76,7 @@ public class WirePeerRegistrationTests
         var builder = Substitute.For<IPeerFactoryBuilder>();
         builder.ServiceProvider.Returns(provider);
         RequestResponseProtocol<Message, Message>? protocol = null;
-        builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>())
+        builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>(), Arg.Any<InboundStreamLimit>())
             .Returns(call => { protocol = call.Arg<RequestResponseProtocol<Message, Message>>(); return builder; });
         builder.AddKadDhtProtocols(_ => [], onPeerSeen: seen.Add, options: new KadDhtOptions { MaxPeerIdBytes = 33 });
         var context = Substitute.For<ISessionContext>();
