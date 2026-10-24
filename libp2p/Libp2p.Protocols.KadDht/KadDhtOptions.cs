@@ -132,6 +132,23 @@ public class KadDhtOptions
     /// </summary>
     public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>Deadline for each complete request or response read, independent of OperationTimeout.</summary>
+    public TimeSpan ReadTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Concurrent inbound exchanges across all peers sharing a registration.</summary>
+    public int MaxInboundStreams { get; set; } = 512;
+
+    /// <summary>Concurrent inbound exchanges per authenticated remote identity in a registration.</summary>
+    public int MaxInboundStreamsPerPeer { get; set; } = 64;
+
+    internal void ValidateStreamLimits()
+    {
+        if (ReadTimeout <= TimeSpan.Zero || ReadTimeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+            throw new ArgumentOutOfRangeException(nameof(ReadTimeout));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxInboundStreams);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxInboundStreamsPerPeer);
+    }
+
     /// <summary>
     /// Number of disjoint lookup paths to use for Sybil resistance.
     /// Set to 0 to disable disjoint path queries (uses standard single-path lookup).

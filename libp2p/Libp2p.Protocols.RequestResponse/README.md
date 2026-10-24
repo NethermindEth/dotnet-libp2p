@@ -25,7 +25,6 @@ var peerFactory = new PeerFactoryBuilder()
     .AddRequestResponseProtocol<ExampleRequest, ExampleResponse>(
         protocolId: "/example/1.0.0",
         handler: HandleExampleRequest,
-        loggerFactory: loggerFactory,
         isExposed: true)
     .Build();
 
@@ -44,6 +43,30 @@ private static async Task<ExampleResponse> HandleExampleRequest(
     };
 }
 ```
+
+### Read deadlines
+
+Existing constructors and builder overloads use a 30-second read timeout. To configure it,
+use an overload with `TimeSpan readTimeout` before the protocol ID (or before the
+cancellation-aware handler):
+
+```csharp
+builder.AddRequestResponseProtocol<ExampleRequest, ExampleResponse>(
+    TimeSpan.FromSeconds(15), "/example/1.0.0", HandleExampleRequest);
+```
+
+The timeout covers the entire length prefix and protobuf body, including fragmented
+reads. The dialer starts it after transmitting the request. The timer is disposed after
+deserialization; handlers and response writes have no new deadline. One-way dialing
+starts no response timer. Channel closure also cancels reads, and cancellation-aware
+handlers retain the channel lifetime token.
+
+Timeouts must be positive, finite, and at most
+`TimeSpan.FromMilliseconds(uint.MaxValue - 1)`. Both handler forms accept an optional
+`TimeProvider` in the new overloads; builder extensions also resolve it from DI.
+Routine channel closure, aborts, duplicate sessions, and expected read cancellations
+are logged at Debug. Other stream failures are logged at Warning with the exception
+attached. Exceptions continue to propagate to the stream owner.
 
 ### Using the Protocol
 
