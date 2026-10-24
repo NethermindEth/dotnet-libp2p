@@ -6,6 +6,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
@@ -47,6 +48,8 @@ public static class KadDhtProtocolExtensions
 
         var dhtOptions = options ?? new KadDhtOptions();
         WirePeerPolicy.Validate(dhtOptions);
+        dhtOptions.ValidateStreamLimits();
+        ArgumentOutOfRangeException.ThrowIfNegative(dhtOptions.MaxMessageSize);
         ProviderRecordLimits.Validate(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys,
             dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes);
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
@@ -55,21 +58,28 @@ public static class KadDhtProtocolExtensions
 
         var handler = new DhtHandlerServices(dhtOptions, dhtValueStore, dhtProviderStore, dhtValidator,
             findNearest, onPeerSeen);
-        var protocol = CreateProtocol(dhtOptions, _ => handler, loggerFactory, baseId);
         if (builder is IProtocolFactoryBuilder factories)
         {
-            factories.AddProtocolFactory(_ => new ProtocolRef(protocol, isExposed) { AcceptInbound = dhtOptions.Mode == KadDhtMode.Server });
+            factories.AddProtocolFactory(sp => new ProtocolRef(
+                CreateProtocol(dhtOptions, _ => handler, loggerFactory, baseId, sp.GetService<TimeProvider>()), isExposed,
+                new InboundStreamLimit(dhtOptions.MaxInboundStreams, dhtOptions.MaxInboundStreamsPerPeer))
+            { AcceptInbound = dhtOptions.Mode == KadDhtMode.Server });
             return builder;
         }
-        return builder.AddProtocol(protocol, isExposed);
+        return builder.AddProtocol(CreateProtocol(dhtOptions, _ => handler, loggerFactory, baseId,
+            builder.ServiceProvider.GetService<TimeProvider>()), isExposed,
+            new InboundStreamLimit(dhtOptions.MaxInboundStreams, dhtOptions.MaxInboundStreamsPerPeer));
     }
 
     internal sealed record DhtHandlerServices(KadDhtOptions Options, IValueStore Values, IProviderStore Providers,
         IRecordValidator Validator, Func<PublicKey, IEnumerable<DhtNode>> FindNearest, Action<DhtNode>? OnPeerSeen);
 
     internal static RequestResponseProtocol<Message, Message> CreateProtocol(KadDhtOptions options,
-        Func<ISessionContext, DhtHandlerServices> resolve, ILoggerFactory? loggerFactory = null, string? baseId = null) =>
-        new(async (request, ctx, token) =>
+        Func<ISessionContext, DhtHandlerServices> resolve, ILoggerFactory? loggerFactory = null, string? baseId = null,
+        TimeProvider? timeProvider = null)
+    {
+        options.ValidateStreamLimits();
+        return new(options.ReadTimeout, async (request, ctx, token) =>
         {
             // Resolve and initialize the peer's routing callbacks before observing this request.
             var handler = resolve(ctx);
@@ -85,7 +95,9 @@ public static class KadDhtProtocolExtensions
                 _ => new Message()
             };
         }, baseId ?? options.ProtocolId, loggerFactory,
-            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider, maxMessageSize: options.MaxMessageSize);
+            expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider, maxMessageSize: options.MaxMessageSize,
+            timeProvider: timeProvider);
+    }
 
     private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<DhtNode>> findNearest, ISessionContext ctx, KadDhtOptions options)
     {
