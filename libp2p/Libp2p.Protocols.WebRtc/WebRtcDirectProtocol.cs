@@ -374,7 +374,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // The listener is _B_, the Noise INITIATOR, and _B_'s fingerprint goes second in the
             // prologue. See WebRtcDirectRoles for the spec sentences behind both.
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
-                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: remoteFingerprint, remote: _fingerprint);
+                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
             byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
                 handshakeChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
