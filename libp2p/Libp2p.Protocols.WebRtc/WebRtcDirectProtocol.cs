@@ -264,10 +264,18 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 break;
 
             case WebRtcDirectRouteAction.DeliverToSession:
-                // The session answers to the endpoint it pinned on its first DTLS record, which is
-                // the destination it hands back through the send callback below; route.Egress is the
-                // table's record of the same address.
-                route.Session!.ReceiveDtls(datagram, source);
+                // route.Egress, NOT source. The session pins its egress to whatever address it first
+                // sees a DTLS record from, and that race is one an off-path attacker can enter: the
+                // MESSAGE-INTEGRITY key is the server ufrag carried in the same packet, so observing
+                // one binding request is enough to mint a valid one, get an address attached to the
+                // row and then beat the honest peer to sending a record. Handing the session the
+                // row's egress -- fixed at admission, which cannot be raced, see
+                // WebRtcDirectListenerTable.Row.Egress -- means records from any attached address are
+                // delivered, DTLS authenticates them itself, and every reply still goes to the peer
+                // that admitted the row. WebRtcDirectListenerTableTests
+                // .Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst pins the value;
+                // this is the line that honours it.
+                route.Session!.ReceiveDtls(datagram, route.Egress!);
                 break;
 
             case WebRtcDirectRouteAction.Drop:
@@ -366,7 +374,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // The listener is _B_, the Noise INITIATOR, and _B_'s fingerprint goes second in the
             // prologue. See WebRtcDirectRoles for the spec sentences behind both.
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
-                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
+                WebRtcDirectRoles.OrderFingerprints(isListener: true, local: remoteFingerprint, remote: _fingerprint);
             byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
             (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
                 handshakeChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
