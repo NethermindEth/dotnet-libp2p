@@ -3,7 +3,11 @@
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using NSubstitute;
+using SIPSorcery.Net;
+using System.Net;
+using System.Net.Sockets;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
@@ -132,6 +136,70 @@ public class WebRtcDirectIntegrationTests
 
         cts.Cancel();
         await listenerTask;
+    }
+
+    /// <summary>
+    /// The receive loop's own contract, which the self-dial tests cannot see.
+    /// <para>
+    /// An admitted peer keeps sending binding requests for the life of the connection --
+    /// <c>RtpIceChannel._connectivityChecksTimer</c> runs at <c>CONNECTED_CHECK_PERIOD</c> = 3s and the
+    /// pair is abandoned at <c>FAILED_TIMEOUT_PERIOD</c> = 16s (both verified by reflection against
+    /// SIPSorcery 10.0.14) -- so a loop that short-circuits a known source address into its session
+    /// instead of classifying the first byte answers nothing after admission. That passes a 1s
+    /// self-dial and drops every real dialer about twenty seconds in, which is why the second request
+    /// below is sent from the SAME socket as the one that admitted the row.
+    /// </para>
+    /// <para>
+    /// The junk in between is the other half: one malformed datagram must not be able to end the loop
+    /// for every peer on the port. Lengths 1..19 are the ones that make
+    /// <c>STUNMessage.ParseSTUNMessage</c> dereference a null header.
+    /// </para>
+    /// </summary>
+    [Test]
+    [CancelAfter(20_000)]
+    public async Task ListenAsync_KeepsAnsweringAnAdmittedPeersConsentChecks_AndSurvivesJunkBetweenThem(CancellationToken token)
+    {
+        WebRtcDirectProtocol protocol = new();
+        ITransportContext context = CreateContext(new Identity(), CreateCompletionSource(), out Func<Multiaddress?> getListenerAddress);
+
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        Task listenerTask = protocol.ListenAsync(context, Multiaddress.Decode("/ip4/127.0.0.1/udp/0"), cts.Token);
+        Multiaddress listenerAddress = await WaitForListenerAddressAsync(getListenerAddress, cts.Token, listenerTask);
+        (IPEndPoint listenerEndpoint, _) = WebRtcDirectMultiaddr.Parse(listenerAddress);
+
+        using UdpClient peer = new(new IPEndPoint(IPAddress.Loopback, 0));
+        byte[] bindingRequest = BindingRequest(WebRtcIceCredentials.BuildV2Ufrag(new string('7', 22)));
+
+        await peer.SendAsync(bindingRequest, listenerEndpoint, cts.Token);
+        UdpReceiveResult admitted = await peer.ReceiveAsync(cts.Token);
+        Assert.That(WebRtcDirectStun.IsStunDatagram(admitted.Buffer), Is.True, "the admitting binding request was not answered");
+
+        foreach (int length in (int[])[1, 2, 19, 20, 63, 128])
+        {
+            await peer.SendAsync(new byte[length], length, listenerEndpoint);
+        }
+
+        // The row now carries a session, so an address-map-first loop would feed this to DTLS.
+        await peer.SendAsync(bindingRequest, listenerEndpoint, cts.Token);
+        UdpReceiveResult consentCheck = await peer.ReceiveAsync(cts.Token);
+        Assert.That(WebRtcDirectStun.IsStunDatagram(consentCheck.Buffer), Is.True, "a consent check from the admitted address was not answered");
+
+        cts.Cancel();
+        await listenerTask;
+    }
+
+    /// <summary>
+    /// A genuine signed binding request, built the way <see cref="WebRtcDirectStun.BuildBindingSuccessResponse"/>
+    /// signs its reply: SIPSorcery's serialiser, MESSAGE-INTEGRITY keyed with the server ufrag and a
+    /// FINGERPRINT appended. It is also what proves the loop passes the datagram on at its exact
+    /// length -- MESSAGE-INTEGRITY covers the whole buffer, so a single trailing byte fails the check
+    /// and the request goes unanswered.
+    /// </summary>
+    private static byte[] BindingRequest(string serverUfrag)
+    {
+        STUNMessage request = new(STUNMessageTypesEnum.BindingRequest);
+        request.AddUsernameAttribute($"{serverUfrag}:PSAY");
+        return request.ToByteBufferStringKey(serverUfrag, true);
     }
 
     private static ITransportContext CreateContext(Identity identity, TaskCompletionSource upgradeSignal, out Func<Multiaddress?> getListenerAddress)
