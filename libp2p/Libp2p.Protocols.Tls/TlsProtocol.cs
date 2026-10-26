@@ -62,11 +62,18 @@ public class TlsProtocol : IConnectionProtocol
             await downChannel.AbortAsync();
             throw;
         }
-        catch (Exception ex) when (!authenticated && ex is not AuthenticationException)
+        catch (Exception ex) when (!authenticated && (ex is IOException or CryptographicException or Libp2pException))
         {
             await downChannel.AbortAsync();
             _logger?.LogDebug(ex, "TLS authentication failed");
             throw new AuthenticationException("TLS mutual authentication failed.", ex);
+        }
+        catch (Exception) when (!authenticated)
+        {
+            // Setup/implementation faults still release the transport, but are
+            // not evidence of a peer authentication failure.
+            await downChannel.AbortAsync();
+            throw;
         }
     }
 

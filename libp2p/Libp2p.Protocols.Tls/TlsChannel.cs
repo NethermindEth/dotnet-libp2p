@@ -209,10 +209,13 @@ internal static class TlsChannel
                 if (handshake.PeerClosed)
                 {
                     if (!handshake.Complete) throw new IOException("TLS closed before mutual authentication completed.");
-                    if (!upEofPublished && applicationWrite is null && engine.GetAvailableInputBytes() == 0)
+                    // The peer can close as soon as it verifies our Finished,
+                    // before our transport acknowledges that final write. Keep
+                    // EOF private until the normal output-drain gate upgrades.
+                    if (upChannel is not null && !upEofPublished && applicationWrite is null && engine.GetAvailableInputBytes() == 0)
                     {
                         upEofPublished = true;
-                        Check(await upChannel!.WriteEofAsync(cancellationToken), cancellationToken);
+                        Check(await upChannel.WriteEofAsync(cancellationToken), cancellationToken);
                         progress = true;
                     }
                     if (downToken.IsCancellationRequested && !writeEnded)
