@@ -69,7 +69,7 @@ public class AsyncSemaphoreTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public async Task CompletedWaitUnregistersBothTokensBeforeReuse(bool cancelClosed)
+    public async Task CompletedWaitReleasesBothRegistrationsBeforeReuse(bool cancelClosed)
     {
         AsyncSemaphore semaphore = new(false);
         using CancellationTokenSource cancellation = new();
