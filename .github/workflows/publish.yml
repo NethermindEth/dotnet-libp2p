@@ -52,6 +52,7 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
+          dotnet test Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
@@ -77,6 +78,7 @@ jobs:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ inputs.version }}
           NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
+          dotnet pack Nethermind.Channels ${{ env.PACK_OPTS }} -o artifacts
           dotnet pack Libp2p ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
           dotnet pack Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}

@@ -11,11 +11,35 @@ namespace Nethermind.Libp2p.Core;
 
 public interface IReader
 {
+    /// <summary>
+    /// Reads bytes with explicit ownership. Dispose the result after its data is no longer used.
+    /// Implementations without pooled storage fall back to ordinary reads.
+    /// </summary>
+    ValueTask<ReadResult> ReadOwnedAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default) => ReadAsync(length, blockingMode, token);
+
     ValueTask<ReadResult> ReadAsync(int length,
         ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default);
 
     #region Read helpers
+    /// <summary>Reads scoped chunks. Each result is disposed when enumeration advances or ends.</summary>
+    /// <remarks>Retain <see cref="ReadResult.ToSlice"/> to forward pooled bytes beyond an iteration.</remarks>
+    async IAsyncEnumerable<ReadResult> ReadAllOwnedAsync(
+        [EnumeratorCancellation] CancellationToken token = default)
+    {
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            using ReadResult result = await ReadOwnedAsync(0, ReadBlockingMode.WaitAny, token).ConfigureAwait(false);
+            if (result.Result == IOResult.Ended) yield break;
+            if (result.Result == IOResult.Aborted) throw new ChannelAbortedException();
+            if (result.Result != IOResult.Ok) throw new ChannelClosedException(result.Result);
+            yield return result;
+        }
+    }
+
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
@@ -36,7 +60,8 @@ public interface IReader
     async Task<string> ReadLineAsync()
     {
         int size = await ReadVarintAsync();
-        return Encoding.UTF8.GetString((await ReadAsync(size).OrThrow()).ToArray()).TrimEnd('\n');
+        using ReadResult read = await ReadOwnedAsync(size);
+        return Encoding.UTF8.GetString(read.OrThrow()).TrimEnd('\n');
     }
 
     Task<int> ReadVarintAsync(CancellationToken token = default)
@@ -69,9 +94,8 @@ public interface IReader
             throw new InvalidDataException($"Incoming protobuf message size {messageLength} exceeds the limit of {maxMessageLength}");
         }
 
-        ReadOnlySequence<byte> serializedMessage = await ReadAsync((int)messageLength, token: token).OrThrow();
-
-        return parser.ParseFrom(serializedMessage);
+        using ReadResult read = await ReadOwnedAsync((int)messageLength, token: token);
+        return parser.ParseFrom(read.OrThrow());
     }
     #endregion
 }
