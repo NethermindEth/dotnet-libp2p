@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <DefineConstants Condition="'$(BaselineOnly)' == 'true'">$(DefineConstants);BASELINE_ONLY</DefineConstants>
+    <BaselineRoot Condition="'$(BaselineRoot)' == ''">$(MSBuildThisFileDirectory)../../../.worktrees/allocations-pr428</BaselineRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(BaselineRoot)/libp2p/Libp2p.Core/Libp2p.Core.csproj" Aliases="Baseline" />
+    <ProjectReference Include="../Nethermind.Channels/Nethermind.Channels.csproj" Condition="'$(BaselineOnly)' != 'true'" />
+  </ItemGroup>
+</Project>

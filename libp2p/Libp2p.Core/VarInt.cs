@@ -87,7 +87,8 @@ public static class VarInt
         ulong res = 0;
         for (int i = 0; i < 10; i++)
         {
-            byte @byte = (await buf.ReadAsync(1, token: token).OrThrow()).FirstSpan[0];
+            using ReadResult read = await buf.ReadOwnedAsync(1, token: token);
+            byte @byte = read.OrThrow().FirstSpan[0];
             if (i == 9 && (@byte & 0x7f) > 1)
             {
                 throw new FormatException("Invalid 7-bit encoding");
@@ -109,7 +110,8 @@ public static class VarInt
         byte mul = 0;
         for (int i = 0; i < 5; i++)
         {
-            byte @byte = (await buf.ReadAsync(1, token: token).OrThrow()).FirstSpan[0];
+            using ReadResult read = await buf.ReadOwnedAsync(1, token: token);
+            byte @byte = read.OrThrow().FirstSpan[0];
             res += (@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)

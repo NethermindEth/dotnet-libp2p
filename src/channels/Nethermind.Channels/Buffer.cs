@@ -1,53 +1,42 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
 using System.Buffers;
-using System.Runtime.CompilerServices;
 
 namespace Nethermind.Channels;
 
 /// <summary>
-/// Pooled buffer with explicit link counting so ownership can be shared across channels.
+/// Owns a pooled buffer whose storage stays rented while any retained slice is alive.
 /// </summary>
-public sealed class PooledBuffer : IMemoryOwner<byte>, IDisposable
+/// <remarks>
+/// Disposing an owner or slice releases only that lease and is idempotent. Memory obtained
+/// from a lease must not be accessed after that lease is disposed. Retaining a new slice
+/// may race with disposal; accessing memory and disposing the same lease must not race.
+/// </remarks>
+public sealed class PooledBuffer : IMemoryOwner<byte>
 {
     private readonly ArrayPool<byte> _pool;
     private readonly byte[] _buffer;
-    private readonly int _pooledLength;
     private readonly int _length;
-    private int _refCount;
-    private int _returned;
+    private int _refCount = 1;
+    private int _disposed;
 
     private PooledBuffer(ArrayPool<byte> pool, byte[] buffer, int length)
     {
         _pool = pool;
         _buffer = buffer;
-        _pooledLength = buffer.Length;
         _length = length;
-        _refCount = 1;
     }
 
     public static PooledBuffer Rent(int length, ArrayPool<byte>? pool = null)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
         ArrayPool<byte> chosenPool = pool ?? ArrayPool<byte>.Shared;
-        byte[] buffer = chosenPool.Rent(length);
-        return new PooledBuffer(chosenPool, buffer, length);
-    }
-
-
-    private sealed class RawArrayData
-    {
-        public int Length;
+        return new PooledBuffer(chosenPool, chosenPool.Rent(length), length);
     }
 
     public int Length => _length;
     public int RefCount => Volatile.Read(ref _refCount);
-
-    public byte[] Array
-    {
-        get
-        {
-            Interlocked.CompareExchange(ref Unsafe.As<RawArrayData>(_buffer).Length, _length, _pooledLength);
-            return _buffer;
-        }
-    }
 
     public Slice this[Range range]
     {
@@ -58,16 +47,34 @@ public sealed class PooledBuffer : IMemoryOwner<byte>, IDisposable
         }
     }
 
-    public Memory<byte> Memory => new(_buffer, 0, _length);
-    public ReadOnlyMemory<byte> ReadOnlyMemory => new(_buffer, 0, _length);
-    public Span<byte> Span => new(_buffer, 0, _length);
-    public ReadOnlySpan<byte> ReadOnlySpan => new(_buffer, 0, _length);
+    public Memory<byte> Memory
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            return GetMemory(0, _length);
+        }
+    }
+
+    public ReadOnlyMemory<byte> ReadOnlyMemory => Memory;
+    public Span<byte> Span => Memory.Span;
+    public ReadOnlySpan<byte> ReadOnlySpan => Memory.Span;
+
+    // Callers must already own a link. A retained slice can use storage after the root lease ends.
+    internal Memory<byte> GetMemory(int offset, int length) => _buffer.AsMemory(offset, length);
 
     internal void Retain()
     {
-        if (Interlocked.Increment(ref _refCount) <= 1)
+        int count = Volatile.Read(ref _refCount);
+        while (true)
         {
-            throw new ObjectDisposedException(nameof(PooledBuffer));
+            ObjectDisposedException.ThrowIf(count <= 0, this);
+            int observed = Interlocked.CompareExchange(ref _refCount, checked(count + 1), count);
+            if (observed == count)
+            {
+                return;
+            }
+            count = observed;
         }
     }
 
@@ -75,121 +82,106 @@ public sealed class PooledBuffer : IMemoryOwner<byte>, IDisposable
     {
         if (Interlocked.Decrement(ref _refCount) == 0)
         {
-            ReturnToPool();
+            _pool.Return(_buffer);
         }
     }
 
-    private void ReturnToPool()
+    public void Dispose()
     {
-        if (Interlocked.Exchange(ref _returned, 1) != 0)
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            return;
+            Release();
         }
-
-        Interlocked.CompareExchange(ref Unsafe.As<RawArrayData>(_buffer).Length, _pooledLength, _length);
-        _pool.Return(_buffer);
     }
 
-    public void Dispose() => Release();
-
-    /// <summary>
-    /// Adds a link tied to a slice so partial forwarding keeps the buffer alive until the slice is fully consumed.
-    /// </summary>
     internal Slice LeaseSlice(int offset, int length)
     {
-        if ((uint)offset > (uint)_length || (uint)length > (uint)(_length - offset))
+        ValidateRange(offset, length, _length);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        Retain();
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            Release();
+            throw new ObjectDisposedException(nameof(PooledBuffer));
+        }
+        return new Slice(this, offset, length);
+    }
+
+    private static void ValidateRange(int offset, int length, int available)
+    {
+        if ((uint)offset > (uint)available)
+        {
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        }
+        if ((uint)length > (uint)(available - offset))
         {
             throw new ArgumentOutOfRangeException(nameof(length));
         }
-
-        Retain();
-        return new Slice(this, offset, length);
     }
 
     public static implicit operator Span<byte>(PooledBuffer buffer) => buffer.Span;
     public static implicit operator ReadOnlySpan<byte>(PooledBuffer buffer) => buffer.ReadOnlySpan;
     public static implicit operator Memory<byte>(PooledBuffer buffer) => buffer.Memory;
     public static implicit operator ReadOnlyMemory<byte>(PooledBuffer buffer) => buffer.ReadOnlyMemory;
-    public static implicit operator byte[](PooledBuffer buffer) => buffer.Array;
 
-    /// <summary>
-    /// Slice that holds its own link and can be tracked independently as it is forwarded through the pipeline.
-    /// </summary>
-    public struct Slice : IDisposable
+    /// <summary>A retained region with its own independently disposable lease.</summary>
+    public sealed class Slice : IMemoryOwner<byte>
     {
         private readonly PooledBuffer _owner;
         private readonly int _offset;
         private readonly int _length;
-        private int _remaining;
-        private int _released;
+        private int _disposed;
 
         internal Slice(PooledBuffer owner, int offset, int length)
         {
             _owner = owner;
             _offset = offset;
             _length = length;
-            _remaining = length;
-            _released = 0;
         }
 
-        internal PooledBuffer Owner => _owner;
-        internal int Offset => _offset;
+        internal PooledBuffer Owner
+        {
+            get
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                return _owner;
+            }
+        }
 
         public int Length => _length;
-        public Span<byte> Span => new(_owner._buffer, _offset, _length);
-        public ReadOnlySpan<byte> ReadOnlySpan => new(_owner._buffer, _offset, _length);
-        public Memory<byte> Memory => new(_owner._buffer, _offset, _length);
-        public ReadOnlyMemory<byte> ReadOnlyMemory => new(_owner._buffer, _offset, _length);
+        public Memory<byte> Memory => Owner.GetMemory(_offset, _length);
+        public ReadOnlyMemory<byte> ReadOnlyMemory => Memory;
+        public Span<byte> Span => Memory.Span;
+        public ReadOnlySpan<byte> ReadOnlySpan => Memory.Span;
 
-        /// <summary>
-        /// Marks bytes as consumed; when all bytes are consumed the slice releases its link.
-        /// </summary>
-        public void Advance(int bytes)
+        public Slice this[Range range]
         {
-            if (bytes < 0)
+            get
             {
-                throw new ArgumentOutOfRangeException(nameof(bytes));
+                (int start, int length) = range.GetOffsetAndLength(_length);
+                return LeaseSlice(start, length);
             }
-
-            if (_released != 0)
-            {
-                return;
-            }
-
-            _ = Interlocked.Add(ref _remaining, -bytes);
         }
 
-        /// <summary>
-        /// Releases the link regardless of remaining bytes.
-        /// </summary>
-        public void Complete()
+        internal Slice LeaseSlice(int offset, int length)
         {
-            if (_released != 0)
+            ValidateRange(offset, length, _length);
+            PooledBuffer owner = Owner;
+            owner.Retain();
+            if (Volatile.Read(ref _disposed) != 0)
             {
-                return;
+                owner.Release();
+                throw new ObjectDisposedException(nameof(Slice));
             }
-
-            ReleaseOnce();
+            return new Slice(owner, _offset + offset, length);
         }
 
         public void Dispose()
         {
-            if (_released != 0)
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
             {
-                return;
+                _owner.Release();
             }
-
-            ReleaseOnce();
-        }
-
-        private void ReleaseOnce()
-        {
-            if (Interlocked.Exchange(ref _released, 1) != 0)
-            {
-                return;
-            }
-
-            _owner.Release();
         }
 
         public static implicit operator Span<byte>(Slice slice) => slice.Span;

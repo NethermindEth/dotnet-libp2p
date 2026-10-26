@@ -3,7 +3,10 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using Nethermind.Channels;
 using Nethermind.Libp2p.Core.Metrics;
+using SharedChannel = Nethermind.Channels.Channel;
+using SharedReadResult = Nethermind.Channels.ReadResult;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
@@ -12,468 +15,113 @@ using Nethermind.Libp2p.Core.Metrics;
 
 namespace Nethermind.Libp2p.Core;
 
+/// <summary>Adapts the shared channel engine to libp2p's framing helpers and metrics.</summary>
 public class Channel : IChannel
 {
+    private readonly SharedChannel _channel;
     private IChannel? _reversedChannel;
-    private ReaderWriter _reader;
-    private ReaderWriter _writer;
-    private TaskCompletionSource Completion = new();
 
-    public Channel()
+    public Channel() : this(new SharedChannel()) { }
+
+    private Channel(SharedChannel channel)
     {
-        _reader = new ReaderWriter(this);
-        _writer = new ReaderWriter(this);
+        _channel = channel;
+        Reader = new ReaderWriter((SharedChannel.ReaderWriter)channel.Reader);
+        Writer = new ReaderWriter((SharedChannel.ReaderWriter)channel.Writer);
     }
 
-    private Channel(ReaderWriter reader, ReaderWriter writer)
-    {
-        _reader = reader;
-        _writer = writer;
-    }
+    public IChannel Reverse => _reversedChannel ??= new Channel((SharedChannel)_channel.Reverse) { _reversedChannel = this };
+    public IReader Reader { get; }
+    public IWriter Writer { get; }
 
-    public IChannel Reverse
-    {
-        get => _reversedChannel ??= new Channel((ReaderWriter)Writer, (ReaderWriter)Reader)
-        {
-            _reversedChannel = this,
-            Completion = Completion
-        };
-    }
+    public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default) => Reader.ReadAsync(length, blockingMode, token);
 
-    public IReader Reader { get => _reader; }
-    public IWriter Writer { get => _writer; }
-
-
-    public ValueTask<ReadResult> ReadAsync(int length,
-        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-        CancellationToken token = default)
-    {
-        return Reader.ReadAsync(length, blockingMode, token);
-    }
+    public ValueTask<ReadResult> ReadOwnedAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default) => Reader.ReadOwnedAsync(length, blockingMode, token);
 
     public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
-    {
-        return Writer.WriteAsync(bytes, token);
-    }
+        => Writer.WriteAsync(bytes, token);
+
+    public ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+        => Writer.WriteAsync(buffer, length, offset, token);
+
+    public ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
+        => Writer.WriteAsync(slice, token);
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Writer.WriteEofAsync(token);
+    public ValueTask CloseAsync() => _channel.CloseAsync();
+    public ValueTask AbortAsync() => _channel.AbortAsync();
+    public ValueTask CloseReadAsync() => _channel.CloseReadAsync();
+    internal ValueTask CompleteProtocolAsync() => _channel.CompleteProtocolAsync();
+    public TaskAwaiter GetAwaiter() => _channel.GetAwaiter();
 
-    public TaskAwaiter GetAwaiter() => Completion.Task.GetAwaiter();
-
-    public ValueTask CloseAsync()
+    internal sealed class ReaderWriter : IReader, IWriter
     {
-        bool inboundIncomplete = _reader.MarkClosed();
-        bool outboundIncomplete = _writer.MarkClosed();
-        if (inboundIncomplete || outboundIncomplete)
-            _reader.MarkAborted();
-        // Discarded inbound data must not abort an already completed outbound reply.
-        if (outboundIncomplete || (inboundIncomplete && !_writer._eow))
-            _writer.MarkAborted();
-        _reader.CompleteAbort();
-        _writer.CompleteAbort();
-        Completion.TrySetResult();
-        return ValueTask.CompletedTask;
-    }
+        internal SharedChannel.ReaderWriter Inner { get; }
+        internal bool _eow => Inner.IsWriteEnded;
 
-    internal ValueTask CompleteProtocolAsync()
-    {
-        // Do not wait for an unfinished write from a protocol that has already returned.
-        _writer.TryWriteEof();
-        return CloseAsync();
-    }
-
-    public ValueTask AbortAsync()
-    {
-        _reader.MarkAborted();
-        _writer.MarkAborted();
-        return CloseAsync();
-    }
-
-    public ValueTask CloseReadAsync()
-    {
-        // Stop reading: the other side's pending and future writes fail, while what this side
-        // already wrote stays readable. Completion still waits for this side's write half to end,
-        // so a channel half-closed this way completes only once that EOF is consumed.
-        _reader.MarkClosed();
-        _reader.MarkAborted();
-        _reader.CompleteAbort();
-        return ValueTask.CompletedTask;
-    }
-
-    private void TryComplete()
-    {
-        if (_reader._eow && _writer._eow)
-        {
-            Completion.TrySetResult();
-        }
-    }
-
-
-    internal class ReaderWriter : IReader, IWriter
-    {
-        private const int Closed = 1;
-        private const int PendingWrite = 2;
-        private const int PendingRead = 4;
-
-        /// <summary>The reader released a published chunk by discarding it at teardown, not by consuming it.</summary>
-        private const int WriteDiscarded = 8;
-
-        internal protected ReaderWriter(Channel tryComplete)
-        {
-            _externalCompletionMonitor = tryComplete;
-        }
-
-        public ReaderWriter()
-        {
-        }
-
-        private ReadOnlySequence<byte> _bytes;
-        private readonly SemaphoreSlim _canWrite = new(1, 1);
-        private readonly SemaphoreSlim _read = new(0, 1);
-        private readonly SemaphoreSlim _canRead = new(0, 1);
-        private readonly SemaphoreSlim _readLock = new(1, 1);
-        private readonly CancellationTokenSource _closed = new();
-        private readonly Channel? _externalCompletionMonitor;
-        internal volatile bool _eow = false;
-        private int _aborted;
-        private int _state;
-
-        private ReadResult ClosedReadResult => Volatile.Read(ref _aborted) != 0 ? ReadResult.Aborted : ReadResult.Ended;
-        private IOResult ClosedIoResult => Volatile.Read(ref _aborted) != 0 ? IOResult.Aborted : IOResult.Ended;
-
-        internal bool MarkClosed()
-        {
-            int previous = Interlocked.Or(ref _state, Closed);
-            return (previous & (PendingWrite | PendingRead)) != 0;
-        }
-
-        internal void MarkAborted()
-        {
-            Interlocked.Exchange(ref _aborted, 1);
-        }
-
-        internal bool TryWriteEof()
-        {
-            if (!_canWrite.Wait(0))
-                return false;
-
-            try
-            {
-                if (_eow)
-                    return true;
-
-                _eow = true;
-                _externalCompletionMonitor?.TryComplete();
-                _canRead.Release();
-                return true;
-            }
-            finally
-            {
-                _canWrite.Release();
-            }
-        }
-
-        internal void CompleteAbort()
-        {
-            _eow = true;
-            _closed.Cancel();
-            _externalCompletionMonitor?.TryComplete();
-        }
+        public ReaderWriter() : this(new SharedChannel.ReaderWriter()) { }
+        internal ReaderWriter(SharedChannel.ReaderWriter inner) => Inner = inner;
+        internal bool TryWriteEof() => Inner.TryWriteEof();
 
         public async ValueTask<ReadResult> ReadAsync(int length,
-            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
-            CancellationToken token = default)
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            using SharedReadResult result = await Inner.ReadAsync(length, (Channels.ReadBlockingMode)blockingMode, token).ConfigureAwait(false);
+            // Legacy sequences can outlive the read without disposal. Borrowed writes already
+            // have that lifetime; pooled results must be detached before releasing their lease.
+            ReadOnlySequence<byte> data = result.IsOwned ? new(result.Sequence.ToArray()) : result.Sequence;
+            RecordRead(result);
+            return new ReadResult { Result = (IOResult)result.Result, Data = data };
+        }
 
-            using CancellationTokenSource? linked = LinkToken(token);
-            CancellationToken waitToken = linked?.Token ?? _closed.Token;
-            bool readLockTaken = false;
+        public async ValueTask<ReadResult> ReadOwnedAsync(int length,
+            ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+        {
+            SharedReadResult result = await Inner.ReadAsync(length, (Channels.ReadBlockingMode)blockingMode, token).ConfigureAwait(false);
             try
             {
-                await _readLock.WaitAsync(waitToken).ConfigureAwait(false);
-                readLockTaken = true;
-
-                if (_eow)
-                {
-                    return ClosedReadResult;
-                }
-
-                bool canReadTaken = blockingMode == ReadBlockingMode.DoNotWait;
-                if (canReadTaken && !_canRead.Wait(0))
-                {
-                    return _eow ? ClosedReadResult : ReadResult.Empty;
-                }
-
-                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
-                // WriteAsync returns early for zero-length writes without signaling _canRead
-                // Only apply this optimization for WaitAll mode (exact length reads)
-                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
-                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
-                {
-                    return ReadResult.Ok(default);
-                }
-
-                if (!canReadTaken)
-                {
-                    await _canRead.WaitAsync(waitToken).ConfigureAwait(false);
-                }
-
-                if (_eow)
-                {
-                    if (!_bytes.IsEmpty)
-                    {
-                        Interlocked.And(ref _state, ~PendingWrite);
-                        Interlocked.Or(ref _state, WriteDiscarded);
-                        _bytes = default;
-                        _read.Release();
-                    }
-                    return ClosedReadResult;
-                }
-
-                bool lockAgain = false;
-                long bytesToRead = length != 0
-                    ? (blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Length))
-                    : _bytes.Length;
-
-                ReadOnlySequence<byte> chunk = default;
-                MemorySegment<byte>? firstSegment = null;
-                MemorySegment<byte>? lastSegment = null;
-                do
-                {
-                    if (lockAgain) await _canRead.WaitAsync(waitToken).ConfigureAwait(false);
-
-                    if (_eow)
-                    {
-                        if (!_bytes.IsEmpty)
-                        {
-                            Interlocked.And(ref _state, ~PendingWrite);
-                            Interlocked.Or(ref _state, WriteDiscarded);
-                            _bytes = default;
-                            _read.Release();
-                        }
-                        return ClosedReadResult;
-                    }
-
-                    ReadOnlySequence<byte> anotherChunk = default;
-
-                    if (_bytes.Length <= bytesToRead)
-                    {
-                        anotherChunk = _bytes;
-                        bytesToRead -= _bytes.Length;
-                        if (bytesToRead != 0)
-                        {
-                            if ((Interlocked.Or(ref _state, PendingRead) & Closed) != 0)
-                            {
-                                MarkAborted();
-                            }
-                        }
-                        Interlocked.And(ref _state, ~PendingWrite);
-                        _bytes = default;
-                        _read.Release();
-                    }
-                    else if (_bytes.Length > bytesToRead)
-                    {
-                        anotherChunk = _bytes.Slice(0, bytesToRead);
-                        _bytes = _bytes.Slice(bytesToRead, _bytes.End);
-                        bytesToRead = 0;
-                        _canRead.Release();
-                    }
-
-                    if (chunk.IsEmpty && firstSegment is null)
-                    {
-                        chunk = anotherChunk;
-                    }
-                    else
-                    {
-                        if (firstSegment is null)
-                        {
-                            foreach (ReadOnlyMemory<byte> segment in chunk)
-                            {
-                                if (firstSegment is null)
-                                {
-                                    firstSegment = lastSegment = new MemorySegment<byte>(segment);
-                                }
-                                else
-                                {
-                                    lastSegment = lastSegment!.Append(segment);
-                                }
-                            }
-                        }
-
-                        foreach (ReadOnlyMemory<byte> segment in anotherChunk)
-                        {
-                            lastSegment = lastSegment!.Append(segment);
-                        }
-                    }
-                    lockAgain = true;
-                } while (bytesToRead != 0);
-
-                if (firstSegment is not null)
-                {
-                    chunk = new ReadOnlySequence<byte>(firstSegment, 0, lastSegment!, lastSegment!.Memory.Length);
-                }
-
-                Interlocked.And(ref _state, ~PendingRead);
-                Libp2pMetrics.DataReceivedBytes.Add(chunk.Length);
-                Libp2pMetrics.DataReceivedPackets.Add(1);
-                return ReadResult.Ok(chunk);
+                RecordRead(result);
+                return ReadResult.FromOwned(result);
             }
-            catch (OperationCanceledException)
+            catch
             {
-                return _closed.IsCancellationRequested
-                    ? ClosedReadResult
-                    : ReadResult.Cancelled;
+                result.Dispose();
+                throw;
             }
-            finally
-            {
-                // Release the read lock on every path, including cancellation, so a cancelled
-                // read can never leave it held and deadlock every subsequent read.
-                if (readLockTaken)
-                {
-                    Interlocked.And(ref _state, ~PendingRead);
-                    _readLock.Release();
-                }
-            }
+        }
+
+        private static void RecordRead(SharedReadResult result)
+        {
+            if (result.Result != Channels.IOResult.Ok || result.Sequence.IsEmpty) return;
+            Libp2pMetrics.DataReceivedBytes.Add(result.Sequence.Length);
+            Libp2pMetrics.DataReceivedPackets.Add(1);
         }
 
         public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+            => RecordWrite(await Inner.WriteAsync(bytes, token).ConfigureAwait(false), bytes.Length);
+
+        public async ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+            => RecordWrite(await Inner.WriteAsync(buffer, length, offset, token).ConfigureAwait(false), length);
+
+        public async ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
+            => RecordWrite(await Inner.WriteAsync(slice, token).ConfigureAwait(false), slice.Length);
+
+        private static IOResult RecordWrite(Channels.IOResult result, long length)
         {
-            using CancellationTokenSource? linked = LinkToken(token);
-            CancellationToken waitToken = linked?.Token ?? _closed.Token;
-            bool canWriteTaken = false;
-            try
+            if (result == Channels.IOResult.Ok && length != 0)
             {
-                await _canWrite.WaitAsync(waitToken).ConfigureAwait(false);
-                canWriteTaken = true;
-
-                if (_eow)
-                {
-                    return ClosedIoResult;
-                }
-
-                if (_bytes.Length != 0)
-                {
-                    return IOResult.InternalError;
-                }
-
-                if (bytes.Length == 0)
-                {
-                    return IOResult.Ok;
-                }
-
-                if ((Interlocked.Or(ref _state, PendingWrite) & Closed) != 0)
-                {
-                    Interlocked.And(ref _state, ~PendingWrite);
-                    return ClosedIoResult;
-                }
-                _bytes = bytes;
-                _canRead.Release();
-
-                try
-                {
-                    await _read.WaitAsync(waitToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Cancelled after publishing the chunk. If no reader has taken the
-                    // data-available signal yet, reclaim it and roll the publish back so the
-                    // cancelled bytes are never delivered to a later read. Otherwise a reader
-                    // is already committed to consuming: wait for it to finish and acknowledge
-                    // on _read, keeping the channel consistent. This wait observes teardown
-                    // only, not the caller token that was already handled above: waiting on
-                    // the spent caller token would release the write lock while the reader
-                    // is still committed, while waiting without cancellation would park the
-                    // writer past teardown.
-                    if (_canRead.Wait(0))
-                    {
-                        if (_bytes.Length == bytes.Length)
-                        {
-                            Interlocked.And(ref _state, ~PendingWrite);
-                            _bytes = default;
-                            throw;
-                        }
-
-                        // A partial read already delivered the head of the chunk downstream, so
-                        // the rest must still follow or the byte stream is corrupted.
-                        _canRead.Release();
-                    }
-
-                    // Wait for the reader to release the chunk, having kept the publish in place.
-                    await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
-                }
-
-                // Either wait can be satisfied by teardown releasing the chunk, which discards what
-                // is left instead of consuming it, so neither path may assume delivery. Only
-                // consumption is reported as written: saying a cancelled write arrived invites a
-                // retry that duplicates it, and saying a discarded one arrived loses it silently.
-                if ((Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0)
-                {
-                    return ClosedIoResult;
-                }
-
-                Libp2pMetrics.DataSentBytes.Add(bytes.Length);
+                Libp2pMetrics.DataSentBytes.Add(length);
                 Libp2pMetrics.DataSentPackets.Add(1);
-                return IOResult.Ok;
             }
-            catch (OperationCanceledException)
-            {
-                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
-            }
-            finally
-            {
-                // Keep ownership until this write has received its own acknowledgement.
-                if (canWriteTaken)
-                {
-                    _canWrite.Release();
-                }
-            }
+            return (IOResult)result;
         }
 
         public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
-        {
-            using CancellationTokenSource? linked = LinkToken(token);
-            try
-            {
-                await _canWrite.WaitAsync(linked?.Token ?? _closed.Token).ConfigureAwait(false);
-
-                if (_eow)
-                {
-                    _canWrite.Release();
-                    return ClosedIoResult;
-                }
-                _eow = true;
-                _externalCompletionMonitor?.TryComplete();
-                _canRead.Release();
-                _canWrite.Release();
-                return IOResult.Ok;
-            }
-            catch (OperationCanceledException)
-            {
-                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
-            }
-        }
+            => (IOResult)await Inner.WriteEofAsync(token).ConfigureAwait(false);
 
         public async ValueTask<IOResult> CanReadAsync(CancellationToken token = default)
-        {
-            using CancellationTokenSource? linked = LinkToken(token);
-            try
-            {
-                if (_eow)
-                {
-                    return ClosedIoResult;
-                }
-                await _readLock.WaitAsync(linked?.Token ?? _closed.Token).ConfigureAwait(false);
-                _readLock.Release();
-                return !_eow ? IOResult.Ok : ClosedIoResult;
-            }
-            catch (OperationCanceledException)
-            {
-                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
-            }
-        }
-
-        private CancellationTokenSource? LinkToken(CancellationToken token)
-            => token.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(token, _closed.Token) : null;
+            => (IOResult)await Inner.CanReadAsync(token).ConfigureAwait(false);
     }
 }

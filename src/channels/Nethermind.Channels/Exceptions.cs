@@ -1,37 +1,9 @@
-
-
-using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
 
 namespace Nethermind.Channels;
 
-public class Libp2pException : Exception
+public sealed class ChannelClosedException(IOResult result) : IOException($"Channel operation failed: {result}.")
 {
-    public Libp2pException(string? message) : base(message) { }
-    public Libp2pException() : base() { }
+    public IOResult Result { get; } = result;
 }
-
-/// <summary>
-/// Exception instead of IOResult to signal a channel cannot send or receive data anymore
-/// </summary>
-public class ChannelClosedException() : Libp2pException("Channel closed");
-
-/// <summary>
-/// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
-/// </summary>
-/// <param name="message"></param>
-public class Libp2pSetupException(string? message = null) : Libp2pException(message)
-{
-    public static void ThrowIfNull([NotNull] object? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
-    {
-        if (argument is null)
-        {
-            Throw(paramName);
-        }
-    }
-
-    [DoesNotReturn]
-    internal static void Throw(string? paramName) =>
-            throw new Libp2pSetupException($"{paramName} is not set during libp2p initialization");
-}
-

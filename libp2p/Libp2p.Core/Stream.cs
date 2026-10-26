@@ -71,7 +71,7 @@ public class ChannelStream : Stream
         if (buffer.IsEmpty) return 0;
         if (!_canRead) return 0;
 
-        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).ConfigureAwait(false).GetAwaiter().GetResult();
+        using ReadResult result = _chan.ReadOwnedAsync(buffer.Length, ReadBlockingMode.WaitAny).ConfigureAwait(false).GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -186,7 +186,7 @@ public class ChannelStream : Stream
     {
         if (!_canRead) return 0;
 
-        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
+        using ReadResult result = await _chan.ReadOwnedAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
         if (result.Result == IOResult.Cancelled)
         {
             throw CreateOperationCanceledException(cancellationToken);

@@ -198,8 +198,8 @@ public class ChannelModelFuzzTests
         Channel.ReaderWriter direction = endOfWrite
             ? (Channel.ReaderWriter)channel.Writer
             : (Channel.ReaderWriter)channel.Reader;
-        CancellationTokenSource closed = (CancellationTokenSource)typeof(Channel.ReaderWriter)
-            .GetField("_closed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(direction)!;
+        CancellationTokenSource closed = (CancellationTokenSource)typeof(Channels.Channel.ReaderWriter)
+            .GetField("_closed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(direction.Inner)!;
         TaskCompletionSource paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using ManualResetEventSlim resume = new();
         using CancellationTokenRegistration registration = closed.Token.Register(() =>
@@ -241,7 +241,7 @@ public class ChannelModelFuzzTests
         // Even with (undeliverable) payload: the EOF check precedes the buffer check.
         Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2, 3 })),
             Is.EqualTo(IOResult.Ended));
-        Assert.That(await channel.WriteAsync(default), Is.EqualTo(IOResult.Ended));
+        Assert.That(await channel.WriteAsync(ReadOnlySequence<byte>.Empty), Is.EqualTo(IOResult.Ended));
         Assert.That(await channel.WriteEofAsync(), Is.EqualTo(IOResult.Ended));
     }
 
@@ -407,10 +407,8 @@ public class ChannelModelFuzzTests
         using CancellationTokenSource cancel = new();
         Channel.ReaderWriter writer = (Channel.ReaderWriter)channel.Writer;
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        SemaphoreSlim canRead = (SemaphoreSlim)typeof(Channel.ReaderWriter)
-            .GetField("_canRead", flags)!.GetValue(writer)!;
-        SemaphoreSlim acknowledged = (SemaphoreSlim)typeof(Channel.ReaderWriter)
-            .GetField("_read", flags)!.GetValue(writer)!;
+        SemaphoreSlim canRead = (SemaphoreSlim)typeof(Channels.Channel.ReaderWriter)
+            .GetField("_canRead", flags)!.GetValue(writer.Inner)!;
 
         Task<IOResult> write = channel.WriteAsync(
             new ReadOnlySequence<byte>(new byte[] { 1 }), cancel.Token).AsTask();
@@ -427,8 +425,6 @@ public class ChannelModelFuzzTests
         finally
         {
             await channel.CloseAsync();
-            // Also release the old implementation after a failed assertion.
-            acknowledged.Release();
             await write.WaitAsync(TimeSpan.FromSeconds(5));
         }
     }
@@ -595,7 +591,7 @@ public class ChannelModelFuzzTests
     public async Task ZeroLengthWrite_DoesNotDisturbFraming()
     {
         Channel channel = new();
-        Assert.That(await channel.WriteAsync(default), Is.EqualTo(IOResult.Ok));
+        Assert.That(await channel.WriteAsync(ReadOnlySequence<byte>.Empty), Is.EqualTo(IOResult.Ok));
         // No signal was produced: a read still parks until real data arrives.
         Task<ReadResult> read = channel.Reverse.ReadAsync(1).AsTask();
         await Task.Delay(100);

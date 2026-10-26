@@ -1,0 +1,3 @@
+<Project>
+  <Import Project="../../libp2p/Directory.Build.props" />
+</Project>

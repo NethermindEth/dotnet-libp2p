@@ -4,11 +4,24 @@
 using Google.Protobuf;
 using System.Buffers;
 using System.Text;
+using Nethermind.Channels;
 
 namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {
+    /// <summary>Writes pooled storage while retaining an independent channel lease.</summary>
+    /// <remarks>
+    /// The caller retains its lease and must not modify published bytes while readers use them.
+    /// Writers without ownership support detach a copy for their existing read contract.
+    /// </remarks>
+    ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+        => WriteAsync(new ReadOnlySequence<byte>(buffer.Memory.Slice(offset, length).ToArray()), token);
+
+    /// <summary>Writes a retained slice without consuming the caller's lease.</summary>
+    ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
+        => WriteAsync(new ReadOnlySequence<byte>(slice.ReadOnlyMemory.ToArray()), token);
+
     ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
     {
         int len = Encoding.UTF8.GetByteCount(str) + 1;
