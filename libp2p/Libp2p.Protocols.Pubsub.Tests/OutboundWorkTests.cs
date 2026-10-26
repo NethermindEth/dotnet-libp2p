@@ -592,6 +592,8 @@ public class OutboundWorkTests
     [TestCase(nameof(PubsubSettings.OutboundRpcTimeout))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcEntries))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcBytes))]
+    [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcEntriesPerPeer))]
+    [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcBytesPerPeer))]
     public void CapacitiesArePositiveAtConstruction(string name)
     {
         PubsubSettings settings = Settings();

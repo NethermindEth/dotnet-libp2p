@@ -70,6 +70,8 @@ public partial class PubsubRouter
         internal ITimer DeadlineTimer = null!;
         internal OutboundFrame? ActiveFrame;
         internal int IncomingStreams; // Owned by the router lock.
+        internal int IncomingEntries; // Admitted incoming message-ID RPCs; owned by the router lock.
+        internal long IncomingBytes;
         internal int Entries;
         internal long Bytes;
         internal bool ExtensionsQueued;

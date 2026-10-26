@@ -163,6 +163,8 @@ Configure these positive limits before constructing the router:
 | `OutboundRpcTimeout` | 30,000 ms | Maximum outbound frame residence, from admission through write completion |
 | `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
 | `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs |
+| `MaxIncomingMessageIdRpcEntriesPerPeer` | 8 | One connected peer's share of the incoming entries, across all of its streams |
+| `MaxIncomingMessageIdRpcBytesPerPeer` | 2 MiB | One connected peer's share of the incoming bytes, across all of its streams |
 
 Every outbound RPC uses the same budgets, including before a reply stream is attached. Admission
 never waits for space. Each peer has one asynchronous writer and owns immutable serialized frames;
@@ -210,11 +212,17 @@ connection cannot arm a replacement connection's promise. Incoming request and r
 limits remain conservative abuse limits even when outbound work is dropped.
 
 Receive loops await message-ID admission before reading another frame. The incoming budgets bound
-both semaphore waiters and RPCs retained through dispatch. At capacity, publishes are skipped before
-hashing, validation, caching, delivery credit or penalties; subscriptions and controls still run.
-Control-only, unwanted-topic and graylisted traffic keep their early gates. Calculations share the
-existing concurrency limit with synchronous application publishing. Cancellation stops pending
-admission; already running host calculations and application callbacks cannot be forcibly cancelled.
+both semaphore waiters and RPCs retained through dispatch. An admitted RPC stays charged until its
+synchronous application callbacks return, so inbound publish concurrency is bounded by the entry
+budget divided by handler latency; slow handlers cost incoming capacity rather than forwarding
+latency. Each connected peer may hold at most its per-peer share, charged across every inbound
+stream it has opened, so one peer cannot take the router-wide budget by opening many streams. At
+either limit, publishes are skipped before hashing, validation, caching, delivery credit or
+penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so
+gossip can request them again. Control-only, unwanted-topic and graylisted traffic keep their early
+gates. Calculations share the existing concurrency limit with synchronous application publishing.
+Cancellation stops pending admission; already running host calculations and application callbacks
+cannot be forcibly cancelled.
 
 Forwarding and IDONTWANT admission happen before synchronous full-message and partial-message
 callbacks, including accepted deferred validations. Application events retain their signatures,
@@ -222,8 +230,9 @@ ordering and exception isolation and run outside the router lock. An admitted fr
 not an acknowledgement of delivery.
 
 The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
-`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`)
-and no peer or topic labels.
+`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`),
+and `libp2p.pubsub.incoming.skipped` with `reason` `capacity` (router-wide) or `peer-capacity`.
+None carry peer or topic labels.
 
 ## Stopping the router
 

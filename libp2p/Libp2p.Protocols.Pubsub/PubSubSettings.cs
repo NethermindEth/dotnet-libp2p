@@ -43,6 +43,10 @@ public class PubsubSettings
     public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
     /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs.</summary>
     public long MaxIncomingMessageIdRpcBytes { get; set; } = 16L * 1024 * 1024;
+    /// <summary>Share of <see cref="MaxIncomingMessageIdRpcEntries"/> one connected peer may hold, across all of its streams.</summary>
+    public int MaxIncomingMessageIdRpcEntriesPerPeer { get; set; } = 8;
+    /// <summary>Share of <see cref="MaxIncomingMessageIdRpcBytes"/> one connected peer may hold, across all of its streams.</summary>
+    public long MaxIncomingMessageIdRpcBytesPerPeer { get; set; } = 2L * 1024 * 1024;
 
     public int MaxConnections { get; set; }
 

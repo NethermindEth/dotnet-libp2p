@@ -4,8 +4,10 @@
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
@@ -14,8 +16,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
     private readonly int _maxIncomingEntries;
     private readonly long _maxIncomingBytes;
+    private readonly int _maxIncomingEntriesPerPeer;
+    private readonly long _maxIncomingBytesPerPeer;
     private int _incomingEntries;
     private long _incomingBytes;
+    private static readonly Counter<long> IncomingSkips = Libp2pMetrics.Meter.CreateCounter<long>("libp2p.pubsub.incoming.skipped");
     internal (int Entries, long Bytes) IncomingUsage { get { lock (this) return (_incomingEntries, _incomingBytes); } }
 
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -23,6 +28,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     internal async Task OnRpcAsync(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true, CancellationToken token = default)
     {
         long reservedBytes = 0;
+        bool reserved = false;
+        string? skipReason = null;
+        PubsubPeer? admittedPeer = null;
         CancellationToken peerLifetime = default;
         List<PendingValidation> deferredMessages = [];
         try
@@ -33,7 +41,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             // a short lock, calculate outside it, then take the lock again to update state. The
             // admission check keeps stopped routers, graylisted peers and unwanted topics away
             // from the calculation; authoritative checks run under the second lock.
-            PubsubPeer? admittedPeer = null;
             Message[] interestedMessages = [];
             if (rpc.Publish.Count != 0)
             {
@@ -50,14 +57,35 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     if (admitted && admittedPeer?.Terminal != true && rpc.Publish.Any(message => IsLocallySubscribed(message.Topic)))
                     {
                         long bytes = rpc.CalculateSize();
-                        if (bytes > 0 && _incomingEntries < _maxIncomingEntries && bytes <= _maxIncomingBytes - _incomingBytes)
+                        // A connected peer's share is charged across all of its streams, so one peer
+                        // cannot hold the router-wide budget by opening many inbound streams.
+                        if (_incomingEntries >= _maxIncomingEntries || bytes > _maxIncomingBytes - _incomingBytes)
+                        {
+                            skipReason = "capacity";
+                        }
+                        else if (admittedPeer is not null &&
+                            (admittedPeer.IncomingEntries >= _maxIncomingEntriesPerPeer || bytes > _maxIncomingBytesPerPeer - admittedPeer.IncomingBytes))
+                        {
+                            skipReason = "peer-capacity";
+                        }
+                        else
                         {
                             _incomingEntries++;
                             _incomingBytes += bytes;
+                            if (admittedPeer is not null)
+                            {
+                                admittedPeer.IncomingEntries++;
+                                admittedPeer.IncomingBytes += bytes;
+                            }
+                            reserved = true;
                             reservedBytes = bytes;
                             interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
                         }
                     }
+                }
+                if (skipReason is not null)
+                {
+                    IncomingSkips.Add(1, new KeyValuePair<string, object?>("reason", skipReason));
                 }
             }
 
@@ -196,12 +224,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
         finally
         {
-            if (reservedBytes != 0)
+            if (reserved)
             {
                 lock (this)
                 {
                     _incomingEntries--;
                     _incomingBytes -= reservedBytes;
+                    if (admittedPeer is not null)
+                    {
+                        admittedPeer.IncomingEntries--;
+                        admittedPeer.IncomingBytes -= reservedBytes;
+                    }
                 }
             }
         }

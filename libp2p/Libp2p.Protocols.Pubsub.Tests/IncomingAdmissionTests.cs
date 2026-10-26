@@ -3,7 +3,9 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Diagnostics.Metrics;
 using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
@@ -24,6 +26,34 @@ public class IncomingAdmissionTests
         MaxConcurrentMessageIdCalculations = 1,
         GetMessageId = message => new MessageId(message.Data.ToByteArray()),
     };
+    private static PubsubRouter.PubsubPeer Connect(PubsubRouter router, int index) =>
+        router.OutboundConnection(TestPeers.Multiaddr(index), PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task,
+            (_, _) => ValueTask.FromResult(IOResult.Ok), () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+    private static ISessionContext Context(int index)
+    {
+        ISessionContext context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(index) });
+        context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
+        return context;
+    }
+    private static MeterListener Skips(Action<string> onSkip)
+    {
+        MeterListener listener = new();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == Libp2pMetrics.MeterName && instrument.Name == "libp2p.pubsub.incoming.skipped")
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            foreach (KeyValuePair<string, object?> tag in tags)
+            {
+                if (tag.Key == "reason") for (long i = 0; i < value; i++) onSkip((string)tag.Value!);
+            }
+        });
+        listener.Start();
+        return listener;
+    }
 
     [TestCase(false)]
     [TestCase(true)]
@@ -136,6 +166,90 @@ public class IncomingAdmissionTests
         Assert.That(slots.CurrentCount, Is.EqualTo(1));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task PerPeerShareKeepsOnePeerFromHoldingTheRouterBudget(bool bytes)
+    {
+        PubsubSettings settings = Settings();
+        long size = Message().CalculateSize();
+        if (bytes) settings.MaxIncomingMessageIdRpcBytesPerPeer = size;
+        else settings.MaxIncomingMessageIdRpcEntriesPerPeer = 1;
+        int calculations = 0, deliveries = 0;
+        settings.GetMessageId = message => { calculations++; return new MessageId(message.Data.ToByteArray()); };
+        List<string> skips = [];
+        using MeterListener listener = Skips(reason => { lock (skips) skips.Add(reason); });
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("wanted");
+        router.OnMessage += (_, _, _) => deliveries++;
+        PubsubRouter.PubsubPeer greedy = Connect(router, 1), other = Connect(router, 2);
+        SemaphoreSlim slots = Slots(router);
+        await slots.WaitAsync(Deadline);
+        Task first = router.OnRpcAsync(greedy.PeerId, Message());
+        Assert.That(first.IsCompleted, Is.False);
+        Assert.That((greedy.IncomingEntries, greedy.IncomingBytes), Is.EqualTo((1, size)));
+        // The second publish from the same peer exceeds its share: it completes without waiting for a slot.
+        await router.OnRpcAsync(greedy.PeerId, Message(2)).WaitAsync(Deadline);
+        Assert.That(router.IncomingUsage, Is.EqualTo((1, size)));
+        Assert.That(skips, Is.EqualTo(new[] { "peer-capacity" }));
+        Task third = router.OnRpcAsync(other.PeerId, Message(3));
+        Assert.That(third.IsCompleted, Is.False, "Another peer's publish is still admitted.");
+        Assert.That(router.IncomingUsage, Is.EqualTo((2, 2 * size)));
+        Assert.That(calculations + deliveries, Is.Zero);
+        slots.Release();
+        await Task.WhenAll(first, third).WaitAsync(Deadline);
+        Assert.That((calculations, deliveries), Is.EqualTo((2, 2)));
+        Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
+        Assert.That((greedy.IncomingEntries, greedy.IncomingBytes, other.IncomingEntries, other.IncomingBytes), Is.EqualTo((0, 0L, 0, 0L)));
+        await router.OnRpcAsync(greedy.PeerId, Message(2));
+        Assert.That(deliveries, Is.EqualTo(3), "A skipped message ID is not cached.");
+        Assert.That(skips, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task RegisteredStreamsOfOnePeerShareItsIncomingAllowance()
+    {
+        PubsubSettings settings = Settings();
+        settings.MaxIncomingMessageIdRpcEntriesPerPeer = 1;
+        int deliveries = 0;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        await router.StartAsync(new LocalPeerStub());
+        router.GetTopic("wanted");
+        router.OnMessage += (_, _, _) => Interlocked.Increment(ref deliveries);
+        SemaphoreSlim slots = Slots(router);
+        await slots.WaitAsync(Deadline);
+        TestChannel first = new(), duplicate = new(), other = new();
+        Task firstListen = new FloodsubProtocol(router).ListenAsync(first, Context(1));
+        Task duplicateListen = new FloodsubProtocol(router).ListenAsync(duplicate, Context(1));
+        Task otherListen = new FloodsubProtocol(router).ListenAsync(other, Context(2));
+        try
+        {
+            await first.Reverse().WriteSizeAndProtobufAsync(Message());
+            while (router.IncomingUsage.Entries == 0) await Task.Delay(1, Deadline);
+            // The same peer's second stream exceeds its share: its publish is skipped and its loop keeps reading.
+            // A write parks until the loop reads it, so bound it: an admitted publish would park this frame.
+            await duplicate.Reverse().WriteSizeAndProtobufAsync(Message(2));
+            await duplicate.Reverse().WriteSizeAndProtobufAsync(new Rpc().WithTopics(["later"], [])).AsTask().WaitAsync(Deadline);
+            while (!((IRoutingStateContainer)router).FloodsubPeers.ContainsKey("later")) await Task.Delay(1, Deadline);
+            Assert.That(router.IncomingUsage.Entries, Is.EqualTo(1));
+            await other.Reverse().WriteSizeAndProtobufAsync(Message(3));
+            while (router.IncomingUsage.Entries < 2) await Task.Delay(1, Deadline);
+            Assert.That(router.IncomingUsage.Entries, Is.EqualTo(2), "Another peer's stream is still admitted.");
+            Assert.That(Volatile.Read(ref deliveries), Is.Zero);
+            slots.Release();
+            while (router.IncomingUsage.Entries != 0) await Task.Delay(1, Deadline);
+            Assert.That(Volatile.Read(ref deliveries), Is.EqualTo(2));
+            Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
+        }
+        finally
+        {
+            if (slots.CurrentCount == 0) slots.Release();
+            await first.AbortAsync();
+            await duplicate.AbortAsync();
+            await other.AbortAsync();
+            await Task.WhenAll(firstListen, duplicateListen, otherListen).WaitAsync(Deadline);
+        }
+    }
+
     [Test]
     public async Task RegisteredListenerAwaitsAdmissionWithoutReadingAheadAndOtherStreamsProgress()
     {
@@ -145,13 +259,6 @@ public class IncomingAdmissionTests
         SemaphoreSlim slots = Slots(router);
         await slots.WaitAsync(Deadline);
         TestChannel first = new(), second = new();
-        ISessionContext Context(int index)
-        {
-            ISessionContext context = Substitute.For<ISessionContext>();
-            context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(index) });
-            context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
-            return context;
-        }
         Task firstListen = new FloodsubProtocol(router).ListenAsync(first, Context(1));
         Task secondListen = new FloodsubProtocol(router).ListenAsync(second, Context(2));
         try

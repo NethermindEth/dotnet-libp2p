@@ -341,8 +341,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _outboundLimits = new(_settings);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntriesPerPeer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytesPerPeer);
         _maxIncomingEntries = _settings.MaxIncomingMessageIdRpcEntries;
         _maxIncomingBytes = _settings.MaxIncomingMessageIdRpcBytes;
+        _maxIncomingEntriesPerPeer = _settings.MaxIncomingMessageIdRpcEntriesPerPeer;
+        _maxIncomingBytesPerPeer = _settings.MaxIncomingMessageIdRpcBytesPerPeer;
         ArgumentOutOfRangeException.ThrowIfNegative(_settings.ReconnectionAttempts);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationMessages);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationBytes);
