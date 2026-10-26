@@ -9,6 +9,7 @@ namespace Nethermind.Libp2p.Transport.Benchmarks;
 
 public sealed class BenchmarkProtocol : ISessionProtocol
 {
+    private const byte PayloadByte = 0xAB;
     private static readonly byte[] Payload = CreatePayload();
 
     public string Id => "/libp2p-transport-benchmark/1.0.0";
@@ -66,6 +67,13 @@ public sealed class BenchmarkProtocol : ISessionProtocol
         ulong total = 0;
         await foreach (ReadOnlySequence<byte> chunk in channel.ReadAllAsync())
         {
+            foreach (ReadOnlyMemory<byte> segment in chunk)
+            {
+                if (segment.Span.IndexOfAnyExcept(PayloadByte) >= 0)
+                {
+                    throw new InvalidDataException("Corrupted benchmark payload");
+                }
+            }
             total = checked(total + (ulong)chunk.Length);
         }
         return total;
@@ -90,7 +98,7 @@ public sealed class BenchmarkProtocol : ISessionProtocol
     private static byte[] CreatePayload()
     {
         byte[] payload = new byte[64 * 1024];
-        payload.AsSpan().Fill(0xAB);
+        payload.AsSpan().Fill(PayloadByte);
         return payload;
     }
 }

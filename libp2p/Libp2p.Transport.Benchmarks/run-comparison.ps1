@@ -1,0 +1,139 @@
+param(
+    [string] $OutputDirectory = (Join-Path $PSScriptRoot '../Nethermind.Channels.Benchmarks/results-bookkeeping/transport'),
+    [ValidateRange(1, 1000)]
+    [int] $Samples = 15,
+    [ValidateRange(1, 1073741824)]
+    [long] $PayloadBytes = 8 * 1024 * 1024,
+    [ValidateRange(1, 10)]
+    [int] $Replicas = 3
+)
+
+$ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$baselineRevision = '70988269b54c3da4eec47a11a6fd3c78ab46c4fc'
+$baselineRoot = Join-Path $repoRoot '.worktrees/transport-bookkeeping-before'
+$benchmarkPath = 'libp2p/Libp2p.Transport.Benchmarks'
+$benchmarkFiles = @('Program.cs', 'BenchmarkProtocol.cs', 'BenchmarkPeerFactoryBuilder.cs', 'Libp2p.Transport.Benchmarks.csproj')
+$rootBuildInputs = @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props', 'global.json', 'NuGet.Config', 'nuget.config')
+if (Test-Path -LiteralPath $OutputDirectory) { throw 'Use a new output directory to preserve previous measurements.' }
+
+if (!(Test-Path -LiteralPath $baselineRoot)) {
+    $excludeFile = git -C $repoRoot rev-parse --path-format=absolute --git-path info/exclude
+    if (!(Get-Content -LiteralPath $excludeFile | Where-Object { $_ -eq '/.worktrees/' })) {
+        Add-Content -LiteralPath $excludeFile -Value '/.worktrees/'
+    }
+    git -C $repoRoot worktree add --detach $baselineRoot $baselineRevision
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot create the pinned baseline worktree.' }
+}
+if ((git -C $baselineRoot rev-parse HEAD) -ne $baselineRevision) { throw 'Incorrect baseline revision.' }
+git -C $baselineRoot diff --quiet HEAD -- libp2p $rootBuildInputs ':!libp2p/Libp2p.Transport.Benchmarks'
+if ($LASTEXITCODE -ne 0) { throw 'The baseline production sources have local changes.' }
+if (git -C $baselineRoot ls-files --others --exclude-standard -- libp2p $rootBuildInputs ':!libp2p/Libp2p.Transport.Benchmarks') {
+    throw 'The baseline production tree has untracked files.'
+}
+foreach ($file in $benchmarkFiles) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path "$baselineRoot/$benchmarkPath" $file)
+}
+
+$roots = @{ before = $baselineRoot; after = $repoRoot }
+foreach ($side in @('before', 'after')) {
+    dotnet build (Join-Path $roots[$side] "$benchmarkPath/Libp2p.Transport.Benchmarks.csproj") -c Release -p:SaveDiskSpace=true -warnaserror
+    if ($LASTEXITCODE -ne 0) { throw "Build failed: $side" }
+}
+foreach ($file in $benchmarkFiles) {
+    $beforeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path "$baselineRoot/$benchmarkPath" $file)).Hash
+    $afterHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $PSScriptRoot $file)).Hash
+    if ($beforeHash -ne $afterHash) { throw "Benchmark source differs between revisions: $file" }
+}
+
+New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
+$OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
+dotnet --info | Set-Content -LiteralPath (Join-Path $OutputDirectory 'dotnet-info.txt')
+$candidateRevision = git -C $repoRoot rev-parse HEAD
+if (git -C $repoRoot status --porcelain --untracked-files=no) { $candidateRevision += '-dirty' }
+$hashes = @{}
+foreach ($side in @('before', 'after')) {
+    $sourceRoot = $roots[$side]
+    $projects = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $pending = [Collections.Generic.Queue[string]]::new()
+    $pending.Enqueue((Join-Path $sourceRoot "$benchmarkPath/Libp2p.Transport.Benchmarks.csproj"))
+    while ($pending.Count) {
+        $project = (Resolve-Path -LiteralPath $pending.Dequeue()).Path
+        if (!$projects.Add($project)) { continue }
+        [xml] $definition = Get-Content -LiteralPath $project -Raw
+        foreach ($reference in $definition.Project.ItemGroup.ProjectReference) {
+            if ($reference.Include) { $pending.Enqueue((Join-Path (Split-Path $project) $reference.Include)) }
+        }
+    }
+    $directories = @($projects | ForEach-Object { [IO.Path]::GetRelativePath($sourceRoot, (Split-Path $_)) })
+    $paths = @(git -C $sourceRoot ls-files --cached --others --exclude-standard -- $directories)
+    $paths += @($rootBuildInputs | Where-Object { Test-Path -LiteralPath (Join-Path $sourceRoot $_) })
+    $paths += @('libp2p/Directory.Build.props', 'libp2p/Directory.Packages.props')
+    $hashes[$side] = @($paths | Where-Object { $_ -match '\.(cs|csproj|props|targets|proto|json|config)$' } | Sort-Object -Unique | ForEach-Object {
+        [ordered]@{ path = $_; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $sourceRoot $_)).Hash }
+    })
+}
+$manifest = [ordered]@{
+    baselineRevision = $baselineRevision
+    candidateRevision = $candidateRevision
+    payloadBytes = $PayloadBytes
+    samples = $Samples
+    replicas = $Replicas
+    runnerSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PSCommandPath).Hash
+    sources = $hashes
+}
+$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'manifest.json')
+
+$previousTiering = $env:DOTNET_TieredCompilation
+$previousServerGC = $env:DOTNET_gcServer
+try {
+    $env:DOTNET_TieredCompilation = '0'
+    $env:DOTNET_gcServer = '0'
+    foreach ($stack in @('tcp-noise-yamux', 'tcp-tls-yamux', 'quic-v1')) {
+        foreach ($direction in @('upload', 'download')) {
+            for ($replica = 1; $replica -le $Replicas; $replica++) {
+                $order = if ($replica % 2 -eq 1) { @('before', 'after') } else { @('after', 'before') }
+                foreach ($side in $order) {
+                    $resultPath = Join-Path $OutputDirectory "$side-$stack-$direction-$replica.json"
+                    $assembly = Join-Path $roots[$side] "$benchmarkPath/bin/Release/net10.0/Libp2p.Transport.Benchmarks.dll"
+                    Write-Host "Measuring $side / $stack / $direction / $replica"
+                    & dotnet $assembly $resultPath $stack $direction $Samples $PayloadBytes
+                    if ($LASTEXITCODE -ne 0) { throw "Measurement failed: $side / $stack / $direction / $replica" }
+                }
+            }
+        }
+    }
+}
+finally {
+    $env:DOTNET_TieredCompilation = $previousTiering
+    $env:DOTNET_gcServer = $previousServerGC
+}
+
+$summary = foreach ($stack in @('tcp-noise-yamux', 'tcp-tls-yamux', 'quic-v1')) {
+    foreach ($direction in @('upload', 'download')) {
+        $rates = @{}
+        foreach ($side in @('before', 'after')) {
+            $rates[$side] = @(1..$Replicas | ForEach-Object {
+                $result = Get-Content -LiteralPath (Join-Path $OutputDirectory "$side-$stack-$direction-$_.json") -Raw | ConvertFrom-Json
+                $result.median
+            } | Sort-Object)
+        }
+        $middle = [int][math]::Floor($Replicas / 2)
+        $medians = @{}
+        foreach ($side in @('before', 'after')) {
+            $medians[$side] = if ($Replicas % 2 -eq 1) { $rates[$side][$middle] } else { ($rates[$side][$middle - 1] + $rates[$side][$middle]) / 2 }
+        }
+        [ordered]@{
+            stack = $stack
+            direction = $direction
+            unit = 'MiB/s'
+            beforeMedian = $medians.before
+            afterMedian = $medians.after
+            changePercent = 100 * ($medians.after / $medians.before - 1)
+            beforeProcessMedians = $rates.before
+            afterProcessMedians = $rates.after
+        }
+    }
+}
+$summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'summary.json')
+$summary | ForEach-Object { [PSCustomObject]$_ } | Format-Table stack, direction, beforeMedian, afterMedian, changePercent

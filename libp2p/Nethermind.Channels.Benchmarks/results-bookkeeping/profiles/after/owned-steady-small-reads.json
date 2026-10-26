@@ -1,0 +1,187 @@
+{
+  "Revision": "70988269b54c3da4eec47a11a6fd3c78ab46c4fc-dirty",
+  "Variant": "owned",
+  "Scenario": "steady-small-reads",
+  "Runtime": ".NET 10.0.12",
+  "OS": "Microsoft Windows 10.0.26200",
+  "Architecture": "X64",
+  "ProcessorCount": 12,
+  "ServerGC": false,
+  "TieredCompilation": "0",
+  "PayloadBytes": 1048576,
+  "FragmentBytes": 64,
+  "ReadBytes": 64,
+  "Cancellable": true,
+  "TraceToolVersion": "10.0.750501",
+  "TraceProfile": "gc-verbose",
+  "MinimumMilliseconds": 1500,
+  "SampleTicks": 120,
+  "WeightedBytes": 12741816,
+  "Types": [
+    {
+      "Type": "Slice",
+      "Ticks": 114,
+      "WeightedBytes": 12104520,
+      "Percentage": 94.99838955451877,
+      "Stacks": [
+        {
+          "WeightedBytes": 12104520,
+          "Frames": [
+            "Nethermind.Channels.PooledBuffer.LeaseSlice(int32,int32)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Threading.ThreadPoolWorkQueue.Dispatch()",
+            "System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()",
+            "System.Threading.Thread.StartCallback()"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Threading.Lock",
+      "Ticks": 1,
+      "WeightedBytes": 106344,
+      "Percentage": 0.8346063072956006,
+      "Stacks": [
+        {
+          "WeightedBytes": 106344,
+          "Frames": [
+            "Nethermind.Channels.Channel+ReaderWriter..ctor(class Nethermind.Channels.Channel)",
+            "Nethermind.Channels.Channel..ctor()",
+            "Nethermind.Channels.Benchmarks.Program+<RunOwnedAsync>d__11.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program.RunOwnedAsync(bool,unsigned int8[],int32,int32,bool)",
+            "Nethermind.Channels.Benchmarks.Program+<>c__DisplayClass3_0.<Main>b__0()",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Threading.Tasks.VoidTaskResult].TrySetResult(!0)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Object[]",
+      "Ticks": 1,
+      "WeightedBytes": 106344,
+      "Percentage": 0.8346063072956006,
+      "Stacks": [
+        {
+          "WeightedBytes": 106344,
+          "Frames": [
+            "System.Runtime.CompilerServices.StaticsHelpers.GetGCThreadStaticsByIndexSlow(int32)",
+            "System.Threading.ThreadPoolWorkQueue.Dispatch()",
+            "System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()",
+            "System.Threading.Thread.StartCallback()"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "VolatileNode[System.ValueTuple`3[System.String,System.Type,System.Reflection.MemberInfo],System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor+Cache`1+CacheEntry[System.ValueTuple`3[System.String,System.Type,System.Reflection.MemberInfo]]][]",
+      "Ticks": 1,
+      "WeightedBytes": 106344,
+      "Percentage": 0.8346063072956006,
+      "Stacks": [
+        {
+          "WeightedBytes": 106344,
+          "Frames": [
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon],System.__Canon].GrowTable(class Tables<!0,!1>,bool,bool)",
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon],System.__Canon].TryAddInternal(class Tables<!0,!1>,!0,value class System.Nullable`1<int32>,!1,bool,bool,!1&)",
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon],System.__Canon].GetOrAdd(!0,class System.Func`3<!0,!!0,!1>,!!0)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor+Cache`1[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon]].GetOrAdd(!0,class System.Func`2<!0,!!0>)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor.CreatePropertyGetter(class System.Reflection.PropertyInfo)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.DeterminePropertyAccessors(class System.Text.Json.Serialization.Metadata.JsonPropertyInfo`1<!!0>,class System.Reflection.MemberInfo,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulatePropertyInfo(class System.Text.Json.Serialization.Metadata.JsonPropertyInfo,class System.Reflection.MemberInfo,class System.Text.Json.Serialization.JsonConverter,value class System.Nullable`1<value class System.Text.Json.Serialization.JsonIgnoreCondition>,class System.Reflection.NullabilityInfoContext,bool,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreatePropertyInfo(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.MemberInfo,class System.Reflection.NullabilityInfoContext,class System.Text.Json.JsonSerializerOptions,bool,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.AddMembersDeclaredBySuperType(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.NullabilityInfoContext,bool,value class PropertyHierarchyResolutionState&)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulateProperties(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Reflection.NullabilityInfoContext)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreateTypeInfoCore(class System.Type,class System.Text.Json.Serialization.JsonConverter,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetTypeInfo(class System.Type,class System.Text.Json.JsonSerializerOptions)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Runtime.InteropServices.Architecture",
+      "Ticks": 1,
+      "WeightedBytes": 106088,
+      "Percentage": 0.8325971745314796,
+      "Stacks": [
+        {
+          "WeightedBytes": 106088,
+          "Frames": [
+            "Nethermind.Channels.Benchmarks.Program+<Main>d__3.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Threading.Tasks.VoidTaskResult,Nethermind.Channels.Benchmarks.Program+<Main>d__3].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Threading.Tasks.VoidTaskResult].TrySetResult(!0)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Threading.Tasks.VoidTaskResult].SetExistingTaskResult(class System.Threading.Tasks.Task`1<!0>,!0)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.String",
+      "Ticks": 1,
+      "WeightedBytes": 106088,
+      "Percentage": 0.8325971745314796,
+      "Stacks": [
+        {
+          "WeightedBytes": 106088,
+          "Frames": [
+            "System.String.CreateStringFromEncoding(unsigned int8*,int32,class System.Text.Encoding)",
+            "System.Reflection.RuntimePropertyInfo.get_Name()",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].PopulateProperties(value class Filter,class System.RuntimeType,class System.Collections.Generic.Dictionary`2<class System.String,class System.Collections.Generic.List`1<class System.Reflection.RuntimePropertyInfo>>,value class System.Span`1<bool>,bool,value class ListBuilder`1<class System.Reflection.RuntimePropertyInfo>&)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].PopulateProperties(value class Filter)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].GetListByName(class System.String,value class System.Span`1<unsigned int8>,value class MemberListType,value class CacheType)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].Populate(class System.String,value class MemberListType,value class CacheType)",
+            "System.RuntimeType.GetPropertyCandidates(class System.String,value class System.Reflection.BindingFlags,class System.Type[],bool)",
+            "System.RuntimeType.GetProperties(value class System.Reflection.BindingFlags)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.AddMembersDeclaredBySuperType(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.NullabilityInfoContext,bool,value class PropertyHierarchyResolutionState&)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulateProperties(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Reflection.NullabilityInfoContext)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreateTypeInfoCore(class System.Type,class System.Text.Json.Serialization.JsonConverter,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetTypeInfo(class System.Type,class System.Text.Json.JsonSerializerOptions)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Reflection.ParameterInfo[]",
+      "Ticks": 1,
+      "WeightedBytes": 106088,
+      "Percentage": 0.8325971745314796,
+      "Stacks": [
+        {
+          "WeightedBytes": 106088,
+          "Frames": [
+            "System.Reflection.RuntimeParameterInfo.GetParameters(class System.IRuntimeMethodInfo,class System.Reflection.MemberInfo,class System.Signature,class System.Reflection.ParameterInfo&,bool)",
+            "System.Reflection.RuntimeConstructorInfo.GetParametersAsSpan()",
+            "System.RuntimeType.FilterApplyMethodBase(class System.Reflection.MethodBase,value class System.Reflection.BindingFlags,value class System.Reflection.BindingFlags,value class System.Reflection.CallingConventions,class System.Type[])",
+            "System.RuntimeType.GetConstructorCandidates(class System.String,value class System.Reflection.BindingFlags,value class System.Reflection.CallingConventions,class System.Type[],bool)",
+            "System.RuntimeType.GetConstructorImpl(value class System.Reflection.BindingFlags,class System.Reflection.Binder,value class System.Reflection.CallingConventions,class System.Type[],value class System.Reflection.ParameterModifier[])",
+            "System.Type.GetConstructor(value class System.Reflection.BindingFlags,class System.Reflection.Binder,class System.Type[],value class System.Reflection.ParameterModifier[])",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.DetermineCreateObjectDelegate(class System.Type,class System.Text.Json.Serialization.JsonConverter)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreateTypeInfoCore(class System.Type,class System.Text.Json.Serialization.JsonConverter,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetTypeInfo(class System.Type,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.JsonSerializerOptions.GetTypeInfoNoCaching(class System.Type)",
+            "System.Text.Json.JsonSerializerOptions+CachingContext.CreateCacheEntry(class System.Type,class CachingContext)",
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.__Canon,System.__Canon].GetOrAdd(!0,class System.Func`3<!0,!!0,!1>,!!0)"
+          ]
+        }
+      ]
+    }
+  ]
+}

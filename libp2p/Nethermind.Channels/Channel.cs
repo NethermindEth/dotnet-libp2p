@@ -110,10 +110,10 @@ public class Channel : IChannel
         private ReadOnlySequence<byte> _bytes;
         private PooledBuffer.Slice? _owner;
         private int _ownerOffset;
-        private readonly SemaphoreSlim _canWrite = new(1, 1);
-        private readonly SemaphoreSlim _read = new(0, 1);
-        private readonly SemaphoreSlim _canRead = new(0, 1);
-        private readonly SemaphoreSlim _readLock = new(1, 1);
+        private readonly AsyncSemaphore _canWrite = new(true);
+        private readonly AsyncSemaphore _read = new(false);
+        private readonly AsyncSemaphore _canRead = new(false);
+        private readonly AsyncSemaphore _readLock = new(true);
         private readonly CancellationTokenSource _closed = new();
         private readonly Channel? _externalCompletionMonitor;
         internal volatile bool _eow;
@@ -142,7 +142,7 @@ public class Channel : IChannel
             lock (_dataLock)
             {
                 if (_eow) return true;
-                if (!_canWrite.Wait(0)) return false;
+                if (!_canWrite.TryWait()) return false;
                 try
                 {
                     _eow = true;
@@ -188,24 +188,22 @@ public class Channel : IChannel
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(length);
-            using CancellationTokenSource? linked = LinkToken(token);
-            CancellationToken waitToken = linked?.Token ?? _closed.Token;
             bool readLockTaken = false;
             ReadBuffer accumulated = default;
             try
             {
-                await _readLock.WaitAsync(waitToken).ConfigureAwait(false);
+                await _readLock.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 readLockTaken = true;
                 if (_eow) return ClosedReadResult;
                 if (length == 0 && blockingMode == ReadBlockingMode.WaitAll) return ReadResult.Empty;
 
                 if (blockingMode == ReadBlockingMode.DoNotWait)
                 {
-                    if (!_canRead.Wait(0)) return _eow ? ClosedReadResult : ReadResult.Empty;
+                    if (!_canRead.TryWait()) return _eow ? ClosedReadResult : ReadResult.Empty;
                 }
                 else
                 {
-                    await _canRead.WaitAsync(waitToken).ConfigureAwait(false);
+                    await _canRead.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 }
 
                 long remaining;
@@ -293,7 +291,7 @@ public class Channel : IChannel
                         if (_eow) return ClosedReadResult;
                     }
 
-                    if (remaining != 0) await _canRead.WaitAsync(waitToken).ConfigureAwait(false);
+                    if (remaining != 0) await _canRead.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 } while (remaining != 0);
 
                 return accumulated.MoveToResult();
@@ -355,12 +353,10 @@ public class Channel : IChannel
         private async ValueTask<IOResult> WriteCoreAsync(ReadOnlySequence<byte> bytes,
             PooledBuffer.Slice? owner, CancellationToken token)
         {
-            using CancellationTokenSource? linked = LinkToken(token);
-            CancellationToken waitToken = linked?.Token ?? _closed.Token;
             bool canWriteTaken = false;
             try
             {
-                await _canWrite.WaitAsync(waitToken).ConfigureAwait(false);
+                await _canWrite.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 canWriteTaken = true;
                 lock (_dataLock)
                 {
@@ -381,11 +377,11 @@ public class Channel : IChannel
 
                 try
                 {
-                    await _read.WaitAsync(waitToken).ConfigureAwait(false);
+                    await _read.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
-                    if (_canRead.Wait(0))
+                    if (_canRead.TryWait())
                     {
                         lock (_dataLock)
                         {
@@ -399,7 +395,7 @@ public class Channel : IChannel
                         // A partial read committed the stream to delivering the remainder.
                         _canRead.Release();
                     }
-                    await _read.WaitAsync(_closed.Token).ConfigureAwait(false);
+                    await _read.WaitAsync(default, _closed.Token).ConfigureAwait(false);
                 }
 
                 return (Interlocked.And(ref _state, ~WriteDiscarded) & WriteDiscarded) != 0
@@ -419,11 +415,10 @@ public class Channel : IChannel
 
         public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
         {
-            using CancellationTokenSource? linked = LinkToken(token);
             bool canWriteTaken = false;
             try
             {
-                await _canWrite.WaitAsync(linked?.Token ?? _closed.Token).ConfigureAwait(false);
+                await _canWrite.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 canWriteTaken = true;
                 lock (_dataLock)
                 {
@@ -446,11 +441,10 @@ public class Channel : IChannel
 
         public async ValueTask<IOResult> CanReadAsync(CancellationToken token = default)
         {
-            using CancellationTokenSource? linked = LinkToken(token);
             try
             {
                 if (_eow) return ClosedIoResult;
-                await _readLock.WaitAsync(linked?.Token ?? _closed.Token).ConfigureAwait(false);
+                await _readLock.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 _readLock.Release();
                 return _eow ? ClosedIoResult : IOResult.Ok;
             }
@@ -459,9 +453,6 @@ public class Channel : IChannel
                 return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
             }
         }
-
-        private CancellationTokenSource? LinkToken(CancellationToken token)
-            => token.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(token, _closed.Token) : null;
     }
 
     private struct ReadBuffer : IDisposable

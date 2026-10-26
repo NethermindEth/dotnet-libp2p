@@ -1,0 +1,213 @@
+{
+  "allocations": [
+    {
+      "variant": "owned",
+      "scenario": "full-block",
+      "before": 3289.25,
+      "after": 2842.875,
+      "changePercent": -13.570722809151025
+    },
+    {
+      "variant": "owned",
+      "scenario": "fragmented-waitall",
+      "before": 3264472,
+      "after": 176216,
+      "changePercent": -94.60200608245376
+    },
+    {
+      "variant": "owned",
+      "scenario": "small-reads",
+      "before": 807732,
+      "after": 44210,
+      "changePercent": -94.52664992844161
+    },
+    {
+      "variant": "owned",
+      "scenario": "forwarding",
+      "before": 6147.1875,
+      "after": 5218.9375,
+      "changePercent": -15.100401606425706
+    },
+    {
+      "variant": "owned",
+      "scenario": "steady-small-reads",
+      "before": 20068504,
+      "after": 659480,
+      "changePercent": -96.7138557014514
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "full-block",
+      "before": 3643.375,
+      "after": 3197.875,
+      "changePercent": -12.227673517000037
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "fragmented-waitall",
+      "before": 3258864,
+      "after": 173680,
+      "changePercent": -94.67053549948695
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "small-reads",
+      "before": 787128,
+      "after": 44912,
+      "changePercent": -94.29419357461558
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "forwarding",
+      "before": 6788.4375,
+      "after": 5948.375,
+      "changePercent": -12.374902177415647
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "steady-small-reads",
+      "before": 19959160,
+      "after": 664512,
+      "changePercent": -96.67064144984057
+    },
+    {
+      "variant": "core-legacy",
+      "scenario": "full-block",
+      "before": 69289.75,
+      "after": 68812.5625,
+      "changePercent": -0.6886841127295207
+    },
+    {
+      "variant": "core-legacy",
+      "scenario": "fragmented-waitall",
+      "before": 3254656,
+      "after": 177888,
+      "changePercent": -94.53435324654895
+    },
+    {
+      "variant": "core-legacy",
+      "scenario": "small-reads",
+      "before": 893060,
+      "after": 135122,
+      "changePercent": -84.86977358744093
+    },
+    {
+      "variant": "core-legacy",
+      "scenario": "forwarding",
+      "before": 72269.5625,
+      "after": 71350.875,
+      "changePercent": -1.2711956018828796
+    },
+    {
+      "variant": "core-legacy",
+      "scenario": "steady-small-reads",
+      "before": 21313456,
+      "after": 2105528,
+      "changePercent": -90.12113286554747
+    }
+  ],
+  "throughput": [
+    {
+      "variant": "owned",
+      "scenario": "fragmented-waitall",
+      "beforeMedian": 21.816194200620927,
+      "afterMedian": 48.3423411228959,
+      "changePercent": 121.58925006965693,
+      "beforeProcessMedians": [
+        21.16652571684769,
+        21.816194200620927,
+        22.850496626981066
+      ],
+      "afterProcessMedians": [
+        48.3423411228959,
+        48.867992500913346,
+        45.47467653664864
+      ]
+    },
+    {
+      "variant": "owned",
+      "scenario": "small-reads",
+      "beforeMedian": 66.486189254111,
+      "afterMedian": 143.7801314230279,
+      "changePercent": 116.25563599907727,
+      "beforeProcessMedians": [
+        87.77117391799597,
+        66.486189254111,
+        65.5343001562298
+      ],
+      "afterProcessMedians": [
+        143.7801314230279,
+        146.00328823081304,
+        142.70328380075927
+      ]
+    },
+    {
+      "variant": "owned",
+      "scenario": "steady-small-reads",
+      "beforeMedian": 3.5367444762240585,
+      "afterMedian": 8.274964492127364,
+      "changePercent": 133.97122827945944,
+      "beforeProcessMedians": [
+        3.5367444762240585,
+        3.385482745294729,
+        3.791670458337125
+      ],
+      "afterProcessMedians": [
+        9.571933559294779,
+        7.9865681896186995,
+        8.274964492127364
+      ]
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "fragmented-waitall",
+      "beforeMedian": 20.630254267883853,
+      "afterMedian": 51.52904513904716,
+      "changePercent": 149.77416405024636,
+      "beforeProcessMedians": [
+        20.630254267883853,
+        20.436596296034132,
+        21.47178967952573
+      ],
+      "afterProcessMedians": [
+        49.57480679706295,
+        55.578329894184606,
+        51.52904513904716
+      ]
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "small-reads",
+      "beforeMedian": 53.04810480733715,
+      "afterMedian": 101.56766706835683,
+      "changePercent": 91.46332830783595,
+      "beforeProcessMedians": [
+        53.04810480733715,
+        50.54508008770738,
+        55.76717205666343
+      ],
+      "afterProcessMedians": [
+        98.97013655305621,
+        101.56766706835683,
+        106.8284761986155
+      ]
+    },
+    {
+      "variant": "core-owned",
+      "scenario": "steady-small-reads",
+      "beforeMedian": 2.7844178408788736,
+      "afterMedian": 5.761362078177075,
+      "changePercent": 106.91442187996319,
+      "beforeProcessMedians": [
+        2.6558372247988267,
+        2.7844178408788736,
+        3.2198248479679203
+      ],
+      "afterProcessMedians": [
+        5.985256219092698,
+        5.761362078177075,
+        5.701230439553465
+      ]
+    }
+  ]
+}

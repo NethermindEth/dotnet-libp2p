@@ -6,6 +6,12 @@ same deterministic input and reader workload. It uses
 continuation threads are counted. It does not use a thread-local allocation
 counter or leave producer tasks running after a measurement.
 
+The latest [reusable-waiter comparison](results-bookkeeping/README.md) measures the
+remaining semaphore/cancellation bookkeeping fix against `7098826`. Core owned
+tiny-read allocations fall 94–97%, and synthetic throughput rises 1.91×–2.50×.
+Separate local 8 MiB transport runs record the observed speed changes and ranges.
+The historical snapshots below remain intact.
+
 ## Reproduce
 
 From the repository root, using PowerShell and the .NET 10 SDK:

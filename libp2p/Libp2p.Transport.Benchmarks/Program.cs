@@ -16,7 +16,7 @@ namespace Nethermind.Libp2p.Transport.Benchmarks;
 
 internal static class Program
 {
-    private const ulong TransferBytes = 32 * 1024;
+    private const ulong DefaultTransferBytes = 32 * 1024;
     private const string StreamOpenExchangeMetric = "stream-open-exchange";
 
     private static readonly (string Name, string Security, string ListenAddress)[] Stacks =
@@ -26,27 +26,32 @@ internal static class Program
         ("quic-v1", "noise", "/ip4/127.0.0.1/udp/0/quic-v1")
     ];
 
-    private static readonly (string Name, ulong Upload, ulong Download)[] Metrics =
-    [
-        ("upload", TransferBytes, 0),
-        ("download", 0, TransferBytes),
-        (StreamOpenExchangeMetric, 1, 1)
-    ];
-
     private static async Task Main(string[] args)
     {
-        if (args.Length is < 3 or > 4)
+        if (args.Length is < 3 or > 5)
         {
-            throw new ArgumentException("Expected an output JSON path, stack, metric, and optional sample count");
+            throw new ArgumentException("Expected an output JSON path, stack, metric, optional sample count, and optional payload byte count");
         }
         string outputPath = args[0];
         string stackName = args[1];
         string metricName = args[2];
-        int sampleCount = args.Length == 4 ? int.Parse(args[3], CultureInfo.InvariantCulture) : 1;
+        int sampleCount = args.Length >= 4 ? int.Parse(args[3], CultureInfo.InvariantCulture) : 1;
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleCount);
+        ulong transferBytes = args.Length == 5 ? ulong.Parse(args[4], CultureInfo.InvariantCulture) : DefaultTransferBytes;
+        ArgumentOutOfRangeException.ThrowIfZero(transferBytes);
+        if (args.Length == 5 && metricName is StreamOpenExchangeMetric)
+        {
+            throw new ArgumentException("Payload byte count applies only to upload and download measurements");
+        }
 
         (string Name, string Security, string ListenAddress) stack = Stacks.Single(x => x.Name == stackName);
-        (string Name, ulong Upload, ulong Download) metric = Metrics.Single(x => x.Name == metricName);
+        (string Name, ulong Upload, ulong Download) metric = metricName switch
+        {
+            "upload" => (metricName, transferBytes, 0),
+            "download" => (metricName, 0, transferBytes),
+            StreamOpenExchangeMetric => (metricName, 1, 1),
+            _ => throw new ArgumentException("Unknown metric")
+        };
         if (stack.Name is "quic-v1" && !QuicListener.IsSupported)
         {
             throw new PlatformNotSupportedException("QUIC is unavailable; install libmsquic before benchmarking");
@@ -93,7 +98,7 @@ internal static class Program
             long start = Stopwatch.GetTimestamp();
             await session.DialAsync<BenchmarkProtocol>(timeout.Token).WaitAsync(timeout.Token);
             double seconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
-            samples[i] = metric.Name is StreamOpenExchangeMetric ? seconds * 1000 : TransferBytes / (1024d * 1024) / seconds;
+            samples[i] = metric.Name is StreamOpenExchangeMetric ? seconds * 1000 : (metric.Upload + metric.Download) / (1024d * 1024) / seconds;
         }
         await session.DisconnectAsync().WaitAsync(timeout.Token);
 

@@ -1,0 +1,390 @@
+{
+  "Revision": "70988269b54c3da4eec47a11a6fd3c78ab46c4fc",
+  "Variant": "owned",
+  "Scenario": "small-reads",
+  "Runtime": ".NET 10.0.12",
+  "OS": "Microsoft Windows 10.0.26200",
+  "Architecture": "X64",
+  "ProcessorCount": 12,
+  "ServerGC": false,
+  "TieredCompilation": "0",
+  "PayloadBytes": 65536,
+  "FragmentBytes": 64,
+  "ReadBytes": 64,
+  "Cancellable": false,
+  "TraceToolVersion": "10.0.750501",
+  "TraceProfile": "gc-verbose",
+  "MinimumMilliseconds": 1500,
+  "SampleTicks": 1172,
+  "WeightedBytes": 124934944,
+  "Types": [
+    {
+      "Type": "AsyncStateMachineBox`1[System.Boolean,System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33]",
+      "Ticks": 486,
+      "WeightedBytes": 51806480,
+      "Percentage": 41.466765295064285,
+      "Stacks": [
+        {
+          "WeightedBytes": 26969240,
+          "Frames": [
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Boolean].GetStateMachineBox(!!0&,class System.Threading.Tasks.Task`1<!0>&)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "System.Threading.SemaphoreSlim.WaitUntilCountOrTimeoutAsync(class TaskNode,int64,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()"
+          ]
+        },
+        {
+          "WeightedBytes": 24624040,
+          "Frames": [
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Boolean].GetStateMachineBox(!!0&,class System.Threading.Tasks.Task`1<!0>&)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "System.Threading.SemaphoreSlim.WaitUntilCountOrTimeoutAsync(class TaskNode,int64,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel+ReaderWriter.ReadAsync(int32,value class Nethermind.Channels.ReadBlockingMode,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Threading.Tasks.VoidTaskResult,Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "TaskNode",
+      "Ticks": 262,
+      "WeightedBytes": 27929200,
+      "Percentage": 22.35499461223595,
+      "Stacks": [
+        {
+          "WeightedBytes": 14924000,
+          "Frames": [
+            "System.Threading.SemaphoreSlim.CreateAndAddAsyncWaiter()",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)"
+          ]
+        },
+        {
+          "WeightedBytes": 13005200,
+          "Frames": [
+            "System.Threading.SemaphoreSlim.CreateAndAddAsyncWaiter()",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel+ReaderWriter.ReadAsync(int32,value class Nethermind.Channels.ReadBlockingMode,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Threading.Tasks.VoidTaskResult,Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "CancellationPromise`1[System.Boolean]",
+      "Ticks": 254,
+      "WeightedBytes": 27076400,
+      "Percentage": 21.6723993569005,
+      "Stacks": [
+        {
+          "WeightedBytes": 14710800,
+          "Frames": [
+            "System.Threading.Tasks.Task`1[System.Boolean].WaitAsync(unsigned int32,class System.TimeProvider,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "System.Threading.SemaphoreSlim.WaitUntilCountOrTimeoutAsync(class TaskNode,int64,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel+ReaderWriter.ReadAsync(int32,value class Nethermind.Channels.ReadBlockingMode,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Threading.Tasks.VoidTaskResult,Nethermind.Channels.Benchmarks.Program+<ConsumeOwnedAsync>d__12].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()"
+          ]
+        },
+        {
+          "WeightedBytes": 12365600,
+          "Frames": [
+            "System.Threading.Tasks.Task`1[System.Boolean].WaitAsync(unsigned int32,class System.TimeProvider,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "System.Threading.SemaphoreSlim.WaitUntilCountOrTimeoutAsync(class TaskNode,int64,value class System.Threading.CancellationToken)",
+            "System.Threading.SemaphoreSlim.WaitAsyncCore(int64,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Threading.Tasks.CompletionActionInvoker",
+      "Ticks": 82,
+      "WeightedBytes": 8742568,
+      "Percentage": 6.997696337063232,
+      "Stacks": [
+        {
+          "WeightedBytes": 4904968,
+          "Frames": [
+            "System.Threading.Tasks.Task.RunOrQueueCompletionAction(class System.Threading.Tasks.ITaskCompletionAction,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Boolean].TrySetResult(!0)",
+            "System.Threading.SemaphoreSlim.Release(int32)",
+            "Nethermind.Channels.Channel+ReaderWriter+<ReadAsync>d__30.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Boolean].TrySetResult(!0)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Boolean].SetExistingTaskResult(class System.Threading.Tasks.Task`1<!0>,!0)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)"
+          ]
+        },
+        {
+          "WeightedBytes": 3624400,
+          "Frames": [
+            "System.Threading.Tasks.Task.RunOrQueueCompletionAction(class System.Threading.Tasks.ITaskCompletionAction,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Boolean].TrySetResult(!0)",
+            "System.Threading.SemaphoreSlim.Release(int32)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "Slice",
+      "Ticks": 81,
+      "WeightedBytes": 8636032,
+      "Percentage": 6.912423156807114,
+      "Stacks": [
+        {
+          "WeightedBytes": 8636032,
+          "Frames": [
+            "Nethermind.Channels.PooledBuffer.LeaseSlice(int32,int32)",
+            "Nethermind.Channels.Channel.WriteAsync(class Nethermind.Channels.PooledBuffer,int32,int32,value class System.Threading.CancellationToken)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2].MoveNext(class System.Threading.Thread)",
+            "Nethermind.Channels.Channel+ReaderWriter+<WriteCoreAsync>d__35.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Boolean].TrySetResult(!0)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Boolean].SetExistingTaskResult(class System.Threading.Tasks.Task`1<!0>,!0)",
+            "System.Threading.SemaphoreSlim+<WaitUntilCountOrTimeoutAsync>d__33.MoveNext()"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Int32[]",
+      "Ticks": 1,
+      "WeightedBytes": 108728,
+      "Percentage": 0.0870276933889689,
+      "Stacks": [
+        {
+          "WeightedBytes": 108728,
+          "Frames": [
+            "System.Reflection.RuntimeParameterInfo.GetParameters(class System.IRuntimeMethodInfo,class System.Reflection.MemberInfo,class System.Signature,class System.Reflection.ParameterInfo&,bool)",
+            "System.Reflection.RuntimeConstructorInfo.GetParametersAsSpan()",
+            "System.Reflection.RuntimeConstructorInfo.GetParameters()",
+            "System.Text.Json.Reflection.ReflectionExtensions.TryGetDeserializationConstructor(class System.Type,bool,class System.Reflection.ConstructorInfo&)",
+            "System.Text.Json.Serialization.Converters.ObjectConverterFactory.CreateConverter(class System.Type,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.JsonConverterFactory.GetConverterInternal(class System.Type,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetConverterForType(class System.Type,class System.Text.Json.JsonSerializerOptions,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetTypeInfo(class System.Type,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.JsonSerializerOptions.GetTypeInfoNoCaching(class System.Type)",
+            "System.Text.Json.JsonSerializerOptions+CachingContext.CreateCacheEntry(class System.Type,class CachingContext)",
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.__Canon,System.__Canon].GetOrAdd(!0,class System.Func`3<!0,!!0,!1>,!!0)",
+            "System.Text.Json.JsonSerializerOptions.GetTypeInfoInternal(class System.Type,bool,value class System.Nullable`1<bool>,bool,bool)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Threading.SemaphoreSlim",
+      "Ticks": 1,
+      "WeightedBytes": 106600,
+      "Percentage": 0.0853244069169311,
+      "Stacks": [
+        {
+          "WeightedBytes": 106600,
+          "Frames": [
+            "Nethermind.Channels.Channel+ReaderWriter..ctor(class Nethermind.Channels.Channel)",
+            "Nethermind.Channels.Channel..ctor()",
+            "Nethermind.Channels.Benchmarks.Program+<RunOwnedAsync>d__11.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program.RunOwnedAsync(bool,unsigned int8[],int32,int32,bool)",
+            "Nethermind.Channels.Benchmarks.Program+<>c__DisplayClass3_0.<Main>b__0()",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Threading.Tasks.VoidTaskResult].TrySetResult(!0)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "AsyncStateMachineBox`1[Nethermind.Channels.IOResult,Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2]",
+      "Ticks": 1,
+      "WeightedBytes": 106600,
+      "Percentage": 0.0853244069169311,
+      "Stacks": [
+        {
+          "WeightedBytes": 106600,
+          "Frames": [
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[Nethermind.Channels.IOResult].GetStateMachineBox(!!0&,class System.Threading.Tasks.Task`1<!0>&)",
+            "Nethermind.Channels.WriterExtensions+<WriteFromAsync>d__2.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program+<RunOwnedAsync>d__11.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program.RunOwnedAsync(bool,unsigned int8[],int32,int32,bool)",
+            "Nethermind.Channels.Benchmarks.Program+<>c__DisplayClass3_0.<Main>b__0()",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Threading.CancellationTokenSource",
+      "Ticks": 1,
+      "WeightedBytes": 106600,
+      "Percentage": 0.0853244069169311,
+      "Stacks": [
+        {
+          "WeightedBytes": 106600,
+          "Frames": [
+            "Nethermind.Channels.Channel+ReaderWriter..ctor(class Nethermind.Channels.Channel)",
+            "Nethermind.Channels.Channel..ctor()",
+            "Nethermind.Channels.Benchmarks.Program+<RunOwnedAsync>d__11.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program.RunOwnedAsync(bool,unsigned int8[],int32,int32,bool)",
+            "Nethermind.Channels.Benchmarks.Program+<>c__DisplayClass3_0.<Main>b__0()",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Threading.Tasks.VoidTaskResult].TrySetResult(!0)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Threading.Tasks.Task",
+      "Ticks": 1,
+      "WeightedBytes": 106600,
+      "Percentage": 0.0853244069169311,
+      "Stacks": [
+        {
+          "WeightedBytes": 106600,
+          "Frames": [
+            "Nethermind.Channels.Channel.get_Reverse()",
+            "Nethermind.Channels.Benchmarks.Program+<RunOwnedAsync>d__11.MoveNext()",
+            "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)",
+            "Nethermind.Channels.Benchmarks.Program.RunOwnedAsync(bool,unsigned int8[],int32,int32,bool)",
+            "Nethermind.Channels.Benchmarks.Program+<>c__DisplayClass3_0.<Main>b__0()",
+            "Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5.MoveNext()",
+            "System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1+AsyncStateMachineBox`1[System.Int32,Nethermind.Channels.Benchmarks.Program+<RunForDurationAsync>d__5].MoveNext(class System.Threading.Thread)",
+            "System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.CompilerServices.IAsyncStateMachineBox,bool)",
+            "System.Threading.Tasks.Task.RunContinuations(class System.Object)",
+            "System.Threading.Tasks.Task`1[System.Threading.Tasks.VoidTaskResult].TrySetResult(!0)",
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1[System.Threading.Tasks.VoidTaskResult].SetExistingTaskResult(class System.Threading.Tasks.Task`1<!0>,!0)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Reflection.RtFieldInfo",
+      "Ticks": 1,
+      "WeightedBytes": 106600,
+      "Percentage": 0.0853244069169311,
+      "Stacks": [
+        {
+          "WeightedBytes": 106600,
+          "Frames": [
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].PopulateRtFields(value class Filter,value class System.ReadOnlySpan`1<int>,class System.RuntimeType,value class ListBuilder`1<class System.Reflection.RuntimeFieldInfo>&)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].PopulateRtFields(value class Filter,class System.RuntimeType,value class ListBuilder`1<class System.Reflection.RuntimeFieldInfo>&)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].PopulateFields(value class Filter)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].GetListByName(class System.String,value class System.Span`1<unsigned int8>,value class MemberListType,value class CacheType)",
+            "System.RuntimeType+RuntimeTypeCache+MemberInfoCache`1[System.__Canon].Populate(class System.String,value class MemberListType,value class CacheType)",
+            "System.RuntimeType.GetFieldCandidates(class System.String,value class System.Reflection.BindingFlags,bool)",
+            "System.RuntimeType.GetFields(value class System.Reflection.BindingFlags)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.AddMembersDeclaredBySuperType(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.NullabilityInfoContext,bool,value class PropertyHierarchyResolutionState&)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulateProperties(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Reflection.NullabilityInfoContext)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreateTypeInfoCore(class System.Type,class System.Text.Json.Serialization.JsonConverter,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.GetTypeInfo(class System.Type,class System.Text.Json.JsonSerializerOptions)",
+            "System.Text.Json.JsonSerializerOptions.GetTypeInfoNoCaching(class System.Type)"
+          ]
+        }
+      ]
+    },
+    {
+      "Type": "System.Reflection.Emit.DynamicILGenerator",
+      "Ticks": 1,
+      "WeightedBytes": 102536,
+      "Percentage": 0.08207151395529501,
+      "Stacks": [
+        {
+          "WeightedBytes": 102536,
+          "Frames": [
+            "System.Reflection.Emit.DynamicMethod.GetILGenerator(int32)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitMemberAccessor.CreatePropertyGetter(class System.Reflection.PropertyInfo,class System.Type)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitMemberAccessor.CreatePropertyGetter(class System.Reflection.PropertyInfo)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor+Cache`1+<>c__6`1[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon],System.__Canon].<GetOrAdd>b__6_0(!0,class System.Func`2<!0,!1>)",
+            "System.Collections.Concurrent.ConcurrentDictionary`2[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon],System.__Canon].GetOrAdd(!0,class System.Func`3<!0,!!0,!1>,!!0)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor+Cache`1[System.ValueTuple`3[System.__Canon,System.__Canon,System.__Canon]].GetOrAdd(!0,class System.Func`2<!0,!!0>)",
+            "System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor.CreatePropertyGetter(class System.Reflection.PropertyInfo)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.DeterminePropertyAccessors(class System.Text.Json.Serialization.Metadata.JsonPropertyInfo`1<!!0>,class System.Reflection.MemberInfo,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulatePropertyInfo(class System.Text.Json.Serialization.Metadata.JsonPropertyInfo,class System.Reflection.MemberInfo,class System.Text.Json.Serialization.JsonConverter,value class System.Nullable`1<value class System.Text.Json.Serialization.JsonIgnoreCondition>,class System.Reflection.NullabilityInfoContext,bool,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.CreatePropertyInfo(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.MemberInfo,class System.Reflection.NullabilityInfoContext,class System.Text.Json.JsonSerializerOptions,bool,bool)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.AddMembersDeclaredBySuperType(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Type,class System.Reflection.NullabilityInfoContext,bool,value class PropertyHierarchyResolutionState&)",
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.PopulateProperties(class System.Text.Json.Serialization.Metadata.JsonTypeInfo,class System.Reflection.NullabilityInfoContext)"
+          ]
+        }
+      ]
+    }
+  ]
+}
