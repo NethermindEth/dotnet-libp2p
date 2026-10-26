@@ -75,7 +75,7 @@ public class WindowsProcessKeyOwnershipTests
             case "pid-negative": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(12), -1); break;
             case "time-zero": BinaryPrimitives.WriteInt64LittleEndian(value.AsSpan(16), 0); break;
             case "time-negative": BinaryPrimitives.WriteInt64LittleEndian(value.AsSpan(16), -1); break;
-            case "nonce-empty": value.AsSpan(24).Clear(); break;
+            case "nonce-empty": value.AsSpan(24).Clear(); name = $"{NamePrefix}{Guid.Empty:N}"; break;
             case "nonce-mismatch": name = $"{NamePrefix}{Guid.NewGuid():N}"; break;
             case "legacy": name = $"libp2p-{owner.Nonce:N}"; break;
             case "case": name = name.ToUpperInvariant(); break;
