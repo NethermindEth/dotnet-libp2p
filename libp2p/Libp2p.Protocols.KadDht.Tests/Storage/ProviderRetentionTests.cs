@@ -243,6 +243,37 @@ public class ProviderRetentionTests
         Assert.That((await store.GetProvidersAsync(new byte[] { 1 })).Single().Multiaddrs, Is.EqualTo(new[] { "kept" }));
     }
 
+    [TestCase(null)]
+    [TestCase(" \t\r\n")]
+    public async Task Payload_SkipsBlankAddressesWithoutChargingBytesOrReplacingSlots(string? skipped)
+    {
+        const string kept = "/ip6/::1/tcp/4001";
+        var record = Record() with { Multiaddrs = [skipped!, kept, "/ip4/2.2.2.2"] };
+        int bytes = 8 + record.PeerId.Bytes.Length + 2 * record.PeerId.ToString().Length + 2 * kept.Length;
+        var store = new InMemoryProviderStore(1, 1, 2, bytes);
+
+        Assert.That(await store.AddProviderAsync(new byte[] { 1 }, record), Is.True);
+
+        Assert.That((await store.GetProvidersAsync(new byte[] { 1 })).Single().Multiaddrs, Is.EqualTo(new[] { kept }));
+        Assert.That(store.KeyCount, Is.EqualTo(1));
+        Assert.That(store.ExpiryIndexCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Payload_AllBlankAddressesPreserveProvidersWithNoAddresses()
+    {
+        var record = Record() with { Multiaddrs = [null!, "", " \t\r\n", "/ip4/2.2.2.2"] };
+        var store = new InMemoryProviderStore(1, 1, 3, 1024);
+
+        Assert.That(await store.AddProviderAsync(new byte[] { 1 }, record), Is.True);
+
+        var stored = (await store.GetProvidersAsync(new byte[] { 1 })).Single();
+        Assert.That(stored.PeerId, Is.EqualTo(record.PeerId));
+        Assert.That(stored.Multiaddrs, Is.Empty);
+        Assert.That(store.TotalProviderCount, Is.EqualTo(1));
+        Assert.That(store.ExpiryIndexCount, Is.EqualTo(1));
+    }
+
     [Test]
     public async Task InvalidExpiration_DoesNotPublishPartialChanges()
     {

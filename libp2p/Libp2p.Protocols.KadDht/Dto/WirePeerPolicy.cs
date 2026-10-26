@@ -148,9 +148,12 @@ internal sealed class WirePeerPolicy
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (string raw in node.Multiaddrs.Take(limit))
         {
+            if (raw is null) continue;
             // Do not invoke the string parser on an arbitrarily large custom-store address.
             long stringBytes = 2L * raw.Length;
-            if (!Retain(ref retained, stringBytes) || string.IsNullOrWhiteSpace(raw)) continue;
+            // Bound even the whitespace scan before skipping blank entries without charging bytes.
+            if (!CanRetain(retained, stringBytes) || string.IsNullOrWhiteSpace(raw)) continue;
+            if (!Retain(ref retained, stringBytes)) continue;
             try
             {
                 var address = Multiaddress.Decode(raw);

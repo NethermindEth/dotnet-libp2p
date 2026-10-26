@@ -17,6 +17,64 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
 
 public class ReviewFeedbackTests
 {
+    [TestCase(Message.Types.MessageType.FindNode, null)]
+    [TestCase(Message.Types.MessageType.GetValue, null)]
+    [TestCase(Message.Types.MessageType.GetProviders, null)]
+    [TestCase(Message.Types.MessageType.FindNode, " \t\r\n")]
+    [TestCase(Message.Types.MessageType.GetValue, " \t\r\n")]
+    [TestCase(Message.Types.MessageType.GetProviders, " \t\r\n")]
+    public async Task RepliesSkipBlankCallbackAddressesWithoutChargingBytes(Message.Types.MessageType type, string? skipped)
+    {
+        const string kept = "/ip6/::1/tcp/4001";
+        int bytes = 2 * Id(1).Bytes.Length + 2 * kept.Length;
+        var values = Substitute.For<IValueStore>();
+        values.GetValueAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns(new StoredValue { Value = [10], Timestamp = 1 });
+        using var harness = new KadWireHarness("direct", new KadDhtOptions
+        {
+            MaxAddressesPerPeer = 2,
+            MaxPeerRecordBytes = bytes,
+            MaxPeerResponseBytes = bytes
+        }, values: values, nearest: _ => [Id(1).ToDhtNode([skipped!, kept, "/ip4/2.2.2.2"])]);
+
+        var response = await harness.SendAsync(new Message { Type = type, Key = ByteString.CopyFrom(new byte[] { 1 }) });
+
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())), Is.EqualTo(new[] { Id(1) }));
+        Assert.That(response.CloserPeers.Single().Addrs.Select(address => Multiaddress.Decode(address.ToByteArray()).ToString()),
+            Is.EqualTo(new[] { kept }), "Skipped entries consume slots, but no payload bytes.");
+        if (type == Message.Types.MessageType.GetValue)
+            Assert.That(response.Record?.Value, Is.EqualTo(ByteString.CopyFrom(new byte[] { 10 })));
+    }
+
+    [TestCase("services", null)]
+    [TestCase("fallback", null)]
+    [TestCase("integration", null)]
+    [TestCase("direct", null)]
+    [TestCase("services", " \t\r\n")]
+    [TestCase("fallback", " \t\r\n")]
+    [TestCase("integration", " \t\r\n")]
+    [TestCase("direct", " \t\r\n")]
+    public async Task RepliesSkipBlankCustomProviderAddressesWithoutChargingBytes(string path, string? skipped)
+    {
+        const string kept = "/ip4/1.1.1.1/tcp/4001";
+        var store = Substitute.For<IProviderStore>();
+        store.GetProvidersAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new ProviderRecord { PeerId = Id(1), Multiaddrs = [skipped!, kept, "/ip4/2.2.2.2"] } });
+        int bytes = 2 * Id(1).Bytes.Length + 2 * kept.Length;
+        using var harness = new KadWireHarness(path, new KadDhtOptions
+        {
+            MaxAddressesPerProvider = 2,
+            MaxPeerRecordBytes = bytes,
+            MaxPeerResponseBytes = bytes
+        }, providers: store);
+
+        var response = await harness.SendAsync(MessageHelper.CreateGetProvidersRequest([1]));
+
+        Assert.That(response.ProviderPeers.Select(peer => new PeerId(peer.Id.ToByteArray())), Is.EqualTo(new[] { Id(1) }));
+        Assert.That(response.ProviderPeers.Single().Addrs.Select(address => Multiaddress.Decode(address.ToByteArray()).ToString()),
+            Is.EqualTo(new[] { kept }));
+    }
+
     [TestCase("services")]
     [TestCase("fallback")]
     [TestCase("integration")]

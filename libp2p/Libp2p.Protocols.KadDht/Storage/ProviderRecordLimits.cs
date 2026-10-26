@@ -29,10 +29,11 @@ internal static class ProviderRecordLimits
         return remaining >= 0;
     }
 
-    internal static bool TryRetainAddress(string address, ref long remaining)
+    internal static bool TryRetainAddress(string? address, ref long remaining)
     {
+        if (address is null) return false;
         long bytes = 2L * address.Length;
-        if (bytes > remaining) return false;
+        if (bytes > remaining || string.IsNullOrWhiteSpace(address)) return false;
         remaining -= bytes;
         return true;
     }
