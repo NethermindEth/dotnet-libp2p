@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
   </ItemGroup>
 

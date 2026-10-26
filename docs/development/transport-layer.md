@@ -41,6 +41,38 @@ When a real connection is established, the implementation should:
 
 Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
+### Receiving into a channel
+
+Use `IWriter.WriteFromAsync` to forward a socket or stream into the upper channel:
+
+```csharp
+await upChannel.WriteFromAsync(
+    (memory, cancellation) => socket.ReceiveAsync(memory, SocketFlags.None, cancellation),
+    socket.ReceiveBufferSize, token);
+
+// A Stream.ReadAsync method can be passed directly.
+await upChannel.WriteFromAsync(stream.ReadAsync, 1024, token);
+```
+
+The callback fills the supplied memory and returns the received byte count, or zero for EOF.
+It must accept short destinations and stop using the memory when it completes. The writer
+owns allocation: fragments occupy successive unused portions of a buffer, and a new buffer
+is allocated only when the previous one is full. Published bytes stay valid while pending
+reads or returned sequences retain them, without copying each fragment.
+
+The pump waits for each channel write before receiving again, passes cancellation to both
+operations, and returns `IOResult.Ok` on source EOF or the first unsuccessful write result.
+Source exceptions propagate. The transport still decides when to call `WriteEofAsync`,
+`CloseAsync`, or `AbortAsync`, preserving its half-close and error behavior.
+
+Ordinary `WriteAsync` also allows readers to retain its bytes after the write completes.
+Do not overwrite that storage or return it to a pool. Current `ReadResult` values contain
+plain sequences with no disposal contract, so reference-counted or pooled published buffers
+cannot be released safely at write completion. Buffers fill densely regardless of receive
+fragmentation. A contiguous retained read can keep partially used buffers at both ends,
+so its backing storage is bounded by its payload plus up to two buffers. An active receive
+buffer, sequence-node overhead, and protocol message-size limits remain separate concerns.
+
 ## Connection protocol
 
 Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.
