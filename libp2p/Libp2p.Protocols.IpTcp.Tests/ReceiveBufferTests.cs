@@ -23,19 +23,34 @@ public class ReceiveBufferTests
         ReceiveTestChannel channel = new();
         byte[] expected = ReceiveTestChannel.Payload(513);
         byte[] later = ReceiveTestChannel.Payload(131073, 29);
-        ReadOnlySequence<byte> retained;
-        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(), channel, deadline.Token))
+        ReadResult direct = default;
+        ReadResult retained = default;
+        ReadResult laterRead = default;
+        try
         {
-            retained = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, deadline.Token), expected,
-                Enumerable.Repeat(1, 512).ToArray(), deadline.Token);
-            channel.AssertCompactAndStable(expected);
-            await channel.ReadFragmentsAsync(data => pump.SendAsync(data, deadline.Token), later, [1, 17, later.Length - 19], deadline.Token);
-            Assert.That(retained.ToArray(), Is.EqualTo(expected));
-            pump.Remote.Shutdown(SocketShutdown.Send);
-            await pump.Context.Disposed.Task.WaitAsync(deadline.Token);
+            await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(), channel, deadline.Token))
+            {
+                direct = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, deadline.Token), [0x5a], [], deadline.Token);
+                retained = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, deadline.Token), expected,
+                    Enumerable.Repeat(1, 512).ToArray(), deadline.Token);
+                channel.AssertReceiveBuffersReused();
+                laterRead = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, deadline.Token), later,
+                    [1, 17, later.Length - 19], deadline.Token);
+                ReceiveTestChannel.AssertCompactAndStable(retained, expected);
+                pump.Remote.Shutdown(SocketShutdown.Send);
+                await pump.Context.Disposed.Task.WaitAsync(deadline.Token);
+            }
+            channel.AssertReceiveBuffersReused();
+            ReceiveTestChannel.AssertCompactAndStable(retained, expected);
+            ReceiveTestChannel.AssertCompactAndStable(laterRead, later);
+            Assert.That(direct.Data.ToArray(), Is.EqualTo(new byte[] { 0x5a }));
         }
-        channel.AssertCompactAndStable([.. expected, .. later]);
-        Assert.That(retained.ToArray(), Is.EqualTo(expected));
+        finally
+        {
+            direct.Dispose();
+            retained.Dispose();
+            laterRead.Dispose();
+        }
     }
 
     [TestCase(false)]
@@ -49,18 +64,35 @@ public class ReceiveBufferTests
         int[] lengths = [1, 17, 131103, 3];
         byte[] firstExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
         byte[] secondExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 29);
-        await using (TcpPump first = await TcpPump.StartAsync(listen, protocol, firstChannel, deadline.Token))
-        await using (TcpPump second = await TcpPump.StartAsync(listen, protocol, secondChannel, deadline.Token))
+        ReadResult[] retained = [];
+        Task<ReadResult>[] reading = [];
+        try
         {
-            await Task.WhenAll(
-                firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, deadline.Token), firstExpected, lengths, deadline.Token),
-                secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, deadline.Token), secondExpected, lengths, deadline.Token));
-            first.Remote.Shutdown(SocketShutdown.Send);
-            second.Remote.Shutdown(SocketShutdown.Send);
-            await Task.WhenAll(first.Context.Disposed.Task, second.Context.Disposed.Task).WaitAsync(deadline.Token);
+            await using (TcpPump first = await TcpPump.StartAsync(listen, protocol, firstChannel, deadline.Token))
+            await using (TcpPump second = await TcpPump.StartAsync(listen, protocol, secondChannel, deadline.Token))
+            {
+                reading =
+                [
+                    firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, deadline.Token), firstExpected, lengths, deadline.Token),
+                    secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, deadline.Token), secondExpected, lengths, deadline.Token)
+                ];
+                retained = await Task.WhenAll(reading);
+                first.Remote.Shutdown(SocketShutdown.Send);
+                second.Remote.Shutdown(SocketShutdown.Send);
+                await Task.WhenAll(first.Context.Disposed.Task, second.Context.Disposed.Task).WaitAsync(deadline.Token);
+            }
+            firstChannel.AssertReceiveBuffersReused();
+            secondChannel.AssertReceiveBuffersReused();
+            ReceiveTestChannel.AssertCompactAndStable(retained[0], firstExpected);
+            ReceiveTestChannel.AssertCompactAndStable(retained[1], secondExpected);
         }
-        firstChannel.AssertCompactAndStable(firstExpected);
-        secondChannel.AssertCompactAndStable(secondExpected);
+        finally
+        {
+            foreach (Task<ReadResult> task in reading)
+            {
+                if (task.IsCompletedSuccessfully) task.Result.Dispose();
+            }
+        }
     }
 
     private sealed class TcpPump(Socket remote, ReceiveContext context, Task transport, CancellationTokenSource lifetime) : IAsyncDisposable

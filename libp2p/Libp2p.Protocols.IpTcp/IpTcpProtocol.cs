@@ -149,9 +149,9 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+                        await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(token))
                         {
-                            if (!await SendAllAsync(client, data, token))
+                            if (!await SendAllAsync(client, read.Data, token))
                             {
                                 await upChannel.CloseAsync();
                                 break;
@@ -262,10 +262,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (ReadResult read in upChannel.ReadAllOwnedAsync())
                 {
-                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
-                    if (!await SendAllAsync(client, data, token))
+                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, read.Data.Length);
+                    if (!await SendAllAsync(client, read.Data, token))
                     {
                         break;
                     }

@@ -369,9 +369,10 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(pumpCancellation.Token))
+                await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(pumpCancellation.Token))
                 {
-                    await stream.WriteAsync(data.ToArray(), pumpCancellation.Token);
+                    ReadOnlySequence<byte> data = read.Data;
+                    await stream.WriteAsync(data.IsSingleSegment ? data.First : data.ToArray(), pumpCancellation.Token);
                 }
                 stream.CompleteWrites();
             }

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
+using Nethermind.Channels;
+using Nethermind.Libp2p.Core.Metrics;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -13,21 +16,21 @@ public class WriterReceiveTests
     [TestCase(8, 5)]
     [TestCase(1024, 1)]
     [TestCase(1024, 2048)]
-    public async Task FragmentedReadSharesStorageAndSurvivesLaterReceives(int capacity, int fragmentSize)
+    public async Task FragmentedOwnedReadKeepsCompactStorageAndSurvivesLaterReceives(int capacity, int fragmentSize)
     {
         Channel channel = new();
         IWriter writer = channel;
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
         byte[] expected = Enumerable.Range(0, capacity * 2 + 3).Select(i => (byte)(i % 251)).ToArray();
         int offset = 0;
-        Task<ReadResult> reading = channel.Reverse.ReadAsync(expected.Length, token: deadline.Token).AsTask();
+        Task<ReadResult> reading = channel.Reverse.ReadOwnedAsync(expected.Length, token: deadline.Token).AsTask();
         try
         {
             IOResult result = await writer.WriteFromAsync((memory, token) =>
             {
                 Assert.That(token, Is.EqualTo(deadline.Token));
                 Assert.That(memory.Length, Is.InRange(1, capacity));
-                // A source can fill its entire destination. Previously published regions must be excluded.
+                // A source can fill its entire destination. Regions retained by readers must be excluded.
                 memory.Span.Fill(0xee);
                 int length = Math.Min(Math.Min(fragmentSize, memory.Length), expected.Length - offset);
                 expected.AsMemory(offset, length).CopyTo(memory);
@@ -35,8 +38,9 @@ public class WriterReceiveTests
                 return ValueTask.FromResult(length);
             }, capacity, deadline.Token);
             Assert.That(result, Is.EqualTo(IOResult.Ok));
-            ReadResult read = await reading;
+            using ReadResult read = await reading;
             Assert.That(read.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(read.IsOwned, Is.True);
             Assert.That(read.Data.ToArray(), Is.EqualTo(expected));
 
             HashSet<byte[]> arrays = new(ReferenceEqualityComparer.Instance);
@@ -45,8 +49,8 @@ public class WriterReceiveTests
                 Assert.That(MemoryMarshal.TryGetArray(memory, out ArraySegment<byte> segment), Is.True);
                 arrays.Add(segment.Array!);
             }
-            Assert.That(arrays.Sum(array => array.Length), Is.LessThan(expected.Length + capacity),
-                "Backing storage must grow with payload bytes, not the number of receive fragments.");
+            Assert.That(arrays.Sum(array => array.Length), Is.LessThanOrEqualTo(Math.Max(16, expected.Length * 4)),
+                "Backing storage must grow with payload bytes, including geometric growth and pool bucket rounding.");
 
             // EOF in the source must not close the channel; another pump can write to it.
             Task<IOResult> laterWrite = writer.WriteFromAsync((memory, _) =>
@@ -55,7 +59,7 @@ public class WriterReceiveTests
                 memory.Span.Fill(0xff);
                 return ValueTask.FromResult(memory.Length);
             }, capacity, deadline.Token).AsTask();
-            ReadResult laterRead = await channel.Reverse.ReadAsync(capacity, token: deadline.Token);
+            using ReadResult laterRead = await channel.Reverse.ReadOwnedAsync(capacity, token: deadline.Token);
             Assert.That(laterRead.Data.ToArray(), Is.All.EqualTo((byte)0xff));
             Assert.That(await laterWrite, Is.EqualTo(IOResult.Ok));
             await channel.CloseAsync();
@@ -64,12 +68,12 @@ public class WriterReceiveTests
         finally
         {
             await channel.CloseAsync();
-            await reading;
+            using ReadResult unused = await reading;
         }
     }
 
     [Test]
-    public async Task LaterReadCanRetainBothBoundaryBuffers()
+    public async Task LaterReadPreservesBytesAcrossBufferBoundary()
     {
         const int capacity = 8;
         Channel channel = new();
@@ -83,9 +87,9 @@ public class WriterReceiveTests
         }, capacity, deadline.Token).AsTask();
         try
         {
-            ReadResult head = await channel.Reverse.ReadAsync(capacity - 1, token: deadline.Token);
-            ReadResult boundary = await channel.Reverse.ReadAsync(2, token: deadline.Token);
-            ReadResult tail = await channel.Reverse.ReadAsync(capacity - 1, token: deadline.Token);
+            using ReadResult head = await channel.Reverse.ReadOwnedAsync(capacity - 1, token: deadline.Token);
+            using ReadResult boundary = await channel.Reverse.ReadOwnedAsync(2, token: deadline.Token);
+            using ReadResult tail = await channel.Reverse.ReadOwnedAsync(capacity - 1, token: deadline.Token);
             Assert.That(await pumping, Is.EqualTo(IOResult.Ok));
             await channel.CloseAsync();
             Assert.That(head.Data.ToArray(), Is.EqualTo(Enumerable.Range(0, 7).Select(i => (byte)i)));
@@ -98,8 +102,9 @@ public class WriterReceiveTests
                 Assert.That(MemoryMarshal.TryGetArray(memory, out ArraySegment<byte> segment), Is.True);
                 arrays.Add(segment.Array!);
             }
-            Assert.That(arrays, Has.Count.EqualTo(2),
-                "A read beginning at the end of a block can retain two partially used boundary blocks.");
+            Assert.That(boundary.IsOwned, Is.True);
+            Assert.That(arrays.Sum(array => array.Length), Is.LessThanOrEqualTo(16),
+                "Combining small boundary fragments must not retain an entire receive buffer per byte.");
         }
         finally
         {
@@ -123,10 +128,10 @@ public class WriterReceiveTests
         {
             Assert.That(calls, Is.EqualTo(1));
             Assert.That(pumping.IsCompleted, Is.False);
-            ReadResult head = await channel.Reverse.ReadAsync(2, token: deadline.Token);
+            using ReadResult head = await channel.Reverse.ReadOwnedAsync(2, token: deadline.Token);
             Assert.That(calls, Is.EqualTo(1));
             Assert.That(pumping.IsCompleted, Is.False);
-            ReadResult tail = await channel.Reverse.ReadAsync(2, token: deadline.Token);
+            using ReadResult tail = await channel.Reverse.ReadOwnedAsync(2, token: deadline.Token);
             Assert.That(await pumping, Is.EqualTo(IOResult.Ok));
             Assert.That(head.Data.ToArray(), Is.EqualTo(new byte[] { 3, 7 }));
             Assert.That(tail.Data.ToArray(), Is.EqualTo(new byte[] { 11, 19 }));
@@ -179,7 +184,7 @@ public class WriterReceiveTests
         }, 8, cancellation.Token).AsTask();
         try
         {
-            ReadResult read = await channel.Reverse.ReadAsync(1, token: deadline.Token);
+            using ReadResult read = await channel.Reverse.ReadOwnedAsync(1, token: deadline.Token);
             await receiving.Task.WaitAsync(deadline.Token);
             if (cancel) cancellation.Cancel();
             else resume.TrySetResult();
@@ -246,6 +251,77 @@ public class WriterReceiveTests
         IWriter writer = new RejectingWriter(IOResult.Ok);
         Assert.CatchAsync<OperationCanceledException>(async () =>
             await writer.WriteFromAsync((_, _) => throw new AssertionException("The source must not be called."), 8, new CancellationToken(true)));
+    }
+
+    [Test]
+    public async Task LegacyWriterKeepsStableBytesWhenTheSourceReusesItsBuffer()
+    {
+        LegacyWriter writer = new();
+        int received = 0;
+        IOResult result = await ((IWriter)writer).WriteFromAsync((memory, _) =>
+        {
+            memory.Span.Fill(0xee);
+            if (received == 8) return ValueTask.FromResult(0);
+            memory.Span[0] = (byte)received++;
+            return ValueTask.FromResult(1);
+        }, 8);
+
+        Assert.That(result, Is.EqualTo(IOResult.Ok));
+        Assert.That(writer.Published.SelectMany(bytes => bytes.ToArray()), Is.EqualTo(Enumerable.Range(0, 8).Select(i => (byte)i)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    [NonParallelizable]
+    public async Task ThrowingWriteMetricCallbackReleasesThePumpLease(bool packets)
+    {
+        using MeterListener listener = new();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument == (packets ? Libp2pMetrics.DataSentPackets : Libp2pMetrics.DataSentBytes))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        InvalidOperationException failure = new("Metric callback failed");
+        listener.SetMeasurementEventCallback<long>((_, _, _, _) => throw failure);
+        listener.Start();
+        Channel channel = new();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        int calls = 0;
+        Task<IOResult> pumping = channel.WriteFromAsync((memory, _) =>
+        {
+            calls++;
+            new byte[] { 3, 7, 11 }.CopyTo(memory);
+            return ValueTask.FromResult(3);
+        }, 8, deadline.Token).AsTask();
+        try
+        {
+            using ReadResult read = await channel.Reverse.ReadOwnedAsync(3, token: deadline.Token);
+            using PooledBuffer.Slice retained = read.ToSlice();
+            PooledBuffer owner = retained.Owner;
+            Assert.That(Assert.ThrowsAsync<InvalidOperationException>(async () => await pumping.WaitAsync(deadline.Token)), Is.SameAs(failure));
+            Assert.That(calls, Is.EqualTo(1));
+            Assert.That(read.Data.ToArray(), Is.EqualTo(new byte[] { 3, 7, 11 }));
+            Assert.That(owner.RefCount, Is.EqualTo(2), "Only the two consumer leases must remain after the pump fails.");
+            read.Dispose();
+            retained.Dispose();
+            Assert.That(owner.RefCount, Is.Zero);
+        }
+        finally
+        {
+            await channel.CloseAsync();
+        }
+    }
+
+    private sealed class LegacyWriter : IWriter
+    {
+        public List<ReadOnlySequence<byte>> Published { get; } = [];
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            Published.Add(bytes);
+            return ValueTask.FromResult(IOResult.Ok);
+        }
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
+            => throw new AssertionException("The pump must not write EOF.");
     }
 
     private sealed class RejectingWriter(IOResult result) : IWriter

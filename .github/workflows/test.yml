@@ -50,6 +50,7 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
         run: |
+          dotnet test ../src/channels/Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj ${{ env.TEST_OPTS }}

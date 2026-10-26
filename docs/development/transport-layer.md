@@ -56,22 +56,35 @@ await upChannel.WriteFromAsync(stream.ReadAsync, 1024, token);
 
 The callback fills the supplied memory and returns the received byte count, or zero for EOF.
 It must accept short destinations and stop using the memory when it completes. The writer
-owns allocation: fragments occupy successive unused portions of a buffer, and a new buffer
-is allocated only when the previous one is full. Published bytes stay valid while pending
-reads or returned sequences retain them, without copying each fragment.
+delegates allocation to the shared `Nethermind.Channels` pump. It reuses a pooled buffer only
+after all readers release their references; otherwise it fills unused regions or rents
+another buffer. Pending fragmented reads retain independent ownership while they accumulate.
 
 The pump waits for each channel write before receiving again, passes cancellation to both
 operations, and returns `IOResult.Ok` on source EOF or the first unsuccessful write result.
 Source exceptions propagate. The transport still decides when to call `WriteEofAsync`,
 `CloseAsync`, or `AbortAsync`, preserving its half-close and error behavior.
 
-Ordinary `WriteAsync` also allows readers to retain its bytes after the write completes.
-Do not overwrite that storage or return it to a pool. Current `ReadResult` values contain
-plain sequences with no disposal contract, so reference-counted or pooled published buffers
-cannot be released safely at write completion. Buffers fill densely regardless of receive
-fragmentation. A contiguous retained read can keep partially used buffers at both ends,
-so its backing storage is bounded by its payload plus up to two buffers. An active receive
-buffer, sequence-node overhead, and protocol message-size limits remain separate concerns.
+Use `ReadOwnedAsync` when consuming received bytes within a known scope:
+
+```csharp
+using ReadResult read = await channel.ReadOwnedAsync(length, token: token);
+ReadOnlySequence<byte> bytes = read.OrThrow();
+// Consume bytes before disposing read.
+```
+
+`ReadAllOwnedAsync` keeps each result alive until its iteration ends. `ToSlice()` retains
+an independent pooled reference for forwarding beyond the result's scope. An owned write
+acquires its own reference, so the caller may dispose its slice after starting the write.
+Published bytes must remain unchanged while any reader retains them.
+
+Existing `ReadAsync` still returns indefinitely retainable sequences, copying pooled results
+before release. Writers implementing only the original API also receive detached copies.
+Ordinary sequence writes still require stable storage; their completion does not permit
+overwriting it. Single owned chunks need no payload copy; fragmented exact reads coalesce
+into pooled storage that grows with received bytes. Protocol message limits and consumers
+retaining results remain separate concerns. See the [shared ownership API](../../src/channels/README.md)
+and [allocation measurements](../../src/channels/Nethermind.Channels.Benchmarks/README.md).
 
 ## Connection protocol
 

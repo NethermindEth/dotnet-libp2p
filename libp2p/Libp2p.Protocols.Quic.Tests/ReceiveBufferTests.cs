@@ -29,20 +29,35 @@ public class ReceiveBufferTests
             ReceiveTestChannel channel = new();
             byte[] expected = ReceiveTestChannel.Payload(513);
             byte[] later = ReceiveTestChannel.Payload(2051, 29);
-            ReadOnlySequence<byte> retained;
-            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(), channel, token))
+            ReadResult direct = default;
+            ReadResult retained = default;
+            ReadResult laterRead = default;
+            try
             {
-                retained = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), expected,
-                    Enumerable.Repeat(1, 512).ToArray(), token);
-                channel.AssertCompactAndStable(expected);
-                await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), later, [1, 17, later.Length - 19], token);
-                Assert.That(retained.ToArray(), Is.EqualTo(expected));
-                pump.Remote.CompleteWrites();
-                await channel.Upper.WriteEofAsync(token);
-                await pump.Completion.WaitAsync(token);
+                await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(), channel, token))
+                {
+                    direct = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), [0x5a], [], token);
+                    retained = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), expected,
+                        Enumerable.Repeat(1, 512).ToArray(), token);
+                    channel.AssertReceiveBuffersReused();
+                    laterRead = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), later,
+                        [1, 17, later.Length - 19], token);
+                    ReceiveTestChannel.AssertCompactAndStable(retained, expected);
+                    pump.Remote.CompleteWrites();
+                    await channel.Upper.WriteEofAsync(token);
+                    await pump.Completion.WaitAsync(token);
+                }
+                channel.AssertReceiveBuffersReused();
+                ReceiveTestChannel.AssertCompactAndStable(retained, expected);
+                ReceiveTestChannel.AssertCompactAndStable(laterRead, later);
+                Assert.That(direct.Data.ToArray(), Is.EqualTo(new byte[] { 0x5a }));
             }
-            channel.AssertCompactAndStable([.. expected, .. later]);
-            Assert.That(retained.ToArray(), Is.EqualTo(expected));
+            finally
+            {
+                direct.Dispose();
+                retained.Dispose();
+                laterRead.Dispose();
+            }
         });
     }
 
@@ -57,20 +72,37 @@ public class ReceiveBufferTests
             int[] lengths = [1, 17, 2 * 1024 + 31, 3];
             byte[] firstExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
             byte[] secondExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 29);
-            await using (QuicPump first = await QuicPump.StartAsync(local, remote, false, protocol, firstChannel, token))
-            await using (QuicPump second = await QuicPump.StartAsync(local, remote, true, protocol, secondChannel, token))
+            ReadResult[] retained = [];
+            Task<ReadResult>[] reading = [];
+            try
             {
-                await Task.WhenAll(
-                    firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, token), firstExpected, lengths, token),
-                    secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, token), secondExpected, lengths, token));
-                first.Remote.CompleteWrites();
-                second.Remote.CompleteWrites();
-                await firstChannel.Upper.WriteEofAsync(token);
-                await secondChannel.Upper.WriteEofAsync(token);
-                await Task.WhenAll(first.Completion, second.Completion).WaitAsync(token);
+                await using (QuicPump first = await QuicPump.StartAsync(local, remote, false, protocol, firstChannel, token))
+                await using (QuicPump second = await QuicPump.StartAsync(local, remote, true, protocol, secondChannel, token))
+                {
+                    reading =
+                    [
+                        firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, token), firstExpected, lengths, token),
+                        secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, token), secondExpected, lengths, token)
+                    ];
+                    retained = await Task.WhenAll(reading);
+                    first.Remote.CompleteWrites();
+                    second.Remote.CompleteWrites();
+                    await firstChannel.Upper.WriteEofAsync(token);
+                    await secondChannel.Upper.WriteEofAsync(token);
+                    await Task.WhenAll(first.Completion, second.Completion).WaitAsync(token);
+                }
+                firstChannel.AssertReceiveBuffersReused();
+                secondChannel.AssertReceiveBuffersReused();
+                ReceiveTestChannel.AssertCompactAndStable(retained[0], firstExpected);
+                ReceiveTestChannel.AssertCompactAndStable(retained[1], secondExpected);
             }
-            firstChannel.AssertCompactAndStable(firstExpected);
-            secondChannel.AssertCompactAndStable(secondExpected);
+            finally
+            {
+                foreach (Task<ReadResult> task in reading)
+                {
+                    if (task.IsCompletedSuccessfully) task.Result.Dispose();
+                }
+            }
         });
     }
 
