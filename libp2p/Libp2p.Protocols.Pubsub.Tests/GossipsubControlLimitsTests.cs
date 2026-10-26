@@ -349,6 +349,7 @@ public class GossipsubControlLimitsTests
 
         Assert.That(setup.Router.CompleteValidation(pending!, MessageValidity.Accepted), Is.True);
         validation.SetResult();
+        await setup.Router.FlushOutboundAsync();
         Assert.Multiple(() =>
         {
             Assert.That(GetIdontwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(messageId.Bytes) }));
