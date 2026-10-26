@@ -347,6 +347,22 @@ public class KadDhtProtocolTests
     }
 
     [Test]
+    public async Task ProvideAsync_WhenLocalStoreRejectsAndNoRemotePeers_ReturnsFalse()
+    {
+        var bounded = new InMemoryProviderStore(1, 1, 16, 1024);
+        await bounded.AddProviderAsync(new byte[] { 1 }, new ProviderRecord
+        {
+            PeerId = _localPeer.Identity.PeerId,
+            Ttl = TimeSpan.FromHours(1)
+        });
+        using var protocol = new KadDhtProtocol(_localPeer, _messageSender, _dhtMessageSender,
+            _options, _valueStore, bounded, _loggerFactory);
+        Assert.That(await protocol.ProvideAsync([2]), Is.False);
+        Assert.That(await bounded.HasProvidersAsync(new byte[] { 2 }), Is.False);
+        Assert.That(bounded.KeyCount, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task ProvideAsync_AddsProviderLocally()
     {
         // Arrange

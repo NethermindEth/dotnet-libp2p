@@ -42,6 +42,28 @@ FIND_NODE sends raw target-key bytes; the receiver hashes those bytes with SHA-2
 
 ADD_PROVIDER is a one-way wire operation. The sender does not wait for a response, but dialing and writing failures still propagate. PUT_VALUE and GET_VALUE use request/response messages. The higher-level `DhtClient` replicates to and queries the nearest peers currently known to its local routing table; it does not perform an additional iterative network search.
 
+The default in-memory provider store retains at most `MaxProviderKeys` (10,000) keys,
+`MaxProvidersPerKey` (20) providers per key, and inspects the first
+`MaxAddressesPerProvider` (16) addresses per record. `MaxProviderRecordBytes` (1,024)
+bounds each record's variable-length payload: twice the Base64 key length, plus the
+peer ID byte length, twice its Base58 dictionary-key length, and twice the sum of
+retained address-string lengths. The shared key is conservatively charged to every
+record. Object and collection overhead and transient message parsing are additional.
+
+Records whose key and identity alone exceed that budget are rejected. Whole addresses
+that do not fit are omitted, preserving the order of those retained; malformed or
+skipped wire entries still consume an address slot. Zero retained addresses is allowed.
+The store owns a read-only address-list snapshot. Incoming announcements apply the same
+payload policy before calling a custom store; custom stores own their aggregate limits.
+Operators may raise these positive limits explicitly.
+
+At key capacity, new keys are rejected while all buckets contain live records. Existing
+providers can still refresh, and expired providers on the requested key are pruned before
+admission. A fully expired unrelated bucket is reclaimed when needed, even without
+`RunAsync` or intervening reads. Maintenance and lookups also remove expired records;
+expiration occurs strictly after `StoredAt + Ttl`. Live records are never evicted to admit
+a new key. These are local resource limits and do not change the wire protocol.
+
 Bucket refresh uses approximate random raw-key sampling. A FIND_NODE receiver hashes the raw key, so selecting raw bytes that hash into a particular bucket prefix would require finding bytes with a chosen SHA-256 prefix. This limitation replaces the former non-wire-compatible `PublicKey.FromHash` shortcut.
 
 ## Migrating from the in-tree Kademlia implementation
