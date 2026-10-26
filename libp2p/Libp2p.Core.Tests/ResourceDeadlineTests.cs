@@ -12,6 +12,22 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class ResourceDeadlineTests
 {
+    [Test]
+    public async Task DisconnectDoesNotReclassifyAnAlreadyClosedUpgradeAsAborted()
+    {
+        BlockingProtocol protocol = new();
+        ProtocolRef root = new(protocol);
+        ProtocolStackSettings stack = new() { Protocols = new() { [root] = [new(protocol)] } };
+        await using LocalPeer peer = new(new Identity(), null, stack);
+        using INewConnectionContext connection = peer.CreateConnection(root, null, false, null);
+        IChannel channel = connection.Upgrade();
+        await protocol.Entered.Task;
+        await channel.CloseAsync();
+        connection.Dispose();
+        await connection.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task InitializationDeadlineReleasesAllStorePinsAndCancelsUnderlyingWork(bool listener)

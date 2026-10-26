@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core;
@@ -16,6 +17,80 @@ namespace Nethermind.Libp2p.Protocols.IpTcp.Tests;
 
 public class AdmissionAndLifetimeTests
 {
+    [Test]
+    public async Task ListenerKeepsReadinessDiagnosticsWithoutRetainingAcceptEvents()
+    {
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
+        using Activity activity = new Activity("tcp-listener").Start();
+        Listener listener = new(new object(), new PeerResourceLimits()) { Activity = activity };
+        ILoggerFactory factory = Substitute.For<ILoggerFactory>();
+        ILogger logger = Substitute.For<ILogger>();
+        factory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        Task transport = new IpTcpProtocol(factory).ListenAsync(listener, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
+        try
+        {
+            using TcpClient remote = new();
+            await remote.ConnectAsync(await listener.Ready.Task, lifetime.Token);
+            Connection connection = await listener.Connections.Reader.ReadAsync(lifetime.Token);
+            remote.Client.Shutdown(SocketShutdown.Send);
+            await connection.Disposed.Task.WaitAsync(lifetime.Token);
+            Assert.That(activity.GetTagItem("listen-on-addr"), Is.EqualTo(IPAddress.Loopback));
+            Assert.That(activity.GetTagItem("listen-on-port"), Is.EqualTo(0));
+            Assert.That(activity.Events.Select(e => e.Name), Is.EqualTo(new[] { "ready" }));
+            string[] messages = logger.ReceivedCalls().Where(c => c.GetMethodInfo().Name == nameof(ILogger.Log))
+                .Select(c => c.GetArguments()[2]!.ToString()!).ToArray();
+            Assert.That(messages.Any(m => m.StartsWith("Ready to handle connections at")), Is.True);
+            Assert.That(messages.Any(m => m.StartsWith("Connected ")), Is.True);
+        }
+        finally { lifetime.Cancel(); await transport.WaitAsync(TimeSpan.FromSeconds(5)); }
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task RemoteFinEndsCleanlyButResetAborts(bool dial, bool reset)
+    {
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
+        Listener context = new(new object(), new PeerResourceLimits());
+        IpTcpProtocol protocol = new();
+        using TcpListener remoteListener = new(IPAddress.Loopback, 0);
+        Task transport;
+        TcpClient remote;
+        if (dial)
+        {
+            remoteListener.Start();
+            transport = protocol.DialAsync(context, ((IPEndPoint)remoteListener.LocalEndpoint).ToMultiaddress(ProtocolType.Tcp), lifetime.Token);
+            remote = await remoteListener.AcceptTcpClientAsync(lifetime.Token);
+        }
+        else
+        {
+            transport = protocol.ListenAsync(context, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
+            remote = new();
+            await remote.ConnectAsync(await context.Ready.Task, lifetime.Token);
+        }
+        try
+        {
+            Connection connection = await context.Connections.Reader.ReadAsync(lifetime.Token);
+            if (reset)
+            {
+                remote.Client.LingerState = new LingerOption(true, 0);
+                // TcpClient.Dispose first shuts down gracefully; dispose the socket directly to send RST.
+                remote.Client.Dispose();
+            }
+            else remote.Client.Shutdown(SocketShutdown.Send);
+            remote.Dispose();
+            await connection.Disposed.Task.WaitAsync(lifetime.Token);
+            Assert.That((await connection.Channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(reset ? IOResult.Aborted : IOResult.Ended));
+        }
+        finally
+        {
+            remote.Dispose();
+            lifetime.Cancel();
+            await transport.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     [Test]
     public void AdmissionNormalizesAddressesAndReleasesSourceEntriesExactlyOnce()
     {
@@ -168,7 +243,7 @@ public class AdmissionAndLifetimeTests
         public object ConnectionAdmissionScope => scope;
         public PeerResourceLimits ResourceLimits => limits;
         public ILocalPeer Peer { get; } = Substitute.For<ILocalPeer>();
-        public Activity? Activity => null;
+        public Activity? Activity { get; init; }
         public TaskCompletionSource<IPEndPoint> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public System.Threading.Channels.Channel<Connection> Connections { get; } = System.Threading.Channels.Channel.CreateUnbounded<Connection>();
         public void ListenerReady(Multiaddress address) => Ready.TrySetResult(address.ToEndPoint());

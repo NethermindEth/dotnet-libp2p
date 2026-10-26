@@ -93,7 +93,10 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.Token);
         CancellationToken lifetimeToken = lifetime.Token;
         Lock timerLock = new();
-        using CancellationTokenRegistration abort = lifetimeToken.Register(() => _ = channel.AbortAsync());
+        using CancellationTokenRegistration abort = lifetimeToken.Register(() =>
+        {
+            if (!channel.GetAwaiter().IsCompleted) _ = channel.AbortAsync();
+        });
         using SemaphoreSlim waitForSession = new(0, 1);
         Task requestWorker = Task.CompletedTask;
         HashSet<Task> streamWorkers = [];
@@ -561,8 +564,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
         finally
         {
+            await channel.CloseAsync();
             lifetime.Cancel();
-            await channel.AbortAsync();
             session?.Dispose();
             if (context.Token.CanBeCanceled || session is null || requestWorker.IsCompleted)
                 await requestWorker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);

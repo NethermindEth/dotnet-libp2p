@@ -145,8 +145,6 @@ public class NoiseProtocol : IConnectionProtocol
 
         await ExchangeData(transport, downChannel, upChannel, _logger, context.Token);
 
-        _ = upChannel.CloseAsync();
-        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
@@ -244,8 +242,6 @@ public class NoiseProtocol : IConnectionProtocol
 
         await ExchangeData(transport, downChannel, upChannel, _logger, context.Token);
 
-        _ = upChannel.CloseAsync();
-        _ = downChannel.CloseAsync();
         _logger?.LogDebug("Closed");
     }
 
@@ -274,9 +270,13 @@ public class NoiseProtocol : IConnectionProtocol
     {
         using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(connectionToken);
         CancellationToken token = lifetime.Token;
-        using CancellationTokenRegistration abort = token.Register(() => { _ = upChannel.AbortAsync(); _ = downChannel.AbortAsync(); });
+        using CancellationTokenRegistration abort = token.Register(() =>
+        {
+            if (!upChannel.GetAwaiter().IsCompleted) _ = upChannel.AbortAsync();
+            if (!downChannel.GetAwaiter().IsCompleted) _ = downChannel.AbortAsync();
+        });
         // UP -> DOWN
-        Task upToDown = Task.Run(async () =>
+        Task<bool> upToDown = Task.Run(async () =>
         {
             for (; ; )
             {
@@ -284,7 +284,8 @@ public class NoiseProtocol : IConnectionProtocol
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
-                    return;
+                    if (dataReadResult.Result == IOResult.Ended) await downChannel.WriteEofAsync(token);
+                    return dataReadResult.Result == IOResult.Ended;
                 }
 
                 byte[] buffer = new byte[2 + 16 + dataReadResult.Data.Length];
@@ -295,12 +296,12 @@ public class NoiseProtocol : IConnectionProtocol
                 if (writeResult != IOResult.Ok)
                 {
                     logger?.LogDebug("End sending, due to {}", writeResult);
-                    return;
+                    return writeResult == IOResult.Ended;
                 }
             }
         });
         // DOWN -> UP
-        Task downToUp = Task.Run(async () =>
+        Task<bool> downToUp = Task.Run(async () =>
         {
             for (; ; )
             {
@@ -308,7 +309,8 @@ public class NoiseProtocol : IConnectionProtocol
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving packet length failed due to {}", lengthBytesReadResult.Result);
-                    return;
+                    if (lengthBytesReadResult.Result == IOResult.Ended) await upChannel.WriteEofAsync(token);
+                    return lengthBytesReadResult.Result == IOResult.Ended;
                 }
 
                 int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytesReadResult.Data.ToArray().AsSpan());
@@ -317,7 +319,8 @@ public class NoiseProtocol : IConnectionProtocol
                 if (dataReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving header failed due to {}", dataReadResult);
-                    return;
+                    // EOF inside an encrypted record is truncation, not an orderly boundary.
+                    return false;
                 }
                 byte[] buffer = new byte[length - 16];
 
@@ -329,19 +332,38 @@ public class NoiseProtocol : IConnectionProtocol
                     if (writeResult != IOResult.Ok)
                     {
                         logger?.LogDebug("Receiving data failed due to {}", dataReadResult);
-                        return;
+                        return writeResult == IOResult.Ended;
                     }
                 }
             }
         });
 
-        try { await Task.WhenAny(upToDown, downToUp); }
+        bool orderly = false;
+        try
+        {
+            Task<bool> completed = await Task.WhenAny(upToDown, downToUp);
+            orderly = completed.IsCompletedSuccessfully && completed.Result && !connectionToken.IsCancellationRequested;
+        }
         finally
         {
-            lifetime.Cancel();
-            await upChannel.AbortAsync();
-            await downChannel.AbortAsync();
-            await Task.WhenAll(upToDown, downToUp).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            try
+            {
+                if (orderly)
+                {
+                    await upChannel.CloseAsync();
+                    await downChannel.CloseAsync();
+                }
+                else
+                {
+                    await upChannel.AbortAsync();
+                    await downChannel.AbortAsync();
+                }
+            }
+            finally
+            {
+                lifetime.Cancel();
+                await ((Task)Task.WhenAll(upToDown, downToUp)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
         }
     }
 }

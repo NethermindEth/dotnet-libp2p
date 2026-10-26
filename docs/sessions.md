@@ -85,6 +85,9 @@ across all of that peer's TCP listeners. Source ports do not create new allowanc
 IPv4-mapped IPv6 addresses count as IPv4. Excess sockets close immediately before
 protocol dispatch or receive-buffer rental. Separate local peers have separate TCP
 allowances. Deployments with many peers behind one NAT may need a larger per-IP limit.
+Native IPv6 sources are counted by their full address (/128), without prefix grouping.
+Established sessions keep admission until they close; the cap does not evict idle
+sessions or reserve capacity for previously identified peers.
 
 An inbound connection has **15 seconds** from connection-context creation to session
 registration, including security negotiation and the wait for the first Yamux stream.
@@ -120,6 +123,10 @@ returns, even after a timeout. Custom `ConnectedTo` overrides should pass
 `session.Closed` into every asynchronous operation. An application operation which
 ignores cancellation can keep an initialization allowance, but its expired session
 cannot keep a peer-store slot pinned.
+Custom protocol upgrades must also observe their connection token. TCP keeps admission
+charged and joins protocol completion before returning from listener shutdown. An
+upgrade that ignores cancellation can therefore retain a TCP allowance and prevent
+the listener from finishing shutdown until that upgrade returns.
 
 Identify, Identify Push, Ping, relay, and enabled pubsub protocols each allow **512
 inbound streams total and 64 per remote peer**. All pubsub versions share one
