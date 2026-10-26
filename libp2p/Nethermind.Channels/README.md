@@ -1,7 +1,7 @@
 # Channels and pooled buffers
 
 `Nethermind.Channels` supplies the byte-channel engine used by libp2p. It is included in
-`libp2p/Libp2p.slnx`, the standalone `Channels.slnx`, CI tests, and package publishing.
+`libp2p/Libp2p.slnx`, CI tests, and package publishing.
 
 ## Ownership
 
@@ -98,5 +98,5 @@ ReadOnlySequence<byte> data = read.OrThrow();
 // Consume data before read is disposed.
 ```
 
-See [allocation measurements](Nethermind.Channels.Benchmarks/README.md) for before/after
+See [allocation measurements](../Nethermind.Channels.Benchmarks/README.md) for before/after
 results, including cases where lease bookkeeping costs more than managed storage.

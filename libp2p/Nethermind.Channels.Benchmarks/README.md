@@ -1,6 +1,6 @@
 # Channel allocation comparison
 
-This standalone console compares receive-buffer and channel allocations with the
+This console compares receive-buffer and channel allocations with the
 same deterministic input and reader workload. It uses
 `GC.GetTotalAllocatedBytes(precise: true)` so allocations on asynchronous
 continuation threads are counted. It does not use a thread-local allocation
@@ -11,14 +11,29 @@ counter or leave producer tasks running after a measurement.
 From the repository root, using PowerShell and the .NET 10 SDK:
 
 ```powershell
-./src/channels/Nethermind.Channels.Benchmarks/run.ps1
+./libp2p/Nethermind.Channels.Benchmarks/run.ps1
 ```
 
-The script creates a detached baseline worktree at
-`.worktrees/allocations-pr428`, verifies its revision, and builds the standalone
-project. The worktree is excluded through `.git/info/exclude` and is not removed
-afterward. This project is deliberately separate from the normal solution build
-because its historical reference needs that worktree.
+The default builds and measures only the native `owned` variant. The benchmark
+is included in `libp2p/Libp2p.slnx` and needs no historical worktree or Core receive
+pump to build. Fresh measurements go to `results-current/`; the checked-in
+`results/` files retain the original measurements and their provenance paths.
+
+Request historical variants explicitly:
+
+```powershell
+./libp2p/Nethermind.Channels.Benchmarks/run.ps1 -BaselineOnly
+```
+
+This creates a detached worktree at `.worktrees/allocations-pr428`, verifies its
+pinned revision and unchanged Core sources, and builds the historical comparison
+with `BaselineOnly=true`. Only that build defines `HISTORICAL` and references the
+old Core implementation. The worktree is excluded through Git's local exclude
+file and is not removed afterward. `-Variants` can select or combine named
+variants; the runner builds current and historical variants separately.
+`-BaselineRoot` can reuse an existing pinned worktree. `-SourceRoot` selects a
+different native source checkout and supports both the current `libp2p` layout
+and the earlier `src/channels` layout.
 
 Each variant/scenario runs in its own quiet process, with tiered compilation
 disabled, three warmup batches and five measured batches. The program checks the
@@ -31,7 +46,7 @@ between samples, outside the counter interval. The pool is warmed before measuri
 
 The process emits JSON only after measurement. Raw counters, the median/minimum/
 maximum bytes per operation, environment details and SDK information are retained
-under `results/`, alongside source hashes for the current owned implementation.
+under the selected output directory, alongside source hashes for the native implementation.
 Timing is recorded for diagnosing anomalous runs; these runs
 are an allocation comparison, not a throughput benchmark.
 
@@ -69,7 +84,7 @@ are released. Memory ownership and pool return behavior also need lifecycle test
 ## Recorded results
 
 These are the initial integration measurements at `90139c8`, before pooling
-asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/src/channels/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
+asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/libp2p/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
 measures the optimization with the transport integration in #428. Against its
 prior pooled implementation, native small-read allocations fell 37.5% and
 fragmented-read allocations fell 19.5%. Core owned small-read allocations fell

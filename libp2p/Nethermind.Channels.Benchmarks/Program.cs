@@ -1,15 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+#if HISTORICAL
 extern alias Baseline;
+#endif
 
 using System.Buffers;
 using System.Diagnostics;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+#if HISTORICAL
 using Legacy = Baseline::Nethermind.Libp2p.Core;
-#if !BASELINE_ONLY
+#else
 using Owned = Nethermind.Channels;
 #endif
 
@@ -17,8 +20,10 @@ namespace Nethermind.Channels.Benchmarks;
 
 internal static class Program
 {
+#if HISTORICAL
     private const string MainRevision = "cf72a0c9e9420ff7b74d28e8b9feef1a91a8cc05";
     private const string ManagedRevision = "70b6c7321a2471dca985c6d15e8de30d0721c56b";
+#endif
     private const int BufferSize = 64 * 1024;
 
     private static async Task Main(string[] args)
@@ -36,20 +41,23 @@ internal static class Program
             "forwarding" => (BufferSize, BufferSize, BufferSize, 128),
             _ => throw new ArgumentException("Unknown scenario.")
         };
-        if (variant is not ("main-listener" or "main-dialer" or "managed" or "owned"))
-            throw new ArgumentException("Unknown variant.");
-#if BASELINE_ONLY
-        if (variant == "owned") throw new ArgumentException("This build excludes owned benchmarks.");
+#if HISTORICAL
+        if (variant is not ("main-listener" or "main-dialer" or "managed"))
+            throw new ArgumentException("This historical build supports main-listener, main-dialer, and managed.");
+#else
+        if (variant != "owned")
+            throw new ArgumentException("This build supports owned. Use run.ps1 with explicit historical variants for comparisons.");
 #endif
 
         byte[] expected = new byte[length];
         for (int i = 0; i < expected.Length; i++) expected[i] = (byte)((i * 73 + 19) % 251);
-        Func<Task> operation;
-#if !BASELINE_ONLY
-        if (variant == "owned") operation = () => RunOwnedAsync(scenario == "forwarding", expected, fragmentSize, readSize);
-        else
+#if HISTORICAL
+        Func<Task> operation = () => RunLegacyAsync(variant, scenario == "forwarding", expected, fragmentSize, readSize);
+        string measuredRevision = variant == "managed" ? ManagedRevision : MainRevision;
+#else
+        Func<Task> operation = () => RunOwnedAsync(scenario == "forwarding", expected, fragmentSize, readSize);
+        string measuredRevision = args.Length == 3 ? args[2] : "unspecified";
 #endif
-            operation = () => RunLegacyAsync(variant, scenario == "forwarding", expected, fragmentSize, readSize);
 
         // The counter is process-wide: asynchronous work may resume on any thread.
         // No output is produced until every measured operation and its tasks have completed.
@@ -74,12 +82,7 @@ internal static class Program
         {
             Variant = variant,
             Scenario = scenario,
-            Revision = variant switch
-            {
-                "managed" => ManagedRevision,
-                "owned" => args.Length == 3 ? args[2] : "unspecified",
-                _ => MainRevision,
-            },
+            Revision = measuredRevision,
             WorkingRevision = args.Length == 3 ? args[2] : "unspecified",
             Runtime = RuntimeInformation.FrameworkDescription,
             OS = RuntimeInformation.OSDescription,
@@ -107,6 +110,7 @@ internal static class Program
         for (int i = 0; i < count; i++) await operation();
     }
 
+#if HISTORICAL
     private static async Task RunLegacyAsync(string variant, bool forwarding, byte[] expected, int fragmentSize, int readSize)
     {
         Legacy.Channel source = new();
@@ -163,6 +167,7 @@ internal static class Program
         if (read.Result != Legacy.IOResult.Ok) throw new InvalidOperationException($"Forward read failed: {read.Result}");
         if (await writer.WriteAsync(read.Data) != Legacy.IOResult.Ok) throw new InvalidOperationException("Forward write failed.");
     }
+#endif
 
     private static void Verify(ReadOnlySequence<byte> bytes, ReadOnlySpan<byte> expected)
     {
@@ -174,7 +179,7 @@ internal static class Program
         }
     }
 
-#if !BASELINE_ONLY
+#if !HISTORICAL
     private static async Task RunOwnedAsync(bool forwarding, byte[] expected, int fragmentSize, int readSize)
     {
         Owned.Channel source = new();
