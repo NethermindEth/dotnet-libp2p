@@ -17,6 +17,9 @@ public static class MessageHelper
     /// <summary>
     /// Convert a DhtNode to a spec-compliant Message.Types.Peer for wire transmission.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The peer ID is malformed or exceeds the default <see cref="KadDhtOptions.MaxPeerIdBytes"/> limit.
+    /// </exception>
     public static Message.Types.Peer ToWirePeer(DhtNode node, Message.Types.ConnectionType connection = Message.Types.ConnectionType.NotConnected)
     {
         if (!WirePeerPolicy.IsValidIdentity(node.PeerId.Bytes, new KadDhtOptions().MaxPeerIdBytes))
@@ -122,6 +125,9 @@ public static class MessageHelper
     /// <summary>
     /// Build an ADD_PROVIDER request message.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// A provider's peer ID is malformed or exceeds the default <see cref="KadDhtOptions.MaxPeerIdBytes"/> limit.
+    /// </exception>
     public static Message CreateAddProviderRequest(byte[] key, IEnumerable<DhtNode> providerPeers)
     {
         var msg = new Message

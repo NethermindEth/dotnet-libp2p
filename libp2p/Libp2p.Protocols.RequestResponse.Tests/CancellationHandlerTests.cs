@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Nethermind.Libp2p.Core;
 using NSubstitute;
@@ -37,6 +38,43 @@ public class CancellationHandlerTests
             Assert.That(response.Value, Is.EqualTo("value"));
         }
         finally { await channel.CloseAsync(); await listen.WaitAsync(TimeSpan.FromSeconds(5)); }
+    }
+
+    [Test]
+    public async Task ClosedChannelRejectsNormalReturnFromHandlerThatIgnoresCancellation()
+    {
+        TaskCompletionSource<CancellationToken> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource returned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(async (request, _, token) =>
+        {
+            started.TrySetResult(token);
+            await release.Task;
+            returned.TrySetResult();
+            return request;
+        }, "/test");
+        var channel = new Channel();
+        var listen = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        try
+        {
+            await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "value" }.ToByteArray()).OrThrow();
+            var token = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            TaskCompletionSource cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = token.Register(() => cancelled.TrySetResult());
+            await channel.CloseAsync();
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            release.TrySetResult();
+
+            Assert.That(async () => await listen.WaitAsync(TimeSpan.FromSeconds(5)), Throws.InstanceOf<OperationCanceledException>());
+            Assert.That(returned.Task.IsCompletedSuccessfully, Is.True, "The handler returned normally after channel cancellation.");
+        }
+        finally
+        {
+            release.TrySetResult();
+            await channel.CloseAsync();
+            try { await listen.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private sealed class CountingChannel(IChannel inner, CancellationToken token) : IChannel
