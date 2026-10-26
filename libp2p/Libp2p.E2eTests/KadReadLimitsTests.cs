@@ -34,6 +34,7 @@ public class KadReadLimitsTests
         string id = customId ? "/test/kad/1" : KadDhtOptions.DefaultProtocolId;
         ManualTimeProvider clock = new();
         StreamLogger logger = new(id);
+        using MetricRecorder timeouts = new("libp2p.request_response.read_timeouts", id);
         await using var servers = Provider(path, id, clock, logger);
         await using var clients = new ServiceCollection().AddLibp2p().BuildServiceProvider();
         var factory = servers.GetRequiredService<IPeerFactory>();
@@ -81,6 +82,7 @@ public class KadReadLimitsTests
             Assert.That(logger.ReadStarts, Is.EqualTo(2));
             await UntilAsync(() => clock.DueTimes.Count(t => t == ReadTimeout) == timersBefore + 2);
             Assert.That(clock.ActiveTimersFor(ReadTimeout), Is.EqualTo(2));
+            Assert.That(timeouts.Measurements, Is.Empty, "Admission refusals are not read timeouts.");
             // The two admitted streams belong to different local peers, proving registration-wide scope.
             clock.Advance(ReadTimeout);
             await AssertRefusedAsync(a);
@@ -88,12 +90,15 @@ public class KadReadLimitsTests
             await UntilAsync(() => limit.InFlight == 0 && clock.ActiveTimers == 0);
             Assert.That(logger.Failures.Where(f => f.Direction == "ListenAsync").All(f => f.Level == LogLevel.Debug), Is.True);
             Assert.That(logger.Failures.Count(f => f.Direction == "ListenAsync"), Is.EqualTo(2));
+            Assert.That(timeouts.Total("inbound"), Is.EqualTo(2));
+            Assert.That(timeouts.Total("outbound"), Is.Zero);
 
             await firstToA.DialAsync(new WireExchange(id, stall: false), lifetime.Token).WaitAsync(TestTimeout);
             await firstToB.DialAsync(new WireExchange(id, stall: false), lifetime.Token).WaitAsync(TestTimeout);
             Assert.That(firstToA.Closed.IsCancellationRequested, Is.False);
             Assert.That(firstToB.Closed.IsCancellationRequested, Is.False);
             await UntilAsync(() => limit.InFlight == 0);
+            Assert.That(timeouts.Total("inbound"), Is.EqualTo(2), "Successful PINGs must not count as timeouts.");
         }
         finally
         {
@@ -113,6 +118,7 @@ public class KadReadLimitsTests
         string id = KadDhtOptions.DefaultProtocolId;
         ManualTimeProvider clock = new();
         StreamLogger logger = new(id);
+        using MetricRecorder timeouts = new("libp2p.request_response.read_timeouts", id);
         await using var clients = Provider(path, id, clock, logger);
         StallingResponder responder = new();
         await using var servers = new ServiceCollection().AddLibp2p(builder => builder.AddProtocol(responder)).BuildServiceProvider();
@@ -133,6 +139,8 @@ public class KadReadLimitsTests
             Assert.That(failure!.Message, Does.Contain(nameof(IOResult.Cancelled)));
             await responder.Completed.Task.WaitAsync(TestTimeout);
             Assert.That(logger.Failures.Single(f => f.Direction == "DialAsync").Level, Is.EqualTo(LogLevel.Debug));
+            Assert.That(timeouts.Total("outbound"), Is.EqualTo(1));
+            Assert.That(timeouts.Total("inbound"), Is.Zero);
             Assert.That(session.Closed.IsCancellationRequested, Is.False);
             await session.DialAsync<PingProtocol>(lifetime.Token).WaitAsync(TestTimeout);
         }
@@ -191,6 +199,48 @@ public class KadReadLimitsTests
             await channel.AbortAsync();
             await listener.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
+    }
+
+    [TestCase("integration", nameof(KadDhtOptions.ReadTimeout))]
+    [TestCase("services", nameof(KadDhtOptions.ReadTimeout))]
+    [TestCase("direct", nameof(KadDhtOptions.ReadTimeout))]
+    [TestCase("integration", nameof(KadDhtOptions.MaxInboundStreams))]
+    [TestCase("services", nameof(KadDhtOptions.MaxInboundStreams))]
+    [TestCase("direct", nameof(KadDhtOptions.MaxInboundStreams))]
+    [TestCase("integration", nameof(KadDhtOptions.MaxInboundStreamsPerPeer))]
+    [TestCase("services", nameof(KadDhtOptions.MaxInboundStreamsPerPeer))]
+    [TestCase("direct", nameof(KadDhtOptions.MaxInboundStreamsPerPeer))]
+    public void InvalidOptionsChangedAfterRegistrationAreRejectedAtBuild(string path, string property)
+    {
+        using var builder = new Libp2pPeerFactoryBuilder();
+        var options = new KadDhtOptions();
+        switch (path)
+        {
+            case "integration": builder.AddKadDht(configure: o => options = o); break;
+            case "services": builder.Services.AddKadDht(o => options = o); builder.WithKadDht(); break;
+            case "direct": builder.AddKadDhtProtocols(_ => [], options: options); break;
+        }
+        switch (property)
+        {
+            case nameof(KadDhtOptions.ReadTimeout): options.ReadTimeout = TimeSpan.Zero; break;
+            case nameof(KadDhtOptions.MaxInboundStreams): options.MaxInboundStreams = 0; break;
+            case nameof(KadDhtOptions.MaxInboundStreamsPerPeer): options.MaxInboundStreamsPerPeer = 0; break;
+        }
+        var failure = Assert.Throws<ArgumentOutOfRangeException>(() => builder.Build());
+        Assert.That(failure!.ParamName, Is.EqualTo(property));
+        // Failed builds remain configurable and can be retried after correcting the options.
+        options.ReadTimeout = TimeSpan.FromSeconds(30);
+        options.MaxInboundStreams = 512;
+        options.MaxInboundStreamsPerPeer = 64;
+        Assert.That(builder.Build(), Is.Not.Null);
+    }
+
+    [Test]
+    public void DirectRegistrationRejectsNegativeMessageSizeBeforeDeferredBuild()
+    {
+        using var builder = new Libp2pPeerFactoryBuilder();
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.AddKadDhtProtocols(_ => [],
+            options: new KadDhtOptions { MaxMessageSize = -1 }));
     }
 
     private static ServiceProvider Provider(string path, string id, ManualTimeProvider clock, StreamLogger logger, bool clientMode = false)

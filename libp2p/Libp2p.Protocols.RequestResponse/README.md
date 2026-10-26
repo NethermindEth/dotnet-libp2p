@@ -68,6 +68,14 @@ Routine channel closure, aborts, duplicate sessions, and expected read cancellat
 are logged at Debug. Other stream failures are logged at Warning with the exception
 attached. Exceptions continue to propagate to the stream owner.
 
+The `dotnet-libp2p` meter exposes `libp2p.request_response.read_timeouts`, a counter
+of failed reads whose deadline expired while channel cancellation was not requested.
+It has `protocol` (the registered protocol ID) and `direction` (`inbound` for request
+reads, `outbound` for response reads) tags. Ordinary hangups, channel cancellation,
+size/parse failures, successful reads, and one-way dialing do not increment it.
+Deadline failures remain at Debug; this counter makes them observable without enabling
+Debug logging. The existing OpenTelemetry `AddMetrics` integration exports this meter.
+
 ### Using the Protocol
 
 #### As a Client (Dialing)

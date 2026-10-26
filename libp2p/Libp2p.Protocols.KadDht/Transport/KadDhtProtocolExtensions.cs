@@ -49,6 +49,7 @@ public static class KadDhtProtocolExtensions
         var dhtOptions = options ?? new KadDhtOptions();
         WirePeerPolicy.Validate(dhtOptions);
         dhtOptions.ValidateStreamLimits();
+        // Preserve registration-time rejection even when protocol construction is deferred to Build().
         ArgumentOutOfRangeException.ThrowIfNegative(dhtOptions.MaxMessageSize);
         ProviderRecordLimits.Validate(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys,
             dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes);
@@ -78,6 +79,7 @@ public static class KadDhtProtocolExtensions
         Func<ISessionContext, DhtHandlerServices> resolve, ILoggerFactory? loggerFactory = null, string? baseId = null,
         TimeProvider? timeProvider = null)
     {
+        // Options can change after registration; validate the values consumed by the final factory.
         options.ValidateStreamLimits();
         return new(options.ReadTimeout, async (request, ctx, token) =>
         {

@@ -60,6 +60,11 @@ response writing. These local policies apply through `AddKadDht`, services plus
 admission. Custom builders must support the limit-bearing `AddProtocol` overload;
 unsupported builders throw `NotSupportedException`.
 
+Read deadline failures remain at Debug and increment
+`libp2p.request_response.read_timeouts` on the `dotnet-libp2p` meter, tagged with the
+protocol ID and `inbound` or `outbound` direction. Admission refusals retain their
+separate `libp2p.streams.inbound.refused` counter.
+
 FIND_NODE sends raw target-key bytes; the receiver hashes those bytes with SHA-256 once for distance calculations. The sender and local routing table use the same rule. Relayed multiaddresses retain the destination peer ID after `/p2p-circuit` rather than treating the relay as the destination.
 
 ADD_PROVIDER is a one-way wire operation. The sender does not wait for a response, but dialing and writing failures still propagate. PUT_VALUE and GET_VALUE use request/response messages. The higher-level `DhtClient` replicates to and queries the nearest peers currently known to its local routing table; it does not perform an additional iterative network search.
@@ -149,7 +154,16 @@ refusing inbound DHT negotiation and omitting DHT from Identify. The additive
 `ProtocolRef.AcceptInbound` flag controls listener negotiation separately from
 `IsExposed`; other protocol registrations keep their previous defaults. Custom builders can implement the additive
 `IPeerServiceBuilder` and `IProtocolFactoryBuilder` capabilities. Existing builder
-interfaces have no new mandatory members. Handler-only custom builders remain supported.
+interfaces have no new mandatory members. Handler-only custom builders remain supported
+when they enforce the inbound stream allowance.
+
+**Compatibility note for PR #420:** Kademlia registrations now always attach an
+`InboundStreamLimit`, including with default options. A custom builder implementing
+only the two-argument `AddProtocol(instance, isExposed)` now throws
+`NotSupportedException` when registering Kademlia. Implement the three-argument
+overload and enforce its allowance, or provide `IProtocolFactoryBuilder` support that
+honors `ProtocolRef.InboundLimit`. Zero limits are invalid; there is no configuration
+switch to silently restore unlimited inbound streams.
 
 Retrieve a client's peer-bound service with
 `((IPeerServices)peer).GetPeerService<DhtClient>()`. The existing singleton-peer DI

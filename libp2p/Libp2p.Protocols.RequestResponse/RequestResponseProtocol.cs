@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Metrics;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -107,7 +108,16 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             using (CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token))
             {
                 readToken = read.Token;
-                request = await channel.ReadPrefixedProtobufAsync(_requestParser, _maxMessageSize, readToken);
+                try
+                {
+                    request = await channel.ReadPrefixedProtobufAsync(_requestParser, _maxMessageSize, readToken);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException &&
+                    deadline.IsCancellationRequested && !token.IsCancellationRequested)
+                {
+                    RecordReadTimeout("inbound");
+                    throw;
+                }
             }
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TRequest).Name);
 
@@ -164,7 +174,16 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             using (CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token))
             {
                 readToken = read.Token;
-                response = await channel.ReadPrefixedProtobufAsync(_responseParser, _maxMessageSize, readToken);
+                try
+                {
+                    response = await channel.ReadPrefixedProtobufAsync(_responseParser, _maxMessageSize, readToken);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException &&
+                    deadline.IsCancellationRequested && !token.IsCancellationRequested)
+                {
+                    RecordReadTimeout("outbound");
+                    throw;
+                }
             }
 
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TResponse).Name);
@@ -176,6 +195,18 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         {
             LogFailure(ex, "DialAsync", token.IsCancellationRequested || readToken.IsCancellationRequested);
             throw;
+        }
+    }
+
+    private void RecordReadTimeout(string direction)
+    {
+        try
+        {
+            Libp2pMetrics.RequestResponseReadTimeouts.Add(1, new("protocol", Id), new("direction", direction));
+        }
+        catch (Exception)
+        {
+            // A failing telemetry listener must not replace the original read failure.
         }
     }
 

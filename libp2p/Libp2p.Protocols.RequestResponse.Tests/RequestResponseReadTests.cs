@@ -45,6 +45,7 @@ public class RequestResponseReadTests
     [TestCase(true)]
     public async Task HangupLogsAtDebugAndPreservesException(bool dialer)
     {
+        using MetricRecorder metrics = new("libp2p.request_response.read_timeouts", "/test/1");
         RecordingLogger logger = new();
         var protocol = new RequestResponseProtocol<StringValue, StringValue>("/test/1", (request, _) => Task.FromResult(request), logger);
         Channel wire = new();
@@ -61,6 +62,7 @@ public class RequestResponseReadTests
             Assert.That(logger.Failures, Has.Count.EqualTo(1));
             Assert.That(logger.Failures[0].Level, Is.EqualTo(LogLevel.Debug));
             Assert.That(logger.Failures[0].Exception, Is.SameAs(failure));
+            Assert.That(metrics.Measurements, Is.Empty);
         }
         finally
         {
@@ -82,6 +84,7 @@ public class RequestResponseReadTests
     [TestCase(true, 3)]
     public async Task DeadlineCancelsUnderlyingReadAtEveryFrameStage(bool dialer, int stage)
     {
+        using MetricRecorder metrics = new("libp2p.request_response.read_timeouts", "/test/1");
         ManualTimeProvider clock = new();
         RecordingLogger logger = new();
         bool handled = false;
@@ -119,6 +122,13 @@ public class RequestResponseReadTests
             Assert.That(handled, Is.False);
             Assert.That(logger.Failures.Single().Level, Is.EqualTo(LogLevel.Debug));
             Assert.That(clock.DisposedTimers, Is.EqualTo(1));
+            Assert.That(metrics.Measurements, Has.Count.EqualTo(1));
+            Assert.That(metrics.Measurements.Single().Value, Is.EqualTo(1));
+            Assert.That(metrics.Measurements.Single().Tags, Is.EquivalentTo(new[]
+            {
+                new KeyValuePair<string, object?>("protocol", "/test/1"),
+                new KeyValuePair<string, object?>("direction", dialer ? "outbound" : "inbound")
+            }));
         }
         finally
         {
@@ -357,6 +367,7 @@ public class RequestResponseReadTests
     [TestCase(true, true)]
     public async Task ExpectedCancellationUsesRelevantTokenAndPreservesPropagation(bool dialer, bool deadline)
     {
+        using MetricRecorder metrics = new("libp2p.request_response.read_timeouts", "/test/1");
         ManualTimeProvider clock = new();
         RecordingLogger logger = new();
         using CancellationTokenSource lifetime = new();
@@ -375,6 +386,38 @@ public class RequestResponseReadTests
             Assert.That(clock.DisposedTimers, Is.EqualTo(1));
             Assert.That(logger.Failures, Has.Count.EqualTo(dialer || deadline ? 1 : 0));
             if (dialer || deadline) Assert.That(logger.Failures.Single().Level, Is.EqualTo(LogLevel.Debug));
+            Assert.That(metrics.Total(dialer ? "outbound" : "inbound"), Is.EqualTo(deadline ? 1 : 0));
+        }
+        finally
+        {
+            await wire.AbortAsync();
+            await exchange.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailingTimeoutMetricListenerPreservesReadFailure(bool dialer)
+    {
+        using MetricRecorder metrics = new("libp2p.request_response.read_timeouts", "/test/1",
+            () => throw new InvalidOperationException("Telemetry failure"));
+        ManualTimeProvider clock = new();
+        RecordingLogger logger = new();
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(ReadTimeout, "/test/1",
+            (request, _) => Task.FromResult(request), logger, timeProvider: clock);
+        Channel wire = new();
+        ObservedChannel channel = new(wire);
+        Task exchange = dialer ? protocol.DialAsync(channel, Context(), new StringValue()) : protocol.ListenAsync(channel, Context());
+        try
+        {
+            if (dialer) await wire.Reverse.ReadPrefixedProtobufAsync(StringValue.Parser);
+            await channel.NextReadAsync();
+            clock.Advance(ReadTimeout);
+            var failure = Assert.ThrowsAsync<ChannelClosedException>(async () => await exchange.WaitAsync(TestTimeout));
+            Assert.That(failure!.Message, Does.Contain(nameof(IOResult.Cancelled)));
+            Assert.That(metrics.Measurements, Has.Count.EqualTo(1));
+            Assert.That(logger.Failures.Single().Exception, Is.SameAs(failure));
+            Assert.That(logger.Failures.Single().Level, Is.EqualTo(LogLevel.Debug));
         }
         finally
         {
