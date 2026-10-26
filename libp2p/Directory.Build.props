@@ -1,0 +1,22 @@
+<Project>
+
+  <Import Project="../Directory.Build.props" />
+
+  <PropertyGroup Label="ProductInfo">
+    <Authors>Nethermind</Authors>
+    <Copyright>Demerzel Solutions Limited</Copyright>
+    <Description>A libp2p implementation for .NET</Description>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <PackageId>$(AssemblyName)</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/nethermindeth/dotnet-libp2p</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/nethermindeth/dotnet-libp2p</RepositoryUrl>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Product>Nethermind libp2p</Product>
+    <!--<VersionPrefix>1.0.0</VersionPrefix>
+    <VersionSuffix></VersionSuffix>-->
+  </PropertyGroup>
+
+</Project>

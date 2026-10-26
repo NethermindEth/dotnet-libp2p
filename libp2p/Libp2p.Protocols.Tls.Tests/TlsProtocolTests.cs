@@ -1,0 +1,423 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.Protocols.Quic;
+using Nethermind.Libp2p.Protocols.Tls;
+using NSubstitute;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+
+namespace Nethermind.Libp2p.Protocols.TLS.Tests;
+
+[TestFixture]
+[Parallelizable(scope: ParallelScope.All)]
+public class TlsProtocolTests
+{
+    [Test]
+    public void Test_TlsCertificateUsesP256SessionKey()
+    {
+        TlsProtocol protocol = new();
+        FieldInfo sessionKeyField = typeof(TlsProtocol).GetField("_sessionKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using ECDsa sessionKey = (ECDsa)sessionKeyField.GetValue(protocol)!;
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, TestPeers.Identity(1));
+        using ECDsa certificateKey = certificate.GetECDsaPublicKey()!;
+
+        Assert.That(sessionKey.KeySize, Is.EqualTo(256));
+        Assert.That(certificateKey.KeySize, Is.EqualTo(256));
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task Test_ConnectionEstablished_AfterHandshake(bool includePeerId, bool relayOnly)
+    {
+        // Arrange
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+        ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+
+        TestChannel upChannel = new();
+        TestChannel listenerUpChannel = new();
+        TaskCompletionSource dialerUpgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource listenerUpgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Dialer context (identity 1 dials to identity 2)
+        IConnectionContext dialerContext = Substitute.For<IConnectionContext>();
+        dialerContext.Peer.Identity.Returns(TestPeers.Identity(1));
+        dialerContext.Peer.ListenAddresses.Returns([(Multiaddress)$"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}"]);
+        Multiaddress dialAddress = relayOnly
+            ? $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(3)}/p2p-circuit"
+            : includePeerId
+                ? $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(2)}"
+                : "/ip4/127.0.0.1/tcp/0";
+        string expectedDialAddress = includePeerId
+            ? dialAddress.ToString()
+            : $"{dialAddress}/p2p/{TestPeers.PeerId(2)}";
+        dialerContext.State.Returns(new State { RemoteAddress = dialAddress });
+        dialerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
+        dialerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        {
+            dialerUpgraded.SetResult();
+            return upChannel;
+        });
+
+        // Listener context (identity 2 listens for identity 1)
+        IConnectionContext listenerContext = Substitute.For<IConnectionContext>();
+        listenerContext.Peer.Identity.Returns(TestPeers.Identity(2));
+        listenerContext.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/0" });
+        listenerContext.SubProtocols.Returns(Array.Empty<IProtocol>());
+        listenerContext.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
+        {
+            listenerUpgraded.SetResult();
+            return listenerUpChannel;
+        });
+
+        MultiplexerSettings i_multiplexerSettings = new();
+        MultiplexerSettings r_multiplexerSettings = new();
+        TlsProtocol tlsProtocolListener = new(i_multiplexerSettings, loggerFactory);
+        TlsProtocol tlsProtocolInitiator = new(r_multiplexerSettings, loggerFactory);
+
+        // Act
+        Task listenTask = tlsProtocolListener.ListenAsync(downChannel, listenerContext);
+        Task dialTask = tlsProtocolInitiator.DialAsync(downChannelFromProtocolPov, dialerContext);
+
+        int sent = 42;
+        int received;
+        try
+        {
+            Task upgraded = Task.WhenAll(dialerUpgraded.Task, listenerUpgraded.Task);
+            // Surface handshake failures before attempting application data exchange.
+            Task completed = await Task.WhenAny(listenTask, dialTask, upgraded).WaitAsync(TimeSpan.FromSeconds(15));
+            await completed;
+            await upgraded.WaitAsync(TimeSpan.FromSeconds(15));
+
+            ValueTask<IOResult> writeTask = listenerUpChannel.Reverse().WriteVarintAsync(sent);
+            received = await upChannel.Reverse().ReadVarintAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            await writeTask;
+        }
+        finally
+        {
+            await Task.WhenAll(
+                upChannel.CloseAsync().AsTask(),
+                listenerUpChannel.CloseAsync().AsTask(),
+                downChannel.CloseAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(15));
+            await Task.WhenAll(listenTask, dialTask).WaitAsync(TimeSpan.FromSeconds(15));
+        }
+
+        // Assert
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.EqualTo(sent));
+            Assert.That(new Identity(dialerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(new Identity(listenerContext.State.RemotePublicKey!).PeerId, Is.EqualTo(TestPeers.PeerId(1)));
+            Assert.That(dialerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(2)));
+            Assert.That(dialerContext.State.RemoteAddress!.ToString(), Is.EqualTo(expectedDialAddress));
+            Assert.That(listenerContext.State.RemoteAddress!.GetPeerId(), Is.EqualTo(TestPeers.PeerId(1)));
+        });
+    }
+
+    [Test]
+    public void Test_TlsIdentityConflictIsRejected()
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        State state = new()
+        {
+            RemoteAddress = "/ip4/127.0.0.1/tcp/0",
+            RemotePublicKey = TestPeers.Identity(3).PublicKey,
+        };
+        context.State.Returns(state);
+
+        MethodInfo setRemoteIdentity = typeof(TlsProtocol).GetMethod("SetRemoteIdentity", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        TargetInvocationException? exception = Assert.Throws<TargetInvocationException>(() =>
+            setRemoteIdentity.Invoke(null, [context, certificate]));
+
+        Assert.That(exception!.InnerException, Is.TypeOf<Libp2pException>());
+        Assert.That(exception.InnerException!.Message, Does.Contain("does not match"));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Test_TlsCertificateRejectsUnexpectedDialedPeer(bool relayed)
+    {
+        Identity certificateIdentity = TestPeers.Identity(2);
+        using ECDsa sessionKey = ECDsa.Create();
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(sessionKey, certificateIdentity);
+        Multiaddress requestedAddress = relayed
+            ? $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(4)}/p2p-circuit/p2p/{TestPeers.PeerId(3)}"
+            : $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(3)}";
+
+        MethodInfo verifyRemoteCertificate = typeof(TlsProtocol).GetMethod("VerifyRemoteCertificate", BindingFlags.Static | BindingFlags.NonPublic)!;
+        bool isValid = (bool)verifyRemoteCertificate.Invoke(null, [requestedAddress, certificate])!;
+
+        Assert.That(isValid, Is.False);
+    }
+
+    [Test]
+    public void Test_CertificateFromIdentity_CreatesValidCertificate()
+    {
+        // Arrange
+        Identity identity = TestPeers.Identity(1);
+        ECDsa sessionKey = ECDsa.Create();
+
+        // Act
+        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(sessionKey, identity);
+
+        // Assert
+        Assert.That(cert, Is.Not.Null);
+        Assert.That(cert.HasPrivateKey, Is.True);
+        Assert.That(cert.Subject, Does.Contain("SERIALNUMBER="));
+    }
+
+    [Test]
+    public void Test_CertificateValidation_Succeeds()
+    {
+        // Arrange
+        Identity identity = TestPeers.Identity(1);
+        ECDsa sessionKey = ECDsa.Create();
+        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(sessionKey, identity);
+
+        // Act
+        bool isValid = CertificateHelper.ValidateCertificate(cert, identity.PeerId.ToString());
+
+        // Assert
+        Assert.That(isValid, Is.True);
+    }
+
+    [Test]
+    public void Test_CertificateValidation_FailsForWrongPeerId()
+    {
+        // Arrange
+        Identity identity1 = TestPeers.Identity(1);
+        Identity identity2 = TestPeers.Identity(2);
+        ECDsa sessionKey = ECDsa.Create();
+        X509Certificate2 cert = CertificateHelper.CertificateFromIdentity(sessionKey, identity1);
+
+        // Act
+        bool isValid = CertificateHelper.ValidateCertificate(cert, identity2.PeerId.ToString());
+
+        // Assert
+        Assert.That(isValid, Is.False);
+    }
+
+    [Test]
+    public void Test_TlsProtocol_HasCorrectId()
+    {
+        // Arrange & Act
+        TlsProtocol protocol = new();
+
+        // Assert
+        Assert.That(protocol.Id, Is.EqualTo("/tls/1.0.0"));
+    }
+
+    [Test]
+    public async Task Test_TlsHandshake_OverNetworkStream()
+    {
+        // Arrange - create two identities
+        Identity serverIdentity = TestPeers.Identity(10);
+        Identity clientIdentity = TestPeers.Identity(11);
+
+        ECDsa serverSessionKey = ECDsa.Create();
+        ECDsa clientSessionKey = ECDsa.Create();
+
+        X509Certificate2 serverCert = CertificateHelper.CertificateFromIdentity(serverSessionKey, serverIdentity);
+        X509Certificate2 clientCert = CertificateHelper.CertificateFromIdentity(clientSessionKey, clientIdentity);
+
+        // Set up TCP listener
+        TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        string testMessage = "Hello from TLS client!";
+        string receivedMessage = "";
+        Exception? serverException = null;
+        Exception? clientException = null;
+
+        // Server task
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient serverClient = await listener.AcceptTcpClientAsync();
+                using NetworkStream networkStream = serverClient.GetStream();
+
+                SslServerAuthenticationOptions serverOptions = new()
+                {
+                    ServerCertificate = serverCert,
+                    ClientCertificateRequired = true,
+                    RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                        cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
+                };
+
+                using SslStream sslStream = new(networkStream, false, serverOptions.RemoteCertificateValidationCallback);
+                await sslStream.AuthenticateAsServerAsync(serverOptions);
+
+                byte[] buffer = new byte[1024];
+                int bytesRead = await sslStream.ReadAsync(buffer);
+                receivedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+                // Echo back
+                await sslStream.WriteAsync(Encoding.UTF8.GetBytes(receivedMessage));
+                await sslStream.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                serverException = ex;
+            }
+        });
+
+        // Client task
+        Task clientTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient client = new();
+                await client.ConnectAsync(IPAddress.Loopback, port);
+                using NetworkStream networkStream = client.GetStream();
+
+                SslClientAuthenticationOptions clientOptions = new()
+                {
+                    TargetHost = "127.0.0.1",
+                    ClientCertificates = [clientCert],
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                    RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                        cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
+                    CertificateChainPolicy = new X509ChainPolicy
+                    {
+                        RevocationMode = X509RevocationMode.NoCheck,
+                        VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority,
+                    },
+                };
+
+                using SslStream sslStream = new(networkStream, false, clientOptions.RemoteCertificateValidationCallback);
+                await sslStream.AuthenticateAsClientAsync(clientOptions);
+
+                await sslStream.WriteAsync(Encoding.UTF8.GetBytes(testMessage));
+                await sslStream.FlushAsync();
+
+                byte[] buffer = new byte[1024];
+                int bytesRead = await sslStream.ReadAsync(buffer);
+                string echoedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                Assert.That(echoedMessage, Is.EqualTo(testMessage));
+            }
+            catch (Exception ex)
+            {
+                clientException = ex;
+            }
+        });
+
+        // Act
+        await Task.WhenAll(serverTask, clientTask).WaitAsync(TimeSpan.FromSeconds(15));
+        listener.Stop();
+
+        // Assert
+        if (serverException is not null) throw serverException;
+        if (clientException is not null) throw clientException;
+        Assert.That(receivedMessage, Is.EqualTo(testMessage));
+    }
+
+    [Test]
+    public async Task Test_TlsHandshake_BidirectionalData()
+    {
+        // Arrange
+        Identity serverIdentity = TestPeers.Identity(20);
+        Identity clientIdentity = TestPeers.Identity(21);
+
+        ECDsa serverSessionKey = ECDsa.Create();
+        ECDsa clientSessionKey = ECDsa.Create();
+
+        X509Certificate2 serverCert = CertificateHelper.CertificateFromIdentity(serverSessionKey, serverIdentity);
+        X509Certificate2 clientCert = CertificateHelper.CertificateFromIdentity(clientSessionKey, clientIdentity);
+
+        TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        string serverMessage = "Hello from server!";
+        string clientMessage = "Hello from client!";
+        string serverReceived = "";
+        string clientReceived = "";
+
+        Task serverTask = Task.Run(async () =>
+        {
+            using TcpClient serverClient = await listener.AcceptTcpClientAsync();
+            using NetworkStream networkStream = serverClient.GetStream();
+
+            SslServerAuthenticationOptions opts = new()
+            {
+                ServerCertificate = serverCert,
+                ClientCertificateRequired = true,
+                RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                    cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
+            };
+
+            using SslStream sslStream = new(networkStream, false, opts.RemoteCertificateValidationCallback);
+            await sslStream.AuthenticateAsServerAsync(opts);
+
+            // Send server message
+            await sslStream.WriteAsync(Encoding.UTF8.GetBytes(serverMessage));
+            await sslStream.FlushAsync();
+
+            // Read client message
+            byte[] buffer = new byte[1024];
+            int bytesRead = await sslStream.ReadAsync(buffer);
+            serverReceived = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        });
+
+        Task clientTask = Task.Run(async () =>
+        {
+            using TcpClient client = new();
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            using NetworkStream networkStream = client.GetStream();
+
+            SslClientAuthenticationOptions opts = new()
+            {
+                TargetHost = "127.0.0.1",
+                ClientCertificates = [clientCert],
+                EnabledSslProtocols = SslProtocols.Tls13,
+                RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                    cert is X509Certificate2 x509 && CertificateHelper.ValidateCertificate(x509, null),
+                CertificateChainPolicy = new X509ChainPolicy
+                {
+                    RevocationMode = X509RevocationMode.NoCheck,
+                    VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority,
+                },
+            };
+
+            using SslStream sslStream = new(networkStream, false, opts.RemoteCertificateValidationCallback);
+            await sslStream.AuthenticateAsClientAsync(opts);
+
+            // Send client message
+            await sslStream.WriteAsync(Encoding.UTF8.GetBytes(clientMessage));
+            await sslStream.FlushAsync();
+
+            // Read server message
+            byte[] buffer = new byte[1024];
+            int bytesRead = await sslStream.ReadAsync(buffer);
+            clientReceived = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        });
+
+        // Act
+        await Task.WhenAll(serverTask, clientTask).WaitAsync(TimeSpan.FromSeconds(15));
+        listener.Stop();
+
+        // Assert
+        Assert.That(serverReceived, Is.EqualTo(clientMessage));
+        Assert.That(clientReceived, Is.EqualTo(serverMessage));
+    }
+}

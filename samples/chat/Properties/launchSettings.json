@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Chat": {
+      "commandName": "Project",
+      "commandLineArgs": "-d /ip4/139.177.181.61/tcp/42000/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL --trace"
+    },
+    "Chat server": {
+      "commandName": "Project",
+      "commandLineArgs": "-sp 9001"
+    }
+  }
+}

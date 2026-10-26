@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILD_CONFIG: release
-      WORKING_DIR: src/libp2p
+      WORKING_DIR: libp2p
     steps:
 
       - name: Check out repository
@@ -23,25 +23,77 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
 
+      - name: List CI projects
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          dotnet sln Libp2p.slnx list |
+            awk 'NR > 2 && NF' |
+            grep -Eiv 'samples[/\\]maui-chat[/\\]MauiChat\.csproj' > "$RUNNER_TEMP/ci-projects.txt"
+          cat "$RUNNER_TEMP/ci-projects.txt"
+
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet restore
+        run: |
+          while IFS= read -r project; do
+            dotnet restore "$project"
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore
+        run: |
+          while IFS= read -r project; do
+            dotnet build "$project" -c ${{ env.BUILD_CONFIG }} --no-restore
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-restore
+          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
         run: |
           dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Ping.Tests/Libp2p.Protocols.Ping.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Plaintext.Tests/Libp2p.Protocols.Plaintext.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
           dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
+
+  windows-quic-tls:
+    name: Windows QUIC and TLS
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: libp2p
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+
+      - name: Build QUIC tests
+        run: dotnet build Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Build TLS tests
+        run: dotnet build Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Test QUIC
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 18
+
+      - name: Test TLS
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 25

@@ -1,0 +1,202 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Google.Protobuf;
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
+using System.Formats.Asn1;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
+
+namespace Nethermind.Libp2p.Protocols.Quic.Tests;
+
+public class CertificateTests
+{
+    [Test]
+    public void WindowsCertificateLeaseDeletesPersistedPrivateKey()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("CNG key persistence is Windows-specific.");
+            return;
+        }
+
+        using ECDsa sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string keyName;
+        using (CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(sessionKey, new Identity()))
+        {
+            using ECDsaCng privateKey = lease.Certificate.GetECDsaPrivateKey() as ECDsaCng
+                ?? throw new AssertionException("Expected a CNG private key.");
+            using CngKey key = privateKey.Key;
+            keyName = key.KeyName ?? throw new AssertionException("Expected a named CNG private key.");
+
+            Assert.That(CngKey.Exists(keyName), Is.True);
+        }
+
+        Assert.That(CngKey.Exists(keyName), Is.False);
+    }
+
+    [TestCaseSource(nameof(CertificatesSerialized))]
+    public bool Test_CertificateDeserialization(byte[] certificateBytes, string peerId) =>
+        CertificateHelper.ValidateCertificate(X509CertificateLoader.LoadCertificate(certificateBytes), peerId);
+
+    [Test]
+    public void RejectsInvalidSelfSignatureWithEmptyIssuer()
+    {
+        TestCaseData fixture = CertificatesSerialized().First();
+        byte[] certificateBytes = ((byte[])fixture.Arguments[0]!).ToArray();
+        certificateBytes[^1] ^= 0x01;
+
+        using X509Certificate2 certificate = X509CertificateLoader.LoadCertificate(certificateBytes);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, (string)fixture.Arguments[1]!, out string? failureReason), Is.False);
+        Assert.That(failureReason, Is.EqualTo("certificate self-signature is invalid"));
+    }
+
+    [Test]
+    public void AcceptsPssSelfSignatureWithEmptyIssuer()
+    {
+        Identity identity = new();
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss);
+
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString(), out string? failureReason),
+            Is.True, failureReason);
+
+        byte[] tampered = certificate.GetRawCertData();
+        tampered[^1] ^= 1;
+        using X509Certificate2 invalid = X509CertificateLoader.LoadCertificate(tampered);
+        Assert.That(CertificateHelper.ValidateCertificate(invalid, identity.PeerId.ToString()), Is.False);
+    }
+
+    /// <remarks>
+    /// The identity key signs only the certificate key, never its own encoding, so a
+    /// padded Ed25519 key passes that check while naming a second peer ID.
+    /// </remarks>
+    [Test]
+    public void RejectsPaddedEd25519KeyInLibp2pExtension()
+    {
+        Identity identity = new();
+        PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. identity.PublicKey.Data.ToByteArray(), 0x00]) };
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presentedKey: padded);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+            Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null, out string? failureReason), Is.False);
+            Assert.That(failureReason, Is.EqualTo("libp2p public key extension is missing or invalid"));
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(3)]
+    public void RejectsSignedEmptyIssuerCertificateWithInvalidVersion(byte version)
+    {
+        Identity identity = new();
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pkcs1);
+        AsnReader reader = new(certificate.RawData, AsnEncodingRules.DER);
+        AsnReader outer = reader.ReadSequence();
+        byte[] signedBody = outer.ReadEncodedValue().ToArray();
+        ReadOnlyMemory<byte> signatureAlgorithm = outer.ReadEncodedValue();
+        ReadOnlySpan<byte> versionPattern = [0xA0, 0x03, 0x02, 0x01, 0x02];
+        int versionOffset = signedBody.AsSpan().IndexOf(versionPattern);
+        Assert.That(versionOffset, Is.GreaterThanOrEqualTo(0));
+        signedBody[versionOffset + 4] = version;
+
+        AsnWriter malformed = new(AsnEncodingRules.DER);
+        malformed.PushSequence();
+        malformed.WriteEncodedValue(signedBody);
+        malformed.WriteEncodedValue(signatureAlgorithm.Span);
+        malformed.WriteBitString(certificateKey.SignData(signedBody, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+        malformed.PopSequence();
+
+        using X509Certificate2 invalid = X509CertificateLoader.LoadCertificate(malformed.Encode());
+        Assert.That(CertificateHelper.ValidateCertificate(invalid, identity.PeerId.ToString()), Is.False);
+    }
+
+    public static IEnumerable<TestCaseData> CertificatesSerialized()
+    {
+        yield return new TestCaseData(
+            Convert.FromHexString("308201773082011ea003020102020900f5bd0debaa597f52300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d030107034200046bf9871220d71dcb3483ecdfcbfcc7c103f8509d0974b3c18ab1f1be1302d643103a08f7a7722c1b247ba3876fe2c59e26526f479d7718a85202ddbe47562358a37f307d307b060a2b0601040183a25a01010101ff046a30680424080112207fda21856709c5ae12fd6e8450623f15f11955d384212b89f56e7e136d2e17280440aaa6bffabe91b6f30c35e3aa4f94b1188fed96b0ffdd393f4c58c1c047854120e674ce64c788406d1c2c4b116581fd7411b309881c3c7f20b46e54c7e6fe7f0f300a06082a8648ce3d040302034700304402207d1a1dbd2bda235ff2ec87daf006f9b04ba076a5a5530180cd9c2e8f6399e09d0220458527178c7e77024601dbb1b256593e9b96d961b96349d1f560114f61a87595"),
+            "12D3KooWJRSrypvnpHgc6ZAgyCni4KcSmbV7uGRaMw5LgMKT18fq"
+            )
+        { TestName = "Valid ED25519", ExpectedResult = true };
+        yield return new TestCaseData(
+            Convert.FromHexString("308201c030820166a003020102020900eaf419a6e3edb4a6300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d030107034200048dbf1116c7c608d6d5292bd826c3feb53483a89fce434bf64538a359c8e07538ff71f6766239be6a146dcc1a5f3bb934bcd4ae2ae1d4da28ac68b4a20593f06ba381c63081c33081c0060a2b0601040183a25a01010101ff0481ae3081ab045f0803125b3059301306072a8648ce3d020106082a8648ce3d0301070342000484b93fa456a74bd0153919f036db7bc63c802f055bc7023395d0203de718ee0fc7b570b767cdd858aca6c7c4113ff002e78bd2138ac1a3b26dde3519e06979ad04483046022100bc84014cea5a41feabdf4c161096564b9ccf4b62fbef4fe1cd382c84e11101780221009204f086a84cb8ed8a9ddd7868dc90c792ee434adf62c66f99a08a5eba11615b300a06082a8648ce3d0403020348003045022054b437be9a2edf591312d68ff24bf91367ad4143f76cf80b5658f232ade820da022100e23b48de9df9c25d4c83ddddf75d2676f0b9318ee2a6c88a736d85eab94a912f"),
+            "QmZcrvr3r4S3QvwFdae3c2EWTfo792Y14UpzCZurhmiWeX"
+            )
+        { TestName = "Valid ECDSA", ExpectedResult = true };
+        yield return new TestCaseData(
+            Convert.FromHexString("3082018230820128a003020102020900f3b305f55622cfdf300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d0301070342000458f7e9581748ff9bdd933b655cc0e5552a1248f840658cc221dec2186b5a2fe4641b86ab7590a3422cdbb1000cf97662f27e5910d7569f22feed8829c8b52e0fa38188308185308182060a2b0601040183a25a01010101ff0471306f042508021221026b053094d1112bce799dc8026040ae6d4eb574157929f1598172061f753d9b1b04463044022040712707e97794c478d93989aaa28ae1f71c03af524a8a4bd2d98424948a782302207b61b7f074b696a25fb9e0059141a811cccc4cc28042d9301b9b2a4015e87470300a06082a8648ce3d04030203480030450220143ae4d86fdc8675d2480bb6912eca5e39165df7f572d836aa2f2d6acfab13f8022100831d1979a98f0c4a6fb5069ca374de92f1a1205c962a6d90ad3d7554cb7d9df4"),
+            "16Uiu2HAm2dSCBFxuge46aEt7U1oejtYuBUZXxASHqmcfVmk4gsbx"
+            )
+        { TestName = "Valid secp256k1", ExpectedResult = true };
+        yield return new TestCaseData(
+            Convert.FromHexString("3082015530820107a0030201020204075bcd15300506032b65703011310f300d06035504030c066c69627032703020170d3235303130313030303030305a180f32323030303130313030303030305a3011310f300d06035504030c066c6962703270302a300506032b6570032100da29e95b02e00ffa15645775fb1d2ba222a1943395eea06b94e2c057b7be69d0a37f307d307b060a2b0601040183a25a01010101ff046a306804240801122079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404406259ccea88a47a9fbd48e3983608269361085fe411eff48a57efbc427669c4d70a0506f166f57864053914f7c3abc76c3fc24dbb1bf2ba6c9fcd3756b260fb0f300506032b657003410000150e1ab6bd2e369a197068af86b56d1269d398b79346f811aeb82b0ae08953649474511c976168ec712ea4a4d7c05fc5fe45886fa3ffb8ca6207b19ea2af07"),
+            "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf"
+            )
+        { TestName = "Valid ED25519 certificate key", ExpectedResult = true };
+        yield return new TestCaseData(
+            Convert.FromHexString("308201433081f6a0030201020204075bcd15300506032b657030003020170d3235303130313030303030305a180f32323030303130313030303030305a3011310f300d06035504030c066c6962703270302a300506032b6570032100da29e95b02e00ffa15645775fb1d2ba222a1943395eea06b94e2c057b7be69d0a37f307d307b060a2b0601040183a25a01010101ff046a306804240801122079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404406259ccea88a47a9fbd48e3983608269361085fe411eff48a57efbc427669c4d70a0506f166f57864053914f7c3abc76c3fc24dbb1bf2ba6c9fcd3756b260fb0f300506032b6570034100f170b0b0b387a6f7df14fefd0d45499217a8dbd70dba19214a16c681d5347eb29f8dafa392c548da3b7d140befd3c7b6f42ef25ab591d1df385c15a573271b0a"),
+            "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf"
+            )
+        { TestName = "Valid ED25519 certificate key with distinct issuer", ExpectedResult = true };
+        yield return new TestCaseData(
+        Convert.FromHexString("308201773082011da003020102020830a73c5d896a1109300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d03010703420004bbe62df9a7c1c46b7f1f21d556deec5382a36df146fb29c7f1240e60d7d5328570e3b71d99602b77a65c9b3655f62837f8d66b59f1763b8c9beba3be07778043a37f307d307b060a2b0601040183a25a01010101ff046a3068042408011220ec8094573afb9728088860864f7bcea2d4fd412fef09a8e2d24d482377c20db60440ecabae8354afa2f0af4b8d2ad871e865cb5a7c0c8d3dbdbf42de577f92461a0ebb0a28703e33581af7d2a4f2270fc37aec6261fcc95f8af08f3f4806581c730a300a06082a8648ce3d040302034800304502202dfb17a6fa0f94ee0e2e6a3b9fb6e986f311dee27392058016464bd130930a61022100ba4b937a11c8d3172b81e7cd04aedb79b978c4379c2b5b24d565dd5d67d3cb3c"),
+            "12D3KooWRja6riywsP8bE7V2gGg55Jsx7HrHLQcEwxvmwD8SQynV"
+            )
+        { TestName = "Invalid", ExpectedResult = false };
+        yield return InvalidSelfSignatureCertificate();
+        foreach (KeyType keyType in Enum.GetValues<KeyType>())
+        {
+            Identity id = new(null, keyType);
+            yield return new TestCaseData(
+              CreateCertificateBytes(id),
+              id.PeerId.ToString()
+              )
+            { TestName = $"Roundtrip valid {keyType} key", ExpectedResult = true };
+        }
+    }
+
+    private static TestCaseData InvalidSelfSignatureCertificate()
+    {
+        Identity id = new();
+        using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(certificateKey, id);
+        byte[] certificateBytes = lease.Certificate.GetRawCertData();
+        certificateBytes[^1] ^= 0x01;
+
+        return new TestCaseData(certificateBytes, id.PeerId.ToString())
+        {
+            TestName = "Invalid certificate self-signature",
+            ExpectedResult = false,
+        };
+    }
+
+    private static byte[] CreateCertificateBytes(Identity identity)
+    {
+        using ECDsa certificateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using CertificateHelper.CertificateLease lease = CertificateHelper.CreateCertificateLease(certificateKey, identity);
+        return lease.Certificate.GetRawCertData();
+    }
+
+    /// <param name="presentedKey">The key written into the libp2p extension; <paramref name="identity"/>'s own when <c>null</c>.</param>
+    private static X509Certificate2 CreateRsaCertificate(RSA certificateKey, Identity identity, RSASignaturePadding padding, PublicKey? presentedKey = null)
+    {
+        byte[] publicKeyInfo = certificateKey.ExportSubjectPublicKeyInfo();
+        byte[] signature = identity.Sign([.. "libp2p-tls-handshake:"u8, .. publicKeyInfo]);
+        AsnWriter extension = new(AsnEncodingRules.DER);
+        extension.PushSequence();
+        extension.WriteOctetString((presentedKey ?? identity.PublicKey).ToByteArray());
+        extension.WriteOctetString(signature);
+        extension.PopSequence();
+
+        CertificateRequest request = new("CN=libp2p", certificateKey, HashAlgorithmName.SHA256, padding);
+        request.CertificateExtensions.Add(new X509Extension(new Oid("1.3.6.1.4.1.53594.1.1"), extension.Encode(), critical: false));
+        return request.Create(new X500DistinguishedName([0x30, 0x00]),
+            X509SignatureGenerator.CreateForRSA(certificateKey, padding),
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1), [1]);
+    }
+}

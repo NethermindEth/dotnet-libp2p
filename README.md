@@ -15,29 +15,31 @@
 
 The project aims to implement [libp2p](https://libp2p.io) to unlock building .NET peer-to-peer applications using a battle-tested specification of network communication of the new age.
 
-The docs from the application developer perspective: [quick start](./docs/README.md).
+The docs from the application developer perspective: [quick start](./docs/README.md), [sessions](./docs/sessions.md), [discovery](./docs/discovery.md), and [pubsub](./libp2p/Libp2p.Protocols.Pubsub/README.md).
 As a libp2p protocol implementer, you may be interested in [more advanced tutorials](./docs/development/README.md). You can rewire and reconfigure the library in any way you want!
 
 **Contributions are welcome**, kindly check the [issues](https://github.com/NethermindEth/dotnet-libp2p/issues) tab, everything there if not assigned to a person can be taken into work. More details in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Adding libp2p to your project
 
-```
-dotnet add package Nethermind.Libp2p --prerelease
+```sh
+dotnet add package Nethermind.Libp2p
 ```
 
 ## Building the solution
 
 ```sh
 git clone https://github.com/NethermindEth/dotnet-libp2p.git
-cd ./src/libp2p/
+cd ./dotnet-libp2p/libp2p/
 dotnet build
 dotnet test
 ```
 
+The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
+
 ## Roadmap
 
-🚧 The library is not stable and under heavy development. Consider the [beta](https://github.com/NethermindEth/dotnet-libp2p/milestone/5) milestone as a reflection of readiness for production 🚧
+The current implementation supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 
@@ -50,35 +52,36 @@ The target is to provide a performant well-tested implementation of a wide range
 | plaintext          | /plaintext/2.0.0   | ✅             |
 | noise              | /noise             | ✅             |
 | yamux              | /yamux/1.0.0       | ✅             |
+| [mplex](./libp2p/Libp2p.Protocols.Mplex/README.md) | /mplex/6.7.0 | ✅ |
 | tls                | /tls/1.0.0         | ✅             |
+| WebSockets         | /ws, /wss          | ✅             |
+| WebRTC Direct      | /webrtc-direct     | 🚧             |
 | Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
 | WebTransport       |                    | ⬜ help wanted |
-| WebRTC             |                    | ⬜ help wanted |
 | hole punching      |                    | ⬜ help wanted |
 | auto-tls           |                    | 🚧             |
-| **Application layer**
+| **Application layer** |                 |                 |
 | Identify           | /ipfs/id/1.0.0     | ✅             |
 | ping               | /ipfs/ping/1.0.0   | ✅             |
-| ping/push          | /ipfs/id/push/1.0.0 | ✅             |
+| Identify push      | /ipfs/id/push/1.0.0 | ✅            |
 | pubsub             | /floodsub/1.0.0    | ✅             |
 |                    | /meshsub/1.0.0     | ✅             |
 |                    | /meshsub/1.1.0     | ✅             |
-|                    | /meshsub/1.2.0     | 🚧             |
-|                    | /meshsub/1.3.0     | 🚧             |
+|                    | /meshsub/1.2.0     | ✅             |
+|                    | /meshsub/1.3.0     | ✅             |
 |                    | /meshsub/2.0.0     | ⬜ help wanted |
 | request-response   |                    | ✅             |
 | perf               | /perf/1.0.0        | ✅             |
-| **Discovery**
+| **Discovery**      |                    |                 |
 | mDns               | basic w/o DNS-SD   | ✅             |
 | pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
-| Kademlia DHT       | /*/kad/1.0.0       | ✅             |
-| [discv5](https://github.com/Pier-Two/Lantern.Discv5) (wrapper) | 5.1 | 🚧             |
+| Kademlia DHT       | /ipfs/kad/1.0.0    | ✅             |
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>
 ✅ - basic support implemented
 
-No plans for: mplex, quic-draft-29
+No plans for: quic-draft-29
 
 ## License
 

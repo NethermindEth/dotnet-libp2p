@@ -1,0 +1,40 @@
+name: Report transport performance
+
+on:
+  workflow_run:
+    workflows: [Transport performance comparison]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  report:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out trusted reporter
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Download measurements
+        if: github.event.workflow_run.conclusion == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: performance-*
+          merge-multiple: true
+          path: performance-results
+
+      - name: Update pull request report
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const report = require('./.github/scripts/post-performance-report.js');
+            await report({ github, context, core });

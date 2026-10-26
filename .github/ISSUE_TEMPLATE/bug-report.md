@@ -22,7 +22,7 @@ Please provide a clear and concise description of what you expected to happen.
 **Setup (please complete the following information):**
 Please provide the following information regarding your setup:
  - Operating System: [e.g. Windows]
- - Version: commit hash of the library [e.g. 8ff1cdf] or package version [e.g. 1.0.0-preview.42]
+ - Version: commit hash of the library [e.g. 8ff1cdf] or package version [e.g. 1.0.0]
 
 **Additional context**
 Please provide any additional context about the problem.

@@ -1,0 +1,759 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using System.Buffers;
+using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Extensions;
+
+namespace Nethermind.Libp2p.Core.Tests;
+
+public class ChannelTests
+{
+    [TestCase(false, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, true)]
+    [TestCase(false, false, false)]
+    [TestCase(false, true, false)]
+    [TestCase(true, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, false, null)]
+    [TestCase(false, true, null)]
+    [TestCase(true, false, null)]
+    [TestCase(true, true, null)]
+    public async Task StreamDisposalHonorsChannelOwnership(bool direct, bool asynchronous, bool? leaveOpen)
+    {
+        Channel channel = new();
+        using Stream stream = (direct, leaveOpen) switch
+        {
+            (true, null) => new ChannelStream(channel),
+            (false, null) => channel.AsStream(),
+            (true, bool value) => new ChannelStream(channel, value),
+            (false, bool value) => channel.AsStream(value)
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            if (asynchronous) await stream.DisposeAsync();
+            else stream.Dispose();
+        }
+
+        Assert.That(stream.CanRead, Is.False);
+        Assert.That(stream.CanWrite, Is.False);
+        Assert.Throws<ObjectDisposedException>(() => stream.Flush());
+        Assert.That(channel.GetAwaiter().IsCompleted, Is.EqualTo(leaveOpen != true));
+        if (leaveOpen == true)
+        {
+            foreach (Channel direction in new[] { channel, channel.Reverse })
+            {
+                byte[] bytes = [3, 7, 11];
+                Task<IOResult> write = direction.WriteAsync(new ReadOnlySequence<byte>(bytes)).AsTask();
+                ReadResult read = await direction.Reverse.ReadAsync(bytes.Length);
+                Assert.That(read.Data.ToArray(), Is.EqualTo(bytes));
+                Assert.That(await write, Is.EqualTo(IOResult.Ok));
+            }
+            await channel.CloseAsync();
+        }
+    }
+
+    [TestCase(nameof(Channel.CloseAsync), false)]
+    [TestCase(nameof(Channel.CloseAsync), true)]
+    [TestCase(nameof(Channel.AbortAsync), false)]
+    [TestCase(nameof(Channel.AbortAsync), true)]
+    [TestCase(nameof(Channel.CloseReadAsync), true)]
+    public async Task TeardownAbortsUnreadAndQueuedWrites(string teardown, bool reverse)
+    {
+        Channel channel = new();
+        Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Assert.That(write.IsCompleted, Is.False);
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False,
+            "The unread write must own the write semaphore before teardown.");
+        Task<IOResult> queuedWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 })).AsTask();
+        Assert.That(queuedWrite.IsCompleted, Is.False);
+
+        IChannel closing = reverse ? channel.Reverse : channel;
+        Task close = (teardown switch
+        {
+            nameof(Channel.CloseAsync) => closing.CloseAsync(),
+            nameof(Channel.AbortAsync) => closing.AbortAsync(),
+            nameof(Channel.CloseReadAsync) => closing.CloseReadAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(teardown))
+        }).AsTask();
+        await close.WaitAsync(TimeSpan.FromSeconds(2));
+        IOResult writeResult = await write.WaitAsync(TimeSpan.FromSeconds(2));
+        IOResult queuedResult = await queuedWrite.WaitAsync(TimeSpan.FromSeconds(2));
+        ReadResult readResult = await channel.Reverse.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(writeResult, Is.EqualTo(IOResult.Aborted));
+            Assert.That(queuedResult, Is.EqualTo(IOResult.Aborted));
+            Assert.That(readResult.Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(readResult.Data.IsEmpty, Is.True);
+        });
+        Assert.CatchAsync<ChannelAbortedException>(async () =>
+        {
+            await foreach (ReadOnlySequence<byte> _ in channel.Reverse.ReadAllAsync()) { }
+        });
+    }
+
+    [Test]
+    public async Task CloseWithUnreadInboundWriteAbortsOutboundRead()
+    {
+        Channel channel = new();
+        Task<IOResult> inboundWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+        await channel.CloseAsync();
+
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CompletedOutboundRemainsEndedWhenInboundWriteIsDiscarded()
+    {
+        Channel channel = new();
+        Task<IOResult> inboundWrite = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })).AsTask();
+        Task<IOResult> outboundWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 3, 4 })).AsTask();
+
+        Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 3, 4 }));
+        Assert.That(await outboundWrite, Is.EqualTo(IOResult.Ok));
+        await channel.CompleteProtocolAsync();
+
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
+    [Test]
+    public async Task ProtocolCompletionAbortsAnUnfinishedOutboundWrite()
+    {
+        Channel channel = new();
+        Task<IOResult> unfinishedWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False);
+
+        await channel.CompleteProtocolAsync();
+
+        Assert.That(await unfinishedWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task ExplicitAbortIsDistinctFromEndWithoutPendingIo()
+    {
+        Channel channel = new();
+        Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2, 3 })).AsTask();
+        Assert.That((await channel.Reverse.ReadAsync(3)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3 }));
+        Assert.That(await write, Is.EqualTo(IOResult.Ok));
+
+        await channel.AbortAsync();
+
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CloseReadKeepsDeliveredDataAndEofReadableWhileFailingWrites()
+    {
+        Channel channel = new();
+        Task<IOResult> delivered = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 })).AsTask();
+        Task<IOResult> eof = channel.WriteEofAsync().AsTask();
+        Task<IOResult> pendingInbound = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 8 })).AsTask();
+
+        await channel.CloseReadAsync();
+
+        Assert.That(await pendingInbound.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+        Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 9 })), Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That(await delivered.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        Assert.That(await eof.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok));
+        TaskCompletionSource completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.GetAwaiter().OnCompleted(() => completed.TrySetResult());
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task WriteEofAfterAbortReportsAborted(bool pendingWrite)
+    {
+        Channel channel = new();
+        Task<IOResult>? write = null;
+        Task<IOResult>? eof = null;
+        if (pendingWrite)
+        {
+            write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+            eof = channel.WriteEofAsync().AsTask();
+        }
+
+        await channel.AbortAsync();
+
+        Assert.That(await (eof ?? channel.WriteEofAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(2)),
+            Is.EqualTo(IOResult.Aborted));
+        if (write is not null)
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CloseAfterReadAcknowledgesWriteDoesNotFailTheWrite()
+    {
+        for (int i = 0; i < 1000; i++)
+        {
+            Channel channel = new();
+            Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+
+            ReadResult read = await channel.Reverse.ReadAsync(1);
+            await channel.CloseAsync();
+
+            Assert.That(read.Data.ToArray(), Is.EqualTo(new byte[] { 1 }));
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ok), $"Iteration {i}");
+        }
+    }
+
+    [Test]
+    public async Task CloseEndsAPendingReadAndIsIdempotent()
+    {
+        Channel channel = new();
+        Task<ReadResult> read = channel.ReadAsync(1).AsTask();
+
+        await channel.CloseAsync();
+        await channel.CloseAsync();
+
+        Assert.That((await read.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })),
+            Is.EqualTo(IOResult.Ended));
+    }
+
+    [Test]
+    public async Task CloseWithQueuedReadsAndWritesAbortsPendingIo()
+    {
+        Channel channel = new();
+        Task<ReadResult> firstRead = channel.ReadAsync(1).AsTask();
+        Task<ReadResult> secondRead = channel.ReadAsync(1).AsTask();
+        Task<IOResult> firstWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Task<IOResult> secondWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 })).AsTask();
+
+        await channel.CloseAsync();
+
+        Assert.That((await firstRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await secondRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That(await firstWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+        Assert.That(await secondWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task CloseMarksAnIncompleteExactReadAsAborted()
+    {
+        Channel channel = new();
+        Task<ReadResult> read = channel.ReadAsync(2).AsTask();
+        IOResult firstWrite = await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }));
+        Assert.That(firstWrite, Is.EqualTo(IOResult.Ok));
+
+        await channel.CloseAsync();
+
+        Assert.That((await read.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task StreamWriteCancelledAfterPartialReadAbortsOnDispose()
+    {
+        // The head is already downstream, so the token cannot retract the rest. Disposing is the
+        // caller's way out: it closes the channel and aborts the undelivered remainder.
+        Channel channel = new();
+        Stream stream = channel.AsStream();
+        using CancellationTokenSource cancel = new();
+        Task write = stream.WriteAsync(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }.AsMemory(), cancel.Token).AsTask();
+        Assert.That((await channel.Reverse.ReadAsync(3).AsTask().WaitAsync(TimeSpan.FromSeconds(5))).Data.ToArray(),
+            Is.EqualTo(new byte[] { 1, 2, 3 }));
+
+        cancel.Cancel();
+        Assert.That(await Task.WhenAny(write, Task.Delay(TimeSpan.FromMilliseconds(200))), Is.Not.SameAs(write),
+            "Cancellation cannot retract a write whose head was already read.");
+
+        stream.Dispose();
+        Assert.That(Assert.CatchAsync<IOException>(async () => await write.WaitAsync(TimeSpan.FromSeconds(5)))!.Message,
+            Is.EqualTo("Channel write failed: Aborted."));
+    }
+
+    [Test]
+    public async Task StreamWriteAfterEofThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        await channel.WriteEofAsync();
+
+        IOException? asyncError = Assert.CatchAsync<IOException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory()));
+        IOException? syncError = Assert.Throws<IOException>(() => stream.Write(new byte[] { 1 }, 0, 1));
+        Assert.That(asyncError!.Message, Is.EqualTo("Channel write failed: Ended."));
+        Assert.That(syncError!.Message, Is.EqualTo("Channel write failed: Ended."));
+    }
+
+    [Test]
+    public async Task StreamReadAfterDiscardedWriteThrows()
+    {
+        Channel channel = new();
+        using Stream synchronous = channel.Reverse.AsStream();
+        using Stream asynchronous = channel.Reverse.AsStream();
+        Task<IOResult> pendingWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        await channel.CloseAsync();
+        Assert.That(await pendingWrite, Is.EqualTo(IOResult.Aborted));
+
+#pragma warning disable CA2022 // Intentionally exercise both Stream.Read implementations after abort.
+        Assert.Throws<IOException>(() => synchronous.Read(new byte[1], 0, 1));
+        Assert.CatchAsync<IOException>(async () => await asynchronous.ReadAsync(new byte[1].AsMemory()));
+#pragma warning restore CA2022
+    }
+
+    [Test]
+    public async Task Test_AsStream_ReadsDataWrittenToReverseChannel()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        byte[] data = [1, 2, 3, 4];
+
+        Task write = stream.WriteAsync(data, 0, data.Length);
+
+        byte[] buffer = new byte[4];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await write;
+
+        Assert.That(bytesRead, Is.EqualTo(data.Length));
+        Assert.That(buffer, Is.EqualTo(data));
+    }
+
+    [Test]
+    public void Test_AsStream_ReturnsCoreChannelStream()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.That(stream, Is.TypeOf<ChannelStream>());
+        Assert.That(stream.GetType().Namespace, Is.EqualTo("Nethermind.Libp2p.Core"));
+    }
+
+    [Test]
+    public async Task Test_AsStream_ReadsDataWrittenWithMemoryOverloads()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        byte[] data = [5, 6, 7, 8];
+
+        ValueTask write = stream.WriteAsync(data.AsMemory());
+
+        byte[] buffer = new byte[4];
+        int bytesRead = await reverseStream.ReadAsync(buffer.AsMemory());
+        await write;
+
+        Assert.That(bytesRead, Is.EqualTo(data.Length));
+        Assert.That(buffer, Is.EqualTo(data));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Test_AsStream_WrittenBufferRemainsStableAfterWriteCompletes(bool synchronous)
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        byte[] source = [1, 2, 3, 4];
+
+        Task write = synchronous
+            ? Task.Run(() => stream.Write(source, 0, source.Length))
+            : stream.WriteAsync(source.AsMemory()).AsTask();
+        ReadOnlySequence<byte> received = (await channel.Reverse.ReadAsync(source.Length)).Data;
+        await write;
+        source.AsSpan().Fill(0xAB);
+
+        Assert.That(received.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthReadReturnsImmediately()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        byte[] buffer = new byte[4];
+        int bytesRead = await stream.ReadAsync(buffer, 0, 0);
+
+        Assert.That(bytesRead, Is.Zero);
+        Assert.That(buffer, Is.EqualTo(new byte[4]));
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthReadReturnsAfterEnd()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await channel.CloseAsync();
+        byte[] buffer = new byte[4];
+        int endedRead = await stream.ReadAsync(buffer, 0, 1);
+        int secondRead = await stream.ReadAsync(buffer, 0, 1).WaitAsync(TimeSpan.FromSeconds(1));
+        int secondMemoryRead = await stream.ReadAsync(buffer.AsMemory(0, 1)).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+        int emptyRead = await stream.ReadAsync(buffer, 0, 0).WaitAsync(TimeSpan.FromSeconds(1));
+        int emptyMemoryRead = await stream.ReadAsync(Memory<byte>.Empty).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(endedRead, Is.Zero);
+            Assert.That(secondRead, Is.Zero);
+            Assert.That(secondMemoryRead, Is.Zero);
+            Assert.That(emptyRead, Is.Zero);
+            Assert.That(emptyMemoryRead, Is.Zero);
+            Assert.That(stream.CanRead, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncReadAfterEndReturnsImmediately()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await channel.CloseAsync();
+        byte[] buffer = new byte[1];
+        int endedRead = stream.Read(buffer, 0, 1);
+        int secondRead = await Task.Run(() => stream.Read(buffer, 0, 1)).WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(endedRead, Is.Zero);
+            Assert.That(secondRead, Is.Zero);
+            Assert.That(stream.CanRead, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncReadDoesNotCaptureSynchronizationContext()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        byte[] buffer = new byte[1];
+
+        Task<int> read = Task.Run(() =>
+        {
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            try
+            {
+                return stream.Read(buffer, 0, buffer.Length);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+            }
+        });
+
+        await Task.Delay(100);
+        await reverseStream.WriteAsync([1], 0, 1).WaitAsync(TimeSpan.FromSeconds(1));
+        int bytesRead = await read.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_ZeroLengthReadValidatesOffset()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        byte[] buffer = new byte[1];
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = stream.ReadAsync(buffer, 2, 0, CancellationToken.None));
+    }
+
+    [Test]
+    public void Test_AsStream_ZeroLengthReadCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(Memory<byte>.Empty, cts.Token));
+#pragma warning restore CA2022
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthWriteCompletes()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        await stream.WriteAsync(Array.Empty<byte>(), 0, 0);
+
+        Assert.That(stream.CanWrite, Is.True);
+    }
+
+    [Test]
+    public async Task Test_AsStream_ZeroLengthWriteDoesNotWaitForPendingWrite()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        ValueTask pendingWrite = stream.WriteAsync(new byte[] { 1 }.AsMemory());
+
+        await stream.WriteAsync(Array.Empty<byte>(), 0, 0).WaitAsync(TimeSpan.FromSeconds(1));
+
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await pendingWrite;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+            Assert.That(stream.CanWrite, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncZeroLengthWriteDoesNotWaitForPendingWrite()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        ValueTask pendingWrite = stream.WriteAsync(new byte[] { 1 }.AsMemory());
+
+        await Task.Run(() => stream.Write(Array.Empty<byte>(), 0, 0)).WaitAsync(TimeSpan.FromSeconds(1));
+
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length);
+        await pendingWrite;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+            Assert.That(stream.CanWrite, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_SyncWriteDoesNotCaptureSynchronizationContext()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+
+        Task write = Task.Run(() =>
+        {
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            try
+            {
+                stream.Write([1], 0, 1);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+            }
+        });
+
+        await Task.Delay(100);
+        byte[] buffer = new byte[1];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length).WaitAsync(TimeSpan.FromSeconds(1));
+        await write.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(1));
+            Assert.That(buffer, Is.EqualTo(new byte[] { 1 }));
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_ReadAsyncCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 1, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1].AsMemory(), cts.Token));
+#pragma warning restore CA2022
+        Assert.That(stream.CanRead, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_WriteAsyncCancellationThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync([1], 0, 1, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[] { 1 }.AsMemory(), cts.Token));
+        Assert.That(stream.CanWrite, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_ReadAsyncAfterDisposeThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync disposal behavior.
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.ReadAsync(new byte[1], 0, 0, CancellationToken.None));
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.ReadAsync(Memory<byte>.Empty, CancellationToken.None));
+#pragma warning restore CA2022
+        Assert.That(stream.CanRead, Is.False);
+    }
+
+    [Test]
+    public void Test_AsStream_WriteAsyncAfterDisposeThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(new byte[1], 0, 0, CancellationToken.None));
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.WriteAsync(ReadOnlyMemory<byte>.Empty, CancellationToken.None));
+        Assert.That(stream.CanWrite, Is.False);
+    }
+
+    [Test]
+    public void Test_AsStream_NonSeekableMembersThrow()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stream.CanSeek, Is.False);
+            Assert.Throws<NotSupportedException>(() => _ = stream.Length);
+            Assert.Throws<NotSupportedException>(() => _ = stream.Position);
+            Assert.Throws<NotSupportedException>(() => stream.Position = 1);
+            Assert.Throws<NotSupportedException>(() => stream.Seek(0, SeekOrigin.Begin));
+            Assert.Throws<NotSupportedException>(() => stream.SetLength(1));
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_DisposedMembersThrow()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<ObjectDisposedException>(() => _ = stream.Length);
+            Assert.Throws<ObjectDisposedException>(() => _ = stream.Position);
+            Assert.Throws<ObjectDisposedException>(() => stream.Position = 1);
+            Assert.Throws<ObjectDisposedException>(() => stream.Flush());
+            Assert.Throws<ObjectDisposedException>(() => stream.Seek(0, SeekOrigin.Begin));
+            Assert.Throws<ObjectDisposedException>(() => stream.SetLength(1));
+        });
+    }
+
+    [Test]
+    public void Test_AsStream_CancelledAsyncAfterDisposeThrowsCancellation()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using CancellationTokenSource cts = new();
+        stream.Dispose();
+        cts.Cancel();
+
+#pragma warning disable CA2022 // Intentionally validate Stream.ReadAsync cancellation behavior.
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.ReadAsync(Memory<byte>.Empty, cts.Token));
+#pragma warning restore CA2022
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(new byte[1], 0, 0, cts.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.WriteAsync(ReadOnlyMemory<byte>.Empty, cts.Token));
+    }
+
+    [Test]
+    public void Test_AsStream_NullChannelThrows()
+    {
+        IChannel? channel = null;
+
+        Assert.Throws<ArgumentNullException>(() => channel!.AsStream());
+    }
+
+    [Test]
+    public async Task Test_AsStream_ReadCancelledMidFlightDoesNotDeadlockChannel()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        using CancellationTokenSource cts = new();
+
+        // Start a read that blocks inside the channel waiting for data, then cancel it mid-flight.
+        byte[] buffer = new byte[4];
+        Task<int> cancelledRead = stream.ReadAsync(buffer, 0, buffer.Length, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await cancelledRead.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        // A subsequent read on the same channel must not deadlock (regression: a cancelled read
+        // used to leak the channel's read lock, blocking every later read forever).
+        byte[] data = [1, 2, 3, 4];
+        Task write = reverseStream.WriteAsync(data, 0, data.Length);
+        byte[] next = new byte[4];
+        int bytesRead = await stream.ReadAsync(next, 0, next.Length).WaitAsync(TimeSpan.FromSeconds(2));
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(data.Length));
+            Assert.That(next, Is.EqualTo(data));
+        });
+    }
+
+    [Test]
+    public async Task Test_AsStream_WriteCancelledMidFlightDoesNotDeadlockChannel()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        using Stream reverseStream = channel.Reverse.AsStream();
+        using CancellationTokenSource cts = new();
+
+        // Start a write that blocks inside the channel waiting for a reader, then cancel it mid-flight.
+        byte[] data = [1, 2, 3, 4];
+        Task cancelledWrite = stream.WriteAsync(data, 0, data.Length, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await cancelledWrite.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        // A subsequent write on the same channel must not deadlock (regression: a cancelled write
+        // used to leak the channel's write lock, blocking every later write forever).
+        byte[] next = [5, 6, 7, 8];
+        Task write = stream.WriteAsync(next, 0, next.Length);
+        byte[] buffer = new byte[4];
+        int bytesRead = await reverseStream.ReadAsync(buffer, 0, buffer.Length).WaitAsync(TimeSpan.FromSeconds(2));
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesRead, Is.EqualTo(next.Length));
+            Assert.That(buffer, Is.EqualTo(next));
+        });
+    }
+
+    private sealed class NonPumpingSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+        }
+    }
+}

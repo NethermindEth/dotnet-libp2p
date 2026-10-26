@@ -1,0 +1,240 @@
+// SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using Multiformats.Address;
+
+namespace Nethermind.Libp2p.Protocols.Pubsub;
+
+public class PubsubSettings
+{
+    private int maxRpcBytes = 1 * 1024 * 1024;
+
+    public static PubsubSettings Default { get; } = new();
+
+    /// <summary>
+    /// Automatically connect to discovered and direct peers, and reconnect closed pubsub streams.
+    /// Set before starting the router. When false, the application owns transport dialing and retries;
+    /// pubsub can still open reply streams on existing sessions.
+    /// </summary>
+    public bool AutoConnect { get; set; } = true;
+
+    /// <summary>Automatic retries after a failed discovery dial or closed pubsub stream. Zero disables retries; direct peers have a separate reconnect loop.</summary>
+    public int ReconnectionAttempts { get; set; } = 10;
+    public int ReconnectionPeriod { get; set; } = 15_000;
+
+    public int Degree { get; set; } = 6; // The desired outbound degree of the network 	6
+    public int LowestDegree { get; set; } = 4; // Lower bound for outbound degree 	4
+    public int HighestDegree { get; set; } = 12; // Upper bound for outbound degree 	12
+    public int LazyDegree { get; set; } = 6; // (Optional) the outbound degree for gossip emission D
+
+    public int MaxConnections { get; set; }
+
+    /// <summary>
+    /// Peers with reciprocal explicit peering agreements. Each address must
+    /// contain a peer ID and is configured before the router starts.
+    /// </summary>
+    public Multiaddress[] DirectPeers { get; set; } = [];
+
+    /// <summary>
+    /// Interval in milliseconds for reconnecting disconnected direct peers. Gossipsub recommends
+    /// five minutes.
+    /// </summary>
+    public int DirectConnectPeriod { get; set; } = 5 * 60 * 1000;
+
+    public int HeartbeatInterval { get; set; } = 1_000; // Time between heartbeats 	1 second
+    public int FanoutTtl { get; set; } = 60 * 1000; // Time-to-live for each topic's fanout state 	60 seconds
+    public int mcache_len { get; set; } = 5; // Number of history windows in message cache 	5
+    public int mcache_gossip { get; set; } = 3; // Number of history windows to use when emitting gossip 	3
+    /// <summary>Maximum number of messages retained for gossip and IWANT responses.</summary>
+    public int MaxMessageCacheEntries { get; set; } = 10_000;
+
+    /// <summary>Maximum total serialized message bytes retained for gossip and IWANT responses.</summary>
+    public long MaxMessageCacheBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>Maximum valid or rejected message IDs retained by each TTL deduplication cache.</summary>
+    /// <remarks>
+    /// At capacity, the oldest IDs are evicted even before <see cref="MessageCacheTtl"/> expires,
+    /// shortening the deduplication window and allowing those messages to be processed again.
+    /// Size this limit for the expected number of unique messages during the TTL; the defaults
+    /// retain two minutes of IDs only up to roughly 83 unique messages per second per cache.
+    /// </remarks>
+    public int MaxSeenMessageIds { get; set; } = 10_000;
+
+    /// <summary>
+    /// Maximum retention time in milliseconds for seen message IDs. Capacity eviction via
+    /// <see cref="MaxSeenMessageIds"/> can remove IDs sooner. Defaults to two minutes.
+    /// </summary>
+    public int MessageCacheTtl { get; set; } = 2 * 60 * 1000;
+    /// <summary>Maximum number of messages awaiting application validation.</summary>
+    public int MaxPendingValidationMessages { get; set; } = 128;
+    /// <summary>Maximum total protobuf size of messages awaiting application validation.</summary>
+    public int MaxPendingValidationBytes { get; set; } = 16 * 1024 * 1024;
+    /// <summary>Time allowed to complete a deferred verdict before the message is dropped.</summary>
+    public TimeSpan PendingValidationTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// How many <see cref="GetMessageId"/> calculations may run at once. They run outside the
+    /// router lock, which no longer serializes them, and the delegate may decompress and hash
+    /// several megabytes, so the bound keeps that transient memory from scaling with peer count.
+    /// </summary>
+    public int MaxConcurrentMessageIdCalculations { get; set; } = Environment.ProcessorCount;
+    // Maximum incoming RPC frame size in bytes (default: 1 MiB).
+    public int MaxRpcBytes
+    {
+        get => maxRpcBytes;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            maxRpcBytes = value;
+        }
+    }
+    public SignaturePolicy DefaultSignaturePolicy { get; set; } = SignaturePolicy.StrictSign;
+
+    /// <summary>Maximum RPCs containing IHAVE accepted from one peer during a heartbeat.</summary>
+    public int MaxIHaveMessages { get; set; } = 10;
+
+    /// <summary>Maximum IDs inspected per IHAVE envelope and total IDs requested from one peer during a heartbeat.</summary>
+    public int MaxIHaveLength { get; set; } = 5_000;
+
+    /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>
+    public int MaxIwantMessages { get; set; } = 10;
+
+    /// <summary>Maximum message IDs accepted from one peer through IWANT during a heartbeat.</summary>
+    public int MaxIwantLength { get; set; } = 5_000;
+
+    /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>
+    public int GossipRetransmission { get; set; } = 3;
+
+    /// <summary>Maximum serialized bytes returned in response to a single IWANT RPC.</summary>
+    public int MaxIwantResponseBytes { get; set; } = 512 * 1024;
+
+    /// <summary>Maximum outstanding sampled promises from IHAVE advertisements.</summary>
+    public int MaxIwantPromises { get; set; } = 10_000;
+
+    /// <summary>Time after which a sampled IHAVE promise is penalized when its message never arrives.</summary>
+    public int IWantFollowupTime { get; set; } = 3_000;
+
+    /// <summary>Number of heartbeats for which accepted IDONTWANT IDs suppress IWANT responses.</summary>
+    public int IdontwantTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum IDONTWANT envelopes sent to or accepted from one peer during a heartbeat.</summary>
+    public int MaxIdontwantMessages { get; set; } = 1_000;
+
+    /// <summary>Maximum message IDs sent or accepted in one IDONTWANT envelope.</summary>
+    public int MaxIdontwantLength { get; set; } = 10;
+
+    /// <summary>Minimum data size in bytes for announcing a message with IDONTWANT.</summary>
+    public int IdontwantMessageThreshold { get; set; } = 1_024;
+
+    /// <summary>
+    /// Enables the opt-in Gossipsub v1.3 Partial Messages extension. The router
+    /// advertises it only to v1.3 peers.
+    /// </summary>
+    public bool EnablePartialMessages { get; set; }
+
+    /// <summary>Number of heartbeats to retain a locally published partial-message group for gossip.</summary>
+    public int PartialMessageGossipTtlHeartbeats { get; set; } = 3;
+
+    /// <summary>Maximum locally published partial-message groups retained for one topic.</summary>
+    public int MaxPartialMessageGroupsPerTopic { get; set; } = 255;
+
+    /// <summary>
+    /// Derives the application message id. Called outside the router lock, so it must be thread
+    /// safe: calls for different peers run concurrently, up to
+    /// <see cref="MaxConcurrentMessageIdCalculations"/>, and may overlap a local publish. It must
+    /// return the same id for the same message contents and must not modify the message.
+    /// </summary>
+    public Func<Message, MessageId> GetMessageId { get; set; } = ConcatFromAndSeqno;
+
+    public enum SignaturePolicy
+    {
+        StrictSign,
+        StrictNoSign,
+    }
+
+    // ==================== Gossipsub v1.1 Peer Scoring Parameters ====================
+
+    // Global Scoring Thresholds
+    public double GossipThreshold { get; set; } = -10;
+    public double PublishThreshold { get; set; } = -50;
+    public double GraylistThreshold { get; set; } = -100;
+    public double AcceptPXThreshold { get; set; } = 100;
+    public double OpportunisticGraftThreshold { get; set; } = 5;
+
+    // Score Decay
+    public int DecayInterval { get; set; } = 1000; // 1 second
+    public double DecayToZero { get; set; } = 0.01;
+
+    /// <summary>
+    /// Milliseconds a score that is not positive is kept after its peer disconnects, so that
+    /// reconnecting does not clear a penalty. The kept score does not decay while the peer is away,
+    /// as in go-libp2p and rust-libp2p, and is restored if the peer reconnects in time.
+    /// </summary>
+    public int RetainScore { get; set; } = 10 * 60 * 1000; // 10 minutes
+
+    /// <summary>
+    /// Maximum number of scores kept for disconnected peers; zero keeps none. When full, an expired
+    /// score is dropped first, otherwise the least negative one, including the one arriving. A tie
+    /// keeps the score already there, so pushing out a penalized peer needs worse scores.
+    /// </summary>
+    public int MaxRetainedScores { get; set; } = 10_000;
+
+    // Mesh Management
+    public int DScore { get; set; } = 5;
+    public int DOut { get; set; } = 2;
+    public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
+    public int UnsubscribeBackoff { get; set; } = 10 * 1000; // 10 seconds
+    public bool FloodPublish { get; set; } = true;
+    public double GossipFactor { get; set; } = 0.25;
+
+    // Global Peer Scoring Parameters (P5, P6, P7)
+    public double AppSpecificWeight { get; set; } = 10;
+    public double IPColocationFactorWeight { get; set; } = -35;
+    public double IPColocationFactorThreshold { get; set; } = 10;
+    public double BehaviorPenaltyWeight { get; set; } = -15;
+    public double BehaviorPenaltyDecay { get; set; } = 0.99;
+
+    // Topic Scoring Parameters (P1, P2, P3, P3b, P4)
+    // Topics without configured parameters retain first message delivery rewards and invalid-message penalties.
+    // Configure mesh time and delivery thresholds for the application.
+    public Dictionary<string, TopicScoreParams> TopicScoreParams { get; set; } = new();
+
+    public double TopicScoreCap { get; set; } = 3600;
+
+    public static MessageId ConcatFromAndSeqno(Message message) => new([.. message.From, .. message.Seqno]);
+}
+
+/// <summary>
+/// Topic-specific peer scoring parameters for Gossipsub v1.1
+/// </summary>
+public class TopicScoreParams
+{
+    public double TopicWeight { get; set; } = 0.5;
+
+    // P1: Time in Mesh
+    public double TimeInMeshWeight { get; set; } = 0.0027;
+    public int TimeInMeshQuantum { get; set; } = 1000; // 1 second
+    public double TimeInMeshCap { get; set; } = 3600;
+
+    // P2: First Message Deliveries
+    public double FirstMessageDeliveriesWeight { get; set; } = 1;
+    public double FirstMessageDeliveriesDecay { get; set; } = 0.99;
+    public double FirstMessageDeliveriesCap { get; set; } = 2000;
+
+    // P3: Mesh Message Deliveries
+    public double MeshMessageDeliveriesWeight { get; set; } = -1;
+    public double MeshMessageDeliveriesDecay { get; set; } = 0.97;
+    public double MeshMessageDeliveriesThreshold { get; set; } = 20;
+    public double MeshMessageDeliveriesCap { get; set; } = 100;
+    public int MeshMessageDeliveriesActivation { get; set; } = 5000; // 5 seconds
+    public int MeshMessageDeliveryWindow { get; set; } = 10; // 10ms
+
+    // P3b: Mesh Message Delivery Failures
+    public double MeshFailurePenaltyWeight { get; set; } = -1;
+    public double MeshFailurePenaltyDecay { get; set; } = 0.997;
+
+    // P4: Invalid Messages
+    public double InvalidMessageDeliveriesWeight { get; set; } = -1;
+    public double InvalidMessageDeliveriesDecay { get; set; } = 0.99;
+}

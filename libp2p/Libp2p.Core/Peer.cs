@@ -1,0 +1,984 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Multiformats.Address.Protocols;
+using Nethermind.Libp2p.Core.Context;
+using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Metrics;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+
+namespace Nethermind.Libp2p.Core;
+
+public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
+    ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null)
+    : ILocalPeer
+{
+    private const int ConnectionTimeout = 15_000;
+    private const int MaxConcurrentDials = 16;
+    private const int CanceledDialDisposalGracePeriod = 1_000;
+
+    protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
+    protected readonly PeerStore? _peerStore = peerStore;
+    protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
+    protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
+    protected readonly MultiaddrResolver _multiaddrResolver = multiaddrResolver ?? new();
+
+    private readonly Dictionary<object, TaskCompletionSource<Multiaddress>> listenerReadyTcs = [];
+    private readonly Lock _pendingDialsLock = new();
+    private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
+    private readonly HashSet<Session> _connections = [];
+    private TaskCompletionSource? _disposal;
+    public ObservableCollection<Session> Sessions { get; } = [];
+
+    public override string ToString()
+    {
+        return $"peer({Identity.PeerId}): addresses {string.Join(",", ListenAddresses.ToArray().Select(la => la.ToString()))} sessions {string.Join("|", Sessions.ToArray().Select(x => $"{x?.State?.RemotePeerId}"))}";
+    }
+
+    public Identity Identity { get; } = identity;
+
+    public ObservableCollection<Multiaddress> ListenAddresses { get; } = [];
+
+
+    protected virtual Task ConnectedTo(ISession peer, bool isDialer) => Task.CompletedTask;
+
+    protected virtual ProtocolRef SelectProtocol(Multiaddress addr)
+    {
+        if (_protocolStackSettings.TopProtocols is null or [])
+        {
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
+        }
+
+        return _protocolStackSettings.TopProtocols.First(p => ITransportProtocol.IsAddressMatch(p.Protocol, addr));
+    }
+
+    protected virtual Multiaddress[] GetDefaultAddresses()
+    {
+        if (_protocolStackSettings.TopProtocols is null or [])
+        {
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
+        }
+
+        return _protocolStackSettings.TopProtocols.SelectMany(p => ITransportProtocol.GetDefaultAddresses(p.Protocol, Identity.PeerId)).ToArray();
+    }
+
+    protected virtual IEnumerable<Multiaddress> PrepareAddresses(Multiaddress[] addrs)
+    {
+        foreach (Multiaddress addr in addrs)
+        {
+            if (!addr.Has<P2P>())
+            {
+                yield return addr.Add<P2P>(Identity.PeerId.ToString());
+            }
+            else
+            {
+                yield return addr;
+            }
+        }
+    }
+
+    public event Connected? OnConnected;
+
+    public virtual async Task StartListenAsync(Multiaddress[]? addrs = default, CancellationToken token = default)
+    {
+        ThrowIfDisposed();
+        peerActivity?.SetTag("parent", rootActivity?.Id);
+        addrs ??= GetDefaultAddresses();
+
+        List<Task> listenTasks = new(addrs.Length);
+
+        foreach (Multiaddress addr in PrepareAddresses(addrs))
+        {
+            ProtocolRef listenerProtocol = SelectProtocol(addr);
+
+            if (listenerProtocol.Protocol is not ITransportProtocol transportProtocol)
+            {
+                throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {listenerProtocol.GetType()}");
+            }
+
+            Activity? listenActivity = activitySource?.StartActivity("Listen", ActivityKind.Internal, peerActivity?.Id);
+            listenActivity?.SetTag("parent", peerActivity?.DisplayName);
+            ITransportContext ctx = new TransportContext(this, listenerProtocol, true, listenActivity);
+            TaskCompletionSource<Multiaddress> tcs = new();
+            listenerReadyTcs[ctx] = tcs;
+
+            listenActivity?.SetTag("listen-on-addr", addr);
+            _ = transportProtocol.ListenAsync(ctx, addr, token).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    listenActivity?.AddEvent(new ActivityEvent("failed", tags: new ActivityTagsCollection(
+                        [
+                            new KeyValuePair<string, object?>("error", t.Exception?.Message),
+                        ])));
+                    listenActivity?.SetStatus(ActivityStatusCode.Error);
+                    if (t.Exception is not null) tcs.TrySetException(t.Exception);
+                }
+                else
+                {
+                    ListenAddresses.Remove(tcs.Task.Result);
+                }
+                listenActivity?.Dispose();
+            });
+
+            listenTasks.Add(tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(5000)).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    _logger?.LogDebug($"Failed to start listener for address {addr}: {t.Exception?.Message}");
+                    return null;
+                }
+
+                return t.Result;
+            }));
+        }
+
+        await Task.WhenAll(listenTasks);
+
+        foreach (Task startTask in listenTasks)
+        {
+            Multiaddress? addr = (startTask as Task<Multiaddress>)?.Result;
+
+            if (addr is not null)
+            {
+                _logger?.LogDebug($"Adding listener address {addr}");
+                ListenAddresses.Add(addr);
+            }
+        }
+    }
+
+    public void ListenerReady(object sender, Multiaddress addr)
+    {
+        if (listenerReadyTcs.Remove(sender, out TaskCompletionSource<Multiaddress>? tcs))
+        {
+            tcs.SetResult(addr);
+        }
+    }
+
+    public INewConnectionContext CreateConnection(ProtocolRef proto, Session? session, bool isListener, Activity? activity)
+    {
+        try
+        {
+            lock (Sessions)
+            {
+                if (_disposal is not null) throw new ChannelClosedException();
+                session ??= new(this, activity);
+                session.RegisterConnection();
+                // Instrumentation can synchronously reenter shutdown.
+                if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
+            }
+        }
+        catch
+        {
+            if (session is not null) _ = session.DisconnectAsync();
+            throw;
+        }
+        activity?.SetTag("session.id", session.Id);
+        activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
+        return new NewConnectionContext(this, session, proto, isListener, null, activitySource, activity);
+    }
+
+    public INewSessionContext UpgradeToSession(Session session, ProtocolRef proto, bool isListener, Activity? activity)
+    {
+        PeerId? remotePeerId = session.State.RemotePeerId ??
+            throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
+
+        try
+        {
+            lock (Sessions)
+            {
+                if (_disposal is not null) throw new ChannelClosedException();
+                if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
+                    throw new SessionExistsException(remotePeerId);
+                session.RegisterSession();
+                if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
+                Sessions.Add(session);
+            }
+            _logger?.LogDebug($"New session with {remotePeerId} ({session.RemoteAddress})");
+            // Collection notifications and logging can close an already registered session.
+            if (session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
+        }
+        catch
+        {
+            _ = session.DisconnectAsync();
+            throw;
+        }
+
+        activity?.SetTag("session.id", session.Id);
+        activity?.SetTag("local.peer.id", Identity.PeerId.ToString());
+        activity?.SetTag("remote.peer.id", remotePeerId.ToString());
+        activity?.SetTag("remote.addr", session.RemoteAddress.ToString());
+
+        Task initializeSession;
+        try
+        {
+            initializeSession = ConnectedTo(session, !isListener);
+        }
+        catch (Exception ex)
+        {
+            session.ConnectedTcs.TrySetException(ex);
+            _ = session.DisconnectAsync();
+            throw;
+        }
+
+        _ = initializeSession.ContinueWith(t =>
+        {
+            if (!t.IsCompletedSuccessfully)
+            {
+                if (t.IsCanceled)
+                {
+                    session.ConnectedTcs.TrySetCanceled();
+                }
+                else
+                {
+                    session.ConnectedTcs.TrySetException(t.Exception!.InnerExceptions);
+                    Exception failure = t.Exception.GetBaseException();
+                    _logger?.Log(IsRoutineConnectionFailure(failure) ? LogLevel.Debug : LogLevel.Warning, failure, "Disconnecting due to exception");
+                }
+                _ = session.DisconnectAsync();
+                return;
+            }
+            if (session.TrySetConnected())
+            {
+                OnConnected?.Invoke(session);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return new NewSessionContext(this, session, proto, isListener, null, activitySource, activity, loggerFactory);
+    }
+
+    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
+    {
+        if (_protocolStackSettings.Protocols is null)
+        {
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
+        }
+
+        if (!_protocolStackSettings.Protocols.ContainsKey(protocol))
+        {
+            throw new Libp2pSetupException($"{protocol} is not added");
+        }
+
+        return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
+    }
+
+
+    // TODO: Remove locking in the entire stack, look only on level for the given parent protocol
+    internal IProtocol? GetProtocolInstance<TProtocol>()
+    {
+        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
+    }
+
+    /// <summary>
+    /// Get a protocol instance by type.
+    /// </summary>
+    /// <typeparam name="T">The protocol type to retrieve.</typeparam>
+    /// <returns>The protocol instance, or null if not found.</returns>
+    public T? GetProtocol<T>() where T : class, IProtocol
+    {
+        return GetProtocolInstance<T>() as T;
+    }
+
+    /// <summary>Gets the first installed protocol matching the type and wire identifier.</summary>
+    public T? GetProtocol<T>(string protocolId) where T : class, IProtocol
+    {
+        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId && p.Protocol is T)?.Protocol as T;
+    }
+
+    public Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
+    {
+        if (token.IsCancellationRequested)
+        {
+            return Task.FromCanceled<ISession>(token);
+        }
+        ThrowIfDisposed();
+
+        if (addrs.Length == 0)
+        {
+            throw new Libp2pException($"No address was passed into {nameof(DialAsync)}");
+        }
+        PeerId remotePeerId = addrs.Select(a => a.GetPeerId()).FirstOrDefault(id => id is not null)
+            ?? throw new Libp2pException($"Addresses passed into {nameof(DialAsync)} are missing a peer id");
+        Multiaddress[] candidates = addrs.Where(a => a.GetPeerId() == remotePeerId).ToArray();
+        if (candidates.Length != addrs.Length)
+        {
+            _logger?.LogDebug("Ignoring {Count} dial addresses without the target peer id {PeerId}", addrs.Length - candidates.Length, remotePeerId);
+        }
+
+        Session? existingSession = FindSession(remotePeerId);
+        if (existingSession is not null)
+        {
+            return WaitForExistingSessionAsync(remotePeerId, existingSession, token);
+        }
+
+        PendingDial pending;
+        lock (_pendingDialsLock)
+        {
+            if (!_pendingDials.TryGetValue(remotePeerId, out pending!))
+            {
+                pending = new PendingDial(this, candidates, remotePeerId);
+                _pendingDials.Add(remotePeerId, pending);
+            }
+            pending.Waiters++;
+        }
+        return WaitForDialAsync(remotePeerId, pending, token);
+    }
+
+    private Session? FindSession(PeerId peerId)
+    {
+        lock (Sessions)
+        {
+            return Sessions.FirstOrDefault(s => s.State.RemotePeerId == peerId && CanAwaitSession(s));
+        }
+    }
+
+    private static bool CanAwaitSession(Session session)
+        => !session.Connected.IsFaulted && !session.Connected.IsCanceled && !session.ConnectionToken.IsCancellationRequested;
+
+    private static async Task<ISession> WaitForSessionAsync(Session session, CancellationToken token)
+    {
+        await session.Connected.WaitAsync(token);
+        session.ConnectionToken.ThrowIfCancellationRequested();
+        return session;
+    }
+
+    private Task<ISession> WaitForExistingSessionAsync(PeerId peerId, Session session, CancellationToken token)
+    {
+        PendingDial? pending = null;
+        lock (_pendingDialsLock)
+        {
+            if (_pendingDials.TryGetValue(peerId, out PendingDial? inProgress) &&
+                (inProgress.Sessions.Contains(session) || !CanAwaitSession(session)))
+            {
+                pending = inProgress;
+                pending.Waiters++;
+            }
+        }
+        return pending is null ? WaitForSessionAsync(session, token) : WaitForDialAsync(peerId, pending, token);
+    }
+
+    private async Task<ISession> WaitForDialAsync(PeerId peerId, PendingDial pending, CancellationToken token)
+    {
+        Task<ISession> attempt = pending.Attempt.Value;
+        try
+        {
+            return await attempt.WaitAsync(token);
+        }
+        finally
+        {
+            bool lastWaiter;
+            lock (_pendingDialsLock)
+            {
+                lastWaiter = --pending.Waiters == 0;
+                if (lastWaiter)
+                {
+                    _pendingDials.Remove(peerId);
+                }
+            }
+
+            if (lastWaiter)
+            {
+                if (!attempt.IsCompleted)
+                {
+                    pending.Cancellation.Cancel(false);
+                }
+                _ = attempt.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                    pending.Cancellation, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+        }
+    }
+
+    private sealed class PendingDial
+    {
+        public PendingDial(LocalPeer peer, Multiaddress[] addrs, PeerId peerId)
+        {
+            Attempt = new(() => peer.DialAsyncDeduped(addrs, peerId, Cancellation.Token, this));
+        }
+
+        public CancellationTokenSource Cancellation { get; } = new();
+        public Lazy<Task<ISession>> Attempt { get; }
+        public HashSet<Session> Sessions { get; } = [];
+        public int Waiters;
+    }
+
+    private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token, PendingDial pending)
+    {
+        List<(Multiaddress Address, CancellationTokenSource Cancellation, Task? Transport, Task<ISession> Attempt)> active = [];
+        Multiaddress? connectedAddress = null;
+
+        try
+        {
+            List<Multiaddress> resolvedAddrs = [];
+
+            await foreach (Multiaddress resolvedAddr in _multiaddrResolver.Resolve(addrs, token))
+            {
+                if (resolvedAddr.GetPeerId() == remotePeerId)
+                {
+                    resolvedAddrs.Add(resolvedAddr);
+                }
+            }
+
+            if (resolvedAddrs is { Count: 0 })
+            {
+                throw new Libp2pException($"No usable address was resolved for peer {remotePeerId}");
+            }
+
+            using CancellationTokenSource timeout = new(ConnectionTimeout);
+            using CancellationTokenSource waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
+            List<Exception> failures = [];
+            int next = 0;
+            try
+            {
+                while (next < resolvedAddrs.Count || active.Count > 0)
+                {
+                    waitCancellation.Token.ThrowIfCancellationRequested();
+                    while (next < resolvedAddrs.Count && active.Count < MaxConcurrentDials)
+                    {
+                        waitCancellation.Token.ThrowIfCancellationRequested();
+                        Multiaddress addr = resolvedAddrs[next++];
+                        CancellationTokenSource cancellation = new();
+                        Task? transport = null;
+                        Task<ISession> attempt = DialAsyncCore(addr, cancellation.Token, dial => transport = dial, pending);
+                        active.Add((addr, cancellation, transport, attempt));
+                    }
+
+                    Task<ISession> completed = await Task.WhenAny(active.Select(dial => dial.Attempt)).WaitAsync(waitCancellation.Token);
+                    if (completed.IsCompletedSuccessfully || completed.Exception?.InnerException is SessionExistsException)
+                    {
+                        ISession session = completed.Result;
+                        connectedAddress = session.RemoteAddress;
+                        return session;
+                    }
+
+                    try
+                    {
+                        await completed;
+                    }
+                    catch (Exception failure)
+                    {
+                        failures.Add(failure);
+                    }
+
+                    int index = active.FindIndex(dial => dial.Attempt == completed);
+                    var failed = active[index];
+                    active.RemoveAt(index);
+                    failed.Cancellation.Cancel(false);
+                    DisposeCancellationAfterDialCompletes(failed.Cancellation, failed.Transport, waitForTransport: false);
+                }
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && timeout.IsCancellationRequested)
+            {
+                throw new TimeoutException("The connection attempt timed out.");
+            }
+            if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new AggregateException(failures);
+        }
+        finally
+        {
+            foreach (var dial in active)
+            {
+                ObserveLateFailure(dial.Attempt);
+                bool isConnectedAddress = dial.Address.Equals(connectedAddress);
+                if (!isConnectedAddress)
+                {
+                    dial.Cancellation.Cancel(false);
+                }
+
+                DisposeCancellationAfterDialCompletes(dial.Cancellation, dial.Transport, isConnectedAddress);
+            }
+
+        }
+    }
+
+    public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
+
+    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token, Action<Task> transportDialStarted, PendingDial pending)
+    {
+        Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
+        dialActivity?.SetTag("parent", peerActivity?.DisplayName);
+
+        Libp2pMetrics.DialAttempts.Add(1);
+        long startTimestamp = Stopwatch.GetTimestamp();
+
+        ProtocolRef dialerProtocol = SelectProtocol(addr);
+
+        if (dialerProtocol.Protocol is not ITransportProtocol transportProtocol)
+        {
+            throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {dialerProtocol.GetType()}");
+        }
+
+        Session session = new(this, dialActivity);
+        lock (_pendingDialsLock)
+        {
+            pending.Sessions.Add(session);
+        }
+        bool connected = false;
+        try
+        {
+            dialActivity?.SetTag("session.id", session.Id);
+            dialActivity?.SetTag("local.peer.id", Identity.PeerId.ToString());
+            dialActivity?.SetTag("remote.addr", addr.ToString());
+            ITransportContext ctx = new DialerTransportContext(this, session, dialerProtocol, dialActivity);
+
+            Task dialingTask;
+            try
+            {
+                dialingTask = transportProtocol.DialAsync(ctx, addr, token);
+            }
+            catch (Exception failure)
+            {
+                await session.DisconnectAsync();
+                Libp2pMetrics.DialFailures.Add(1);
+                dialActivity?.SetStatus(ActivityStatusCode.Error, failure.Message);
+                dialActivity?.Dispose();
+                throw;
+            }
+            transportDialStarted(dialingTask);
+
+            _ = dialingTask.ContinueWith(t => dialActivity?.Dispose());
+
+            Task dialingResult;
+            try
+            {
+                dialingResult = await Task.WhenAny(dialingTask, session.Connected).WaitAsync(token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // A completed session may already be in use by another caller.
+                if (!session.Connected.IsCompletedSuccessfully)
+                {
+                    await session.DisconnectAsync();
+                }
+                Libp2pMetrics.DialFailures.Add(1);
+                dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
+                dialActivity?.Dispose();
+                throw;
+            }
+
+            if (dialingResult == dialingTask)
+            {
+                await session.DisconnectAsync();
+                Libp2pMetrics.DialFailures.Add(1);
+                if (dialingResult.IsCanceled)
+                {
+                    dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
+                    dialActivity?.Dispose();
+                    throw new OperationCanceledException(token);
+                }
+
+                Exception? innerException = GetTaskException(dialingResult);
+                if (innerException is SessionExistsException)
+                {
+                    dialActivity?.SetStatus(ActivityStatusCode.Error, innerException.Message);
+                    dialActivity?.Dispose();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(innerException).Throw();
+                    throw new UnreachableException();
+                }
+                PeerConnectionException exception = CreatePeerConnectionException(addr, session, dialingResult);
+                dialActivity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+                dialActivity?.Dispose();
+                throw exception;
+            }
+
+            try
+            {
+                await session.Connected;
+            }
+            catch (Exception ex)
+            {
+                Libp2pMetrics.DialFailures.Add(1);
+                dialActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                dialActivity?.Dispose();
+                throw;
+            }
+
+            double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            Libp2pMetrics.DialDuration.Record(elapsedMs);
+
+            dialActivity?.AddEvent(new ActivityEvent("connected"));
+            connected = true;
+            return session;
+        }
+        finally
+        {
+            if (!connected)
+            {
+                lock (_pendingDialsLock) pending.Sessions.Remove(session);
+            }
+        }
+    }
+
+    private static void DisposeCancellationAfterDialCompletes(CancellationTokenSource cts, Task? transportDial, bool waitForTransport)
+    {
+        if (transportDial is null || transportDial.IsCompleted)
+        {
+            cts.Dispose();
+            return;
+        }
+
+        if (waitForTransport)
+        {
+            _ = transportDial.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                cts,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return;
+        }
+
+        CancellationTokenSource fallbackDelayCts = new();
+        Task fallbackDelay = Task.Delay(CanceledDialDisposalGracePeriod, fallbackDelayCts.Token);
+        _ = Task.WhenAny(transportDial, fallbackDelay).ContinueWith(static (_, state) =>
+        {
+            (CancellationTokenSource cts, CancellationTokenSource fallbackDelayCts) =
+                ((CancellationTokenSource, CancellationTokenSource))state!;
+            fallbackDelayCts.Cancel();
+            fallbackDelayCts.Dispose();
+            cts.Dispose();
+        },
+            (cts, fallbackDelayCts),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static void ObserveLateFailure(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        _ = task.ContinueWith(static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    public Task<ISession> DialAsync(PeerId peerId, CancellationToken token = default)
+    {
+        if (token.IsCancellationRequested)
+        {
+            return Task.FromCanceled<ISession>(token);
+        }
+        ThrowIfDisposed();
+
+        Session? existingSession = FindSession(peerId);
+
+        if (existingSession is not null)
+        {
+            return WaitForExistingSessionAsync(peerId, existingSession, token);
+        }
+
+        PendingDial? pending;
+        lock (_pendingDialsLock)
+        {
+            if (_pendingDials.TryGetValue(peerId, out pending)) pending.Waiters++;
+        }
+        if (pending is not null) return WaitForDialAsync(peerId, pending, token);
+
+        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? existingPeerInfo) || existingPeerInfo?.Addrs is null)
+        {
+            throw new Libp2pException("Peer not found");
+        }
+
+        Multiaddress[] addrs = [.. existingPeerInfo.Addrs.Where(a => a.GetPeerId() == peerId)];
+        if (addrs.Length == 0) throw new Libp2pException($"No usable address was found for peer {peerId}");
+        return DialAsync(addrs, token);
+    }
+
+    private PeerConnectionException CreatePeerConnectionException(Multiaddress remoteAddress, Session session, Task dialingResult)
+    {
+        Exception? innerException = GetTaskException(dialingResult);
+
+        string message = innerException is null
+            ? $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}."
+            : $"Connection failed for session {session.Id} from {Identity.PeerId} to {remoteAddress}. Dial task status: {dialingResult.Status}. {innerException.Message}";
+
+        return new PeerConnectionException(
+            message,
+            session.Id,
+            Identity.PeerId.ToString(),
+            remoteAddress.ToString(),
+            innerException);
+    }
+
+    private static Exception? GetTaskException(Task task)
+        => task switch
+        {
+            { IsFaulted: true } => UnwrapException(task.Exception),
+            { IsCanceled: true } => new TaskCanceledException(task),
+            _ => null,
+        };
+
+    private static Exception? UnwrapException(Exception? exception)
+        => exception switch
+        {
+            AggregateException { InnerExceptions.Count: 1 } aggregateException => aggregateException.InnerExceptions[0],
+            System.Reflection.TargetInvocationException { InnerException: not null } targetInvocationException => targetInvocationException.InnerException,
+            _ => exception,
+        };
+
+    private static void MapToTaskCompletionSource(Task t, TaskCompletionSource<object?> tcs)
+    {
+        if (t.IsCompletedSuccessfully)
+        {
+            tcs.TrySetResult(t.GetType().GenericTypeArguments.Any() ? t.GetType().GetProperty("Result")!.GetValue(t) : null);
+            return;
+        }
+        if (t.IsCanceled)
+        {
+            tcs.TrySetCanceled();
+            return;
+        }
+        if (t.Exception is not null)
+        {
+            SetTaskCompletionSourceException(tcs, t.Exception);
+        }
+    }
+
+    private static void SetTaskCompletionSourceException(TaskCompletionSource<object?> tcs, Exception exception)
+    {
+        exception = UnwrapException(exception) ?? exception;
+        if (exception is AggregateException aggregateException)
+        {
+            tcs.TrySetException(aggregateException.InnerExceptions);
+            return;
+        }
+
+        tcs.TrySetException(exception);
+    }
+
+    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
+    {
+        Channel downChannel = new();
+
+        _ = Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity);
+
+        return downChannel;
+    }
+
+    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
+    {
+        if (_protocolStackSettings.Protocols is null)
+        {
+            throw new Libp2pSetupException($"Protocols are not set in {nameof(_protocolStackSettings)}");
+        }
+
+        if (upgradeProtocol is not null && !_protocolStackSettings.Protocols[parentProtocol].Any(p => p.Protocol == upgradeProtocol))
+        {
+            _protocolStackSettings.Protocols.Add(new ProtocolRef(upgradeProtocol, false), []);
+        }
+
+        ProtocolRef top = upgradeProtocol is not null ?
+            _protocolStackSettings.Protocols[parentProtocol].FirstOrDefault(p => p.Protocol == upgradeProtocol, _protocolStackSettings.Protocols.Keys.First(k => k.Protocol == upgradeProtocol)) :
+            _protocolStackSettings.Protocols[parentProtocol].Single();
+
+        isListener = options?.ModeOverride switch { UpgradeModeOverride.Dial => false, UpgradeModeOverride.Listen => true, _ => isListener };
+
+        _logger?.LogInformation($"Upgrade and bind {parentProtocol} to {top}, listen={isListener}");
+
+        Task upgradeTask;
+        Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
+        upgradeActivity?.SetTag("parent", activity?.DisplayName);
+        upgradeActivity?.SetTag("proto", top.Protocol.Id);
+        CancellationTokenRegistration cancellationRegistration = default;
+
+        if (options?.CancellationToken.IsCancellationRequested == true)
+        {
+            options.CompletionSource?.TrySetCanceled(options.CancellationToken);
+            _ = downChannel.AbortAsync();
+            upgradeActivity?.Dispose();
+            return Task.FromCanceled(options.CancellationToken);
+        }
+
+        if (options?.CancellationToken.CanBeCanceled == true)
+        {
+            cancellationRegistration = options.CancellationToken.Register(() =>
+            {
+                options.CompletionSource?.TrySetCanceled(options.CancellationToken);
+                _ = downChannel.AbortAsync();
+            });
+        }
+
+        // Only what was acquired may be released. The acquire below is for inbound streams only,
+        // so holding the limit itself rather than a flag keeps the dial path from refunding an
+        // allowance it never took, which would raise the cap a little further with every dial.
+        InboundStreamLimit? acquiredLimit = null;
+        PeerId? limitedPeer = null;
+        string? limitedProtocolId = null;
+        if (isListener && top.InboundLimit is { } inboundLimit)
+        {
+            limitedPeer = session.State.RemotePeerId;
+            limitedProtocolId = top.Id;
+            if (!inboundLimit.TryAcquire(limitedPeer, out bool perPeerLimit))
+            {
+                // Refuse before the protocol reads anything, and reset rather than end the stream,
+                // as go-libp2p does for a denied reservation: an orderly close would reach the peer
+                // as an empty reply it could mistake for a protocol-level answer. Nothing tells the
+                // peer how long to back off; the reset carries no retry interval.
+                string scope = perPeerLimit ? "peer" : "total";
+                _logger?.LogDebug("Inbound stream for {Protocol} refused by {Scope} limit ({Limit})", top, scope,
+                    perPeerLimit ? inboundLimit.MaxPerPeer : inboundLimit.MaxConcurrent);
+                Libp2pMetrics.InboundStreamsRefused.Add(1, new("protocol", limitedProtocolId), new("scope", scope));
+                cancellationRegistration.Dispose();
+                _ = downChannel.AbortAsync();
+                upgradeActivity?.Dispose();
+                return Task.CompletedTask;
+            }
+
+            acquiredLimit = inboundLimit;
+        }
+
+        void ReleaseInboundAllowance()
+        {
+            if (acquiredLimit is null) return;
+            acquiredLimit.Release(limitedPeer);
+            Libp2pMetrics.InboundStreamsActive.Add(-1, new KeyValuePair<string, object?>("protocol", limitedProtocolId));
+        }
+
+        try
+        {
+            if (acquiredLimit is not null) Libp2pMetrics.InboundStreamsActive.Add(1, new KeyValuePair<string, object?>("protocol", limitedProtocolId));
+            switch (top.Protocol)
+            {
+                case IConnectionProtocol tProto:
+                    {
+                        ConnectionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        upgradeTask = isListener ? tProto.ListenAsync(downChannel, ctx) : tProto.DialAsync(downChannel, ctx);
+                        break;
+                    }
+                case ISessionProtocol sProto:
+                    {
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
+                        break;
+                    }
+                default:
+                    if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
+                    {
+                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
+                        break;
+                    }
+
+                    Type? genericInterface = top.Protocol.GetType().GetInterfaces()
+                        .FirstOrDefault(i =>
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() == typeof(ISessionProtocol<,>));
+
+                    if (genericInterface != null)
+                    {
+                        Type[] genericArguments = genericInterface.GetGenericArguments();
+                        Type requestType = genericArguments[0];
+
+                        if (options?.Argument is not null && !options.Argument.GetType().IsAssignableTo(requestType))
+                        {
+                            throw new ArgumentException($"Invalid request. Argument is of {options.Argument.GetType()} type which is not assignable to {requestType.FullName}");
+                        }
+
+                        System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
+                        if (dialAsyncMethod != null)
+                        {
+                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                            upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
+                            break;
+                        }
+                    }
+                    throw new Libp2pSetupException($"Protocol {top.Protocol} does not implement proper protocol interface");
+            }
+
+            if (options?.SelectedProtocol == top.Protocol && options?.CompletionSource is not null)
+            {
+                _ = upgradeTask.ContinueWith(t =>
+                {
+                    MapToTaskCompletionSource(t, options.CompletionSource);
+                });
+            }
+
+            upgradeTask.ContinueWith(t =>
+            {
+                ReleaseInboundAllowance();
+                cancellationRegistration.Dispose();
+                if (t.IsFaulted)
+                {
+                    if (t.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
+                    {
+                        _logger?.LogDebug($"Upgrade task cancelled (closed or duplicate connection): {failure.Message}");
+                    }
+                    else
+                    {
+                        _logger?.LogWarning(t.Exception, "Upgrade task failed");
+                    }
+                }
+                if (t.IsCompletedSuccessfully)
+                {
+                    _ = downChannel is Channel completedChannel
+                        ? completedChannel.CompleteProtocolAsync()
+                        : downChannel.CloseAsync();
+                }
+                else
+                {
+                    _ = downChannel.AbortAsync();
+                }
+                _logger?.LogInformation($"Finished#2 {parentProtocol} to {top}, listen={isListener}");
+                upgradeActivity?.Dispose();
+            });
+
+            return upgradeTask;
+        }
+        catch (Exception ex)
+        {
+            ReleaseInboundAllowance();
+            cancellationRegistration.Dispose();
+            if (options?.CompletionSource is not null)
+            {
+                SetTaskCompletionSourceException(options.CompletionSource, ex);
+            }
+            upgradeActivity?.Dispose();
+            throw;
+        }
+    }
+
+    private static bool IsRoutineConnectionFailure(Exception failure)
+        => failure is ChannelClosedException or ChannelAbortedException or SessionExistsException ||
+           failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0 &&
+           aggregate.InnerExceptions.All(IsRoutineConnectionFailure);
+
+    private void ThrowIfDisposed()
+    {
+        lock (Sessions) ObjectDisposedException.ThrowIf(_disposal is not null, this);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Session[] sessions;
+        TaskCompletionSource disposal;
+        lock (Sessions)
+        {
+            if (_disposal is not null) return new(_disposal.Task);
+            _disposal = disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            sessions = [.. _connections.Union(Sessions)];
+        }
+        _ = DisposeSessionsAsync(sessions, disposal);
+        return new(disposal.Task);
+    }
+
+    private async Task DisposeSessionsAsync(Session[] sessions, TaskCompletionSource disposal)
+    {
+        try
+        {
+            try { await Task.WhenAll(sessions.Select(session => session.DisconnectAsync())); }
+            finally { peerActivity?.Dispose(); }
+            disposal.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            disposal.TrySetException(exception);
+        }
+    }
+}

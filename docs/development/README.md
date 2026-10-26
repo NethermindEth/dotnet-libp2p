@@ -1,8 +1,9 @@
 # Libp2p
 
-Libp2p protocols can be divided into 2 layers:
+Libp2p protocols can be divided into 3 layers:
 
-- Transport layer protocols, that actively use peer address to discover network and establish connection
-- Application layer protocols, that is used to exchange actual payload once the connection is active.
+- Transport protocols use peer addresses to establish network connections.
+- Connection protocols negotiate, authenticate, encrypt, create sessions, or multiplex streams.
+- Application protocols exchange actual payloads once a session is active.
 
-To contribute to libp2p stack or build your own, kindly check [developing a transport layer protocol](./transport-layer.md) and also [the list of best practices](./best-practices.md).
+To contribute to the libp2p stack or build your own, check [developing transport and connection protocols](./transport-layer.md) and [the list of best practices](./best-practices.md).
