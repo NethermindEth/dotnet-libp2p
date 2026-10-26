@@ -23,6 +23,15 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
 
+      - name: List test projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ../.github/scripts -p 'test_*.py'
+          python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
+          cat "$RUNNER_TEMP/test-projects.txt"
+
       - name: List CI projects
         working-directory: ${{ env.WORKING_DIR }}
         run: |
@@ -46,30 +55,14 @@ jobs:
           done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
+        timeout-minutes: 30
         working-directory: ${{ env.WORKING_DIR }}
-        env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
+        shell: bash
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Ping.Tests/Libp2p.Protocols.Ping.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Plaintext.Tests/Libp2p.Protocols.Plaintext.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet test "$project" -c "$BUILD_CONFIG" --no-build -- --minimum-expected-tests 1
+          done < "$RUNNER_TEMP/test-projects.txt"
 
   windows-quic-tls:
     name: Windows QUIC and TLS

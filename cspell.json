@@ -140,6 +140,7 @@
         "peerid",
         "peerstore",
         "pkcs",
+        "pipefail",
         "projectdir",
         "protoc",
         "providerbuilderextensions",

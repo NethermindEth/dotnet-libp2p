@@ -1,5 +1,4 @@
 name: Publish
-# cspell:ignore pipefail
 
 on:
   workflow_dispatch:
@@ -45,11 +44,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet sln Libp2p.slnx list |
-            awk 'NR > 2 && NF' |
-            grep -E '\.(Tests|E2eTests)\.csproj$' > "$RUNNER_TEMP/publish-test-projects.txt"
-          test -s "$RUNNER_TEMP/publish-test-projects.txt"
-          cat "$RUNNER_TEMP/publish-test-projects.txt"
+          python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
+          cat "$RUNNER_TEMP/test-projects.txt"
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
@@ -60,13 +56,14 @@ jobs:
         run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
 
       - name: Test
+        timeout-minutes: 30
         working-directory: ${{ env.WORKING_DIR }}
         shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r project; do
             dotnet test "$project" -c "$BUILD_CONFIG" --no-build -- --minimum-expected-tests 1
-          done < "$RUNNER_TEMP/publish-test-projects.txt"
+          done < "$RUNNER_TEMP/test-projects.txt"
 
       - name: NuGet login
         uses: nuget/login@v1

@@ -46,6 +46,7 @@ public class ReaderTests
     [Test]
     public async Task ReadVarintRejectsFiveContinuationBytesWithoutConsumingNextByte()
     {
+        // Pins consumption only; ReadVarintRejectsOverflow covers the fifth-byte overflow guard.
         RecordingReader source = new([0x80, 0x80, 0x80, 0x80, 0x80, 0x2a]);
         IReader reader = source;
 
