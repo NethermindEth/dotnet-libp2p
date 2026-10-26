@@ -83,8 +83,8 @@ before release. Writers implementing only the original API also receive detached
 Ordinary sequence writes still require stable storage; their completion does not permit
 overwriting it. Single owned chunks need no payload copy; fragmented exact reads coalesce
 into pooled storage that grows with received bytes. Protocol message limits and consumers
-retaining results remain separate concerns. See the [shared ownership API](../../src/channels/README.md)
-and [allocation measurements](../../src/channels/Nethermind.Channels.Benchmarks/README.md).
+retaining results remain separate concerns. See the [shared ownership API](../../libp2p/Nethermind.Channels/README.md)
+and [allocation measurements](../../libp2p/Nethermind.Channels.Benchmarks/README.md).
 
 ## Connection protocol
 

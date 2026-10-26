@@ -1,6 +1,6 @@
 # Channel allocation and throughput comparison
 
-This standalone console compares receive-buffer and channel allocations with the
+This console compares receive-buffer and channel allocations with the
 same deterministic input and reader workload. It uses
 `GC.GetTotalAllocatedBytes(precise: true)` so allocations on asynchronous
 continuation threads are counted. It does not use a thread-local allocation
@@ -11,7 +11,7 @@ counter or leave producer tasks running after a measurement.
 From the repository root, using PowerShell and the .NET 10 SDK:
 
 ```powershell
-./src/channels/Nethermind.Channels.Benchmarks/run.ps1
+./libp2p/Nethermind.Channels.Benchmarks/run.ps1
 ```
 
 The default run measures current native channels, Core owned reads and Core
@@ -19,11 +19,12 @@ legacy reads into `results-current/`. To rerun the pinned historical variants,
 use `run.ps1 -BaselineOnly`. The original `results/` records remain the snapshot
 published with the channel integration in commit `90139c8` (PR #429).
 
-The script creates a detached baseline worktree at
-`.worktrees/allocations-pr428`, verifies its revision, and builds the standalone
-project. The worktree is excluded through `.git/info/exclude` and is not removed
-afterward. This project is deliberately separate from the normal solution build
-because its historical reference needs that worktree.
+The project is included in `libp2p/Libp2p.slnx`. Its default build and current
+measurements use the local Core and channel projects and require no historical
+worktree. Only explicit historical variants (`main-listener`, `main-dialer`, or
+`managed`, including `-BaselineOnly`) create the detached
+`.worktrees/allocations-pr428` worktree and verify its revision. That worktree is
+excluded through `.git/info/exclude` and is not removed afterward.
 
 Each allocation variant/scenario runs in its own quiet process, with tiered compilation
 disabled, three warmup batches and five measured batches. The program checks the
@@ -61,7 +62,7 @@ the same receive facade with ordinary `ReadAsync` and forwards its stable
 sequences. It also retains every returned sequence through later reads and
 channel teardown, checking the bytes again afterward. Its observation array is
 allocated before measurement and reused, so lifetime checks add no per-operation
-allocation to the result. These Core variants are compiled and run separately
+allocation to the result. Current variants are compiled and run separately
 from historical cases: current and historical Core have the same assembly
 identity, and must not be mixed in one process. A compile guard rejects historical
 variant names in the current-Core executable.
@@ -87,7 +88,7 @@ are released. Memory ownership and pool return behavior also need lifecycle test
 ## Channel integration snapshot (#429)
 
 These are the initial integration measurements at `90139c8`, before pooling
-asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/src/channels/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
+asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/libp2p/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
 measures the optimization with the transport integration in #428. Against its
 prior pooled implementation, native small-read allocations fell 37.5% and
 fragmented-read allocations fell 19.5%. Core owned small-read allocations fell
@@ -155,15 +156,17 @@ hashes are stored beside the production source hashes. Earlier `results/` and
 machine and runtime as the tables above.
 
 To select another production source tree while retaining the identical benchmark
-code, pass `-SourceRoot`. For example:
+code, pass `-SourceRoot`. The project also recognizes the former `src/channels`
+layout in pinned source trees. Raw historical result paths and hashes retain
+their original provenance after the project move. For example:
 
 ```powershell
 git worktree add --detach .worktrees/allocations-pooled-before f10bf73bfbbbb06f41d6cecee5f0432becde87d9
-$benchmark = './src/channels/Nethermind.Channels.Benchmarks/run.ps1'
-& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/before
-& $benchmark -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/after
-& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/before -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
-& $benchmark -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/after -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
+$benchmark = './libp2p/Nethermind.Channels.Benchmarks/run.ps1'
+& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory libp2p/Nethermind.Channels.Benchmarks/results-optimization/before
+& $benchmark -OutputDirectory libp2p/Nethermind.Channels.Benchmarks/results-optimization/after
+& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory libp2p/Nethermind.Channels.Benchmarks/results-optimization/before -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
+& $benchmark -OutputDirectory libp2p/Nethermind.Channels.Benchmarks/results-optimization/after -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
 ```
 
 Throughput mode runs three independent processes per variant/scenario. Each

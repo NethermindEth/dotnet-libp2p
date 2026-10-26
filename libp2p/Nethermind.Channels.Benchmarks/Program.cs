@@ -41,7 +41,7 @@ internal static class Program
             _ => throw new ArgumentException("Unknown scenario.")
         };
 #if CURRENT_CORE
-        if (variant is not ("core-owned" or "core-legacy"))
+        if (variant is not ("owned" or "core-owned" or "core-legacy"))
             throw new ArgumentException("This build references current Core and cannot measure historical variants.");
 #else
         if (variant is not ("main-listener" or "main-dialer" or "managed" or "owned"))
@@ -58,14 +58,16 @@ internal static class Program
         // Observe indefinite legacy-result lifetime without allocating measurement scaffolding
         // per operation. Owned consumers instead release each result after checking its bytes.
         ReadOnlySequence<byte>[] retained = variant == "core-legacy" ? new ReadOnlySequence<byte>[length / readSize] : [];
-        operation = () => RunCoreAsync(variant == "core-owned", scenario == "forwarding", expected, fragmentSize, readSize, retained,
-            scenario == "steady-small-reads");
-#else
+#endif
 #if !BASELINE_ONLY
         if (variant == "owned") operation = () => RunOwnedAsync(scenario == "forwarding", expected, fragmentSize, readSize,
             scenario == "steady-small-reads");
         else
 #endif
+#if CURRENT_CORE
+            operation = () => RunCoreAsync(variant == "core-owned", scenario == "forwarding", expected, fragmentSize, readSize, retained,
+                scenario == "steady-small-reads");
+#else
             operation = () => RunLegacyAsync(variant, scenario == "forwarding", expected, fragmentSize, readSize,
                 scenario == "steady-small-reads");
 #endif

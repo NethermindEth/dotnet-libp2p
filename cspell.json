@@ -211,8 +211,7 @@
         "yamux"
     ],
     "ignorePaths": [
-        "src/channels/.gitignore",
-        "src/channels/Nethermind.Channels.Benchmarks/results*/**",
+        "libp2p/Nethermind.Channels.Benchmarks/results*/**",
         "**/obj/*",
         "**/bin/*",
         "**/table.csv",
