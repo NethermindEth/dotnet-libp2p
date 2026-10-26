@@ -57,6 +57,8 @@ ISession knownPeerSession = await peer.DialAsync(remotePeerId);
 
 The address must include a `/p2p/<peer-id>` component so the peer store can associate it with the peer id.
 
+Simultaneous dials reuse a live session for the authenticated peer. When both outbound sessions are still initializing, a peer-id tie-break prefers the connection dialed by the smaller peer: the larger peer can initialize an inbound replacement for its pending outbound session. The original stays alive until the replacement initializes successfully. Established sessions and existing inbound sessions are retained, and a failed replacement leaves the original available.
+
 ## Incoming sessions
 
 Subscribe to `OnConnected` to react when a remote peer establishes a session with the local peer:
@@ -74,6 +76,8 @@ The handler runs after the lower protocol stack has created the session. Applica
 ## Shutting down
 
 Await `peer.DisposeAsync()` to stop its listeners and close its registered connections and sessions. Once disposal starts, transport connections finishing their handshake cannot register new sessions. New dial and listen calls fail with `ObjectDisposedException`. Disposal waits for listeners to unbind and removes their advertised addresses. Cancelled TCP handlers can finish draining afterward, so a handler may itself await peer disposal. Their transport and stream allowances remain charged until that work ends. Cancelling the token passed to `StartListenAsync` can also stop those listeners independently.
+
+The guarantee that a handler can await peer disposal applies to TCP. Other transports can wait for their entire listen task; WebSocket shutdown, for example, awaits `app.StopAsync`. Initiate disposal outside those transports' inbound handlers.
 
 Concurrent disposal calls await the same cleanup, including a session already disconnecting. A failing session-close callback is reported after the other sessions have also been closed.
 

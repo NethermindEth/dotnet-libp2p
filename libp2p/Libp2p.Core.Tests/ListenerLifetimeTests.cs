@@ -145,6 +145,8 @@ public class ListenerLifetimeTests
         LocalPeer peer = CreatePeer(transport);
         Task? disposal = null;
         peer.ListenAddresses.CollectionChanged += (_, _) => disposal ??= peer.DisposeAsync().AsTask();
+        // ObservableCollection only rejects reentrant changes when it has multiple subscribers.
+        peer.ListenAddresses.CollectionChanged += (_, _) => { };
         Task start = peer.StartListenAsync([TestPeers.Multiaddr(1)]);
         await transport.Entered.Task.WaitAsync(Deadline);
         transport.Context!.ListenerReady(TestPeers.Multiaddr(1));
