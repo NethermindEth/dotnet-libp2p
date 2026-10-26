@@ -39,6 +39,7 @@ public class FloodsubProtocolTests
         byte[] marker = "remote subscription processed"u8.ToArray();
         byte[] payload = "local floodsub publication"u8.ToArray();
         TaskCompletionSource<(PeerId Peer, byte[] Data)> delivered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool testFailed = false;
 
         try
         {
@@ -90,23 +91,36 @@ public class FloodsubProtocolTests
                 Assert.That(message.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.True);
             });
         }
+        catch
+        {
+            testFailed = true;
+            throw;
+        }
         finally
         {
-            endpoint.Stop();
-            deadline.Cancel();
-            router.Dispose();
             try
             {
-                await Task.WhenAll([
-                    router.DisposeAsync().AsTask(),
-                    .. sessions.Select(session => session.DisconnectAsync()),
-                    localPeer.DisposeAsync().AsTask(),
-                    remotePeer.DisposeAsync().AsTask(),
-                ]).WaitAsync(CleanupTimeout);
+                endpoint.Stop();
+                deadline.Cancel();
+                router.Dispose();
+                try
+                {
+                    await Task.WhenAll([
+                        router.DisposeAsync().AsTask(),
+                        .. sessions.Select(session => session.DisconnectAsync()),
+                        localPeer.DisposeAsync().AsTask(),
+                        remotePeer.DisposeAsync().AsTask(),
+                    ]).WaitAsync(CleanupTimeout);
+                }
+                finally
+                {
+                    await endpoint.DrainAsync().WaitAsync(CleanupTimeout);
+                }
             }
-            finally
+            catch (Exception cleanupError) when (testFailed)
             {
-                await endpoint.DrainAsync().WaitAsync(CleanupTimeout);
+                // Preserve the original failure while retaining diagnostics from observed cleanup tasks.
+                TestContext.Error.WriteLine($"Floodsub cleanup also failed: {cleanupError}");
             }
         }
     }
