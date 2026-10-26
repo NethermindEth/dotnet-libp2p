@@ -40,6 +40,8 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogInformation("Starting ListenAsync: PeerId {LocalPeerId}", context.Peer.Identity.PeerId);
 
             Stream str = new ChannelStream(downChannel);
+            // Declare the lease before sslStream so reverse disposal order releases
+            // native TLS handles before the certificate, including on authentication failure.
             using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
             X509Certificate2 certificate = certificateLease.Certificate;
             _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.Peer.Identity.PeerId, certificate.Subject, certificate.Issuer);
@@ -109,6 +111,8 @@ public class TlsProtocol : IConnectionProtocol
         try
         {
             _logger?.LogInformation("Starting DialAsync: LocalPeerId {LocalPeerId}", context.Peer.Identity.PeerId);
+            // Declare the lease before sslStream so reverse disposal order releases
+            // native TLS handles before the certificate, including on authentication failure.
             using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
             X509Certificate2 clientCert = certificateLease.Certificate;
 
