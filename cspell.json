@@ -202,7 +202,15 @@
         "xord",
         "yamux"
     ],
+    "overrides": [
+        {
+            "filename": "src/channels/**",
+            "words": ["finalizers", "idempotently", "LASTEXITCODE", "waitall", "warnaserror", "worktree", "worktrees", "wxyz"]
+        }
+    ],
     "ignorePaths": [
+        "src/channels/.gitignore",
+        "src/channels/Nethermind.Channels.Benchmarks/results*/**",
         "**/obj/*",
         "**/bin/*",
         "**/table.csv",
