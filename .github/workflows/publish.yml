@@ -28,7 +28,7 @@ jobs:
       BUILD_CONFIG: Release
       NUGET_URL: ${{ inputs.feed == 'Staging' && 'https://int.nugettest.org' || 'https://www.nuget.org' }}
       NUGET_SOURCE: ${{ inputs.feed == 'Staging' && 'https://apiint.nugettest.org' || 'https://api.nuget.org' }}/v3/index.json
-      WORKING_DIR: libp2p
+      WORKING_DIR: .
     steps:
 
       - name: Check out repository
@@ -52,16 +52,16 @@ jobs:
         env:
           TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
+          #dotnet test libp2p/Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
+          dotnet test libp2p/Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
 
       - name: NuGet login
         uses: nuget/login@v1
@@ -77,29 +77,29 @@ jobs:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ inputs.version }}
           NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet pack Libp2p ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Generators.Protobuf ${{ env.NO_VERSION_PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.AutoTls ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.KadDht ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Mplex ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.PubsubPeerDiscovery ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.RequestResponse ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Relay ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.WebRtc ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.WebSockets ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Core ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Generators.Protobuf ${{ env.NO_VERSION_PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.AutoTls ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.KadDht ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Mplex ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.PubsubPeerDiscovery ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.RequestResponse ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Relay ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.WebRtc ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.WebSockets ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
 
           dotnet nuget push **/*.nupkg --skip-duplicate \
             -k "${{ steps.login.outputs.NUGET_API_KEY }}" -s ${{ env.NUGET_SOURCE }}
