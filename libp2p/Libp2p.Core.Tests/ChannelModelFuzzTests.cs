@@ -407,7 +407,7 @@ public class ChannelModelFuzzTests
         using CancellationTokenSource cancel = new();
         Channel.ReaderWriter writer = (Channel.ReaderWriter)channel.Writer;
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        SemaphoreSlim canRead = (SemaphoreSlim)typeof(Channels.Channel.ReaderWriter)
+        Channels.AsyncSemaphore canRead = (Channels.AsyncSemaphore)typeof(Channels.Channel.ReaderWriter)
             .GetField("_canRead", flags)!.GetValue(writer.Inner)!;
 
         Task<IOResult> write = channel.WriteAsync(
@@ -415,7 +415,7 @@ public class ChannelModelFuzzTests
         try
         {
             // Simulate a reader that claimed the signal but has not acknowledged.
-            Assert.That(canRead.Wait(0), Is.True);
+            Assert.That(canRead.TryWait(), Is.True);
             cancel.Cancel();
             await channel.CloseAsync();
 

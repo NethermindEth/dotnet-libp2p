@@ -60,6 +60,10 @@ Read and write operations reuse asynchronous state through .NET's pooled ValueTa
 Await each returned `ValueTask` once. If an operation needs blocking or multiple awaits,
 call `AsTask()` once and use that task; `ChannelStream` handles this for synchronous callers.
 
+Pending waits also reuse a bounded cache of completion sources. Caller and shutdown
+cancellation register directly for pending waits; both registrations finish disposal before
+their completion source can be reused.
+
 ## Receiving
 
 Use the shared callback pump to keep allocation and lifetime handling inside the channel API:
@@ -99,4 +103,4 @@ ReadOnlySequence<byte> data = read.OrThrow();
 ```
 
 See [allocation measurements](../Nethermind.Channels.Benchmarks/README.md) for before/after
-results, including cases where lease bookkeeping costs more than managed storage.
+results, historical comparisons, remaining bookkeeping costs, and local throughput.

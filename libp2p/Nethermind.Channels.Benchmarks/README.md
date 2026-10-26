@@ -6,6 +6,11 @@ same deterministic input and reader workload. It uses
 continuation threads are counted. It does not use a thread-local allocation
 counter or leave producer tasks running after a measurement.
 
+The latest [reusable-waiter comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/libp2p/Nethermind.Channels.Benchmarks/results-bookkeeping/README.md)
+measures this shared engine with the dependent transport integration. Native
+tiny-read allocations fall about 95–97%; local channel and transport throughput
+results include process ranges. The original integration snapshot below is preserved.
+
 ## Reproduce
 
 From the repository root, using PowerShell and the .NET 10 SDK:
