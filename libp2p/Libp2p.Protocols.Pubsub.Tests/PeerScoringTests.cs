@@ -431,8 +431,9 @@ public class PeerScoringTests
     {
         var settings = new PubsubSettings
         {
+            AutoConnect = false,
             GossipThreshold = -5.0,
-            HeartbeatInterval = 100,
+            HeartbeatInterval = int.MaxValue,
             Degree = 2,
             LowestDegree = 1,
             HighestDegree = 3
@@ -440,35 +441,52 @@ public class PeerScoringTests
         settings.TopicScoreParams[TestTopic] = CreateDefaultTopicParams();
 
         PeerStore peerStore = new();
-        PubsubRouter router = new(peerStore, settings);
+        await using PubsubRouter router = new(peerStore, settings);
         ILocalPeer localPeer = new LocalPeerStub();
         IRoutingStateContainer state = router;
 
         await router.StartAsync(localPeer);
         router.GetTopic(TestTopic);
-
-        // Add multiple peers
-        List<PeerId> peerIds = new();
-        for (int i = 1; i <= 4; i++)
+        TaskCompletionSource connectionsClosed = new();
+        try
         {
-            Multiaddress peerAddr = TestPeers.Multiaddr(i);
-            PeerId peerId = TestPeers.PeerId(i);
-            peerIds.Add(peerId);
+            List<PeerId> peerIds = new();
+            for (int i = 1; i <= 4; i++)
+            {
+                Multiaddress peerAddr = TestPeers.Multiaddr(i);
+                PeerId peerId = TestPeers.PeerId(i);
+                peerIds.Add(peerId);
 
-            peerStore.Discover([peerAddr]);
-            TaskCompletionSource tcs = new();
-            router.OutboundConnection(peerAddr, PubsubRouter.GossipsubProtocolVersionV11, tcs.Task, _ => { });
-            router.OnRpc(peerId, new Rpc().WithTopics([TestTopic], []));
-            tcs.SetResult();
+                peerStore.Discover([peerAddr]);
+                router.OutboundConnection(peerAddr, PubsubRouter.GossipsubProtocolVersionV11, connectionsClosed.Task, _ => { });
+                router.OnRpc(peerId, new Rpc().WithTopics([TestTopic], []));
+            }
+
+            await router.Heartbeat();
+            Assert.Multiple(() =>
+            {
+                Assert.That(state.GossipsubPeers[TestTopic], Is.EquivalentTo(peerIds));
+                Assert.That(state.Mesh[TestTopic], Has.Count.EqualTo(settings.Degree));
+            });
+
+            PeerId[] initialMesh = state.Mesh[TestTopic].ToArray();
+            PeerId lowScoringPeer = initialMesh[0];
+            router.SetAppSpecificScore(lowScoringPeer, -10);
+            Assert.That(router.GetPeerScore(lowScoringPeer), Is.LessThan(0));
+            await router.Heartbeat();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(state.Mesh[TestTopic], Is.EquivalentTo(initialMesh.Where(peerId => peerId != lowScoringPeer)),
+                    "Heartbeat must prune the negative peer and retain the healthy mesh peer.");
+                Assert.That(state.GossipsubPeers[TestTopic], Is.EquivalentTo(peerIds),
+                    "Pruning a connected peer must preserve its remote subscription.");
+            });
         }
-
-        await router.Heartbeat();
-
-        // Test completes if we can successfully create peers and run heartbeat
-        // The mesh formation depends on peer connectivity and protocol negotiation
-        // We verify basic functionality rather than specific mesh state
-        Assert.That(state.GossipsubPeers.ContainsKey(TestTopic), Is.True, "Topic should have gossipsub peers");
-        Assert.Pass("Successfully created peers and ran heartbeat with scoring enabled");
+        finally
+        {
+            connectionsClosed.SetResult();
+        }
     }
 
     [Test]

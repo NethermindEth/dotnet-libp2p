@@ -245,9 +245,10 @@ public class SubscriptionAdmissionTests
     [TestCase(MessageValidity.Ignored)]
     [TestCase(MessageValidity.Deferred)]
     [TestCase(MessageValidity.Throttled)]
-    public void UnwantedPayloadCannotFulfillPromisesOrReachDeferredWork(MessageValidity verdict)
+    public async Task UnwantedPayloadCannotFulfillPromisesOrReachDeferredWork(MessageValidity verdict)
     {
-        using PubsubRouter router = new(new PeerStore());
+        PubsubSettings settings = new() { IWantFollowupTime = 20, DecayInterval = int.MaxValue };
+        using PubsubRouter router = new(new PeerStore(), settings);
         Connect(router, 1, protocol: PubsubRouter.GossipsubProtocolVersionV11);
         router.Subscribe("wanted");
         Rpc message = Signed("wanted", 1);
@@ -269,6 +270,18 @@ public class SubscriptionAdmissionTests
             Assert.That(router.IwantPromiseCount, Is.EqualTo(1));
             Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.Zero);
         });
+
+        await Task.Delay(settings.IWantFollowupTime + 20);
+        await router.Heartbeat();
+        Assert.Multiple(() =>
+        {
+            Assert.That(router.IwantPromiseCount, Is.Zero);
+            Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.EqualTo(settings.BehaviorPenaltyWeight),
+                "An unwanted reply leaves the pre-unsubscribe promise outstanding until expiry.");
+        });
+        await router.Heartbeat();
+        Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.EqualTo(settings.BehaviorPenaltyWeight),
+            "The expired promise is penalized only once.");
     }
 
     private static Rpc Signed(string topic, long sequence) => new Rpc().WithMessages(
