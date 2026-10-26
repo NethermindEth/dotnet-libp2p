@@ -200,6 +200,59 @@ public class MeshBackoffTests
         Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Has.Member(peer.PeerId));
     }
 
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV10)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV11)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV12)]
+    [TestCase(PubsubRouter.GossipsubProtocolVersionV13)]
+    public async Task HeartbeatExcessDegreePruningPreservesVersionSpecificPx(string protocol)
+    {
+        Clock clock = new();
+        PubsubSettings settings = Settings();
+        settings.Degree = 1;
+        settings.LowestDegree = 0;
+        settings.HighestDegree = 2;
+        settings.DScore = 1;
+        settings.DOut = 0;
+        PeerStore store = new();
+        ByteString retainedRecord = Core.Dto.SigningHelper.CreateSignedEnvelope(TestPeers.Identity(2), [TestPeers.Multiaddr(2)], 1);
+        store.Discover(retainedRecord);
+        await using PubsubRouter router = new(store, settings, timeProvider: clock);
+        router.GetTopic("topic");
+        List<Rpc> prunedSent = [], retainedSent = [];
+        var pruned = Open(router, 1, prunedSent, protocol);
+        var retained = Open(router, 2, retainedSent);
+        await Receive(router, pruned.PeerId, Graft());
+        await Receive(router, retained.PeerId, Graft());
+        router.SetAppSpecificScore(retained.PeerId, 10);
+        var state = (IRoutingStateContainer)router;
+        Assert.That(state.Mesh["topic"], Is.EquivalentTo(new[] { pruned.PeerId, retained.PeerId }));
+        settings.HighestDegree = 1;
+        prunedSent.Clear();
+        retainedSent.Clear();
+
+        await router.Heartbeat();
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+
+        Assert.That(state.Mesh["topic"], Is.EquivalentTo(new[] { retained.PeerId }));
+        Assert.That(pruned.Score.GetTopicScore("topic").MeshJoinTime, Is.Null);
+        Assert.That(pruned.Backoff["topic"], Is.EqualTo(clock.Now.UtcDateTime.AddMinutes(1)));
+        Assert.That(retainedSent.SelectMany(rpc => rpc.Control?.Prune ?? []), Is.Empty);
+        ControlPrune prune = prunedSent.SelectMany(rpc => rpc.Control?.Prune ?? []).Single();
+        Assert.That(prune.TopicID, Is.EqualTo("topic"));
+        bool supportsPx = protocol != PubsubRouter.GossipsubProtocolVersionV10;
+        Assert.That(prune.HasBackoff, Is.EqualTo(supportsPx));
+        Assert.That(prune.Backoff, Is.EqualTo(supportsPx ? 60UL : 0UL));
+        if (supportsPx)
+        {
+            Assert.That(prune.Peers.Select(peer => peer.PeerID), Is.EqualTo(new[] { ByteString.CopyFrom(retained.PeerId.Bytes) }));
+            Assert.That(prune.Peers.Single().SignedPeerRecord, Is.EqualTo(retainedRecord));
+        }
+        else
+        {
+            Assert.That(prune.Peers, Is.Empty);
+        }
+    }
+
     [TestCase(0)]
     [TestCase(1500)]
     [TestCase(-1)]
