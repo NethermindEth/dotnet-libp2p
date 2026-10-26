@@ -169,3 +169,7 @@ The internal test transport helper lives in the test assembly.
 construction remains supported; reads filter expiration, and explicit store cleanup
 reclaims expired entries. The facade does not own or dispose its backing store. Production
 operations use the asynchronous store directly. There is no wire ID or protobuf change.
+The `DhtClient` constructor accepting an `IValueStore` binds the supplied state's
+compatibility facade to that store and the configured record TTL. Manually constructed
+clients sharing one `SharedDhtState` must use the same store and TTL; use separate state
+objects for different stores. Production registration creates one client per peer-bound state.

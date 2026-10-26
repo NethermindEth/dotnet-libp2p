@@ -33,6 +33,7 @@ public class KadBuilderTests
         Assert.That(concurrent.All(runtime => ReferenceEquals(runtime, concurrent[0])), Is.True);
         Assert.That(first.GetKadDht(), Is.Not.Null);
         Assert.That(((LocalPeer)first).GetProtocol<KadDhtProtocol>(KadDhtOptions.DefaultProtocolId), Is.SameAs(first.GetKadDht()));
+        Assert.That(((LocalPeer)first).GetProtocol<KadDhtProtocol>("/unregistered/kad/1.0.0"), Is.Null);
         Assert.That(second.GetKadDht(), Is.Not.SameAs(first.GetKadDht()));
         Assert.That(first.GetKadDht()!.GetStatistics()["LocalPeerId"], Is.EqualTo(first.Identity.PeerId.ToString()));
     }
@@ -267,6 +268,41 @@ public class KadBuilderTests
     }
 
     [Test]
+    public async Task FailedBuildDiscardsWiredStackAndDisposedProtocolsBeforeRetry()
+    {
+        await using var builder = new FailingStackBuilder();
+        var constructed = new List<RetryProtocol>();
+        builder.Services.AddTransient(_ =>
+        {
+            var protocol = new RetryProtocol();
+            constructed.Add(protocol);
+            return protocol;
+        });
+        builder.AddProtocol<RetryProtocol>();
+
+        Assert.That(Assert.Throws<InvalidOperationException>(() => builder.Build()), Is.SameAs(builder.Failure));
+        Assert.That(builder.StackBuilds, Is.EqualTo(1));
+        Assert.That(constructed, Has.Count.EqualTo(1));
+        var failedProtocol = constructed.Single();
+        Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
+
+        Assert.That(builder.Build(), Is.Not.Null);
+        Assert.That(builder.StackBuilds, Is.EqualTo(2));
+        Assert.That(constructed, Has.Count.EqualTo(2));
+        var retryProtocol = constructed[1];
+        Assert.That(retryProtocol, Is.Not.SameAs(failedProtocol));
+        Assert.That(retryProtocol.Disposals, Is.Zero);
+        var stack = builder.ServiceProvider.GetRequiredService<IProtocolStackSettings>();
+        Assert.That(stack.Protocols!.Keys.Count(p => p.Protocol is RetryProtocol), Is.EqualTo(1));
+        Assert.That(stack.Protocols.Keys.Single(p => p.Protocol is RetryProtocol).Protocol, Is.SameAs(retryProtocol));
+        Assert.That(stack.Protocols.Keys.Select(p => p.Protocol), Does.Not.Contain(failedProtocol));
+
+        await builder.DisposeAsync();
+        Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(retryProtocol.Disposals, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task PeerServiceAliasesHaveOneReleaseOwner()
     {
         await using var builder = new Libp2pPeerFactoryBuilder();
@@ -305,6 +341,24 @@ public class KadBuilderTests
     public sealed class GenericDependency<T>(Dependency dependency) { public Dependency Dependency => dependency; }
     public sealed class ScopedDependency;
     public sealed class TransientDependency;
+    private sealed class FailingStackBuilder : Libp2pPeerFactoryBuilder
+    {
+        public InvalidOperationException Failure { get; } = new("Simulated failure after wiring the protocol stack.");
+        public int StackBuilds { get; private set; }
+
+        protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+        {
+            var stack = base.BuildStack(additionalProtocols);
+            if (++StackBuilds == 1) throw Failure;
+            return stack;
+        }
+    }
+    public sealed class RetryProtocol : IProtocol, IDisposable
+    {
+        public string Id => "/retry";
+        public int Disposals { get; private set; }
+        public void Dispose() => Disposals++;
+    }
     public sealed class DependentProtocol(FactoryDependent dependency) : IProtocol
     {
         public string Id => dependency.Value.Dependency is not null ? "/dependent" : throw new InvalidOperationException();

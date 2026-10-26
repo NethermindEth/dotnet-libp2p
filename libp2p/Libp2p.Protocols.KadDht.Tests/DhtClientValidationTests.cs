@@ -15,6 +15,29 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
 public class DhtClientValidationTests
 {
+    [Test]
+    [Obsolete("Exercises the public SharedDhtState.ValueStore compatibility facade.")]
+    public async Task PublicStateLegacyFacadeUsesConfiguredClientStoreAndTtl()
+    {
+        var state = new SharedDhtState();
+        var values = new InMemoryValueStore(1);
+        var options = new KadDhtOptions { RecordTtl = TimeSpan.FromMinutes(15) };
+        await using var client = new DhtClient(state, Substitute.For<IDhtMessageSender>(), values,
+            DefaultRecordValidator.Instance, options);
+
+        Assert.That(await client.PutValueAsync("one", "client"), Is.EqualTo(1));
+        Assert.That(state.ValueStore.Get("one"u8.ToArray())?.Value, Is.EqualTo("client"u8.ToArray()));
+        Assert.That(state.ValueStore.Put("two"u8.ToArray(), "legacy"u8.ToArray()), Is.False);
+        Assert.That(await client.GetValueAsync("two"), Is.EqualTo((false, (string?)null)));
+
+        Assert.That(state.ValueStore.Remove("one"u8.ToArray()), Is.True);
+        Assert.That(await values.GetValueAsync("one"u8.ToArray()), Is.Null);
+        Assert.That(state.ValueStore.Put("two"u8.ToArray(), "legacy"u8.ToArray()), Is.True);
+        Assert.That(await client.GetValueAsync("two"), Is.EqualTo((true, "legacy")));
+        Assert.That((await values.GetValueAsync("two"u8.ToArray()))!.Ttl, Is.EqualTo(options.RecordTtl));
+        Assert.That(values.Count, Is.EqualTo(1));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task SelectsAndCachesOnlyValidatedCandidate(bool fullCache)
