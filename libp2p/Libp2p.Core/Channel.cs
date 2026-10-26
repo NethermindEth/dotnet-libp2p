@@ -68,6 +68,7 @@ public class Channel : IChannel
         internal ReaderWriter(SharedChannel.ReaderWriter inner) => Inner = inner;
         internal bool TryWriteEof() => Inner.TryWriteEof();
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<ReadResult> ReadAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
@@ -79,6 +80,7 @@ public class Channel : IChannel
             return new ReadResult { Result = (IOResult)result.Result, Data = data };
         }
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<ReadResult> ReadOwnedAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
@@ -102,12 +104,15 @@ public class Channel : IChannel
             Libp2pMetrics.DataReceivedPackets.Add(1);
         }
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
             => RecordWrite(await Inner.WriteAsync(bytes, token).ConfigureAwait(false), bytes.Length);
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
             => RecordWrite(await Inner.WriteAsync(buffer, length, offset, token).ConfigureAwait(false), length);
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
             => RecordWrite(await Inner.WriteAsync(slice, token).ConfigureAwait(false), slice.Length);
 

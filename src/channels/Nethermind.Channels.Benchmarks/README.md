@@ -1,4 +1,4 @@
-# Channel allocation comparison
+# Channel allocation and throughput comparison
 
 This standalone console compares receive-buffer and channel allocations with the
 same deterministic input and reader workload. It uses
@@ -25,7 +25,7 @@ project. The worktree is excluded through `.git/info/exclude` and is not removed
 afterward. This project is deliberately separate from the normal solution build
 because its historical reference needs that worktree.
 
-Each variant/scenario runs in its own quiet process, with tiered compilation
+Each allocation variant/scenario runs in its own quiet process, with tiered compilation
 disabled, three warmup batches and five measured batches. The program checks the
 complete byte payload without allocating comparison arrays. It awaits every
 producer, reader and forwarding task, then closes both channel endpoints before
@@ -37,8 +37,9 @@ between samples, outside the counter interval. The pool is warmed before measuri
 The process emits JSON only after measurement. Raw counters, the median/minimum/
 maximum bytes per operation, environment details and SDK information are retained
 under the selected output directory, alongside source hashes for current code.
-Timing is recorded for diagnosing anomalous runs; these runs
-are an allocation comparison, not a throughput benchmark.
+Timing in allocation mode is recorded for diagnosing anomalous runs; its short
+samples are not used for throughput claims. The separate throughput mode below
+uses longer measurements and independent process replicas.
 
 ## Variants and scenarios
 
@@ -77,12 +78,20 @@ a completely filled managed block needs another block for that final read.
 | `fragmented-waitall` | 4 KiB | 4096 × 1 byte | One pending exact read | 1 |
 | `small-reads` | 64 KiB | 1024 × 64 bytes | 1024 completed reads | 4 |
 | `forwarding` | 64 KiB | 64 KiB | One exact read forwarded through a second channel | 128 |
+| `steady-small-reads` | 1 MiB | 16,384 × 64 bytes | 16,384 reads through one channel, with a cancellable token | 1 |
 
 Managed allocation totals are not retained-memory measurements. They include
 channel and task overhead, while pooled arrays can remain cached after leases
 are released. Memory ownership and pool return behavior also need lifecycle tests.
 
 ## Channel integration snapshot (#429)
+
+These are the initial integration measurements at `90139c8`, before pooling
+asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/src/channels/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
+measures the optimization with the transport integration in #428. Against its
+prior pooled implementation, native small-read allocations fell 37.5% and
+fragmented-read allocations fell 19.5%. Core owned small-read allocations fell
+48.0%. Synthetic and loopback transport throughput ranges overlapped.
 
 Measured on Windows 10.0.26200, x64, .NET 10.0.12 / SDK 10.0.401, workstation GC,
 12 logical processors. Values below are median allocated bytes per operation,
@@ -108,13 +117,14 @@ The raw JSON files include sample ranges. The owned small-read sample range is
 1,239,168–1,260,764. Pool caches and asynchronous scheduling affect individual
 samples, so the table should not be read as an exact universal cost model.
 
-## Core receive integration (#428)
+## Core receive integration snapshot (f10bf73)
 
-The current receive facade uses the shared pooled pump. Its results, separate
-from the integration snapshot above, are saved under `results-current/` with
-current Core and native source hashes.
+The receive facade at `f10bf73` uses the shared pooled pump. Its results, separate
+from the initial integration snapshot above, are saved under `results-current/`
+with that revision's Core and native source hashes. The optimization comparison
+below supersedes these numbers for the current implementation.
 
-| Scenario | Original #428 managed | Current native | Core owned reads | Core legacy reads |
+| Scenario | Original #428 managed | Native at f10bf73 | Core owned reads | Core legacy reads |
 |---|---:|---:|---:|---:|
 | Full 64 KiB block | 134,515 | 3,739 | 4,343 | 69,907 |
 | 4096 one-byte fragments, pending exact read | 3,823,496 | 4,044,472 | 4,042,432 | 4,049,624 |
@@ -134,3 +144,80 @@ fragmented-read allocation is close to native. Small reads still pay Core's
 asynchronous read-result adaptation cost, and legacy reads also allocate detached
 arrays. The measurements support bulk savings, not a claim that every allocation
 pattern improves.
+
+## Async state pooling comparison
+
+The `results-optimization/before/` and `after/` directories compare the pooled
+receive implementation at `f10bf73bfbbbb06f41d6cecee5f0432becde87d9` with the
+async state pooling change. Both use the same benchmark source, whose SHA256
+hashes are stored beside the production source hashes. Earlier `results/` and
+`results-current/` snapshots are preserved. These measurements use the same
+machine and runtime as the tables above.
+
+To select another production source tree while retaining the identical benchmark
+code, pass `-SourceRoot`. For example:
+
+```powershell
+git worktree add --detach .worktrees/allocations-pooled-before f10bf73bfbbbb06f41d6cecee5f0432becde87d9
+$benchmark = './src/channels/Nethermind.Channels.Benchmarks/run.ps1'
+& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/before
+& $benchmark -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/after
+& $benchmark -SourceRoot .worktrees/allocations-pooled-before -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/before -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
+& $benchmark -OutputDirectory src/channels/Nethermind.Channels.Benchmarks/results-optimization/after -Variants owned,core-owned -Scenarios fragmented-waitall,small-reads,steady-small-reads -Measurement throughput
+```
+
+Throughput mode runs three independent processes per variant/scenario. Each
+warms up for at least one second, then takes five samples of at least 500 ms,
+finishing the last complete operation. It records exact operation counts and
+elapsed times, includes natural collections, and does not force GC between
+samples. Tiered compilation remains disabled. Baseline and candidate run
+sequentially with other builds and tests paused. This measures the synthetic
+channel workload, including verification and teardown; it does not measure
+socket, TLS or QUIC throughput. Rates are summarized using the median of the
+three per-process medians, with the range of those medians shown to expose
+process variability.
+
+The sustained case transfers 1 MiB through one channel and receive pump, using
+16,384 receive/read pairs. Unlike the shorter cases, both the pump and reader
+receive a cancellable token; the token is never cancelled. Channel creation and
+teardown occur once per MiB, so their fixed costs are amortized. Legacy results
+remain retained through teardown and are checked again afterward, as in the
+other legacy cases.
+
+Median allocated bytes per complete operation:
+
+| Scenario | Native before → after | Core owned before → after | Core legacy before → after |
+|---|---:|---:|---:|
+| Full 64 KiB block | 3,753 → 3,288 | 4,361 → 3,643 | 69,920 → 69,272 |
+| 4096 one-byte fragments | 4,043,936 → 3,255,560 | 4,043,344 → 3,253,664 | 4,048,672 → 3,325,552 |
+| 1024 completed 64-byte reads | 1,290,010 → 805,946 | 1,540,410 → 801,746 | 1,623,578 → 887,428 |
+| Forward 64 KiB | 6,910 → 6,107 | 8,131 → 6,780 | 73,620 → 72,218 |
+| Sustained 1 MiB, cancellable | 27,830,720 → 19,974,088 | 31,629,248 → 19,909,728 | 33,040,024 → 21,327,936 |
+
+Core owned allocations fall 19.5% for fragmented pending reads, 48.0% for
+completed small reads, and 37.1% for sustained cancellable reads. Native
+sustained allocations fall 28.2%; legacy Core allocations fall 35.4%. The legacy
+path still allocates detached payload arrays to preserve indefinite lifetime.
+
+Completed payload operations per second, median [minimum–maximum] of the three
+process medians:
+
+| Variant | Scenario | Before | After | Median change |
+|---|---|---:|---:|---:|
+| Native | 4096 one-byte fragments | 22.17 [20.97–24.55] | 23.41 [20.84–24.30] | +5.6% |
+| Native | 1024 completed 64-byte reads | 64.92 [62.52–65.23] | 67.46 [60.82–68.13] | +3.9% |
+| Native | Sustained 1 MiB, cancellable | 3.247 [3.207–3.248] | 3.231 [3.153–3.487] | -0.5% |
+| Core owned | 4096 one-byte fragments | 21.87 [21.84–22.17] | 22.45 [21.88–22.75] | +2.6% |
+| Core owned | 1024 completed 64-byte reads | 50.52 [44.52–51.00] | 57.27 [49.67–58.72] | +13.4% |
+| Core owned | Sustained 1 MiB, cancellable | 2.586 [2.485–2.602] | 2.925 [2.566–2.931] | +13.1% |
+
+Process ranges overlap in every workload. The allocation reduction is clear,
+but these throughput results do not establish a universal speedup or regression.
+The [loopback transport comparison](results-optimization/transport/README.md)
+also found overlapping ranges for TCP/Noise, TCP/TLS, and QUIC across upload and
+download. It measures 100 short stream exchanges per process, including stream
+negotiation, rather than sustained bulk bandwidth. The cancellable workload still allocates substantially:
+pooling state machines does not eliminate channel handoff, cancellation-wait or
+lease bookkeeping. Against the original managed #428 snapshot, current Core
+owned allocation is now about 14.9% lower for fragmented pending reads and 35.7%
+lower for completed small reads, replacing the earlier increases in those cases.
