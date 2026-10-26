@@ -162,9 +162,9 @@ Configure these positive limits before constructing the router:
 | `MaxOutboundRpcBytes` | 64 MiB | Encoded bytes across the router, including draining connections |
 | `OutboundRpcTimeout` | 30,000 ms | Maximum outbound frame residence, from admission through write completion |
 | `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
-| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs |
+| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs; at least `MaxRpcBytes` |
 | `MaxIncomingMessageIdRpcEntriesPerPeer` | 8 | One connected peer's share of the incoming entries, across all of its streams |
-| `MaxIncomingMessageIdRpcBytesPerPeer` | 2 MiB | One connected peer's share of the incoming bytes, across all of its streams |
+| `MaxIncomingMessageIdRpcBytesPerPeer` | 2 MiB | One connected peer's share of the incoming bytes for additional concurrent RPCs |
 
 Every outbound RPC uses the same budgets, including before a reply stream is attached. Admission
 never waits for space. Each peer has one asynchronous writer and owns immutable serialized frames;
@@ -216,7 +216,10 @@ both semaphore waiters and RPCs retained through dispatch. An admitted RPC stays
 synchronous application callbacks return, so inbound publish concurrency is bounded by the entry
 budget divided by handler latency; slow handlers cost incoming capacity rather than forwarding
 latency. Each connected peer may hold at most its per-peer share, charged across every inbound
-stream it has opened, so one peer cannot take the router-wide budget by opening many streams. At
+stream it has opened, so one peer cannot take the router-wide budget by opening many streams. A
+peer holding nothing always gets one RPC admitted, up to `MaxRpcBytes`, so a share smaller than a
+maximum-size RPC never blocks delivery; the share bounds that peer's additional concurrent RPCs.
+The router-wide byte budget must be at least `MaxRpcBytes`, which construction enforces. At
 either limit, publishes are skipped before hashing, validation, caching, delivery credit or
 penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so
 gossip can request them again. Control-only, unwanted-topic and graylisted traffic keep their early

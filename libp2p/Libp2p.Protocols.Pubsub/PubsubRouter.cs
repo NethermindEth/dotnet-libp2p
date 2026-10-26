@@ -343,6 +343,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntriesPerPeer);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytesPerPeer);
+        if (_settings.MaxIncomingMessageIdRpcBytes < _settings.MaxRpcBytes)
+        {
+            // Otherwise a maximum-size RPC could never be admitted, even by an idle router.
+            throw new ArgumentOutOfRangeException(nameof(settings), _settings.MaxIncomingMessageIdRpcBytes,
+                $"{nameof(PubsubSettings.MaxIncomingMessageIdRpcBytes)} must be at least {nameof(PubsubSettings.MaxRpcBytes)}.");
+        }
         _maxIncomingEntries = _settings.MaxIncomingMessageIdRpcEntries;
         _maxIncomingBytes = _settings.MaxIncomingMessageIdRpcBytes;
         _maxIncomingEntriesPerPeer = _settings.MaxIncomingMessageIdRpcEntriesPerPeer;

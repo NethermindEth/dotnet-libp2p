@@ -41,11 +41,14 @@ public class PubsubSettings
     public int OutboundRpcTimeout { get; set; } = 30_000;
     /// <summary>Incoming RPCs retained while awaiting or performing message-ID calculation and dispatch.</summary>
     public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
-    /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs.</summary>
+    /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs. Must be at least <see cref="MaxRpcBytes"/>.</summary>
     public long MaxIncomingMessageIdRpcBytes { get; set; } = 16L * 1024 * 1024;
     /// <summary>Share of <see cref="MaxIncomingMessageIdRpcEntries"/> one connected peer may hold, across all of its streams.</summary>
     public int MaxIncomingMessageIdRpcEntriesPerPeer { get; set; } = 8;
-    /// <summary>Share of <see cref="MaxIncomingMessageIdRpcBytes"/> one connected peer may hold, across all of its streams.</summary>
+    /// <summary>
+    /// Share of <see cref="MaxIncomingMessageIdRpcBytes"/> that bounds one connected peer's additional concurrent RPCs,
+    /// across all of its streams. A peer holding nothing always gets one RPC up to <see cref="MaxRpcBytes"/>.
+    /// </summary>
     public long MaxIncomingMessageIdRpcBytesPerPeer { get; set; } = 2L * 1024 * 1024;
 
     public int MaxConnections { get; set; }

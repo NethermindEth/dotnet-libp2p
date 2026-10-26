@@ -58,12 +58,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         long bytes = rpc.CalculateSize();
                         // A connected peer's share is charged across all of its streams, so one peer
-                        // cannot hold the router-wide budget by opening many inbound streams.
+                        // cannot hold the router-wide budget by opening many inbound streams. A peer
+                        // holding nothing always gets one RPC, up to MaxRpcBytes, so a share smaller than
+                        // a maximum-size RPC cannot block it; the share bounds its additional concurrent RPCs.
                         if (_incomingEntries >= _maxIncomingEntries || bytes > _maxIncomingBytes - _incomingBytes)
                         {
                             skipReason = "capacity";
                         }
-                        else if (admittedPeer is not null &&
+                        else if (admittedPeer is not null && admittedPeer.IncomingEntries != 0 &&
                             (admittedPeer.IncomingEntries >= _maxIncomingEntriesPerPeer || bytes > _maxIncomingBytesPerPeer - admittedPeer.IncomingBytes))
                         {
                             skipReason = "peer-capacity";

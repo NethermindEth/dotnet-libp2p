@@ -60,6 +60,7 @@ public class IncomingAdmissionTests
     public async Task SaturationSkipsPublishesButStillHandlesControls(bool bytes)
     {
         PubsubSettings settings = Settings();
+        settings.MaxRpcBytes = Message().CalculateSize();
         settings.MaxIncomingMessageIdRpcEntries = bytes ? 100 : 2;
         settings.MaxIncomingMessageIdRpcBytes = bytes ? 2L * Message().CalculateSize() : 1024;
         int calculations = 0, deliveries = 0, validations = 0;
@@ -203,6 +204,55 @@ public class IncomingAdmissionTests
         await router.OnRpcAsync(greedy.PeerId, Message(2));
         Assert.That(deliveries, Is.EqualTo(3), "A skipped message ID is not cached.");
         Assert.That(skips, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task IdlePeerAlwaysGetsOneRpcAdmittedUpToMaxRpcBytes()
+    {
+        PubsubSettings settings = Settings();
+        settings.MaxRpcBytes = 10 * 1024 * 1024;
+        Assert.That(settings.MaxIncomingMessageIdRpcBytesPerPeer, Is.LessThan(settings.MaxRpcBytes), "The default share is smaller than one maximum-size RPC.");
+        int deliveries = 0;
+        List<string> skips = [];
+        using MeterListener listener = Skips(reason => { lock (skips) skips.Add(reason); });
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("wanted");
+        router.OnMessage += (_, _, _) => deliveries++;
+        PubsubRouter.PubsubPeer peer = Connect(router, 1), other = Connect(router, 2);
+        Rpc large = new() { Publish = { new Message { Topic = "wanted", Data = ByteString.CopyFrom(new byte[3 * 1024 * 1024]) } } };
+        long size = large.CalculateSize();
+        Assert.That(size, Is.GreaterThan(settings.MaxIncomingMessageIdRpcBytesPerPeer).And.LessThanOrEqualTo(settings.MaxRpcBytes));
+        SemaphoreSlim slots = Slots(router);
+        await slots.WaitAsync(Deadline);
+        Task first = router.OnRpcAsync(peer.PeerId, large);
+        Assert.That(first.IsCompleted, Is.False, "An idle peer's RPC above its share is admitted and waits for a slot.");
+        Assert.That(router.IncomingUsage, Is.EqualTo((1, size)));
+        Assert.That((peer.IncomingEntries, peer.IncomingBytes), Is.EqualTo((1, size)));
+        // The share still bounds additional concurrent RPCs from the same peer.
+        await router.OnRpcAsync(peer.PeerId, Message(2)).WaitAsync(Deadline);
+        Assert.That(skips, Is.EqualTo(new[] { "peer-capacity" }));
+        Task third = router.OnRpcAsync(other.PeerId, Message(3));
+        Assert.That(third.IsCompleted, Is.False, "Another peer's publish is still admitted.");
+        Assert.That(router.IncomingUsage, Is.EqualTo((2, size + Message(3).CalculateSize())));
+        slots.Release();
+        await Task.WhenAll(first, third).WaitAsync(Deadline);
+        Assert.That(deliveries, Is.EqualTo(2));
+        Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
+        Assert.That((peer.IncomingEntries, peer.IncomingBytes), Is.EqualTo((0, 0L)));
+        await router.OnRpcAsync(peer.PeerId, Message(2));
+        Assert.That(deliveries, Is.EqualTo(3), "A skipped message ID is not cached.");
+    }
+
+    [Test]
+    public void RouterWideIncomingBytesMustCoverOneMaximumRpc()
+    {
+        PubsubSettings settings = Settings();
+        settings.MaxRpcBytes = 4 * 1024 * 1024;
+        settings.MaxIncomingMessageIdRpcBytes = settings.MaxRpcBytes - 1;
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubRouter(new PeerStore(), settings));
+        settings.MaxIncomingMessageIdRpcBytes = settings.MaxRpcBytes;
+        using PubsubRouter router = new(new PeerStore(), settings);
+        Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
     }
 
     [Test]

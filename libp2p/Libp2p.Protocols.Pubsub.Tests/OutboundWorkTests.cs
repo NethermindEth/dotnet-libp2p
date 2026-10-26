@@ -378,6 +378,8 @@ public class OutboundWorkTests
         await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "topic" } } } });
         Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Is.EqualTo(new[] { meshPeer.PeerId }));
         await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Publish = { new Message { Topic = "topic", Data = ByteString.CopyFrom([7]) } } });
+        // The mesh peer's hello must have released its entry before the requester's required hello needs it.
+        await meshPeer.Idle.Task.WaitAsync(Deadline);
         ConcurrentQueue<Rpc> sent = [];
         int disconnects = 0;
         PubsubRouter.PubsubPeer requester = router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV10,
