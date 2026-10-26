@@ -133,21 +133,9 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     try
                     {
-                        for (; client.Connected;)
-                        {
-                            if (client.Available == 0)
-                            {
-                                await Task.Yield();
-                            }
-
-                            byte[] buf = new byte[client.ReceiveBufferSize];
-                            int length = await client.ReceiveAsync(buf, SocketFlags.None);
-
-                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..length])) != IOResult.Ok)
-                            {
-                                break;
-                            }
-                        }
+                        await upChannel.WriteFromAsync(
+                            (buffer, cancellation) => client.ReceiveAsync(buffer, SocketFlags.None, cancellation),
+                            client.ReceiveBufferSize, token);
                     }
                     catch (SocketException)
                     {
@@ -161,9 +149,9 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                 {
                     try
                     {
-                        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+                        await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(token))
                         {
-                            if (!await SendAllAsync(client, data, token))
+                            if (!await SendAllAsync(client, read.Data, token))
                             {
                                 await upChannel.CloseAsync();
                                 break;
@@ -256,17 +244,12 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         {
             try
             {
-                while (client.Connected)
+                await upChannel.WriteFromAsync(async (buffer, cancellation) =>
                 {
-                    byte[] buf = new byte[client.ReceiveBufferSize];
-                    int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
-                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
-
-                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
-                    {
-                        break;
-                    }
-                }
+                    int length = await client.ReceiveAsync(buffer, SocketFlags.None, cancellation);
+                    _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, length);
+                    return length;
+                }, client.ReceiveBufferSize, token);
                 _logger?.LogDebug("Ctx({0}): end receiving", connectionCtx.Id);
             }
             catch (SocketException e)
@@ -279,10 +262,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
+                await foreach (ReadResult read in upChannel.ReadAllOwnedAsync())
                 {
-                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, data.Length);
-                    if (!await SendAllAsync(client, data, token))
+                    _logger?.LogDebug("Ctx({0}): send, length={1}", connectionCtx.Id, read.Data.Length);
+                    if (!await SendAllAsync(client, read.Data, token))
                     {
                         break;
                     }

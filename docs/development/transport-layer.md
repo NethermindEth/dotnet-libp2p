@@ -41,6 +41,51 @@ When a real connection is established, the implementation should:
 
 Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
+### Receiving into a channel
+
+Use `IWriter.WriteFromAsync` to forward a socket or stream into the upper channel:
+
+```csharp
+await upChannel.WriteFromAsync(
+    (memory, cancellation) => socket.ReceiveAsync(memory, SocketFlags.None, cancellation),
+    socket.ReceiveBufferSize, token);
+
+// A Stream.ReadAsync method can be passed directly.
+await upChannel.WriteFromAsync(stream.ReadAsync, 1024, token);
+```
+
+The callback fills the supplied memory and returns the received byte count, or zero for EOF.
+It must accept short destinations and stop using the memory when it completes. The writer
+delegates allocation to the shared `Nethermind.Channels` pump. It reuses a pooled buffer only
+after all readers release their references; otherwise it fills unused regions or rents
+another buffer. Pending fragmented reads retain independent ownership while they accumulate.
+
+The pump waits for each channel write before receiving again, passes cancellation to both
+operations, and returns `IOResult.Ok` on source EOF or the first unsuccessful write result.
+Source exceptions propagate. The transport still decides when to call `WriteEofAsync`,
+`CloseAsync`, or `AbortAsync`, preserving its half-close and error behavior.
+
+Use `ReadOwnedAsync` when consuming received bytes within a known scope:
+
+```csharp
+using ReadResult read = await channel.ReadOwnedAsync(length, token: token);
+ReadOnlySequence<byte> bytes = read.OrThrow();
+// Consume bytes before disposing read.
+```
+
+`ReadAllOwnedAsync` keeps each result alive until its iteration ends. `ToSlice()` retains
+an independent pooled reference for forwarding beyond the result's scope. An owned write
+acquires its own reference, so the caller may dispose its slice after starting the write.
+Published bytes must remain unchanged while any reader retains them.
+
+Existing `ReadAsync` still returns indefinitely retainable sequences, copying pooled results
+before release. Writers implementing only the original API also receive detached copies.
+Ordinary sequence writes still require stable storage; their completion does not permit
+overwriting it. Single owned chunks need no payload copy; fragmented exact reads coalesce
+into pooled storage that grows with received bytes. Protocol message limits and consumers
+retaining results remain separate concerns. See the [shared ownership API](../../libp2p/Nethermind.Channels/README.md)
+and [allocation measurements](../../libp2p/Nethermind.Channels.Benchmarks/README.md).
+
 ## Connection protocol
 
 Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.

@@ -1,0 +1,19 @@
+{
+  "stack": "tcp-noise-yamux",
+  "metric": "upload",
+  "unit": "MiB/s",
+  "median": 27.37386124737211,
+  "samples": [
+    27.37386124737211
+  ],
+  "uploadBytes": 32768,
+  "downloadBytes": 0,
+  "warmupCount": 1,
+  "runtime": ".NET 10.0.12",
+  "os": "Microsoft Windows 10.0.26200",
+  "architecture": "X64",
+  "processorCount": 12,
+  "serverGC": false,
+  "tieredCompilation": "0",
+  "timestampUtc": "2026-10-26T13:18:27.2973179+00:00"
+}

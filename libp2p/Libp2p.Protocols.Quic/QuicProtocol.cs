@@ -362,16 +362,17 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         }
     }
 
-    private async Task ExchangeData(QuicStream stream, IChannel upChannel, CancellationToken token)
+    internal async Task ExchangeData(QuicStream stream, IChannel upChannel, CancellationToken token)
     {
         using CancellationTokenSource pumpCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         Task outgoing = Task.Run(async () =>
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(pumpCancellation.Token))
+                await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(pumpCancellation.Token))
                 {
-                    await stream.WriteAsync(data.ToArray(), pumpCancellation.Token);
+                    ReadOnlySequence<byte> data = read.Data;
+                    await stream.WriteAsync(data.IsSingleSegment ? data.First : data.ToArray(), pumpCancellation.Token);
                 }
                 stream.CompleteWrites();
             }
@@ -396,19 +397,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         {
             try
             {
-                while (stream.CanRead)
-                {
-                    byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false, pumpCancellation.Token);
-                    if (len == 0)
-                    {
-                        break;
-                    }
-                    if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]), pumpCancellation.Token) != IOResult.Ok)
-                    {
-                        break;
-                    }
-                }
+                await upChannel.WriteFromAsync(stream.ReadAsync, 1024, pumpCancellation.Token);
                 await upChannel.WriteEofAsync();
             }
             catch (Exception) when (pumpCancellation.IsCancellationRequested)

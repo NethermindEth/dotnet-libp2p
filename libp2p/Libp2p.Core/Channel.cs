@@ -49,6 +49,9 @@ public class Channel : IChannel
     public ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
         => Writer.WriteAsync(slice, token);
 
+    public ValueTask<IOResult> WriteFromAsync(Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
+        int bufferSize, CancellationToken token = default) => Writer.WriteFromAsync(readAsync, bufferSize, token);
+
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Writer.WriteEofAsync(token);
     public ValueTask CloseAsync() => _channel.CloseAsync();
     public ValueTask AbortAsync() => _channel.AbortAsync();
@@ -112,6 +115,11 @@ public class Channel : IChannel
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
             => RecordWrite(await Inner.WriteAsync(slice, token).ConfigureAwait(false), slice.Length);
+
+        public async ValueTask<IOResult> WriteFromAsync(Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
+            int bufferSize, CancellationToken token = default)
+            => (IOResult)await WriterExtensions.WriteFromAsync(Inner.WriteAsync, readAsync, bufferSize,
+                ArrayPool<byte>.Shared, token, static length => RecordWrite(Channels.IOResult.Ok, length)).ConfigureAwait(false);
 
         private static IOResult RecordWrite(Channels.IOResult result, long length)
         {
