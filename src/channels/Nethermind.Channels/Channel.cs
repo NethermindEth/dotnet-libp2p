@@ -183,6 +183,7 @@ public class Channel : IChannel
             _ownerOffset = 0;
         }
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         public async ValueTask<ReadResult> ReadAsync(int length,
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
@@ -350,6 +351,7 @@ public class Channel : IChannel
             return WriteAsync(combined, length, token: token);
         }
 
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
         private async ValueTask<IOResult> WriteCoreAsync(ReadOnlySequence<byte> bytes,
             PooledBuffer.Slice? owner, CancellationToken token)
         {

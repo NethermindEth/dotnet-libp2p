@@ -68,6 +68,13 @@ are released. Memory ownership and pool return behavior also need lifecycle test
 
 ## Recorded results
 
+These are the initial integration measurements at `90139c8`, before pooling
+asynchronous channel state. The later [paired allocation and throughput comparison](https://github.com/NethermindEth/dotnet-libp2p/blob/tcp-receive-buffer-ownership/src/channels/Nethermind.Channels.Benchmarks/README.md#async-state-pooling-comparison)
+measures the optimization with the transport integration in #428. Against its
+prior pooled implementation, native small-read allocations fell 37.5% and
+fragmented-read allocations fell 19.5%. Core owned small-read allocations fell
+48.0%. Synthetic and loopback transport throughput ranges overlapped.
+
 Measured on Windows 10.0.26200, x64, .NET 10.0.12 / SDK 10.0.401, workstation GC,
 12 logical processors. Values below are median allocated bytes per operation,
 rounded to whole bytes. Each operation transfers the complete payload listed
