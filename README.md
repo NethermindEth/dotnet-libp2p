@@ -30,7 +30,7 @@ dotnet add package Nethermind.Libp2p
 
 ```sh
 git clone https://github.com/NethermindEth/dotnet-libp2p.git
-cd ./dotnet-libp2p/libp2p/
+cd ./dotnet-libp2p/
 dotnet build
 dotnet test
 ```
