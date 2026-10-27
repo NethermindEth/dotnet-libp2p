@@ -305,7 +305,8 @@ public class NoiseProtocol : IConnectionProtocol
         {
             for (; ; )
             {
-                ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAll, token: token);
+                // Read any available prefix bytes so EOF after one byte cannot look like EOF between records.
+                ReadResult lengthBytesReadResult = await downChannel.ReadAsync(2, ReadBlockingMode.WaitAny, token: token);
                 if (lengthBytesReadResult.Result != IOResult.Ok)
                 {
                     logger?.LogDebug("Receiving packet length failed due to {}", lengthBytesReadResult.Result);
@@ -313,7 +314,18 @@ public class NoiseProtocol : IConnectionProtocol
                     return lengthBytesReadResult.Result == IOResult.Ended;
                 }
 
-                int length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytesReadResult.Data.ToArray().AsSpan());
+                int length;
+                if (lengthBytesReadResult.Data.Length == 1)
+                {
+                    int highByte = lengthBytesReadResult.Data.ToArray()[0] << 8;
+                    ReadResult tail = await downChannel.ReadAsync(1, token: token);
+                    if (tail.Result != IOResult.Ok) return false;
+                    length = highByte | tail.Data.ToArray()[0];
+                }
+                else
+                {
+                    length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytesReadResult.Data.ToArray().AsSpan());
+                }
 
                 ReadResult dataReadResult = await downChannel.ReadAsync(length, token: token);
                 if (dataReadResult.Result != IOResult.Ok)

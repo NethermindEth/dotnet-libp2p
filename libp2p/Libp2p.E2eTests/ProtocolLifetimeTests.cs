@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -26,8 +28,8 @@ public class ProtocolLifetimeTests
         Channel transport = new();
         Channel dialerUp = new();
         Channel listenerUp = new();
-        IConnectionContext dialerContext = Context(1, 2, dialerUp);
-        IConnectionContext listenerContext = Context(2, 1, listenerUp);
+        IConnectionContext dialerContext = Context(1, 2, dialerUp, lifetime.Token);
+        IConnectionContext listenerContext = Context(2, 1, listenerUp, lifetime.Token);
         IConnectionProtocol dialer = tls ? new TlsProtocol() : new NoiseProtocol();
         IConnectionProtocol listener = tls ? new TlsProtocol() : new NoiseProtocol();
         Task listen = listener.ListenAsync(transport, listenerContext);
@@ -52,16 +54,104 @@ public class ProtocolLifetimeTests
             await Task.WhenAll(listen, dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
-        IConnectionContext Context(int local, int remote, Channel up)
+    }
+
+    [TestCase(false, 0)]
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    [TestCase(true, 1)]
+    [TestCase(false, 2)]
+    [TestCase(true, 2)]
+    public async Task NoiseEofIsOrderlyOnlyBetweenCompleteRecords(bool listenerReceivesEof, int prefixBytes)
+    {
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
+        Channel transport = new();
+        Channel dialerUp = new();
+        Channel listenerUp = new();
+        Task listen = new NoiseProtocol().ListenAsync(transport, Context(2, 1, listenerUp, lifetime.Token));
+        Task dial = new NoiseProtocol().DialAsync(transport.Reverse, Context(1, 2, dialerUp, lifetime.Token));
+        try
         {
-            IConnectionContext context = Substitute.For<IConnectionContext>();
-            context.Peer.Identity.Returns(TestPeers.Identity(local));
-            context.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(local)]);
-            context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(remote) });
-            context.Token.Returns(lifetime.Token);
-            context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(up);
-            return context;
+            Task send = dialerUp.Reverse.WriteVarintAsync(42).AsTask();
+            Assert.That(await listenerUp.Reverse.ReadVarintAsync(lifetime.Token), Is.EqualTo(42));
+            await send;
+            IChannel remote = listenerReceivesEof ? transport.Reverse : transport;
+            if (prefixBytes != 0)
+                await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0, 32 }.AsMemory(0, prefixBytes)), lifetime.Token);
+            await remote.WriteEofAsync(lifetime.Token);
+            await Task.WhenAll(listen, dial).WaitAsync(lifetime.Token);
+            IChannel receiver = listenerReceivesEof ? listenerUp.Reverse : dialerUp.Reverse;
+            Assert.That((await receiver.ReadAsync(1)).Result, Is.EqualTo(prefixBytes == 0 ? IOResult.Ended : IOResult.Aborted));
         }
+        finally
+        {
+            lifetime.Cancel();
+            await transport.AbortAsync();
+            await dialerUp.AbortAsync();
+            await listenerUp.AbortAsync();
+            await Task.WhenAll(listen, dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task NoiseAcceptsFragmentedPrefixesAndPayloads(bool listenerSends)
+    {
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
+        Channel transport = new();
+        Channel dialerUp = new();
+        Channel listenerUp = new();
+        Task listen = new NoiseProtocol().ListenAsync(new FragmentedWrites(transport), Context(2, 1, listenerUp, lifetime.Token));
+        Task dial = new NoiseProtocol().DialAsync(new FragmentedWrites(transport.Reverse), Context(1, 2, dialerUp, lifetime.Token));
+        try
+        {
+            IChannel sender = listenerSends ? listenerUp.Reverse : dialerUp.Reverse;
+            IChannel receiver = listenerSends ? dialerUp.Reverse : listenerUp.Reverse;
+            Task send = sender.WriteVarintAsync(42).AsTask();
+            Assert.That(await receiver.ReadVarintAsync(lifetime.Token), Is.EqualTo(42));
+            await send;
+            await sender.WriteEofAsync(lifetime.Token);
+            await Task.WhenAll(listen, dial).WaitAsync(lifetime.Token);
+            Assert.That((await receiver.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        }
+        finally
+        {
+            lifetime.Cancel();
+            await transport.AbortAsync();
+            await dialerUp.AbortAsync();
+            await listenerUp.AbortAsync();
+            await Task.WhenAll(listen, dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    private sealed class FragmentedWrites(IChannel inner) : IChannel
+    {
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            => inner.ReadAsync(length, blockingMode, token);
+
+        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            if (bytes.Length <= 1) return await inner.WriteAsync(bytes, token);
+            IOResult first = await inner.WriteAsync(bytes.Slice(0, 1), token);
+            return first == IOResult.Ok ? await inner.WriteAsync(bytes.Slice(1), token) : first;
+        }
+
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => inner.WriteEofAsync(token);
+        public ValueTask CloseAsync() => inner.CloseAsync();
+        public ValueTask AbortAsync() => inner.AbortAsync();
+        public ValueTask CloseReadAsync() => inner.CloseReadAsync();
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
+    }
+
+    private static IConnectionContext Context(int local, int remote, Channel up, CancellationToken token)
+    {
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Peer.Identity.Returns(TestPeers.Identity(local));
+        context.Peer.ListenAddresses.Returns([TestPeers.Multiaddr(local)]);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(remote) });
+        context.Token.Returns(token);
+        context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(up);
+        return context;
     }
 
     [Test]
