@@ -63,6 +63,21 @@ class DiscoveryTests(unittest.TestCase):
         self.solution_with(suite, support)
         self.assertEqual([suite], discover(self.repo, self.solution))
 
+    def test_nested_git_worktree_and_checkout_excluded(self):
+        suite = self.project()
+        self.solution_with(suite)
+        for marker in ("file", "directory"):
+            with self.subTest(marker=marker):
+                checkout = self.repo / ".claude/worktrees" / marker
+                project = checkout / "libp2p/Fake.Tests/Fake.Tests.csproj"
+                project.parent.mkdir(parents=True)
+                project.write_text("<Project><IsTestProject>true</IsTestProject></Project>")
+                if marker == "file":
+                    (checkout / ".git").write_text("gitdir: elsewhere\n")
+                else:
+                    (checkout / ".git").mkdir()
+                self.assertEqual([suite], discover(self.repo, self.solution))
+
     def test_missing_solution(self):
         with self.assertRaisesRegex(DiscoveryError, "Cannot read"):
             discover(self.repo, self.solution)

@@ -64,8 +64,10 @@ def discover(repo, solution):
     candidates = set()
     errors = []
     for directory, children, files in os.walk(repo, onerror=walk_error):
+        # A nested .git entry marks a separate checkout, including linked worktrees.
         children[:] = sorted(child for child in children
                              if child not in {".git", "bin", "obj"}
+                             and not (Path(directory) / child / ".git").exists()
                              and (Path(directory) / child).resolve() not in submodules)
         for filename in sorted(files):
             if not filename.endswith(".csproj"):
