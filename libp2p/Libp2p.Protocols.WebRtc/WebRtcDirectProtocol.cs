@@ -260,6 +260,14 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
             case WebRtcDirectRouteAction.AnswerStunAndAdmit:
                 Send(udp, route.Response!, source);
+                // Admitting may have evicted the oldest pending row to make space, and since a pending
+                // row can own a half-finished session, that session has to be disposed here. The table
+                // holds no disposables of its own and dropping one would leak its DTLS stack and the
+                // thread parked in DoHandshake.
+                if (route.EvictedSession is { } evicted)
+                {
+                    _ = evicted.DisposeAsync().AsTask();
+                }
                 Admit(context, table, udp, localEndpoint, route.Key, token);
                 break;
 
@@ -355,7 +363,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // A full established pool is refused here rather than at attach, which keeps capacity for
             // peers that finish a handshake instead of handing it to anyone who can forge a binding
             // request.
-            if (!table.MarkEstablished(key))
+            if (!table.MarkEstablished(key, session))
             {
                 throw new InvalidOperationException("WebRTC-Direct session could not be established: the row is gone or the established cap is full.");
             }
@@ -400,7 +408,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
         }
         finally
         {
-            table.Remove(key);
+            table.Remove(key, session);
             await session.DisposeAsync();
         }
     }

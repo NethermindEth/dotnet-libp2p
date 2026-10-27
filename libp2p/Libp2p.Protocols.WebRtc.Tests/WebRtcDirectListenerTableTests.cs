@@ -67,7 +67,7 @@ public class WebRtcDirectListenerTableTests
         WebRtcDirectRoute<Session> admitted = table.Route(source, BindingRequest(ufrag));
         Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
         Assume.That(table.AttachSession(admitted.Key, session), Is.True);
-        Assume.That(table.MarkEstablished(admitted.Key), Is.True);
+        Assume.That(table.MarkEstablished(admitted.Key, session), Is.True);
         return admitted;
     }
 
@@ -353,7 +353,8 @@ public class WebRtcDirectListenerTableTests
         Assert.Multiple(() =>
         {
             Assert.That(table.AttachSession(admitted.Key, new Session("second")), Is.False);
-            Assert.That(table.MarkEstablished(admitted.Key), Is.False);
+            Assert.That(table.MarkEstablished(admitted.Key, new Session("second")), Is.False,
+                "promotion must be scoped to the session that actually owns the row");
             Assert.That(table.Route(peer, DtlsRecord).Session, Is.SameAs(first));
             Assert.That(table.AttachSession(new WebRtcDirectSessionKey(V2Ufrag(13), false), new Session("absent")),
                 Is.False);
@@ -365,8 +366,9 @@ public class WebRtcDirectListenerTableTests
         {
             WebRtcDirectRoute<Session> route = table.Route(Peer(50_000 + i), BindingRequest(V2Ufrag(2_000 + i)));
             Assume.That(route.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
-            Assume.That(table.AttachSession(route.Key, new Session($"filler-{i}")), Is.True);
-            Assume.That(table.MarkEstablished(route.Key), Is.True);
+            Session filler = new($"filler-{i}");
+            Assume.That(table.AttachSession(route.Key, filler), Is.True);
+            Assume.That(table.MarkEstablished(route.Key, filler), Is.True);
         }
 
         Assert.Multiple(() =>
@@ -483,7 +485,7 @@ public class WebRtcDirectListenerTableTests
 
         WebRtcDirectRoute<Session> beforeSession = table.Route(peer, DtlsRecord);
         Assume.That(table.AttachSession(admitted.Key, session), Is.True);
-        Assume.That(table.MarkEstablished(admitted.Key), Is.True);
+        Assume.That(table.MarkEstablished(admitted.Key, session), Is.True);
         WebRtcDirectRoute<Session> afterSession = table.Route(peer, DtlsRecord);
 
         Assert.Multiple(() =>
@@ -677,10 +679,76 @@ public class WebRtcDirectListenerTableTests
 
         WebRtcDirectRoute<Session> honest = table.Route(Peer(49_000), BindingRequest(V2Ufrag(7_999)));
         Assume.That(honest.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
-        Assume.That(table.AttachSession(honest.Key, new Session("honest")), Is.True);
+        Session honestSession = new("honest");
+        Assume.That(table.AttachSession(honest.Key, honestSession), Is.True);
 
-        Assert.That(table.MarkEstablished(honest.Key), Is.True,
+        Assert.That(table.MarkEstablished(honest.Key, honestSession), Is.True,
             "a peer that completed DTLS must be promotable however many unhandshaken rows exist");
         Assert.That(table.EstablishedCount, Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Eviction must hand back the session it dropped. Making attached-but-unhandshaken rows evictable
+    /// also made eviction capable of discarding a live DTLS stack; the table owns no disposables, so a
+    /// silently dropped session leaks its transport and the thread parked in DoHandshake.
+    /// </summary>
+    [Test]
+    public void EvictingAPendingRowSurrendersItsSessionForDisposal()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+
+        // Fill the pending pool, giving the oldest row a session so eviction has something to drop.
+        WebRtcDirectRoute<Session> first = table.Route(Peer(46_000), BindingRequest(V2Ufrag(7_300)));
+        Assume.That(first.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Session victim = new("victim");
+        Assume.That(table.AttachSession(first.Key, victim), Is.True);
+
+        for (int i = 1; i < WebRtcDirectListenerTable<Session>.MaxPendingSessions; i++)
+        {
+            Assume.That(table.Route(Peer(46_000 + i), BindingRequest(V2Ufrag(7_300 + i))).Action,
+                Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        }
+
+        WebRtcDirectRoute<Session> overflow = table.Route(Peer(45_000), BindingRequest(V2Ufrag(900_001)));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(overflow.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+            Assert.That(overflow.EvictedSession, Is.SameAs(victim),
+                "the evicted row's session must reach the caller, which is the only thing that disposes it");
+        });
+    }
+
+    /// <summary>
+    /// A retired session must not act on the row that replaced it. Eviction can retire a row and a later
+    /// binding request recreate one under the same ufrag, so promotion and removal are scoped to the
+    /// session that owns the row rather than to the ufrag alone.
+    /// </summary>
+    [Test]
+    public void ARetiredSessionCannotPromoteOrRemoveItsSuccessor()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(7_400);
+        IPEndPoint peer = Peer(46_900);
+
+        WebRtcDirectRoute<Session> original = table.Route(peer, BindingRequest(ufrag));
+        Assume.That(original.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Session stale = new("stale");
+        Assume.That(table.AttachSession(original.Key, stale), Is.True);
+        Assume.That(table.Remove(original.Key, stale), Is.True);
+
+        // Same ufrag admitted again; a different session now owns the row.
+        WebRtcDirectRoute<Session> successor = table.Route(peer, BindingRequest(ufrag));
+        Assume.That(successor.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Session live = new("live");
+        Assume.That(table.AttachSession(successor.Key, live), Is.True);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(table.MarkEstablished(successor.Key, stale), Is.False, "the stale session must not promote the new row");
+            Assert.That(table.Remove(successor.Key, stale), Is.False, "nor tear it down");
+            Assert.That(table.Route(peer, DtlsRecord).Session, Is.SameAs(live), "the live session must still own the row");
+            Assert.That(table.MarkEstablished(successor.Key, live), Is.True);
+        });
     }
 }

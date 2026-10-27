@@ -48,7 +48,8 @@ internal readonly record struct WebRtcDirectRoute<TSession>(
     WebRtcDirectSessionKey Key,
     byte[]? Response,
     TSession? Session,
-    IPEndPoint? Egress)
+    IPEndPoint? Egress,
+    TSession? EvictedSession = null)
     where TSession : class
 {
     public static WebRtcDirectRoute<TSession> Drop => default;
@@ -206,6 +207,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         }
 
         WebRtcDirectSessionKey key = KeyFor(credentials.ServerUfrag, source);
+        TSession? evictedSession = null;
 
         lock (_gate)
         {
@@ -229,13 +231,13 @@ internal sealed class WebRtcDirectListenerTable<TSession>
                 return Answer(WebRtcDirectRouteAction.AnswerStun, key, request, source);
             }
 
-            if (!TryAdmitLocked(key, source, datagram.Length))
+            if (!TryAdmitLocked(key, source, datagram.Length, out evictedSession))
             {
                 return WebRtcDirectRoute<TSession>.Drop;
             }
         }
 
-        return Answer(WebRtcDirectRouteAction.AnswerStunAndAdmit, key, request, source);
+        return Answer(WebRtcDirectRouteAction.AnswerStunAndAdmit, key, request, source) with { EvictedSession = evictedSession };
     }
 
     private WebRtcDirectRoute<TSession> RouteDtls(IPEndPoint source)
@@ -264,19 +266,33 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// rules are the same either way. Returns false if the row already exists or admission was refused, and
     /// a refusal answers nothing.
     /// </summary>
-    public bool Admit(WebRtcIceCredentials credentials, IPEndPoint source, int datagramBytes = 1)
+    public bool Admit(WebRtcIceCredentials credentials, IPEndPoint source, int datagramBytes = 1) =>
+        Admit(credentials, source, out _, datagramBytes);
+
+    /// <summary>
+    /// As above, also reporting any session the admission evicted so the caller can dispose it. A
+    /// pending row can own a half-finished session, so eviction is no longer free.
+    /// </summary>
+    public bool Admit(WebRtcIceCredentials credentials, IPEndPoint source, out TSession? evicted, int datagramBytes = 1)
     {
         IPEndPoint normalized = WebRtcDirectStun.Normalize(source);
         WebRtcDirectSessionKey key = KeyFor(credentials.ServerUfrag, normalized);
 
         lock (_gate)
         {
-            return !_byUfrag.ContainsKey(key) && TryAdmitLocked(key, normalized, datagramBytes);
+            if (_byUfrag.ContainsKey(key))
+            {
+                evicted = null;
+                return false;
+            }
+
+            return TryAdmitLocked(key, normalized, datagramBytes, out evicted);
         }
     }
 
-    private bool TryAdmitLocked(WebRtcDirectSessionKey key, IPEndPoint source, int datagramBytes)
+    private bool TryAdmitLocked(WebRtcDirectSessionKey key, IPEndPoint source, int datagramBytes, out TSession? evicted)
     {
+        evicted = null;
         if (!_rateLimiter.TryAccept(source, datagramBytes, out _))
         {
             return false;
@@ -289,7 +305,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             return false;
         }
 
-        if (_pendingCount >= MaxPendingSessions && !TryEvictOldestPendingLocked())
+        if (_pendingCount >= MaxPendingSessions && !TryEvictOldestPendingLocked(out evicted))
         {
             return false;
         }
@@ -326,8 +342,9 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     // what the first attempt used and it has to be kept in step with promotion, removal and reaping —
     // which it was not, so every Row it had ever seen stayed reachable from it for the life of the
     // listener. Reinstate one only with a profile saying the scan matters.
-    private bool TryEvictOldestPendingLocked()
+    private bool TryEvictOldestPendingLocked(out TSession? evicted)
     {
+        evicted = null;
         Row? oldest = null;
 
         foreach (Row row in _byUfrag.Values)
@@ -343,6 +360,10 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             return false;
         }
 
+        // A pending row can now own a session: attaching one no longer promotes the row, so the
+        // oldest-pending victim may be mid-handshake and holding a DTLS stack and a parked thread.
+        // Hand it back; the table owns no disposables and silently dropping it would leak both.
+        evicted = oldest.Session;
         RemoveLocked(oldest);
         return true;
     }
@@ -376,12 +397,12 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// established cap is full. The cap is checked HERE rather than at attach, so a flood of unfinished
     /// handshakes cannot exhaust the capacity reserved for peers that actually completed one.
     /// </summary>
-    public bool MarkEstablished(WebRtcDirectSessionKey key)
+    public bool MarkEstablished(WebRtcDirectSessionKey key, TSession session)
     {
         lock (_gate)
         {
             if (!_byUfrag.TryGetValue(key, out Row? row) ||
-                row.Session is null ||
+                !ReferenceEquals(row.Session, session) ||
                 row.IsEstablished ||
                 _establishedCount >= MaxEstablishedSessions)
             {
@@ -397,11 +418,15 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     }
 
     /// <summary>Forgets a row and every address keyed to it. The caller owns disposing the session.</summary>
-    public bool Remove(WebRtcDirectSessionKey key)
+    public bool Remove(WebRtcDirectSessionKey key, TSession? session = null)
     {
         lock (_gate)
         {
-            if (!_byUfrag.TryGetValue(key, out Row? row))
+            // An eviction can retire a row and a later binding request recreate one under the same
+            // ufrag, so a session tearing itself down must not remove its successor. Passing the
+            // session scopes the removal to the row that actually owns it.
+            if (!_byUfrag.TryGetValue(key, out Row? row) ||
+                (session is not null && !ReferenceEquals(row.Session, session)))
             {
                 return false;
             }
