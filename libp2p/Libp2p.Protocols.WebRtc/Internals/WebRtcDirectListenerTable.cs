@@ -332,7 +332,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
 
         foreach (Row row in _byUfrag.Values)
         {
-            if (row.Session is null && (oldest is null || row.AdmissionSeq < oldest.AdmissionSeq))
+            if (!row.IsEstablished && (oldest is null || row.AdmissionSeq < oldest.AdmissionSeq))
             {
                 oldest = row;
             }
@@ -352,18 +352,43 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     /// session down — if the row is gone, if it already carries a session, or if the established cap is
     /// full. It never replaces an existing session: that would be exactly the re-pointing the class forbids.
     /// </summary>
-    public bool MarkEstablished(WebRtcDirectSessionKey key, TSession session)
+    public bool AttachSession(WebRtcDirectSessionKey key, TSession session)
+    {
+        lock (_gate)
+        {
+            if (!_byUfrag.TryGetValue(key, out Row? row) || row.Session is not null)
+            {
+                return false;
+            }
+
+            // Deliberately does NOT touch the counters. The row stays pending: still inside
+            // MaxPendingSessions, still evictable oldest-first, still on StunOnlyIdleMs. Nothing a peer
+            // can send without completing DTLS may move it out of the cheap pool.
+            row.Session = session;
+            row.LastSeenMs = _nowMs();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Promotes a row whose DTLS handshake has completed. Returns false -- leaving the caller to tear the
+    /// session down -- if the row is gone, has no session attached, is already established, or the
+    /// established cap is full. The cap is checked HERE rather than at attach, so a flood of unfinished
+    /// handshakes cannot exhaust the capacity reserved for peers that actually completed one.
+    /// </summary>
+    public bool MarkEstablished(WebRtcDirectSessionKey key)
     {
         lock (_gate)
         {
             if (!_byUfrag.TryGetValue(key, out Row? row) ||
-                row.Session is not null ||
+                row.Session is null ||
+                row.IsEstablished ||
                 _establishedCount >= MaxEstablishedSessions)
             {
                 return false;
             }
 
-            row.Session = session;
+            row.IsEstablished = true;
             row.LastSeenMs = _nowMs();
             _pendingCount--;
             _establishedCount++;
@@ -402,7 +427,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             // Materialised because RemoveLocked mutates _byUfrag.
             foreach (Row row in _byUfrag.Values.ToArray())
             {
-                long idleBudget = row.Session is null ? StunOnlyIdleMs : EstablishedIdleMs;
+                long idleBudget = row.IsEstablished ? EstablishedIdleMs : StunOnlyIdleMs;
                 if (now - row.LastSeenMs < idleBudget)
                 {
                     continue;
@@ -434,13 +459,13 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             }
         }
 
-        if (row.Session is null)
+        if (row.IsEstablished)
         {
-            _pendingCount--;
+            _establishedCount--;
         }
         else
         {
-            _establishedCount--;
+            _pendingCount--;
         }
     }
 
@@ -486,7 +511,27 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         public IPEndPoint Egress { get; } = egress;
 
         public long LastSeenMs { get; set; } = now;
+
+        /// <summary>
+        /// The per-peer session, attached as soon as a DTLS record needs somewhere to go. Its presence
+        /// answers "can this row receive DTLS", and NOTHING else -- see <see cref="IsEstablished"/>.
+        /// </summary>
         public TSession? Session { get; set; }
+
+        /// <summary>
+        /// Set only once the DTLS handshake has actually completed. This, not <see cref="Session"/>, is
+        /// what buys a row the long idle budget and exemption from eviction.
+        /// <para>
+        /// The two were one field until an automated security review found the consequence: a session is
+        /// created the moment a binding request is admitted, because <c>Route</c> can only return
+        /// <c>DeliverToSession</c> for a row that already has one. Treating that as established handed a
+        /// peer an entry in the small, never-evictable, five-minute pool for the price of a STUN packet
+        /// that costs nothing to forge, and <see cref="MaxEstablishedSessions"/> of them denied the
+        /// listener outright. Attached-but-unhandshaken rows now stay in the cheap pool where they belong.
+        /// </para>
+        /// </summary>
+        public bool IsEstablished { get; set; }
+
         public List<IPEndPoint> Addresses { get; } = [];
     }
 }

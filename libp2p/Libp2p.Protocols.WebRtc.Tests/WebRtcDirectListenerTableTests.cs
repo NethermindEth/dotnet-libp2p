@@ -66,7 +66,8 @@ public class WebRtcDirectListenerTableTests
     {
         WebRtcDirectRoute<Session> admitted = table.Route(source, BindingRequest(ufrag));
         Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
-        Assume.That(table.MarkEstablished(admitted.Key, session), Is.True);
+        Assume.That(table.AttachSession(admitted.Key, session), Is.True);
+        Assume.That(table.MarkEstablished(admitted.Key), Is.True);
         return admitted;
     }
 
@@ -351,9 +352,10 @@ public class WebRtcDirectListenerTableTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(table.MarkEstablished(admitted.Key, new Session("second")), Is.False);
+            Assert.That(table.AttachSession(admitted.Key, new Session("second")), Is.False);
+            Assert.That(table.MarkEstablished(admitted.Key), Is.False);
             Assert.That(table.Route(peer, DtlsRecord).Session, Is.SameAs(first));
-            Assert.That(table.MarkEstablished(new WebRtcDirectSessionKey(V2Ufrag(13), false), new Session("absent")),
+            Assert.That(table.AttachSession(new WebRtcDirectSessionKey(V2Ufrag(13), false), new Session("absent")),
                 Is.False);
         });
 
@@ -363,7 +365,8 @@ public class WebRtcDirectListenerTableTests
         {
             WebRtcDirectRoute<Session> route = table.Route(Peer(50_000 + i), BindingRequest(V2Ufrag(2_000 + i)));
             Assume.That(route.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
-            Assume.That(table.MarkEstablished(route.Key, new Session($"filler-{i}")), Is.True);
+            Assume.That(table.AttachSession(route.Key, new Session($"filler-{i}")), Is.True);
+            Assume.That(table.MarkEstablished(route.Key), Is.True);
         }
 
         Assert.Multiple(() =>
@@ -479,7 +482,8 @@ public class WebRtcDirectListenerTableTests
         Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
 
         WebRtcDirectRoute<Session> beforeSession = table.Route(peer, DtlsRecord);
-        Assume.That(table.MarkEstablished(admitted.Key, session), Is.True);
+        Assume.That(table.AttachSession(admitted.Key, session), Is.True);
+        Assume.That(table.MarkEstablished(admitted.Key), Is.True);
         WebRtcDirectRoute<Session> afterSession = table.Route(peer, DtlsRecord);
 
         Assert.Multiple(() =>
@@ -611,5 +615,72 @@ public class WebRtcDirectListenerTableTests
         }
 
         Assert.That(answered, Is.LessThan(200), "answers to unproven addresses must pass the rate limiter");
+    }
+
+    /// <summary>
+    /// A session attached but not yet handshaken stays in the cheap pool. Raised by automated security
+    /// review: the table used to treat "has a session" as "is established", but a session must exist
+    /// before DTLS can be routed to it, so admitting a forged binding request was enough to take one of
+    /// the <see cref="WebRtcDirectListenerTable{TSession}.MaxEstablishedSessions"/> never-evictable,
+    /// five-minute slots. That let a peer deny the listener for the cost of packets it can mint freely.
+    /// </summary>
+    [Test]
+    public void AttachedButUnhandshakenRows_StayCheapEvictableAndShortLived()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(7_100);
+        IPEndPoint peer = Peer(47_100);
+
+        WebRtcDirectRoute<Session> admitted = table.Route(peer, BindingRequest(ufrag));
+        Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Assume.That(table.AttachSession(admitted.Key, new Session("unhandshaken")), Is.True);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(table.EstablishedCount, Is.EqualTo(0), "attaching a session must not promote the row");
+            Assert.That(table.PendingCount, Is.EqualTo(1), "the row must still be counted against the cheap pool");
+            Assert.That(table.Route(peer, DtlsRecord).Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession),
+                "but DTLS must still route to it, which is why the session had to be attached at all");
+        });
+
+        // Short budget, not the established one.
+        _clock += WebRtcDirectListenerTable<Session>.StunOnlyIdleMs - 1;
+        Assume.That(table.Reap(), Is.Empty);
+        _clock += 2;
+        List<Session> reaped = table.Reap();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reaped, Has.Count.EqualTo(1), "an unhandshaken row must be reaped on StunOnlyIdleMs");
+            Assert.That(table.PendingCount, Is.EqualTo(0));
+            Assert.That(table.EstablishedCount, Is.EqualTo(0));
+        });
+    }
+
+    /// <summary>
+    /// The established cap is spent only by rows that finished a handshake. Filling it with attached
+    /// but unhandshaken rows must not refuse a peer that completes one.
+    /// </summary>
+    [Test]
+    public void UnhandshakenRows_DoNotConsumeTheEstablishedCap()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+
+        for (int i = 0; i < WebRtcDirectListenerTable<Session>.MaxEstablishedSessions + 16; i++)
+        {
+            WebRtcDirectRoute<Session> route = table.Route(Peer(48_000 + i), BindingRequest(V2Ufrag(7_200 + i)));
+            Assume.That(route.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+            Assume.That(table.AttachSession(route.Key, new Session($"pending-{i}")), Is.True);
+        }
+
+        Assume.That(table.EstablishedCount, Is.EqualTo(0));
+
+        WebRtcDirectRoute<Session> honest = table.Route(Peer(49_000), BindingRequest(V2Ufrag(7_999)));
+        Assume.That(honest.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Assume.That(table.AttachSession(honest.Key, new Session("honest")), Is.True);
+
+        Assert.That(table.MarkEstablished(honest.Key), Is.True,
+            "a peer that completed DTLS must be promotable however many unhandshaken rows exist");
+        Assert.That(table.EstablishedCount, Is.EqualTo(1));
     }
 }

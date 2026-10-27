@@ -310,10 +310,13 @@ public class WebRtcDirectProtocol : ITransportProtocol
             _handshakeSlots,
             (data, destination) => Send(udp, data, destination));
 
-        if (!table.MarkEstablished(key, session))
+        // Attach only. The row stays in the cheap pending pool on the short idle budget until DTLS
+        // actually completes; promotion happens in DriveSessionAsync. Attaching is what lets Route
+        // return DeliverToSession, and it must not by itself buy a place in the established pool.
+        if (!table.AttachSession(key, session))
         {
-            // The row went away, or the established cap filled, between admission and here. The
-            // session owns no threads yet, but it must not be left for the GC either.
+            // The row went away between admission and here. The session owns no threads yet, but it
+            // must not be left for the GC either.
             _ = session.DisposeAsync().AsTask();
             return;
         }
@@ -347,6 +350,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // Established faults on failure, timeout and disposal but never cancels, so the token is
             // the only thing that unparks this when the listener stops.
             await session.Established.WaitAsync(token);
+
+            // DTLS is up, so this row has earned the long idle budget and exemption from eviction.
+            // A full established pool is refused here rather than at attach, which keeps capacity for
+            // peers that finish a handshake instead of handing it to anyone who can forge a binding
+            // request.
+            if (!table.MarkEstablished(key))
+            {
+                throw new InvalidOperationException("WebRTC-Direct session could not be established: the row is gone or the established cap is full.");
+            }
 
             // All three are published by the completion above, not polled for.
             if (session.RemoteFingerprint is not { } remoteFingerprint ||
