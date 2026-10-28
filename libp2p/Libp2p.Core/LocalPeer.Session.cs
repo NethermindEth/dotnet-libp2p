@@ -104,7 +104,7 @@ public partial class LocalPeer
         private ITimer? _deadline;
         private int _deadlineStage;
         private bool _deadlineExpired;
-        private bool _initializationAcquired;
+        private bool _inboundInitializationAcquired;
         private readonly HashSet<Task> _upgrades = [];
         private int _applicationOperations;
         private long _idleSince;
@@ -158,18 +158,22 @@ public partial class LocalPeer
             }, null, timeout, Timeout.InfiniteTimeSpan);
         }
 
-        internal bool TryBeginInitialization()
+        internal bool TryBeginInitialization(bool isListener)
         {
             lock (_lifecycleLock)
             {
                 if (_deadlineExpired || _disconnection is not null) throw new OperationCanceledException(ConnectionToken);
-                if (_initializationAcquired) return true;
-                if (Interlocked.Increment(ref peer._initializations) > peer.ResourceLimits.MaxConcurrentInitializations)
+                if (_deadlineStage == 2) return true;
+                if (isListener)
                 {
-                    Interlocked.Decrement(ref peer._initializations);
-                    return false;
+                    if (Interlocked.Increment(ref peer._inboundInitializations) > peer.ResourceLimits.MaxConcurrentInitializations)
+                    {
+                        Interlocked.Decrement(ref peer._inboundInitializations);
+                        return false;
+                    }
+                    _inboundInitializationAcquired = true;
                 }
-                _initializationAcquired = true;
+                // Locally requested sessions keep their deadline without consuming inbound admission.
                 SetDeadline(2, peer.ResourceLimits.InitializationTimeout);
                 return true;
             }
@@ -179,9 +183,9 @@ public partial class LocalPeer
         {
             lock (_lifecycleLock)
             {
-                if (!_initializationAcquired) return;
-                _initializationAcquired = false;
-                Interlocked.Decrement(ref peer._initializations);
+                if (!_inboundInitializationAcquired) return;
+                _inboundInitializationAcquired = false;
+                Interlocked.Decrement(ref peer._inboundInitializations);
             }
         }
 

@@ -80,6 +80,70 @@ public class ResourceDeadlineTests
         await peer.AllStopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task StalledInboundInitializationsDoNotConsumeOutboundCapacity(bool outboundFirst, bool expireOutbound)
+    {
+        Clock clock = new();
+        await using DirectionalInitializingPeer peer = new(clock);
+        LocalPeer.Session inbound = NewSession(peer, 1);
+        LocalPeer.Session outbound = NewSession(peer, 2);
+        try
+        {
+            if (!outboundFirst) peer.UpgradeToSession(inbound, peer.Protocol, true, null);
+            peer.UpgradeToSession(outbound, peer.Protocol, false, null);
+            Clock.Deadline outboundDeadline = clock.Deadlines.Last();
+            if (outboundFirst) peer.UpgradeToSession(inbound, peer.Protocol, true, null);
+            Assert.That(inbound.Connected.IsCompleted, Is.False);
+            Assert.That(outbound.Connected.IsCompleted, Is.False);
+            AssertInboundRefused();
+
+            if (expireOutbound)
+            {
+                outboundDeadline.Fire();
+                Assert.That(outbound.Closed.IsCancellationRequested, Is.True, "Outbound initialization must retain its deadline.");
+                peer.Outbound.SetCanceled(outbound.Closed);
+                await outbound.DisconnectAsync();
+            }
+            else
+            {
+                // Inline continuations include EndInitialization before SetResult returns.
+                peer.Outbound.SetResult();
+                await outbound.Connected.WaitAsync(TimeSpan.FromSeconds(2));
+                outboundDeadline.Fire();
+                Assert.That(outbound.Closed.IsCancellationRequested, Is.False, "A completed outbound initialization must retire its timer.");
+            }
+            AssertInboundRefused(); // Outbound cleanup must not refund the inbound allowance.
+
+            peer.Inbound.SetResult();
+            await inbound.Connected.WaitAsync(TimeSpan.FromSeconds(2));
+            LocalPeer.Session next = NewSession(peer, 3);
+            peer.UpgradeToSession(next, peer.Protocol, true, null);
+            await next.Connected.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            peer.Inbound.TrySetCanceled();
+            peer.Outbound.TrySetCanceled();
+        }
+
+        void AssertInboundRefused() => Assert.That(
+            Assert.Throws<Libp2pException>(() => peer.UpgradeToSession(NewSession(peer, 3), peer.Protocol, true, null))!.Message,
+            Is.EqualTo("Concurrent initialization limit reached."));
+    }
+
+    private sealed class DirectionalInitializingPeer(TimeProvider clock)
+        : LocalPeer(new Identity(), new PeerStore(8), new ProtocolStackSettings(),
+            resourceLimits: new PeerResourceLimits(maxConcurrentInitializations: 1), timeProvider: clock)
+    {
+        public ProtocolRef Protocol { get; } = new(new BlockingProtocol());
+        public TaskCompletionSource Inbound { get; } = new();
+        public TaskCompletionSource Outbound { get; } = new();
+        protected override Task ConnectedTo(ISession session, bool isDialer) => isDialer ? Outbound.Task : Inbound.Task;
+    }
+
     [Test]
     public async Task ObsoleteUpgradeAndInitializationTimersCannotCloseAnEstablishedSession()
     {

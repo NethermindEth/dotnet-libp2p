@@ -39,6 +39,7 @@ public sealed class PeerResourceLimits
 
     public int MaxInboundTcpConnections { get; }
     public int MaxInboundTcpConnectionsPerIp { get; }
+    /// <summary>Maximum concurrent inbound session initializations, including cancelled work still stopping. Outbound initialization does not consume this allowance.</summary>
     public int MaxConcurrentInitializations { get; }
     public TimeSpan InboundUpgradeTimeout { get; }
     public TimeSpan InitializationTimeout { get; }

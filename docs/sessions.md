@@ -124,11 +124,14 @@ Direct `LocalPeer`, `PeerFactory`, `Libp2pPeer`, and `Libp2pPeerFactory` constru
 also accepts `resourceLimits` and `timeProvider`. Positive finite deadlines are
 required. Register a `TimeProvider` in DI to control time in tests.
 
-At most **128 initialization operations** may run per local peer; excess sessions
-are refused without queueing. This allowance remains charged until the initializer
+At most **128 inbound session initialization operations** may run per local peer;
+excess inbound sessions are refused without queueing. Outbound session initialization
+does not consume this allowance, so stalled inbound initialization cannot exhaust it
+for locally requested connections. Both directions retain the initialization deadline.
+This inbound allowance remains charged until the initializer
 returns, even after a timeout. Custom `ConnectedTo` overrides should pass
 `session.Closed` into every asynchronous operation. An application operation which
-ignores cancellation can keep an initialization allowance, but its expired session
+ignores cancellation can keep an inbound initialization allowance, but its expired session
 cannot keep a peer-store slot pinned.
 Custom protocol upgrades must also observe their connection token. TCP keeps admission
 charged and joins protocol completion before returning from listener shutdown. An

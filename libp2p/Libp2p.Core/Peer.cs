@@ -24,7 +24,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public PeerResourceLimits ResourceLimits { get; } = resourceLimits ?? PeerResourceLimits.Default;
     internal TimeProvider Clock { get; } = timeProvider ?? TimeProvider.System;
-    private int _initializations;
+    private int _inboundInitializations;
 
     private const int ConnectionTimeout = 15_000;
     private const int MaxConcurrentDials = 16;
@@ -197,7 +197,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
-        bool initializationAcquired = false;
+        bool initializationStarted = false;
         try
         {
             lock (Sessions)
@@ -205,8 +205,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 if (_disposal is not null) throw new ChannelClosedException();
                 if (Sessions.Any(s => s.State.RemoteAddress.GetPeerId() == remotePeerId))
                     throw new SessionExistsException(remotePeerId);
-                if (!session.TryBeginInitialization()) throw new Libp2pException("Concurrent initialization limit reached.");
-                initializationAcquired = true;
+                if (!session.TryBeginInitialization(isListener)) throw new Libp2pException("Concurrent initialization limit reached.");
+                initializationStarted = true;
                 session.RegisterSession();
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
                 Sessions.Add(session);
@@ -217,7 +217,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch
         {
-            ObserveLateFailure(initializationAcquired ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
+            ObserveLateFailure(initializationStarted ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
             throw;
         }
 
