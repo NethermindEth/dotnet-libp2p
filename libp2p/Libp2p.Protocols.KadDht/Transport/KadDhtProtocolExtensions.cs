@@ -43,6 +43,24 @@ public static class KadDhtProtocolExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(findNearest);
+        return builder.AddKadDhtProtocols((target, _) => findNearest(target), onPeerSeen,
+            baseId, loggerFactory, isExposed, options, valueStore, providerStore, validator);
+    }
+
+    internal static IPeerFactoryBuilder AddKadDhtProtocols(
+        this IPeerFactoryBuilder builder,
+        Func<PublicKey, PeerId?, IEnumerable<DhtNode>> findNearest,
+        Action<DhtNode>? onPeerSeen = null,
+        string baseId = DefaultBaseId,
+        ILoggerFactory? loggerFactory = null,
+        bool isExposed = true,
+        KadDhtOptions? options = null,
+        IValueStore? valueStore = null,
+        IProviderStore? providerStore = null,
+        IRecordValidator? validator = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(findNearest);
 
         var dhtOptions = options ?? new KadDhtOptions();
         WirePeerPolicy.Validate(dhtOptions);
@@ -51,6 +69,7 @@ public static class KadDhtProtocolExtensions
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys, dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes, loggerFactory);
         var dhtValidator = validator ?? DefaultRecordValidator.Instance;
+        IEnumerable<DhtNode> FindNearest(PublicKey target) => findNearest(target, null);
 
         builder = builder.AddRequestResponseProtocol<Message, Message>(
             async (request, ctx, token) =>
@@ -65,11 +84,11 @@ public static class KadDhtProtocolExtensions
 
                     Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, dhtValidator, loggerFactory, token),
 
-                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtOptions, dhtValueStore, findNearest, loggerFactory, ctx, token),
+                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtOptions, dhtValueStore, FindNearest, loggerFactory, ctx, token),
 
                     Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory, token),
 
-                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, findNearest, loggerFactory, ctx, token),
+                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, FindNearest, loggerFactory, ctx, token),
 
                     _ => new Message()
                 };
@@ -82,14 +101,16 @@ public static class KadDhtProtocolExtensions
         return builder;
     }
 
-    private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<DhtNode>> findNearest, ISessionContext ctx, KadDhtOptions options)
+    private static Message HandleFindNode(Message request, Func<PublicKey, PeerId?, IEnumerable<DhtNode>> findNearest, ISessionContext ctx, KadDhtOptions options)
     {
         if (!request.HasKey) return MessageHelper.CreateFindNodeResponse(Enumerable.Empty<DhtNode>());
         var target = new PublicKey(request.Key.ToByteArray());
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
-        // The requester still consumes an inspection slot. Filtering before Take would
-        // allow an unbounded custom callback prefix containing only requester entries.
-        var neighbours = findNearest(target).Take(options.KSize)
+        if (remotePeerId is not null && !WirePeerPolicy.IsValidIdentity(remotePeerId.Bytes, options.MaxPeerIdBytes))
+            remotePeerId = null;
+        // Inspect one extra candidate for the requester, while bounding even a callback
+        // that repeatedly yields that identity. The wire policy still emits at most K.
+        var neighbours = findNearest(target, remotePeerId).Take(WirePeerPolicy.FindNodeCandidateLimit(options))
             .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
         return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: CreateConnectionResolver(ctx));
     }

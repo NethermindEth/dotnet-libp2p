@@ -70,10 +70,13 @@ address parsing consumes budget even on failure; oversized whole addresses are
 skipped. These response limits also apply to custom stores and nearest-peer callbacks
 and do not replace the provider store's retention limits above.
 
-FIND_NODE also counts requester entries toward the inspected prefix before excluding
-them from the response. This can return fewer than `KSize` peers; filtering first
-would permit unbounded enumeration of a custom nearest-peer callback containing
-repeated requester entries.
+When serving FIND_NODE, the handler inspects at most `KSize + 1` candidates before
+excluding the requester and emits at most `KSize` peers. The registered routing
+callbacks exclude the requester during the table lookup, before its own K limit,
+so a requester among the nearest peers does not leave the response short. Custom
+callbacks should supply up to `KSize + 1` candidates when available. Repeated
+requester, invalid, or duplicate entries never extend the bounded prefix, so a
+response can still be shorter than `KSize`.
 
 Wire identities must be complete multihashes with minimal unsigned varint headers of at
 most nine bytes and an exact digest length; unknown hash codes remain structurally

@@ -11,6 +11,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using NSubstitute;
 using NUnit.Framework;
+using Libp2p.Protocols.KadDht.Kademlia;
 using static Nethermind.Libp2p.Protocols.KadDht.Tests.Integration.WirePeerSafetyTests;
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
@@ -119,15 +120,15 @@ public class ReviewFeedbackTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public async Task FindNodeExcludesRequesterWithinBoundedCandidatePrefix(bool allRequester)
+    public async Task FindNodeFillsRequesterSlotWithinBoundedCandidatePrefix(bool allRequester)
     {
         int inspected = 0;
         IEnumerable<DhtNode> Nearest()
         {
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
             {
                 inspected++;
-                Assert.That(inspected, Is.LessThanOrEqualTo(3), "Requester entries still consume candidate slots.");
+                Assert.That(inspected, Is.LessThanOrEqualTo(4), "Even repeated requester entries must have a bounded prefix.");
                 yield return Id(allRequester ? 1 : i + 1).ToDhtNode();
             }
         }
@@ -136,9 +137,72 @@ public class ReviewFeedbackTests
 
         var response = await harness.SendAsync(MessageHelper.CreateFindNodeRequest([1]));
 
+        Assert.That(inspected, Is.EqualTo(4));
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
+            Is.EqualTo(allRequester ? [] : new[] { Id(2), Id(3), Id(4) }));
+    }
+
+    [TestCase("services")]
+    [TestCase("fallback")]
+    [TestCase("integration")]
+    public async Task RegisteredRoutingCallbacksSupplyReplacementForRequester(string path)
+    {
+        var local = Substitute.For<ILocalPeer>();
+        local.Identity.Returns(new Identity(new byte[32]));
+        local.ListenAddresses.Returns(new System.Collections.ObjectModel.ObservableCollection<Multiaddress>());
+        using var routing = new KadDhtProtocol(local, Substitute.For<global::Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(),
+            Substitute.For<IDhtMessageSender>(), new KadDhtOptions { KSize = 3 }, new InMemoryValueStore(), new InMemoryProviderStore());
+        for (int i = 1; i < 65; i++) routing.AddNode(Id(i).ToDhtNode([$"/ip4/127.0.0.1/tcp/{4000 + i}"]));
+        var target = new PublicKey([1]);
+        var requester = routing.RoutingTable!.GetKNearestNeighbour(target.Hash, true)[0];
+        var expected = routing.RoutingTable.GetKNearestNeighbourExcluding(target.Hash, requester.PublicKey.Hash, true);
+        Assert.That(expected, Has.Length.EqualTo(3), "The real routing table must supply a replacement candidate.");
+        using var harness = new KadWireHarness(path, new KadDhtOptions { KSize = 3 }, sharedState: new SharedDhtState());
+        harness.RoutingState!.SetRoutingTable(routing.RoutingTable);
+        harness.Context.State.RemoteAddress = Multiaddress.Decode($"/p2p/{requester.PeerId}");
+
+        var response = await harness.SendAsync(MessageHelper.CreateFindNodeRequest([1]));
+
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
+            Is.EqualTo(expected.Select(node => node.PeerId)));
+        Assert.That(response.CloserPeers.Select(peer => Multiaddress.Decode(peer.Addrs.Single().ToByteArray()).ToString()),
+            Is.EqualTo(expected.Select(node => node.Multiaddrs.Single())));
+    }
+
+    [TestCase(Message.Types.MessageType.FindNode)]
+    [TestCase(Message.Types.MessageType.GetValue)]
+    [TestCase(Message.Types.MessageType.GetProviders)]
+    public async Task RepliesWithoutRequesterStillInspectOnlyKCandidates(Message.Types.MessageType type)
+    {
+        int inspected = 0;
+        IEnumerable<DhtNode> Nearest()
+        {
+            for (int i = 1; i < 5; i++)
+            {
+                Assert.That(++inspected, Is.LessThanOrEqualTo(3));
+                yield return Id(i).ToDhtNode();
+            }
+        }
+        using var harness = new KadWireHarness("direct", new KadDhtOptions { KSize = 3 }, nearest: _ => Nearest());
+        harness.Context.State.RemoteAddress = Multiaddress.Decode($"/p2p/{Id(-1)}");
+
+        var response = await harness.SendAsync(new Message { Type = type, Key = ByteString.CopyFrom(new byte[] { 1 }) });
+
         Assert.That(inspected, Is.EqualTo(3));
         Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
-            Is.EqualTo(allRequester ? [] : new[] { Id(2), Id(3) }));
+            Is.EqualTo(new[] { Id(1), Id(2), Id(3) }));
+    }
+
+    [Test]
+    public async Task FindNodeCandidateLimitDoesNotOverflow()
+    {
+        using var harness = new KadWireHarness("direct", new KadDhtOptions { KSize = int.MaxValue },
+            nearest: _ => [Id(1).ToDhtNode(), Id(2).ToDhtNode()]);
+        harness.Context.State.RemoteAddress = Multiaddress.Decode($"/p2p/{Id(1)}");
+
+        var response = await harness.SendAsync(MessageHelper.CreateFindNodeRequest([1]));
+
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())), Is.EqualTo(new[] { Id(2) }));
     }
 
     [TestCase(false)]

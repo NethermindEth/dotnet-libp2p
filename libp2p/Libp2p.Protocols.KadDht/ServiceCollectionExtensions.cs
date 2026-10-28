@@ -133,10 +133,10 @@ public static class ServiceCollectionExtensions
 
         // Delegate to AddKadDhtProtocols so all incoming message handling uses the same code path
         builder.AddKadDhtProtocols(
-            findNearest: publicKey =>
+            findNearest: (publicKey, excludedPeer) =>
             {
                 EnsureInitialized();
-                var peers = sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
+                var peers = sharedState?.GetKNearestPeers(publicKey, options.KSize, excludedPeer) ?? Array.Empty<DhtNode>();
                 // Enrich addresses from PeerStore (which has correct listen addresses from Identify exchange)
                 // before sending in FindNode responses
                 return EnrichPeerAddresses(peers, peerStore);

@@ -41,6 +41,41 @@ public class CancellationHandlerTests
     }
 
     [Test]
+    public async Task RequestHalfCloseKeepsHandlerAndReplyAlive()
+    {
+        TaskCompletionSource<CancellationToken> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var protocol = new RequestResponseProtocol<StringValue, StringValue>(async (request, _, token) =>
+        {
+            started.TrySetResult(token);
+            await release.Task;
+            return request;
+        }, "/test");
+        var channel = new Channel();
+        var listen = protocol.ListenAsync(channel.Reverse, Substitute.For<ISessionContext>());
+        try
+        {
+            await ((IWriter)channel).WriteSizeAndDataAsync(new StringValue { Value = "value" }.ToByteArray()).OrThrow();
+            var lifetime = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(await channel.WriteEofAsync(), Is.EqualTo(IOResult.Ok));
+            Assert.That(lifetime.IsCancellationRequested, Is.False);
+            release.TrySetResult();
+
+            var response = await ((IReader)channel).ReadPrefixedProtobufAsync(StringValue.Parser).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(response.Value, Is.EqualTo("value"));
+            await listen.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await channel.CloseAsync();
+            try { await listen.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    [Test]
     public async Task ClosedChannelRejectsNormalReturnFromHandlerThatIgnoresCancellation()
     {
         TaskCompletionSource<CancellationToken> started = new(TaskCreationOptions.RunContinuationsAsynchronously);

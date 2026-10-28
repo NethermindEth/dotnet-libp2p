@@ -24,6 +24,10 @@ internal sealed class WirePeerPolicy
         _options = options;
     }
 
+    // One bounded extra candidate can replace the requester in a FIND_NODE reply.
+    internal static int FindNodeCandidateLimit(KadDhtOptions options) =>
+        options.KSize == int.MaxValue ? int.MaxValue : options.KSize + 1;
+
     internal static void Validate(KadDhtOptions options)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.KSize);

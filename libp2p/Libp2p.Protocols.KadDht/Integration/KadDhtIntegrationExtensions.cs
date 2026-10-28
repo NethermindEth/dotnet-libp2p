@@ -106,7 +106,7 @@ public static class KadDhtIntegrationExtensions
 
         // Add the request-response protocol handlers
         return builder.AddKadDhtProtocols(
-            findNearest: publicKey => sharedState.GetKNearestPeers(publicKey),
+            findNearest: (publicKey, excludedPeer) => sharedState.GetKNearestPeers(publicKey, options.KSize, excludedPeer),
             onPeerSeen: node =>
             {
                 // Delegate to SharedDhtState.AddNodeCallback which is set once
