@@ -19,7 +19,7 @@ public class PeerId : IComparable<PeerId>, IComparable
 
     public PeerId(PublicKey publicKey)
     {
-        byte[] serializedPublicKey = PublicKeyDecoder.Normalize(publicKey, out _).ToByteArray();
+        byte[] serializedPublicKey = PublicKeyDecoder.Normalize(publicKey).ToByteArray();
 
         if (serializedPublicKey.Length <= 42)
         {

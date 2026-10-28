@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -316,6 +317,44 @@ public class RemoteSubscriptionLimitsTests
         AssertUsage(router, 2, 12);
         Assert.That(((IRoutingStateContainer)router).GossipsubPeers.Keys, Is.EquivalentTo(new[] { "saved", "x" }),
             "Protected state and the entire new membership must fit before any eviction.");
+    }
+
+    [Test]
+    public void EvictionRejectsAMissingQueueHead() => AssertEvictionFailsClosed(missingHead: true);
+
+    [Test]
+    public void EvictionStopsWhenRemovalMakesNoProgress() => AssertEvictionFailsClosed(missingHead: false);
+
+    private static void AssertEvictionFailsClosed(bool missingHead)
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { MaxRemoteSubscriptions = 1 });
+        router.Subscribe("want");
+        Connect(router, 1);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["junk"], []));
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
+        var queue = (LinkedList<(PubsubRouter.PubsubPeer Peer, string Topic)>)typeof(PubsubRouter)
+            .GetField("_unwantedRemoteSubscriptionOrder", flags)!.GetValue(router)!;
+        var victim = queue.First!;
+        lock (router)
+        {
+            // Simulate a broken correlated index without changing the production cleanup path.
+            if (missingHead) queue.Remove(victim);
+            else victim.Value.Peer.RemoteSubscriptions.Remove(victim.Value.Topic);
+            try
+            {
+                bool admitted = (bool)typeof(PubsubRouter).GetMethod("TryMakeRoomForRemoteSubscription", flags)!
+                    .Invoke(router, ["want", 8L])!;
+                Assert.That(admitted, Is.False, "Failed eviction must reject admission without exceeding a budget.");
+                AssertUsage(router, 1, 8);
+                Assert.That(((IRoutingStateContainer)router).GossipsubPeers.Keys, Is.EquivalentTo(new[] { "junk" }));
+            }
+            finally
+            {
+                // Restore the injected fault so disposal can exercise normal membership cleanup.
+                if (missingHead) queue.AddLast(victim);
+                else victim.Value.Peer.RemoteSubscriptions.Add(victim.Value.Topic);
+            }
+        }
     }
 
     [TestCase(false)]
