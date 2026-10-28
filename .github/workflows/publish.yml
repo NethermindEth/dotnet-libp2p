@@ -1,4 +1,5 @@
 name: Publish
+# cspell:ignore pipefail
 
 on:
   workflow_dispatch:
@@ -39,6 +40,17 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
 
+      - name: List test projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet sln Libp2p.slnx list |
+            awk 'NR > 2 && NF' |
+            grep -E '\.(Tests|E2eTests)\.csproj$' > "$RUNNER_TEMP/publish-test-projects.txt"
+          test -s "$RUNNER_TEMP/publish-test-projects.txt"
+          cat "$RUNNER_TEMP/publish-test-projects.txt"
+
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
         run: dotnet restore
@@ -49,19 +61,12 @@ jobs:
 
       - name: Test
         working-directory: ${{ env.WORKING_DIR }}
-        env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+        shell: bash
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet test "$project" -c "$BUILD_CONFIG" --no-build -- --minimum-expected-tests 1
+          done < "$RUNNER_TEMP/publish-test-projects.txt"
 
       - name: NuGet login
         uses: nuget/login@v1
