@@ -1006,7 +1006,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         CancellationTokenRegistration cancellationRegistration = upgradeToken.Register(() =>
         {
             options?.CompletionSource?.TrySetCanceled(upgradeToken);
-            _ = downChannel.AbortAsync();
+            if (!downChannel.GetAwaiter().IsCompleted) _ = downChannel.AbortAsync();
         });
 
         // Only what was acquired may be released. The acquire below is for inbound streams only,

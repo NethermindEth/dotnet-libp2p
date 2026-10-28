@@ -150,6 +150,10 @@ public class InboundResourceTests
                 }
                 await disconnection.WaitAsync(lifetime.Token);
                 if (!inbound) Assert.CatchAsync<Exception>(async () => await dial);
+                // Remote teardown precedes pin release; target-side removal follows release.
+                var targetSessions = ((LocalPeer)target).Sessions;
+                Assert.That(() => { lock (targetSessions) return targetSessions.Count; }, Is.Zero.After(5000, 20),
+                    "The target must finish disconnecting before checking peer-store retention.");
                 Assert.That(info.Sessions, Is.Zero, "Expiry must release the pin and terminate the remote protocol work.");
             }
             Assert.That(retained.All(info => info.Sessions == 0), Is.True);

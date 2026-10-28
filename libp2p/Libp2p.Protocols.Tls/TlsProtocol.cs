@@ -79,7 +79,6 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             await ExchangeData(sslStream, downChannel, upChannel, context.Token);
             _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            _ = upChannel.CloseAsync();
         }
         catch (Exception ex)
         {
@@ -158,7 +157,6 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
             await ExchangeData(sslStream, downChannel, upChannel, context.Token);
             _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            _ = upChannel.CloseAsync();
         }
         catch (Exception ex)
         {
@@ -191,12 +189,13 @@ public class TlsProtocol : IConnectionProtocol
         CancellationToken token = lifetime.Token;
         using CancellationTokenRegistration abort = token.Register(() =>
         {
-            _ = upChannel.AbortAsync();
-            _ = downChannel.AbortAsync();
+            if (!upChannel.GetAwaiter().IsCompleted) _ = upChannel.AbortAsync();
+            if (!downChannel.GetAwaiter().IsCompleted) _ = downChannel.AbortAsync();
         });
-        Task write = WriteAsync();
-        Task read = ReadAsync();
-        try { await await Task.WhenAny(write, read); }
+        Task<bool> write = WriteAsync();
+        Task<bool> read = ReadAsync();
+        bool orderly = false;
+        try { orderly = await await Task.WhenAny(write, read); }
         catch (Exception failure) when (
             failure is IOException or OperationCanceledException or ChannelClosedException or ChannelAbortedException or ObjectDisposedException &&
             (connectionToken.IsCancellationRequested || downChannel.GetAwaiter().IsCompleted || upChannel.GetAwaiter().IsCompleted))
@@ -205,29 +204,50 @@ public class TlsProtocol : IConnectionProtocol
         }
         finally
         {
-            lifetime.Cancel();
-            await upChannel.AbortAsync();
-            await downChannel.AbortAsync();
-            await Task.WhenAll(write, read).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            try
+            {
+                if (orderly && !connectionToken.IsCancellationRequested)
+                {
+                    await upChannel.CloseAsync();
+                    await downChannel.CloseAsync();
+                }
+                else
+                {
+                    await upChannel.AbortAsync();
+                    await downChannel.AbortAsync();
+                }
+            }
+            finally
+            {
+                lifetime.Cancel();
+                await ((Task)Task.WhenAll(write, read)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
         }
 
-        async Task WriteAsync()
+        async Task<bool> WriteAsync()
         {
             await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
             {
                 await sslStream.WriteAsync(data.ToArray(), token);
                 await sslStream.FlushAsync(token);
             }
+            await sslStream.ShutdownAsync();
+            return true;
         }
 
-        async Task ReadAsync()
+        async Task<bool> ReadAsync()
         {
             while (true)
             {
                 byte[] data = new byte[1024];
                 int length = await sslStream.ReadAsync(data, token);
-                if (length == 0) return;
-                if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(data, 0, length), token) != IOResult.Ok) return;
+                if (length == 0)
+                {
+                    await upChannel.WriteEofAsync(token);
+                    return true;
+                }
+                IOResult result = await upChannel.WriteAsync(new ReadOnlySequence<byte>(data, 0, length), token);
+                if (result != IOResult.Ok) return result == IOResult.Ended;
             }
         }
     }

@@ -83,13 +83,17 @@ public class IpTcpProtocol : ITransportProtocol
         IPEndPoint endpoint = listenAddr.ToEndPoint();
         listener.Bind(endpoint);
         listener.Listen();
+        context.Activity?.SetTag("listen-on-addr", endpoint.Address);
+        context.Activity?.SetTag("listen-on-port", endpoint.Port);
         if (endpoint.Port == 0) listenAddr.ReplaceOrAdd<TCP>(((IPEndPoint)listener.LocalEndPoint!).Port);
         Admission admission = Admissions.GetValue(context.ConnectionAdmissionScope, _ => new Admission(context.ResourceLimits));
         HashSet<Task> active = [];
         Exception? setupFailure = null;
         using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         using CancellationTokenRegistration listenerCancellation = lifetime.Token.Register(listener.Close);
+        _logger?.LogDebug("Ready to handle connections at {Address}", listenAddr);
         context.ListenerReady(listenAddr);
+        context.Activity?.AddEvent(new ActivityEvent("ready"));
         try
         {
             while (true)
@@ -99,7 +103,8 @@ public class IpTcpProtocol : ITransportProtocol
                 string scope;
                 try
                 {
-                    IPAddress source = ((IPEndPoint)client.RemoteEndPoint!).Address;
+                    IPAddress source = (client.RemoteEndPoint as IPEndPoint
+                        ?? throw new Libp2pException("RemoteEndPoint is not set for accepted connection.")).Address;
                     permit = admission.TryAcquire(source, out scope);
                 }
                 catch
@@ -164,7 +169,15 @@ public class IpTcpProtocol : ITransportProtocol
     public async Task DialAsync(ITransportContext context, Multiaddress remoteAddr, CancellationToken token)
     {
         using Socket client = new(SocketType.Stream, ProtocolType.Tcp);
-        await client.ConnectAsync(remoteAddr.ToEndPoint(), token);
+        IPEndPoint endpoint = remoteAddr.ToEndPoint();
+        _logger?.LogDebug("Dialling {Address}:{Port}", endpoint.Address, endpoint.Port);
+        try { await client.ConnectAsync(endpoint, token); }
+        catch (SocketException failure)
+        {
+            _logger?.LogDebug("Failed to connect {Address}", remoteAddr);
+            _logger?.LogTrace(failure, "TCP connection failed");
+            throw;
+        }
         await RunConnectionAsync(client, context, remoteAddr, token);
     }
 
@@ -178,12 +191,19 @@ public class IpTcpProtocol : ITransportProtocol
             connection = context.CreateConnection();
             using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, connection.Token);
             using CancellationTokenRegistration closeSocket = lifetime.Token.Register(client.Close);
-            connection.State.RemoteAddress = client.RemoteEndPoint!.ToMultiaddress(ProtocolType.Tcp);
-            connection.State.LocalAddress = client.LocalEndPoint!.ToMultiaddress(ProtocolType.Tcp);
+            EndPoint remoteEndpoint = client.RemoteEndPoint ?? throw new Libp2pException("RemoteEndPoint is not set for client connection.");
+            EndPoint localEndpoint = client.LocalEndPoint ?? throw new Libp2pException("LocalEndPoint is not set for client connection.");
+            connection.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Tcp);
+            connection.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Tcp);
+            // A listener activity spans all accepts: log connections rather than retaining an event per accept.
+            _logger?.LogDebug("Connected {Endpoint}", remoteEndpoint);
             if (remoteAddr?.Get<P2P>() is { } requestedPeerId) connection.State.RemoteAddress.Add(requestedPeerId);
             channel = connection.Upgrade();
             started = true;
-            using CancellationTokenRegistration abortChannel = lifetime.Token.Register(() => _ = channel.AbortAsync());
+            using CancellationTokenRegistration abortChannel = lifetime.Token.Register(() =>
+            {
+                if (!channel.GetAwaiter().IsCompleted) _ = channel.AbortAsync();
+            });
 #if DEBUG
             TriggerDisconnectionEvent disconnect = localPeerId =>
             {
@@ -191,23 +211,29 @@ public class IpTcpProtocol : ITransportProtocol
             };
             lock (DisconnectionLock) TriggerDisconnection += disconnect;
 #endif
-            Task receive = ReceiveAsync();
-            Task send = SendAsync();
+            Task<bool> receive = ReceiveAsync();
+            Task<bool> send = SendAsync();
+            bool orderly = false;
             try
             {
-                await Task.WhenAny(receive, send);
+                Task<bool> completed = await Task.WhenAny(receive, send);
+                orderly = completed.IsCompletedSuccessfully && completed.Result && !lifetime.IsCancellationRequested;
             }
             finally
             {
                 try
                 {
-                    try { lifetime.Cancel(); }
-                    finally { await channel.AbortAsync(); }
+                    try
+                    {
+                        if (orderly) await channel.CloseAsync();
+                        else await channel.AbortAsync();
+                    }
+                    finally { lifetime.Cancel(); }
                 }
                 finally
                 {
                     client.Dispose();
-                    try { await Task.WhenAll(receive, send).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing); }
+                    try { await ((Task)Task.WhenAll(receive, send)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing); }
                     finally
                     {
 #if DEBUG
@@ -217,7 +243,7 @@ public class IpTcpProtocol : ITransportProtocol
                 }
             }
 
-            async Task ReceiveAsync()
+            async Task<bool> ReceiveAsync()
             {
                 int capacity = client.ReceiveBufferSize;
                 byte[] scratch = _receiveBufferPool.Rent(capacity);
@@ -227,16 +253,23 @@ public class IpTcpProtocol : ITransportProtocol
                     {
                         int length = await client.ReceiveAsync(scratch.AsMemory(0, capacity), SocketFlags.None, lifetime.Token);
                         // WaitAll readers may retain fragments: publish only compact, owned storage.
-                        if (length == 0 || await channel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), lifetime.Token) != IOResult.Ok) return;
+                        if (length == 0)
+                        {
+                            await channel.WriteEofAsync(lifetime.Token);
+                            return true;
+                        }
+                        IOResult result = await channel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), lifetime.Token);
+                        if (result != IOResult.Ok) return result == IOResult.Ended;
                     }
                 }
                 finally { _receiveBufferPool.Return(scratch); }
             }
 
-            async Task SendAsync()
+            async Task<bool> SendAsync()
             {
                 await foreach (ReadOnlySequence<byte> data in channel.ReadAllAsync(lifetime.Token))
-                    if (!await SendAllAsync(client, data, lifetime.Token)) return;
+                    if (!await SendAllAsync(client, data, lifetime.Token)) return false;
+                return true;
             }
         }
         catch (Exception failure)
@@ -249,7 +282,7 @@ public class IpTcpProtocol : ITransportProtocol
             client.Dispose();
             try
             {
-                if (channel is not null) await channel.AbortAsync();
+                if (channel is not null && !channel.GetAwaiter().IsCompleted) await channel.AbortAsync();
             }
             finally
             {
