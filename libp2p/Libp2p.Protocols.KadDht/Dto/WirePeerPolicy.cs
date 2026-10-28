@@ -64,8 +64,9 @@ internal sealed class WirePeerPolicy
     internal (DhtNode[] Closer, DhtNode[] Providers) ReadResponse(Message response, Action<DhtNode>? discovered = null, bool includeProviders = true)
     {
         var seen = new HashSet<PeerId>();
-        var closer = ReadPeers(response.CloserPeers, _options.KSize, false, seen, discovered);
+        // Providers answer the query; closer peers use the remaining shared budget.
         var providers = includeProviders ? ReadPeers(response.ProviderPeers, _options.MaxProvidersPerKey, true, seen, discovered) : Array.Empty<DhtNode>();
+        var closer = ReadPeers(response.CloserPeers, _options.KSize, false, seen, discovered);
         return (closer, providers);
     }
 
@@ -80,7 +81,7 @@ internal sealed class WirePeerPolicy
             var node = ReadPeer(peers[i], provider ? _options.MaxAddressesPerProvider : _options.MaxAddressesPerPeer);
             if (node is null || (!provider && node.Multiaddrs.Count == 0)) continue;
             result.Add(node);
-            if (seen.Add(node.PeerId) && node.Multiaddrs.Count > 0) discovered?.Invoke(node);
+            if (node.Multiaddrs.Count > 0 && seen.Add(node.PeerId)) discovered?.Invoke(node);
         }
         return result.ToArray();
     }
@@ -121,9 +122,9 @@ internal sealed class WirePeerPolicy
     internal void AppendResponse(Message response, IEnumerable<DhtNode>? closer, IEnumerable<DhtNode>? providers,
         Func<PeerId, Message.Types.ConnectionType>? connection = null)
     {
-        var seen = new HashSet<PeerId>();
-        Append(response, closer, false, seen, connection);
+        // Preserve provider records before spending the shared budget on fallback peers.
         Append(response, providers, true, new HashSet<PeerId>(), connection);
+        Append(response, closer, false, new HashSet<PeerId>(), connection);
     }
 
     private void Append(Message response, IEnumerable<DhtNode>? nodes, bool provider, HashSet<PeerId> seen,

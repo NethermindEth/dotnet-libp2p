@@ -62,8 +62,10 @@ Wire peer responses have separate positive limits: `MaxPeerIdBytes` (128 bytes),
 per peer), and `MaxPeerResponseBytes` (64 KiB across both peer lists). The first
 `KSize` closer entries and `MaxProvidersPerKey` provider entries are inspected;
 provider addresses use `MaxAddressesPerProvider`. Invalid, duplicate, and skipped
-entries consume slots. Closer peers take priority over providers in the combined
-budget. Encoded bytes (including protobuf peer-field framing) and retained payload
+entries consume slots. GET_PROVIDERS gives provider records priority when building
+and reading a response; closer peers use the remaining combined budget. Provider
+records can still be truncated when they exhaust that budget themselves. Encoded
+bytes (including protobuf peer-field framing) and retained payload
 are bounded independently. Retained payload charges both identity copies and UTF-16
 address strings, including destination IDs appended during normalization. Admitted
 address parsing consumes budget even on failure; oversized whole addresses are
