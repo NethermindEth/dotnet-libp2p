@@ -201,6 +201,30 @@ public class PeerScoringTests
         Assert.That(topicScore.MeshFailurePenalty, Is.GreaterThan(0.0), "Leaving mesh should apply failure penalty");
     }
 
+    /// <remarks>
+    /// What go-libp2p and rust-libp2p do to a score they keep for a disconnected peer.
+    /// </remarks>
+    [Test]
+    public void Disconnect_DropsFirstDeliveryCredit_AndChargesTheMeshDeliveryDeficit()
+    {
+        PubsubSettings settings = new();
+        settings.TopicScoreParams[TestTopic] = CreateDefaultTopicParams();
+        PeerScore peerScore = new(settings);
+        TopicScore topicScore = peerScore.GetTopicScore(TestTopic);
+        topicScore.RecordFirstMessageDelivery();
+        topicScore.RecordFirstMessageDelivery();
+        topicScore.MeshJoinTime = DateTime.UtcNow.AddSeconds(-10);
+
+        peerScore.Disconnect();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(topicScore.FirstMessageDeliveries, Is.Zero);
+            Assert.That(topicScore.MeshJoinTime, Is.Null, "The peer is no longer in the mesh.");
+            Assert.That(topicScore.MeshFailurePenalty, Is.EqualTo(400), "20 deliveries were due after 5 s in the mesh and none came: 20².");
+        });
+    }
+
     [Test]
     public void Test_TopicScore_Decay_ReducesScoreOverTime()
     {

@@ -26,4 +26,9 @@
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../../samples/chat/ChatProtocol.cs" Link="Samples/ChatProtocol.cs" />
+    <Compile Include="../../samples/maui-chat/ChatProtocol.cs" Link="Samples/MauiChatProtocol.cs" />
+  </ItemGroup>
+
 </Project>

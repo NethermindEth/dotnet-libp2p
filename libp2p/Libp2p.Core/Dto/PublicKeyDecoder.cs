@@ -44,6 +44,25 @@ public static class PublicKeyDecoder
             throw new Libp2pException("Public key is not valid protobuf.", e);
         }
 
+        PublicKey canonical = Normalize(publicKey, out int rsaKeyBits);
+        if (canonical.Type == KeyType.Rsa && rsaKeyBits < 2048)
+        {
+            throw new Libp2pException($"RSA public key must be at least 2048 bits, got {rsaKeyBits}.");
+        }
+        return canonical;
+    }
+
+    /// <summary>Returns a canonical copy of a local public key without applying remote admission policy.</summary>
+    /// <remarks>
+    /// Use <see cref="Decode"/> for remote key material. Local serialization preserves
+    /// imported RSA identities below the remote size floor and does not change the caller's key.
+    /// </remarks>
+    /// <exception cref="Libp2pException">The key does not carry usable material in a supported format.</exception>
+    public static PublicKey Normalize(PublicKey publicKey) => Normalize(publicKey, out _);
+
+    internal static PublicKey Normalize(PublicKey publicKey, out int rsaKeyBits)
+    {
+        rsaKeyBits = 0;
         // Protobuf does not enforce proto2 required fields, so a key with no
         // type, or a type outside the enum, parses successfully.
         if (!publicKey.HasType || !Enum.IsDefined(publicKey.Type))
@@ -51,6 +70,7 @@ public static class PublicKeyDecoder
             throw new Libp2pException("Public key does not declare a known key type.");
         }
 
+        ByteString data = publicKey.Data;
         try
         {
             switch (publicKey.Type)
@@ -66,15 +86,16 @@ public static class PublicKeyDecoder
                     }
                     break;
                 case KeyType.Secp256K1:
-                    publicKey.Data = CompressSecp256k1(publicKey.Data);
+                    data = CompressSecp256k1(data);
                     break;
                 case KeyType.Rsa:
-                    // No key size bounds: identities generated here use 1024-bit
-                    // keys, which go-libp2p's 2048 floor would reject.
                     using (RSA rsa = RSA.Create())
                     {
                         rsa.ImportSubjectPublicKeyInfo(publicKey.Data.Span, out int rsaBytesRead);
                         RejectTrailingBytes(publicKey, rsaBytesRead);
+                        rsaKeyBits = checked((int)new System.Numerics.BigInteger(
+                            rsa.ExportParameters(false).Modulus!, isUnsigned: true, isBigEndian: true).GetBitLength());
+                        data = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
                     }
                     break;
                 case KeyType.Ecdsa:
@@ -82,6 +103,12 @@ public static class PublicKeyDecoder
                     {
                         ecdsa.ImportSubjectPublicKeyInfo(publicKey.Data.Span, out int ecdsaBytesRead);
                         RejectTrailingBytes(publicKey, ecdsaBytesRead);
+                        // Re-export preserves explicit parameters, allowing another ID for the same key.
+                        if (!ecdsa.ExportParameters(false).Curve.IsNamed)
+                        {
+                            throw new Libp2pException("ECDSA public key must use a named curve.");
+                        }
+                        data = ByteString.CopyFrom(ecdsa.ExportSubjectPublicKeyInfo());
                     }
                     break;
             }
@@ -91,7 +118,8 @@ public static class PublicKeyDecoder
             throw new Libp2pException($"Public key does not hold usable {publicKey.Type} material.", e);
         }
 
-        return publicKey;
+        // Libp2p key serialization contains exactly Type and Data, in tag order.
+        return new PublicKey { Type = publicKey.Type, Data = data };
     }
 
     /// <summary>

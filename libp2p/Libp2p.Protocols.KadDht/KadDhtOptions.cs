@@ -1,4 +1,5 @@
 using System;
+using Libp2p.Protocols.KadDht.Storage;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -56,6 +57,26 @@ public class KadDhtOptions
     /// Default: 20
     /// </summary>
     public int MaxProvidersPerKey { get; set; } = 20;
+
+    /// <summary>
+    /// Maximum number of keys retained by the default provider store. New keys are
+    /// rejected at capacity unless a fully expired key can be reclaimed. Default: 10,000.
+    /// </summary>
+    public int MaxProviderKeys { get; set; } = ProviderRecordLimits.DefaultMaxProviderKeys;
+
+    /// <summary>
+    /// Maximum number of address entries inspected per provider record. Default: 16.
+    /// Skipped or malformed entries still consume a slot.
+    /// </summary>
+    public int MaxAddressesPerProvider { get; set; } = ProviderRecordLimits.DefaultMaxAddressesPerProvider;
+
+    /// <summary>
+    /// Maximum retained variable-length payload bytes per provider record. Includes
+    /// the Base64 key and Base58 peer dictionary key (UTF-16), peer ID bytes, and
+    /// address strings (UTF-16). Oversized identities are rejected; whole addresses
+    /// that do not fit are omitted. Default: 1,024.
+    /// </summary>
+    public int MaxProviderRecordBytes { get; set; } = ProviderRecordLimits.DefaultMaxProviderRecordBytes;
 
     /// <summary>
     /// Interval for refreshing routing table buckets
