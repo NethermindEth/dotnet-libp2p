@@ -22,7 +22,10 @@ the Go-derived secp256k1 vectors. Reference behavior and tests are pinned to
 [Go's peer implementation](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/peer/peer.go)
 and [peer tests](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/peer/peer_test.go).
 
-Remote RSA keys require a modulus of at least 2048 significant bits. New local
+Remote RSA keys require a modulus of 2048 through 8192 significant bits and a
+public exponent between 2 and 2147483647. The upper bounds are checked from the encoded parameters
+before native key import, bounding subsequent RSA verification work. These are
+remote admission limits; local key normalization keeps its existing contract. New local
 RSA identities use 2048 bits. Existing private-key imports remain readable and
 are never regenerated silently. Local pubsub publication uses `PublicKeyDecoder.Normalize`
 without applying remote RSA admission policy; receivers still reject weak keys.
