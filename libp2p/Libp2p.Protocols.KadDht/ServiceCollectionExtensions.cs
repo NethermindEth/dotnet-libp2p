@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IValueStore>(sp =>
             new InMemoryValueStore(options.MaxStoredValues, sp.GetService<ILoggerFactory>()));
         services.AddSingleton<IProviderStore>(sp =>
-            new InMemoryProviderStore(options.MaxProvidersPerKey, sp.GetService<ILoggerFactory>()));
+            new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes, sp.GetService<ILoggerFactory>()));
 
         services.AddSingleton<SharedDhtState>(sp =>
         {
@@ -90,7 +90,7 @@ public static class ServiceCollectionExtensions
         var valueStore = serviceProvider.GetService<IValueStore>()
             ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = serviceProvider.GetService<IProviderStore>()
-            ?? new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
+            ?? new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes, loggerFactory);
         var validator = serviceProvider.GetService<IRecordValidator>()
             ?? CompositeRecordValidator.CreateDefault();
         var peerStore = serviceProvider.GetService<PeerStore>();

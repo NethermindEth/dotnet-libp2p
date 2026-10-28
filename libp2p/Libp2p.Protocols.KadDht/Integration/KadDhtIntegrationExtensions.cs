@@ -50,7 +50,7 @@ public static class KadDhtIntegrationExtensions
         var services = libp2pBuilder.Services;
 
         var dhtValueStore = valueStore ?? new InMemoryValueStore(options.MaxStoredValues);
-        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey);
+        var dhtProviderStore = providerStore ?? new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes);
         var dhtValidator = CompositeRecordValidator.CreateDefault();
 
         services.AddSingleton<LibP2pKademliaMessageSender>(sp =>
