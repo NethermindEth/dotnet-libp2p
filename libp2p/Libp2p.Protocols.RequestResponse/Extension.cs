@@ -34,14 +34,10 @@ public static class RequestResponseExtensions
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
     {
-        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
-            readTimeout, protocolId,
-            handler,
-            builder.ServiceProvider.GetService<ILoggerFactory>(),
-            expectsResponse,
-            maxMessageSize, timeProvider ?? builder.ServiceProvider.GetService<TimeProvider>());
-
-        return builder.AddProtocol(protocol, isExposed);
+        ArgumentNullException.ThrowIfNull(handler);
+        return builder.AddRequestResponseProtocol<TRequest, TResponse>(readTimeout,
+            (request, context, _) => handler(request, context), protocolId,
+            isExposed, expectsResponse, maxMessageSize, timeProvider);
     }
 
     public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
@@ -68,9 +64,19 @@ public static class RequestResponseExtensions
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
     {
-        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
-            readTimeout, cancellationHandler, protocolId, builder.ServiceProvider.GetService<ILoggerFactory>(), expectsResponse, maxMessageSize,
-            timeProvider ?? builder.ServiceProvider.GetService<TimeProvider>());
-        return builder.AddProtocol(protocol, isExposed);
+        RequestResponseProtocol<TRequest, TResponse>.ValidateReadOptions(readTimeout, maxMessageSize);
+        ArgumentNullException.ThrowIfNull(protocolId);
+        ArgumentNullException.ThrowIfNull(cancellationHandler);
+
+        RequestResponseProtocol<TRequest, TResponse> CreateProtocol(IServiceProvider services)
+            => new(readTimeout, cancellationHandler, protocolId, services.GetService<ILoggerFactory>(),
+                expectsResponse, maxMessageSize, timeProvider ?? services.GetService<TimeProvider>());
+
+        if (builder is IProtocolFactoryBuilder factories)
+        {
+            factories.AddProtocolFactory(services => new ProtocolRef(CreateProtocol(services), isExposed));
+            return builder;
+        }
+        return builder.AddProtocol(CreateProtocol(builder.ServiceProvider), isExposed);
     }
 }

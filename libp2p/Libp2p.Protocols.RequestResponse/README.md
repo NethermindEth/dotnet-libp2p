@@ -64,6 +64,10 @@ handlers retain the channel lifetime token.
 Timeouts must be positive, finite, and at most
 `TimeSpan.FromMilliseconds(uint.MaxValue - 1)`. Both handler forms accept an optional
 `TimeProvider` in the new overloads; builder extensions also resolve it from DI.
+Builders supporting `IProtocolFactoryBuilder` resolve the clock from the final
+services at `Build()`, including services added after protocol registration. An
+explicit `TimeProvider` takes precedence over DI. Builders without protocol factories
+resolve the clock from their current service provider during registration.
 Routine channel closure, aborts, duplicate sessions, and expected read cancellations
 are logged at Debug. Other stream failures are logged at Warning with the exception
 attached. Exceptions continue to propagate to the stream owner.

@@ -462,6 +462,27 @@ public class RequestResponseReadTests
     }
 
     [Test]
+    public void FactoryRegistrationRejectsInvalidArgumentsImmediately(
+        [Values(false, true)] bool cancellationHandler,
+        [Values("timeout", "message-size", "protocol-id", "handler")] string invalid)
+    {
+        var builder = Substitute.For<IPeerFactoryBuilder, IProtocolFactoryBuilder>();
+        var timeout = invalid == "timeout" ? TimeSpan.Zero : ReadTimeout;
+        int maxMessageSize = invalid == "message-size" ? -1 : 1024;
+        string id = invalid == "protocol-id" ? null! : "/test/1";
+        TestDelegate register = cancellationHandler
+            ? () => builder.AddRequestResponseProtocol<StringValue, StringValue>(timeout,
+                invalid == "handler" ? null! : (request, _, _) => Task.FromResult(request), id, maxMessageSize: maxMessageSize)
+            : () => builder.AddRequestResponseProtocol<StringValue, StringValue>(timeout, id,
+                invalid == "handler" ? null! : (request, _) => Task.FromResult(request), maxMessageSize: maxMessageSize);
+        if (invalid is "handler" or "protocol-id")
+            Assert.Throws<ArgumentNullException>(register);
+        else
+            Assert.Throws<ArgumentOutOfRangeException>(register);
+        ((IProtocolFactoryBuilder)builder).DidNotReceive().AddProtocolFactory(Arg.Any<Func<IServiceProvider, ProtocolRef>>());
+    }
+
+    [Test]
     public void CancellationOverloadsKeepPositionalDefaultCompatibility()
     {
         var protocol = new RequestResponseProtocol<StringValue, StringValue>((request, _, _) => Task.FromResult(request), "/test/1", default);

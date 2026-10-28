@@ -22,6 +22,13 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
     public static TimeSpan DefaultReadTimeout { get; } = TimeSpan.FromSeconds(30);
 
+    internal static void ValidateReadOptions(TimeSpan readTimeout, int maxMessageSize)
+    {
+        if (readTimeout <= TimeSpan.Zero || readTimeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+            throw new ArgumentOutOfRangeException(nameof(readTimeout));
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
+    }
+
     /// <summary>Deadline for a complete length prefix and protobuf body.</summary>
     public TimeSpan ReadTimeout { get; }
 
@@ -76,9 +83,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         int maxMessageSize = int.MaxValue,
         TimeProvider? timeProvider = null)
     {
-        if (readTimeout <= TimeSpan.Zero || readTimeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
-            throw new ArgumentOutOfRangeException(nameof(readTimeout));
-        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
+        ValidateReadOptions(readTimeout, maxMessageSize);
 
         ReadTimeout = readTimeout;
         _timeProvider = timeProvider ?? TimeProvider.System;
