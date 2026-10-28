@@ -557,4 +557,20 @@ Required PR description text:
 
 > Stacked on PR #416, targeting `feature/20261023-212739-3e2248`. Preserves the parent fixes and is limited to TLS certificate-list cardinality enforcement.
 
+Use the following validation table in the host-published PR description. It
+replaces the obsolete claim of TLS 58/58 on both current platforms; it does not
+transfer historical Windows results to the revised source.
+
+| Check | Result | Tested source and scope |
+| --- | --- | --- |
+| Linux TLS, Release with warnings as errors | 79/79 passed, no skips | `77671d589fd4ec61a5cb5ed57db54cd6dce3ef8c` |
+| Linux registered transport and identity controls | 76/76 passed, no skips | Same revision and build configuration |
+| Windows TLS / QUIC / registered controls | 68/68 / 32/32 / 36/36 passed, no skips | Historical `7f27c7d64f1fa6c5ab9faaa082efe7dbf16b70d7`; predates the final-write acknowledgement repair |
+
+The managed backend uses Bouncy Castle cipher selection rather than OS
+Schannel/OpenSSL cipher policy. Absent-ALPN compatibility remains deliberate;
+QUIC remains on MsQuic. These operational choices must remain visible in the PR
+description. This repository text prepares publication; it does not edit the
+live PR or grant maintainer approval.
+
 Closes #373
