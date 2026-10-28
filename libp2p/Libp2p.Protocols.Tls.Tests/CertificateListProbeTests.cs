@@ -112,6 +112,15 @@ public class CertificateListProbeTests
             TestContext.Out.WriteLine($"OS={Environment.OSVersion}; runtime={Environment.Version}; receiver={(dotnetIsServer ? "server" : "client")}; wire={emitted.Count}; ChainElements={elements!.Length}; ExtraStore={extraStore!.Length}; leafCopies={extraStore.Count(der => der.SequenceEqual(remote.RawData))}");
             Assert.That(elements, Has.Length.EqualTo(1), "An unrelated or duplicate transmitted certificate does not extend the trust chain.");
             Assert.That(elements![0], Is.EqualTo(remote.RawData));
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            {
+                // Fail if the documented platform extraction behavior changes.
+                byte[][] expectedExtraStore = OperatingSystem.IsWindows()
+                    ? (shape == 2 ? [extra.RawData] : [])
+                    : (dotnetIsServer ? expected[1..] : expected);
+                Assert.That(extraStore, Has.Length.EqualTo(expectedExtraStore.Length));
+                Assert.That(extraStore, Is.EquivalentTo(expectedExtraStore), "Preserve the documented DER entries and duplicate multiplicity.");
+            }
         }
         finally
         {
