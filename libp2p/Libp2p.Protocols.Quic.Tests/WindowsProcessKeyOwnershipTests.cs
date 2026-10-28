@@ -3,6 +3,7 @@
 
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Security;
 using Nethermind.Libp2p.Core.TestsBase;
 using static Nethermind.Libp2p.Protocols.Quic.WindowsProcessKey;
 
@@ -40,12 +41,82 @@ public class WindowsProcessKeyOwnershipTests
         Assert.That(worker.WaitForExit(0), Is.True, "The independently retained worker handle must be signaled when Kill returns.");
     }
 
-    [Test]
-    public void OwnershipRoundTripsExactly()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void OwnershipRoundTripsExactly(bool knownMachine)
     {
-        Ownership expected = new(123, 456, Guid.NewGuid());
+        Ownership expected = new(123, 456, Guid.NewGuid(), knownMachine ? Guid.NewGuid() : Guid.Empty);
         Assert.That(TryParse(expected.KeyName, expected.Encode(), out Ownership actual), Is.True);
         Assert.That(actual, Is.EqualTo(expected));
+    }
+
+    [TestCase(OwnerState.Live)]
+    [TestCase(OwnerState.Dead)]
+    [TestCase(OwnerState.Unknown)]
+    public void MatchingMachineUsesLocalLiveness(object state)
+    {
+        Ownership owner = new(123, 456, Guid.NewGuid(), Guid.NewGuid());
+        bool queried = false;
+        Assert.That(QueryOwner(owner, owner.MachineId, actual =>
+        {
+            Assert.That(actual, Is.EqualTo(owner));
+            queried = true;
+            return (OwnerState)state;
+        }), Is.EqualTo(state));
+        Assert.That(queried, Is.True);
+    }
+
+    [TestCase("foreign", false)]
+    [TestCase("foreign", true)]
+    [TestCase("missing-owner", false)]
+    [TestCase("missing-owner", true)]
+    [TestCase("missing-local", false)]
+    [TestCase("missing-local", true)]
+    [TestCase("missing-both", false)]
+    [TestCase("missing-both", true)]
+    public void OtherOrUnknownMachineNeverQueriesALocalProcess(string scope, bool reusedPid)
+    {
+        Ownership owner = new(123, 456, Guid.NewGuid(), Guid.NewGuid());
+        Guid local = scope == "foreign" ? Guid.NewGuid() : owner.MachineId;
+        if (scope is "missing-owner" or "missing-both") owner = owner with { MachineId = Guid.Empty };
+        if (scope is "missing-local" or "missing-both") local = Guid.Empty;
+        OwnerState localResult = ClassifyOwner(owner.CreationTime, reusedPid, 87, reusedPid, 457, 258);
+        Assert.That(localResult, Is.EqualTo(OwnerState.Dead), "A missing or reused PID proves death only on the owning machine.");
+        bool queried = false;
+        Assert.That(QueryOwner(owner, local, _ => { queried = true; return localResult; }), Is.EqualTo(OwnerState.Unknown));
+        Assert.That(queried, Is.False, "Do not query a local PID without matching machine evidence.");
+    }
+
+    [Test]
+    public void MachineIdentityReadsTheExactRegistryGuid()
+    {
+        Guid machine = Guid.NewGuid();
+        Assert.That(ReadMachineId(() => machine.ToString("D")), Is.EqualTo(machine));
+    }
+
+    [TestCase("missing")]
+    [TestCase("malformed")]
+    [TestCase("wrong-type")]
+    [TestCase("empty")]
+    [TestCase("denied")]
+    [TestCase("security")]
+    [TestCase("io")]
+    public void UnavailableMachineIdentityRetainsKeys(string failure)
+    {
+        Guid machine = ReadMachineId(() => failure switch
+        {
+            "missing" => null,
+            "malformed" => "invalid",
+            "wrong-type" => 123,
+            "empty" => Guid.Empty.ToString("D"),
+            "denied" => throw new UnauthorizedAccessException(),
+            "security" => throw new SecurityException(),
+            _ => throw new IOException(),
+        });
+        Assert.That(machine, Is.EqualTo(Guid.Empty));
+        Ownership owner = new(123, 456, Guid.NewGuid(), Guid.NewGuid());
+        Assert.That(QueryOwner(owner, machine, _ => throw new AssertionException("A local process must not be queried.")),
+            Is.EqualTo(OwnerState.Unknown));
     }
 
     [Test]
@@ -106,6 +177,8 @@ public class WindowsProcessKeyOwnershipTests
     [TestCase("extended")]
     [TestCase("magic")]
     [TestCase("future")]
+    [TestCase("old-version")]
+    [TestCase("v1")]
     [TestCase("pid-zero")]
     [TestCase("pid-negative")]
     [TestCase("time-zero")]
@@ -116,7 +189,7 @@ public class WindowsProcessKeyOwnershipTests
     [TestCase("case")]
     public void UnprovenOwnershipIsRejected(string defect)
     {
-        Ownership owner = new(123, 456, Guid.NewGuid());
+        Ownership owner = new(123, 456, Guid.NewGuid(), Guid.NewGuid());
         byte[] value = owner.Encode();
         string name = owner.KeyName;
         switch (defect)
@@ -124,12 +197,18 @@ public class WindowsProcessKeyOwnershipTests
             case "truncated": value = value[..^1]; break;
             case "extended": value = [.. value, 0]; break;
             case "magic": value[0] ^= 1; break;
-            case "future": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 2); break;
+            case "future": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 3); break;
+            case "old-version": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 1); break;
+            case "v1":
+                value = value[..40];
+                BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 1);
+                name = $"libp2p-process-v1-{owner.Nonce:N}";
+                break;
             case "pid-zero": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(12), 0); break;
             case "pid-negative": BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(12), -1); break;
             case "time-zero": BinaryPrimitives.WriteInt64LittleEndian(value.AsSpan(16), 0); break;
             case "time-negative": BinaryPrimitives.WriteInt64LittleEndian(value.AsSpan(16), -1); break;
-            case "nonce-empty": value.AsSpan(24).Clear(); name = $"{NamePrefix}{Guid.Empty:N}"; break;
+            case "nonce-empty": value.AsSpan(24, 16).Clear(); name = $"{NamePrefix}{Guid.Empty:N}"; break;
             case "nonce-mismatch": name = $"{NamePrefix}{Guid.NewGuid():N}"; break;
             case "legacy": name = $"libp2p-{owner.Nonce:N}"; break;
             case "case": name = name.ToUpperInvariant(); break;

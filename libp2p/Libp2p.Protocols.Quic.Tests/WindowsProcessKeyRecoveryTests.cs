@@ -176,6 +176,7 @@ public class WindowsProcessKeyRecoveryTests
     {
         if (!OperatingSystem.IsWindows()) return;
         Ownership owner = CurrentOwner();
+        Assert.That(owner.MachineId, Is.Not.EqualTo(Guid.Empty), "The Windows validation host must expose its machine identity.");
         using (CngKey created = CngKey.Create(CngAlgorithm.ECDsaP256, owner.KeyName, CreationParameters(owner)))
             Assert.That(ReadOwner(created), Is.EqualTo(owner));
         using CngKey reopened = CngKey.Open(owner.KeyName);
@@ -310,23 +311,30 @@ public class WindowsProcessKeyRecoveryTests
     [TestCase("future")]
     [TestCase("mismatch")]
     [TestCase("algorithm")]
+    [TestCase("v1")]
+    [TestCase("foreign-machine")]
+    [TestCase("machine-unknown")]
     public void RecoveryRetainsKeysWithoutExactOwnership(string kind)
     {
         if (!OperatingSystem.IsWindows()) return;
         Ownership owner = CurrentOwner();
+        if (kind is "foreign-machine" or "machine-unknown")
+            owner = owner with { MachineId = kind == "foreign-machine" ? Guid.NewGuid() : Guid.Empty, CreationTime = owner.CreationTime + 1 };
         string name = kind switch
         {
             "legacy" => $"libp2p-{Guid.NewGuid():N}",
+            "v1" => $"libp2p-process-v1-{owner.Nonce:N}",
             "independent" => $"independent-{Guid.NewGuid():N}",
             _ => owner.KeyName,
         };
         CngKeyCreationParameters parameters = CreationParameters(owner);
         if (kind == "missing") parameters.Parameters.Clear();
-        if (kind is "malformed" or "future" or "mismatch")
+        if (kind is "malformed" or "future" or "mismatch" or "v1")
         {
             byte[] value = kind == "mismatch" ? (owner with { Nonce = Guid.NewGuid() }).Encode() : owner.Encode();
             if (kind == "malformed") value = value[..^1];
-            if (kind == "future") value[8] = 2;
+            if (kind == "future") value[8] = 3;
+            if (kind == "v1") { value = value[..40]; value[8] = 1; }
             parameters.Parameters.Clear();
             parameters.Parameters.Add(new CngProperty(PropertyName, value, PropertyOptions));
         }
@@ -336,6 +344,11 @@ public class WindowsProcessKeyRecoveryTests
             bool queried = false;
             Assert.That(RecoverKey(key, _ => { queried = true; return OwnerState.Dead; }), Is.False);
             Assert.That(queried, Is.False, "Ownership must be verified before evaluating liveness.");
+            if (kind is "foreign-machine" or "machine-unknown")
+            {
+                Assert.That(ReadOwner(key), Is.EqualTo(owner), "Creation retains the complete marker even when machine liveness is unknown.");
+                Assert.That(QueryOwner(owner), Is.EqualTo(OwnerState.Unknown));
+            }
             Assert.That(Recover(), Is.True);
             Assert.That(EnumerateKeyNames(), Does.Contain(name));
         }

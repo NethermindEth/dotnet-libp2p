@@ -16,19 +16,40 @@ retains its actual Windows transport and normal-exit evidence.
 
 New keys use the current-user Microsoft Software Key Storage Provider, the
 parent's algorithm, export policy and usage, and a fresh random name
-`libp2p-process-v1-{nonce:N}`. Overwrite is disabled. No process adopts another
+`libp2p-process-v2-{nonce:N}`. Overwrite is disabled. No process adopts another
 process's private key. The process boundary, including the parent's multiple
 assembly-load-context limitation, is preserved.
 
-The custom property `libp2p-process-owner` is exactly 40 bytes:
+The custom property `libp2p-process-owner` is exactly 56 bytes:
 
 | Offset | Encoding | Value |
 | --- | --- | --- |
 | 0 | 8 bytes | ASCII `libp2p` followed by two zero bytes |
-| 8 | little-endian Int32 | Version 1 |
+| 8 | little-endian Int32 | Version 2 |
 | 12 | little-endian Int32 | Positive process ID |
 | 16 | little-endian Int64 | Positive raw process creation FILETIME |
 | 24 | 16 bytes, .NET Guid byte order | Nonempty nonce matching the complete key name |
+| 40 | 16 bytes, .NET Guid byte order | MachineGuid; zero means unavailable and prevents recovery |
+
+User keys are stored under `%APPDATA%\Microsoft\Crypto\Keys`
+([Microsoft key-storage documentation](https://learn.microsoft.com/en-us/windows/win32/seccng/key-storage-and-retrieval)).
+This location can be redirected or roam, and
+[DPAPI supports cross-computer decryption with roaming profiles](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata#remarks).
+A local PID lookup therefore proves nothing about a key created on another
+machine. Before any process query, recovery requires a nonempty machine identity
+matching the local installation. Both the verified-key recovery path and direct
+owner queries enforce this rule.
+
+The identity is read once from `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\MachineGuid`,
+using the operating system's registry view so 32-bit and 64-bit processes agree.
+Missing, invalid, unreadable or inaccessible identity means unknown liveness:
+keys remain retained and correctly marked creation can continue with a zero
+machine field. Such keys cannot be recovered automatically. Normal-exit cleanup
+still owns and deletes its exact created key. Version-1 names and properties are
+never recovered or upgraded because they cannot establish the owning machine.
+This uses Windows installation identity, so separately running cloned installations
+must have distinct MachineGuid values; a changed installation identity retains
+old keys rather than guessing their origin.
 
 `CngKeyCreationParameters.Parameters` supplies this property with
 `CustomProperty | Persist`. [.NET 10.0.12 creation source](https://github.com/dotnet/runtime/blob/v10.0.12/src/libraries/System.Security.Cryptography/src/System/Security/Cryptography/CngKey.Create.cs)
@@ -46,7 +67,8 @@ exclusion only; every candidate is revalidated.
 collects candidate names completely and releases its native state before any key
 is opened or deleted. Only names with the process-key prefix are retained in this
 snapshot. Recovery then checks provider, user store, algorithm, exact
-property format/version and nonce correspondence. A retained process handle
+property format/version, nonce correspondence and machine identity. Only after
+matching machine evidence does a retained local process handle
 establishes creation time and termination state. An existing matching incarnation whose process object has not signaled is live. A signaled matching process, a different creation time, or
 `OpenProcess`'s invalid-parameter result for a validated positive PID proves the
 original incarnation dead. Access denial, failed queries, invalid creation times
@@ -54,7 +76,8 @@ and unexpected wait results are unknown and retain the key.
 
 Only a verified dead owner's key is deleted, through the same verified key
 handle. Legacy `libp2p-*` keys, independent keys, missing or malformed properties,
-future versions, mismatched nonces, live owners and unknown liveness are retained.
+version-1 or future properties, mismatched nonces, foreign or unknown machines,
+live owners and unknown liveness are retained.
 Deletion failure leaves ownership evidence for a later process to retry.
 Recovery has no timer, background worker, public setting or transport-disposal
 dependency. Normal exit retains the parent's exact-handle cleanup without waiting.
@@ -303,3 +326,36 @@ Fresh Windows QUIC, creation/recovery, TLS and registered transport/recovery
 checks remain required after publication, together with independent re-review.
 Existing CI gates and minimums are unchanged. No Windows execution occurred on
 the Linux worker.
+
+## Machine-bound ownership review correction (F1)
+
+Version 1 could mistake a foreign machine's missing or reused local PID for a
+dead owner when the user key store is shared. Version 2 adds the machine field
+described above and retains all version-1 keys. Machine identity is checked before
+process queries and before a verified key can reach a supplied liveness callback.
+Unavailable local identity does not break marked creation; it disables recovery.
+
+Portable regressions cover known-local live/dead/unknown results, foreign and
+missing identities with both missing and reused local PIDs, old versions, exact
+encoding and registry-read failures. Removing the machine guard caused all eight
+cross-machine/unknown-machine cases to fail with Dead instead of Unknown (exit 2).
+Restoring it passed all 49 ownership cases. These are deterministic classification
+and callback-ordering tests, not a two-machine Windows reproduction.
+
+Linux x64, SDK 10.0.402, runtime 10.0.13, Release with warnings treated as errors:
+
+| Check | Passed | Failed | Windows-only skips |
+| --- | ---: | ---: | ---: |
+| Ownership, machine identity and candidate enumeration | 49 | 0 | 0 |
+| Full QUIC | 78 | 0 | 24 |
+| Full TLS | 32 | 0 | 0 |
+| Registered controls/recovery fixture | 5 | 0 | 3 |
+
+The native recovery gate is raised from 17 to 20 for version-1, foreign-machine
+and unknown-machine key retention. Registered Windows tests expect version-2
+names. Fresh Windows builds, all 20 native recovery cases, TLS/QUIC and registered
+recovery remain required for this correction, together with independent review.
+Historical Windows results do not cover the new format, registry reader or guards.
+No real redirected-profile, cross-machine run occurred on the Linux worker.
+The native gate selected all 20 cases on Linux and skipped all 20, exiting 8;
+skips therefore cannot satisfy the execution minimum.

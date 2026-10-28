@@ -5,7 +5,9 @@ using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security;
 using System.Security.Cryptography;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 
 namespace Nethermind.Libp2p.Protocols.Quic;
@@ -14,23 +16,25 @@ namespace Nethermind.Libp2p.Protocols.Quic;
 // Names select candidates; they never establish ownership or process death.
 internal static class WindowsProcessKey
 {
-    internal const string NamePrefix = "libp2p-process-v1-";
+    internal const string NamePrefix = "libp2p-process-v2-";
     internal const string PropertyName = "libp2p-process-owner";
     internal const CngPropertyOptions PropertyOptions = CngPropertyOptions.CustomProperty | CngPropertyOptions.Persist;
     internal const string RecoveryMutexName = "libp2p-process-key-recovery-v1";
+    private static readonly Lazy<Guid> MachineId = new(() => OperatingSystem.IsWindows() ? ReadCurrentMachineId() : Guid.Empty);
 
-    internal readonly record struct Ownership(int ProcessId, long CreationTime, Guid Nonce)
+    internal readonly record struct Ownership(int ProcessId, long CreationTime, Guid Nonce, Guid MachineId)
     {
         internal string KeyName => $"{NamePrefix}{Nonce:N}";
 
         internal byte[] Encode()
         {
-            byte[] value = new byte[40];
+            byte[] value = new byte[56];
             "libp2p\0\0"u8.CopyTo(value);
-            BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 1);
+            BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 2);
             BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(12), ProcessId);
             BinaryPrimitives.WriteInt64LittleEndian(value.AsSpan(16), CreationTime);
-            Nonce.TryWriteBytes(value.AsSpan(24));
+            Nonce.TryWriteBytes(value.AsSpan(24, 16));
+            MachineId.TryWriteBytes(value.AsSpan(40, 16));
             return value;
         }
     }
@@ -38,10 +42,10 @@ internal static class WindowsProcessKey
     internal static bool TryParse(string name, ReadOnlySpan<byte> value, out Ownership owner)
     {
         owner = default;
-        if (value.Length != 40 || !value[..8].SequenceEqual("libp2p\0\0"u8)
-            || BinaryPrimitives.ReadInt32LittleEndian(value[8..]) != 1) return false;
+        if (value.Length != 56 || !value[..8].SequenceEqual("libp2p\0\0"u8)
+            || BinaryPrimitives.ReadInt32LittleEndian(value[8..]) != 2) return false;
         Ownership parsed = new(BinaryPrimitives.ReadInt32LittleEndian(value[12..]),
-            BinaryPrimitives.ReadInt64LittleEndian(value[16..]), new Guid(value[24..]));
+            BinaryPrimitives.ReadInt64LittleEndian(value[16..]), new Guid(value[24..40]), new Guid(value[40..56]));
         if (parsed.ProcessId <= 0 || parsed.CreationTime <= 0 || parsed.Nonce == Guid.Empty
             || name != parsed.KeyName) return false;
         owner = parsed;
@@ -50,7 +54,7 @@ internal static class WindowsProcessKey
 
     internal enum OwnerState { Unknown, Live, Dead }
 
-    // Pure classification of native results also permits deterministic PID reuse/error tests.
+    // These native results describe a local process only. Check machine identity first.
     internal static OwnerState ClassifyOwner(long expectedTime, bool opened, int openError,
         bool queried, long actualTime, uint waitResult)
     {
@@ -72,8 +76,31 @@ internal static class WindowsProcessKey
         if (process.IsInvalid || !Native.GetProcessTimes(process, out long created, out _, out _, out _))
             throw new Win32Exception(Marshal.GetLastPInvokeError());
         if (created <= 0) throw new CryptographicException("Invalid process creation time.");
-        return new(Environment.ProcessId, created, Guid.NewGuid());
+        return new(Environment.ProcessId, created, Guid.NewGuid(), MachineId.Value);
     }
+
+    // No identity means unknown liveness, including when both identities are missing.
+    internal static OwnerState QueryOwner(Ownership owner, Guid machineId, Func<Ownership, OwnerState> queryLocalOwner)
+        => machineId != Guid.Empty && owner.MachineId == machineId ? queryLocalOwner(owner) : OwnerState.Unknown;
+
+    internal static Guid ReadMachineId(Func<object?> readValue)
+    {
+        try { return readValue() is string value && Guid.TryParse(value, out Guid id) ? id : Guid.Empty; }
+        catch (Exception e) when (e is SecurityException or UnauthorizedAccessException or IOException)
+        {
+            // Keep certificate creation usable; keys without machine evidence cannot be recovered.
+            return Guid.Empty;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Guid ReadCurrentMachineId() => ReadMachineId(() =>
+    {
+        using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,
+            Environment.Is64BitOperatingSystem ? RegistryView.Registry64 : RegistryView.Registry32);
+        using RegistryKey? cryptography = machine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
+        return cryptography?.GetValue("MachineGuid", null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+    });
 
     [SupportedOSPlatform("windows")]
     internal static CngKeyCreationParameters CreationParameters(Ownership owner)
@@ -92,6 +119,10 @@ internal static class WindowsProcessKey
 
     [SupportedOSPlatform("windows")]
     internal static OwnerState QueryOwner(Ownership owner)
+        => QueryOwner(owner, MachineId.Value, QueryLocalOwner);
+
+    [SupportedOSPlatform("windows")]
+    private static OwnerState QueryLocalOwner(Ownership owner)
     {
         // Retain one process handle for both queries: reopening by PID would race reuse.
         using SafeProcessHandle process = Native.OpenProcess(0x1000 | 0x100000, false, owner.ProcessId);
@@ -152,7 +183,7 @@ internal static class WindowsProcessKey
             || key.Algorithm != CngAlgorithm.ECDsaP256 || key.KeyName is not { } name
             || !key.HasProperty(PropertyName, CngPropertyOptions.CustomProperty)
             || !TryParse(name, key.GetProperty(PropertyName, CngPropertyOptions.CustomProperty).GetValue(), out Ownership owner)
-            || queryOwner(owner) != OwnerState.Dead) return false;
+            || QueryOwner(owner, MachineId.Value, queryOwner) != OwnerState.Dead) return false;
         // Delete via the verified handle, never a subsequent lookup of this name.
         if (delete is null) key.Delete();
         else delete(key);

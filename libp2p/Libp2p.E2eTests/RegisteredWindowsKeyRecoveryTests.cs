@@ -37,7 +37,7 @@ public class RegisteredWindowsKeyRecoveryTests
         using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(input, listener.Identity);
         using ECDsaCng signer = (ECDsaCng)certificate.GetECDsaPrivateKey()!;
         using CngKey key = signer.Key;
-        Assert.That(key.KeyName, Does.StartWith("libp2p-process-v1-"));
+        Assert.That(key.KeyName, Does.StartWith("libp2p-process-v2-"));
         IsolatedTestProcess.Publish("ready", key.KeyName!, Fingerprint(key), inbound.RemotePeerId.ToString());
         await IsolatedTestProcess.Receive("verify");
         GC.Collect();
