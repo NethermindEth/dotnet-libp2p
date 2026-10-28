@@ -48,6 +48,60 @@ public class WindowsProcessKeyOwnershipTests
         Assert.That(actual, Is.EqualTo(expected));
     }
 
+    [Test]
+    public void RecoveryCandidatesReleaseEnumerationBeforeRecovery()
+    {
+        string first = $"{NamePrefix}{Guid.NewGuid():N}";
+        string second = $"{NamePrefix}{Guid.NewGuid():N}";
+        bool disposed = false;
+        int enumerated = 0;
+        IEnumerable<string> Names()
+        {
+            try
+            {
+                foreach (string name in new[] { "unrelated", first, first.ToUpperInvariant(), second })
+                {
+                    enumerated++;
+                    yield return name;
+                }
+            }
+            finally { disposed = true; }
+        }
+
+        List<string> recovered = [];
+        foreach (string name in GetRecoveryCandidates(Names()))
+        {
+            Assert.That(disposed, Is.True, "The provider enumeration must be released before a candidate is opened or deleted.");
+            Assert.That(enumerated, Is.EqualTo(4));
+            recovered.Add(name);
+        }
+        Assert.That(recovered, Is.EqualTo(new[] { first, second }));
+    }
+
+    [Test]
+    public void FailedCandidateEnumerationReleasesStateWithoutRecovery()
+    {
+        IOException failure = new("Injected enumeration failure.");
+        bool disposed = false;
+        IEnumerable<string> Names()
+        {
+            try
+            {
+                yield return $"{NamePrefix}{Guid.NewGuid():N}";
+                throw failure;
+            }
+            finally { disposed = true; }
+        }
+
+        int recovered = 0;
+        Assert.That(Assert.Throws<IOException>(() =>
+        {
+            foreach (string name in GetRecoveryCandidates(Names())) recovered++;
+        }), Is.SameAs(failure));
+        Assert.That(disposed, Is.True);
+        Assert.That(recovered, Is.Zero, "Incomplete enumeration must not begin recovery.");
+    }
+
     [TestCase("truncated")]
     [TestCase("extended")]
     [TestCase("magic")]

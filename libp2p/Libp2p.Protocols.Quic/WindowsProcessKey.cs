@@ -121,9 +121,8 @@ internal static class WindowsProcessKey
                 // Synchronous throughout: release on the acquiring thread. Abandonment
                 // is only mutual exclusion, never evidence that a key's owner died.
                 acquired?.Invoke();
-                foreach (string name in EnumerateKeyNames())
+                foreach (string name in GetRecoveryCandidates(EnumerateKeyNames()))
                 {
-                    if (!name.StartsWith(NamePrefix, StringComparison.Ordinal)) continue;
                     try
                     {
                         using CngKey key = CngKey.Open(name, CngProvider.MicrosoftSoftwareKeyStorageProvider, CngKeyOpenOptions.Silent);
@@ -141,6 +140,10 @@ internal static class WindowsProcessKey
             return false;
         }
     }
+
+    // Finish enumeration and release its native state before opening or deleting keys.
+    internal static IEnumerable<string> GetRecoveryCandidates(IEnumerable<string> names)
+        => names.Where(name => name.StartsWith(NamePrefix, StringComparison.Ordinal)).ToArray();
 
     [SupportedOSPlatform("windows")]
     internal static bool RecoverKey(CngKey key, Func<Ownership, OwnerState> queryOwner, Action<CngKey>? delete = null)

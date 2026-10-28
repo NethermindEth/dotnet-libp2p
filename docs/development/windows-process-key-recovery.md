@@ -43,7 +43,9 @@ synchronous so release happens on the acquiring thread. Abandonment grants
 exclusion only; every candidate is revalidated.
 
 [Provider enumeration](https://learn.microsoft.com/en-us/windows/win32/api/ncrypt/nf-ncrypt-ncryptenumkeys)
-selects candidates by name, then checks provider, user store, algorithm, exact
+collects candidate names completely and releases its native state before any key
+is opened or deleted. Only names with the process-key prefix are retained in this
+snapshot. Recovery then checks provider, user store, algorithm, exact
 property format/version and nonce correspondence. A retained process handle
 establishes creation time and termination state. An existing matching incarnation whose process object has not signaled is live. A signaled matching process, a different creation time, or
 `OpenProcess`'s invalid-parameter result for a validated positive PID proves the
@@ -270,3 +272,34 @@ results that these Linux skips could not. Both previously failing cases passed.
 No production/test/CI inputs changed while incorporating that evidence; independent
 re-review and final verification remain required. The implementer performed no
 commits or publication.
+
+## PR #421 review follow-up (2026-10-28)
+
+Recovery now collects only process-key candidate names before opening or deleting
+any key. The provider enumeration and all its native state are released first,
+while the recovery mutex remains held. This removes the dependency on provider
+cursor behavior during deletion; ownership, liveness and same-handle deletion
+checks are unchanged. The empty-nonce fixture already uses the matching empty
+nonce in both the property and name.
+
+Two portable tests verify that enumeration completes and is disposed before
+recovery starts, and that a failed enumeration releases its state without
+starting recovery. Removing only `ToArray()` made both tests fail for these
+invariants (2 failed, exit 2); restoring it passed both in the ownership suite.
+This demonstrates the ordering guarantee, not a native KSP enumeration defect.
+
+Linux x64, SDK 10.0.402, runtime 10.0.13, Release with warnings treated as errors:
+
+| Check | Passed | Failed | Windows-only skips |
+| --- | ---: | ---: | ---: |
+| Ownership and candidate enumeration | 27 | 0 | 0 |
+| Full QUIC | 56 | 0 | 21 |
+| Full TLS | 32 | 0 | 0 |
+| Registered controls/recovery fixture | 5 | 0 | 3 |
+
+This follow-up changes production and test inputs. The Windows results above
+remain evidence for their recorded revisions and do not validate this follow-up.
+Fresh Windows QUIC, creation/recovery, TLS and registered transport/recovery
+checks remain required after publication, together with independent re-review.
+Existing CI gates and minimums are unchanged. No Windows execution occurred on
+the Linux worker.
