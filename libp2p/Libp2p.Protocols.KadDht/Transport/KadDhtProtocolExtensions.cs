@@ -92,6 +92,8 @@ public static class KadDhtProtocolExtensions
         if (!request.HasKey) return MessageHelper.CreateFindNodeResponse(Enumerable.Empty<DhtNode>());
         var target = new PublicKey(request.Key.ToByteArray());
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
+        // The requester still consumes an inspection slot. Filtering before Take would
+        // allow an unbounded custom callback prefix containing only requester entries.
         var neighbours = findNearest(target).Take(options.KSize)
             .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
         return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: CreateConnectionResolver(ctx));
@@ -184,7 +186,15 @@ public static class KadDhtProtocolExtensions
             foreach (var wirePeer in request.ProviderPeers.Take(options.MaxProvidersPerKey))
             {
                 if (!WirePeerPolicy.IsValidIdentity(wirePeer.Id.Span, options.MaxPeerIdBytes)) continue;
-                if (senderPeerId is not null && !wirePeer.Id.Span.SequenceEqual(senderPeerId.Bytes)) continue;
+                if (senderPeerId is not null && !wirePeer.Id.Span.SequenceEqual(senderPeerId.Bytes))
+                {
+                    var logger = loggerFactory?.CreateLogger("KadDhtProtocolExtensions");
+                    // Id validation and the warning gate precede identity copies/formatting.
+                    if (logger?.IsEnabled(LogLevel.Warning) == true)
+                        logger.LogWarning("ADD_PROVIDER rejected: provider PeerId {ProviderId} does not match sender {SenderId}",
+                            new PeerId(wirePeer.Id.ToByteArray()), senderPeerId);
+                    continue;
+                }
                 if (!ProviderRecordLimits.CanFitIdentity(request.Key.Length, wirePeer.Id.Length, options.MaxProviderRecordBytes))
                     continue;
 

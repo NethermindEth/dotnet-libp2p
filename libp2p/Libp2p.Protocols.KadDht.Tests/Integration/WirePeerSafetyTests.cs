@@ -9,6 +9,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -114,7 +115,8 @@ internal sealed class KadWireHarness : IDisposable
     internal ISessionContext Context { get; }
 
     internal KadWireHarness(string path, KadDhtOptions options, IValueStore? values = null,
-        IProviderStore? providers = null, Func<PublicKey, IEnumerable<DhtNode>>? nearest = null, ILocalPeer? local = null)
+        IProviderStore? providers = null, Func<PublicKey, IEnumerable<DhtNode>>? nearest = null, ILocalPeer? local = null,
+        ILoggerFactory? loggerFactory = null)
     {
         var services = new ServiceCollection();
         if (path == "services") services.AddKadDht(o => CopyOptions(options, o));
@@ -122,6 +124,7 @@ internal sealed class KadWireHarness : IDisposable
         if (values is not null) services.AddSingleton(values);
         if (providers is not null) services.AddSingleton(providers);
         if (local is not null) services.AddSingleton(local);
+        if (loggerFactory is not null) services.AddSingleton(loggerFactory);
         _services = services.BuildServiceProvider();
         var builder = Substitute.For<ILibp2pPeerFactoryBuilder>();
         builder.Services.Returns(services);

@@ -70,6 +70,11 @@ address parsing consumes budget even on failure; oversized whole addresses are
 skipped. These response limits also apply to custom stores and nearest-peer callbacks
 and do not replace the provider store's retention limits above.
 
+FIND_NODE also counts requester entries toward the inspected prefix before excluding
+them from the response. This can return fewer than `KSize` peers; filtering first
+would permit unbounded enumeration of a custom nearest-peer callback containing
+repeated requester entries.
+
 Wire identities must be complete multihashes with minimal unsigned varint headers of at
 most nine bytes and an exact digest length; unknown hash codes remain structurally
 acceptable. Response addresses bound to another destination are omitted. Received
@@ -77,6 +82,11 @@ closer peers without usable addresses are excluded from lookup and discovery;
 provider records may still have no addresses. Protobuf parsing is separately bounded
 by `MaxMessageSize`; response budgets bound subsequent conversion and retention.
 These limits bound one response, rather than cumulative discovery over many requests.
+
+The public `MessageHelper.ToWirePeer` and `CreateAddProviderRequest` helpers throw
+`ArgumentException` for malformed peer IDs or IDs exceeding the default 128-byte
+limit. Response builders omit invalid entries instead. Callers using the public
+helpers should validate their inputs or handle that exception.
 
 PUT_VALUE echoes a record only when the store reports that its bytes were stored.
 The envelope and record keys must match. Channel closure cancels cancellation-aware
