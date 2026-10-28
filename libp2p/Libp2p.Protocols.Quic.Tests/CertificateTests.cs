@@ -112,6 +112,20 @@ public class CertificateTests
     }
 
     [Test]
+    public void RejectsExplicitEcdsaIdentityBeforeAuthenticatingACertificate()
+    {
+        Identity identity = new(IdentityFixtures.P256PrivateKey, KeyType.Ecdsa);
+        PublicKey presented = new() { Type = KeyType.Ecdsa, Data = ByteString.CopyFrom(IdentityFixtures.ExplicitP256PublicKey) };
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presented);
+        Assert.Multiple(() =>
+        {
+            Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null), Is.False);
+            Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+        });
+    }
+
+    [Test]
     public void CertificateIdentityUsesCanonicalKeyAndRejectsAliasExpectedId()
     {
         Identity identity = new();

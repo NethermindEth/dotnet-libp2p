@@ -52,8 +52,14 @@ public static class PublicKeyDecoder
         return canonical;
     }
 
-    // Identity derivation also normalizes locally imported keys, without applying
-    // remote admission policy or changing the caller's protobuf (including unknown fields).
+    /// <summary>Returns a canonical copy of a local public key without applying remote admission policy.</summary>
+    /// <remarks>
+    /// Use <see cref="Decode"/> for remote key material. Local serialization preserves
+    /// imported RSA identities below the remote size floor and does not change the caller's key.
+    /// </remarks>
+    /// <exception cref="Libp2pException">The key does not carry usable material in a supported format.</exception>
+    public static PublicKey Normalize(PublicKey publicKey) => Normalize(publicKey, out _);
+
     internal static PublicKey Normalize(PublicKey publicKey, out int rsaKeyBits)
     {
         rsaKeyBits = 0;
@@ -97,6 +103,11 @@ public static class PublicKeyDecoder
                     {
                         ecdsa.ImportSubjectPublicKeyInfo(publicKey.Data.Span, out int ecdsaBytesRead);
                         RejectTrailingBytes(publicKey, ecdsaBytesRead);
+                        // Re-export preserves explicit parameters, allowing another ID for the same key.
+                        if (!ecdsa.ExportParameters(false).Curve.IsNamed)
+                        {
+                            throw new Libp2pException("ECDSA public key must use a named curve.");
+                        }
                         data = ByteString.CopyFrom(ecdsa.ExportSubjectPublicKeyInfo());
                     }
                     break;

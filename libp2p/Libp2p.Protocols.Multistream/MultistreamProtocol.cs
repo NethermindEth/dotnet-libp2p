@@ -14,6 +14,7 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MultistreamProtocol>();
     private const string ProtocolNotSupported = "na";
+    private const int MaxMessageLength = 1024;
     public string Id => "/multistream/1.0.0";
 
     public async Task DialAsync(IChannel channel, IConnectionContext context)
@@ -49,7 +50,7 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
             {
                 _logger?.LogTrace("DialProtocol: proposing {Id}", selector.Id);
                 await channel.WriteLineAsync(selector.Id);
-                string selectorLine = await channel.ReadLineAsync();
+                string selectorLine = await channel.ReadLineAsync(MaxMessageLength);
                 _logger?.LogTrace("Proposed {Id}, answer: {Answer}", selector.Id, selectorLine ?? "(null)");
                 if (selectorLine == selector.Id)
                 {
@@ -62,6 +63,12 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
                 }
 
                 return null;
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidDataException)
+            {
+                _logger?.LogDebug(ex, "Invalid multistream message (dial, selector {Id}).", selector.Id);
+                await channel.AbortAsync();
+                return false;
             }
             catch (ChannelClosedException)
             {
@@ -114,7 +121,7 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
             for (; ; )
             {
                 _logger?.LogTrace("Listen: waiting for remote protocol proposal");
-                string proto = await channel.ReadLineAsync();
+                string proto = await channel.ReadLineAsync(MaxMessageLength);
                 _logger?.LogTrace("Listen: proposed by remote {Proto}", proto ?? "(null)");
                 selected = context.SubProtocols.FirstOrDefault(x => x.Id == proto) as IProtocol;
                 if (selected is not null)
@@ -127,6 +134,12 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
                 _logger?.LogTrace("Proposed by remote {Proto}, answer: {Na}", proto, ProtocolNotSupported);
                 await channel.WriteLineAsync(ProtocolNotSupported);
             }
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidDataException)
+        {
+            _logger?.LogDebug(ex, "Invalid multistream message (listen).");
+            await channel.AbortAsync();
+            return;
         }
         catch (ChannelClosedException)
         {
@@ -155,9 +168,15 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
         {
             _logger?.LogTrace("SendHello: sending multistream id");
             await channel.WriteLineAsync(Id);
-            string line = await channel.ReadLineAsync();
+            string line = await channel.ReadLineAsync(MaxMessageLength);
             _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
             return line == Id;
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidDataException)
+        {
+            _logger?.LogDebug(ex, "Invalid multistream hello.");
+            await channel.AbortAsync();
+            return false;
         }
         catch (ChannelClosedException)
         {
@@ -180,16 +199,22 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null) : IConnec
             _logger?.LogTrace("DialProtocol: optimistically proposing {Id}", selectedProtocol.Id);
             await channel.WriteLineAsync(selectedProtocol.Id);
 
-            string line = await channel.ReadLineAsync();
+            string line = await channel.ReadLineAsync(MaxMessageLength);
             _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
             if (line != Id)
             {
                 return false;
             }
 
-            string selectorLine = await channel.ReadLineAsync();
+            string selectorLine = await channel.ReadLineAsync(MaxMessageLength);
             _logger?.LogTrace("Proposed {Id}, answer: {Answer}", selectedProtocol.Id, selectorLine ?? "(null)");
             return selectorLine == selectedProtocol.Id;
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidDataException)
+        {
+            _logger?.LogDebug(ex, "Invalid multistream message (optimistic dial, selector {Id}).", selectedProtocol.Id);
+            await channel.AbortAsync();
+            return false;
         }
         catch (ChannelClosedException)
         {
