@@ -99,7 +99,7 @@ public class IpTcpProtocol : ITransportProtocol
             while (true)
             {
                 Socket client = await listener.AcceptAsync(lifetime.Token);
-                IDisposable? permit;
+                Admission.Permit? permit;
                 string scope;
                 try
                 {
@@ -141,7 +141,7 @@ public class IpTcpProtocol : ITransportProtocol
         if (setupFailure is not null and not ChannelClosedException)
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(setupFailure).Throw();
 
-        async Task HandleAcceptedAsync(Socket client, IDisposable permit)
+        async Task HandleAcceptedAsync(Socket client, Admission.Permit permit)
         {
             using (permit)
             using (client)
@@ -152,7 +152,7 @@ public class IpTcpProtocol : ITransportProtocol
                     {
                         Interlocked.CompareExchange(ref setupFailure, failure, null);
                         lifetime.Cancel();
-                    });
+                    }, permit);
                 }
                 catch (Exception failure) { _logger?.LogDebug(failure, "Inbound TCP connection ended"); }
             }
@@ -174,21 +174,25 @@ public class IpTcpProtocol : ITransportProtocol
         await RunConnectionAsync(client, context, remoteAddr, token);
     }
 
-    private async Task RunConnectionAsync(Socket client, ITransportContext context, Multiaddress? remoteAddr, CancellationToken token, Action<Exception>? onSetupFailure = null)
+    private async Task RunConnectionAsync(Socket client, ITransportContext context, Multiaddress? remoteAddr, CancellationToken token,
+        Action<Exception>? onSetupFailure = null, Admission.Permit? admissionPermit = null)
     {
+        using Activity? connectionActivity = context.Activity?.Source.StartActivity("TCP connection", ActivityKind.Internal, context.Activity.Context);
         INewConnectionContext? connection = null;
         IChannel? channel = null;
         bool started = false;
         try
         {
             connection = context.CreateConnection();
+            admissionPermit?.SetConnection(connection);
             using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, connection.Token);
             using CancellationTokenRegistration closeSocket = lifetime.Token.Register(client.Close);
             EndPoint remoteEndpoint = client.RemoteEndPoint ?? throw new Libp2pException("RemoteEndPoint is not set for client connection.");
             EndPoint localEndpoint = client.LocalEndPoint ?? throw new Libp2pException("LocalEndPoint is not set for client connection.");
             connection.State.RemoteAddress = remoteEndpoint.ToMultiaddress(ProtocolType.Tcp);
             connection.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Tcp);
-            // A listener activity spans all accepts: log connections rather than retaining an event per accept.
+            // Each connection owns its events; the listener's event list stays bounded across accept churn.
+            connectionActivity?.AddEvent(new ActivityEvent($"connected {remoteEndpoint}"));
             _logger?.LogDebug("Connected {Endpoint}", remoteEndpoint);
             if (remoteAddr?.Get<P2P>() is { } requestedPeerId) connection.State.RemoteAddress.Add(requestedPeerId);
             channel = connection.Upgrade();
@@ -288,35 +292,66 @@ public class IpTcpProtocol : ITransportProtocol
     internal sealed class Admission(PeerResourceLimits limits)
     {
         private readonly Dictionary<IPAddress, int> _sources = [];
+        private readonly HashSet<Permit> _connections = [];
+        private readonly TimeSpan _idleTimeout = limits.InboundTcpIdleTimeout;
         private readonly Lock _lock = new();
         private int _count;
         internal int Count { get { lock (_lock) return _count; } }
         internal int Sources { get { lock (_lock) return _sources.Count; } }
 
-        internal IDisposable? TryAcquire(IPAddress source, out string scope)
+        internal Permit? TryAcquire(IPAddress source, out string scope)
         {
             if (source.IsIPv4MappedToIPv6) source = source.MapToIPv4();
+            else if (source.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                byte[] prefix = source.GetAddressBytes();
+                prefix.AsSpan(8).Clear();
+                source = new IPAddress(prefix, source.ScopeId);
+            }
+            Permit[] candidates;
             lock (_lock)
             {
-                scope = "total";
-                if (_count >= limits.MaxInboundTcpConnections) return null;
-                scope = "source";
                 _sources.TryGetValue(source, out int count);
-                if (count >= limits.MaxInboundTcpConnectionsPerIp) return null;
-                _sources[source] = count + 1;
-                _count++;
-                return new Permit(this, source);
+                scope = "total";
+                if (_count < limits.MaxInboundTcpConnections)
+                {
+                    scope = "source";
+                    if (count < limits.MaxInboundTcpConnectionsPerIp)
+                    {
+                        Permit permit = new(this, source);
+                        _sources[source] = count + 1;
+                        _count++;
+                        _connections.Add(permit);
+                        return permit;
+                    }
+                }
+                // If this source is full, freeing another source would not make room for this accept.
+                candidates = count >= limits.MaxInboundTcpConnectionsPerIp
+                    ? [.. _connections.Where(p => p.Source.Equals(source))]
+                    : [.. _connections];
             }
+            // Disconnect can synchronously reenter permit disposal. Never call it under the admission lock.
+            foreach (Permit candidate in candidates)
+                if (candidate.TryEvict()) break;
+            // Do not queue the accepted socket or refund a permit while its old workers are stopping.
+            return null;
         }
 
-        private sealed class Permit(Admission owner, IPAddress source) : IDisposable
+        internal sealed class Permit(Admission owner, IPAddress source) : IDisposable
         {
             private int _disposed;
+            private INewConnectionContext? _connection;
+            internal IPAddress Source => source;
+            internal void SetConnection(INewConnectionContext connection) => Volatile.Write(ref _connection, connection);
+            internal bool TryEvict() => Volatile.Read(ref _disposed) == 0 &&
+                Volatile.Read(ref _connection)?.TryDisconnectIfIdle(owner._idleTimeout) == true;
             public void Dispose()
             {
                 if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                Volatile.Write(ref _connection, null);
                 lock (owner._lock)
                 {
+                    owner._connections.Remove(this);
                     owner._count--;
                     if (--owner._sources[source] == 0) owner._sources.Remove(source);
                 }

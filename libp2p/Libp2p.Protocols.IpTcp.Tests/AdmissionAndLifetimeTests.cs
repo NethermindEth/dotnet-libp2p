@@ -21,7 +21,16 @@ public class AdmissionAndLifetimeTests
     public async Task ListenerKeepsReadinessDiagnosticsWithoutRetainingAcceptEvents()
     {
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
-        using Activity activity = new Activity("tcp-listener").Start();
+        using ActivitySource source = new("tcp-connection-events");
+        System.Collections.Concurrent.ConcurrentQueue<Activity> completed = new();
+        using ActivityListener tracing = new()
+        {
+            ShouldListenTo = candidate => candidate == source,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => { if (activity.OperationName == "TCP connection") completed.Enqueue(activity); }
+        };
+        ActivitySource.AddActivityListener(tracing);
+        using Activity activity = source.StartActivity("tcp-listener")!;
         Listener listener = new(new object(), new PeerResourceLimits()) { Activity = activity };
         ILoggerFactory factory = Substitute.For<ILoggerFactory>();
         ILogger logger = Substitute.For<ILogger>();
@@ -29,11 +38,20 @@ public class AdmissionAndLifetimeTests
         Task transport = new IpTcpProtocol(factory).ListenAsync(listener, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
         try
         {
-            using TcpClient remote = new();
-            await remote.ConnectAsync(await listener.Ready.Task, lifetime.Token);
-            Connection connection = await listener.Connections.Reader.ReadAsync(lifetime.Token);
-            remote.Client.Shutdown(SocketShutdown.Send);
-            await connection.Disposed.Task.WaitAsync(lifetime.Token);
+            List<string> expected = [];
+            for (int i = 0; i < 3; i++)
+            {
+                using TcpClient remote = new();
+                await remote.ConnectAsync(await listener.Ready.Task, lifetime.Token);
+                expected.Add($"connected {remote.Client.LocalEndPoint}");
+                Connection connection = await listener.Connections.Reader.ReadAsync(lifetime.Token);
+                remote.Client.Shutdown(SocketShutdown.Send);
+                await connection.Disposed.Task.WaitAsync(lifetime.Token);
+            }
+            Assert.That(() => completed.Count, Is.EqualTo(3).After(5000, 10));
+            Assert.That(completed.Select(a => a.Events.Count()), Is.All.EqualTo(1));
+            Assert.That(completed.Select(a => a.Events.Single().Name), Is.EquivalentTo(expected));
+            Assert.That(completed.Select(a => a.ParentId), Is.All.EqualTo(activity.Id));
             Assert.That(activity.GetTagItem("listen-on-addr"), Is.EqualTo(IPAddress.Loopback));
             Assert.That(activity.GetTagItem("listen-on-port"), Is.EqualTo(0));
             Assert.That(activity.Events.Select(e => e.Name), Is.EqualTo(new[] { "ready" }));
@@ -104,6 +122,54 @@ public class AdmissionAndLifetimeTests
         first.Dispose(); first.Dispose(); second.Dispose();
         Assert.That(admission.Count, Is.Zero);
         Assert.That(admission.Sources, Is.Zero);
+    }
+
+    [Test]
+    public void NativeIpv6AddressesShareTheirPrefixAllowance()
+    {
+        IpTcpProtocol.Admission admission = new(new PeerResourceLimits(3, 1));
+        using var first = admission.TryAcquire(IPAddress.Parse("2001:db8:1:2::1"), out _);
+        Assert.That(first, Is.Not.Null);
+        Assert.That(admission.TryAcquire(IPAddress.Parse("2001:db8:1:2:ffff::abcd"), out string scope), Is.Null);
+        Assert.That(scope, Is.EqualTo("source"));
+        using var otherPrefix = admission.TryAcquire(IPAddress.Parse("2001:db8:1:3::1"), out _);
+        Assert.That(otherPrefix, Is.Not.Null);
+        first.Dispose();
+        using var recovered = admission.TryAcquire(IPAddress.Parse("2001:db8:1:2::2"), out _);
+        Assert.That(recovered, Is.Not.Null);
+        Assert.That(admission.Sources, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void LinkLocalPrefixesPreserveTheirInterfaceScope()
+    {
+        IpTcpProtocol.Admission admission = new(new PeerResourceLimits(2, 1));
+        using var first = admission.TryAcquire(new IPAddress(IPAddress.Parse("fe80::1").GetAddressBytes(), 1), out _);
+        using var second = admission.TryAcquire(new IPAddress(IPAddress.Parse("fe80::2").GetAddressBytes(), 2), out _);
+        Assert.That(first, Is.Not.Null);
+        Assert.That(second, Is.Not.Null);
+    }
+
+    [Test]
+    public void PressureEvictsOnlyAUsefulIdleCandidateAndKeepsItsPermitUntilTeardown()
+    {
+        PeerResourceLimits limits = new(2, 1);
+        IpTcpProtocol.Admission admission = new(limits);
+        using var first = admission.TryAcquire(IPAddress.Loopback, out _)!;
+        using var second = admission.TryAcquire(IPAddress.IPv6Loopback, out _)!;
+        INewConnectionContext busy = Substitute.For<INewConnectionContext>();
+        INewConnectionContext idle = Substitute.For<INewConnectionContext>();
+        idle.TryDisconnectIfIdle(limits.InboundTcpIdleTimeout).Returns(true);
+        first.SetConnection(busy);
+        second.SetConnection(idle);
+        Assert.That(admission.TryAcquire(IPAddress.Loopback, out _), Is.Null);
+        idle.DidNotReceive().TryDisconnectIfIdle(Arg.Any<TimeSpan>());
+        Assert.That(admission.TryAcquire(IPAddress.Parse("127.0.0.2"), out _), Is.Null);
+        idle.Received(1).TryDisconnectIfIdle(limits.InboundTcpIdleTimeout);
+        Assert.That(admission.Count, Is.EqualTo(2), "Eviction requests do not refund unfinished teardown.");
+        second.Dispose();
+        using var recovered = admission.TryAcquire(IPAddress.Parse("127.0.0.2"), out _);
+        Assert.That(recovered, Is.Not.Null);
     }
 
     [Test]

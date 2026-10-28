@@ -55,6 +55,9 @@ public interface INewConnectionContext : IDisposable, IChannelFactory, IContextS
     CancellationToken Token { get; }
     /// <summary>Completes after owned protocol upgrades stop, following disposal.</summary>
     Task Completion => Task.CompletedTask;
+    /// <summary>Disconnects an established connection only if it has had no application operations for the given interval.</summary>
+    /// <remarks>Legacy contexts without idle tracking remain ineligible for eviction.</remarks>
+    bool TryDisconnectIfIdle(TimeSpan idleTimeout) => false;
     INewSessionContext UpgradeToSession();
     Activity? Activity { get; }
 }

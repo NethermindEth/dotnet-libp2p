@@ -294,7 +294,7 @@ public class QuicProtocol : ITransportProtocol
                     QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, session.Token);
                     try
                     {
-                        IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                        IChannel upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                         TrackExchange(stream, upChannel);
                     }
                     catch
@@ -327,7 +327,7 @@ public class QuicProtocol : ITransportProtocol
                 QuicStream inboundStream = await completedAccept;
                 try
                 {
-                    IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                    IChannel upChannel = session.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
                     TrackExchange(inboundStream, upChannel);
                 }
                 catch

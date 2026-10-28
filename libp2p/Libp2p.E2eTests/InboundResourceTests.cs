@@ -272,6 +272,95 @@ public class InboundResourceTests
         }
     }
 
+    [TestCase("/ip4/127.0.0.1/tcp/0")]
+    [TestCase("/ip6/::1/tcp/0")]
+    public async Task ProductionAdmissionProtectsActiveStreamsAndEvictsIdleSessionsUnderPressure(string address)
+    {
+        if (address.StartsWith("/ip6") && !Socket.OSSupportsIPv6) Assert.Ignore("IPv6 is unavailable.");
+        IdleClock clock = new();
+        Task firstIdle = clock.ObserveNextTimestamp();
+        using ServiceProvider services = new ServiceCollection().AddLibp2p()
+            .AddSingleton<TimeProvider>(clock)
+            .AddSingleton(new PeerResourceLimits(1, 1, inboundTcpIdleTimeout: TimeSpan.FromSeconds(7)))
+            .BuildServiceProvider();
+        await using ILocalPeer target = services.GetRequiredService<IPeerFactory>().Create();
+        HoldingPing holding = new();
+        using ServiceProvider clientServices = new ServiceCollection().AddLibp2p(b => b.AddProtocol(holding)).BuildServiceProvider();
+        await using ILocalPeer client = clientServices.GetRequiredService<IPeerFactory>().Create();
+        using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(15));
+        await target.StartListenAsync([address], lifetime.Token);
+        ISession session = await client.DialAsync([.. target.ListenAddresses], lifetime.Token);
+        await firstIdle.WaitAsync(lifetime.Token);
+        LocalPeer.Session targetSession = ((LocalPeer)target).Sessions.Single();
+        Task active = session.DialAsync(holding, lifetime.Token);
+        try
+        {
+            await holding.Entered.Task.WaitAsync(lifetime.Token);
+            clock.Advance(TimeSpan.FromSeconds(8));
+            await ProbeRefusal();
+            Assert.That(targetSession.Closed.IsCancellationRequested, Is.False, "An open application stream protects the established session.");
+
+            Task idleAgain = clock.ObserveNextTimestamp();
+            holding.Release.TrySetResult();
+            await active.WaitAsync(lifetime.Token);
+            // The target records this timestamp only after its final application operation stops.
+            await idleAgain.WaitAsync(lifetime.Token);
+            clock.Advance(TimeSpan.FromSeconds(6));
+            await ProbeRefusal();
+            Assert.That(targetSession.Closed.IsCancellationRequested, Is.False, "The configured idle interval starts after stream cleanup.");
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await ProbeRefusal();
+            Assert.That(targetSession.Closed.IsCancellationRequested, Is.True);
+            Assert.That(() => session.Closed.IsCancellationRequested, Is.True.After(5000, 10));
+
+            using ServiceProvider replacementServices = new ServiceCollection().AddLibp2p().BuildServiceProvider();
+            await using ILocalPeer replacement = replacementServices.GetRequiredService<IPeerFactory>().Create();
+            ISession recovered;
+            while (true)
+            {
+                lifetime.Token.ThrowIfCancellationRequested();
+                try { recovered = await replacement.DialAsync([.. target.ListenAddresses], lifetime.Token); break; }
+                catch (Exception failure) when (failure is IOException or Nethermind.Libp2p.Core.Exceptions.PeerConnectionException)
+                { await Task.Delay(10, lifetime.Token); }
+            }
+            await recovered.DialAsync<PingProtocol>(lifetime.Token);
+        }
+        finally
+        {
+            holding.Release.TrySetResult();
+            lifetime.Cancel();
+            await active.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        async Task ProbeRefusal()
+        {
+            using TcpClient refused = new();
+            await refused.ConnectAsync(target.ListenAddresses.Single().ToEndPoint(), lifetime.Token);
+            try { Assert.That(await refused.GetStream().ReadAsync(new byte[1], lifetime.Token), Is.Zero); }
+            catch (IOException) { }
+        }
+    }
+
+    private sealed class IdleClock : TimeProvider
+    {
+        private long _ticks;
+        private TaskCompletionSource? _next;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp()
+        {
+            long timestamp = Interlocked.Read(ref _ticks);
+            Interlocked.Exchange(ref _next, null)?.TrySetResult();
+            return timestamp;
+        }
+        public Task ObserveNextTimestamp()
+        {
+            TaskCompletionSource next = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (Interlocked.CompareExchange(ref _next, next, null) is not null) throw new InvalidOperationException("An observation is already pending.");
+            return next.Task;
+        }
+        public void Advance(TimeSpan elapsed) => Interlocked.Add(ref _ticks, elapsed.Ticks);
+    }
+
     private sealed class HoldingPing : ISessionProtocol
     {
         public string Id => "/ipfs/ping/1.0.0";

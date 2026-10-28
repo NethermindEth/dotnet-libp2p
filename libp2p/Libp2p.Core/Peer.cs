@@ -784,17 +784,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         tcs.TrySetException(exception);
     }
 
-    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
+    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity, bool isApplicationStream = false)
     {
         Channel downChannel = new();
 
-        ObserveLateFailure(Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity));
+        ObserveLateFailure(Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity, isApplicationStream));
 
         return downChannel;
     }
 
-    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
-        => session.RunUpgrade(downChannel, () => RunUpgradeAsync(session, downChannel, parentProtocol, upgradeProtocol, options, isListener, activity));
+    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity, bool isApplicationStream = false)
+        => session.RunUpgrade(downChannel, () => RunUpgradeAsync(session, downChannel, parentProtocol, upgradeProtocol, options, isListener, activity), isApplicationStream);
 
     private Task RunUpgradeAsync(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {

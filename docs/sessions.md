@@ -80,14 +80,20 @@ Concurrent disposal calls await the same cleanup, including a session already di
 ## Resource limits and deadlines
 
 The default stack bounds inbound TCP connections to **256 per local peer**, including
-connections still shutting down. At most **32** may come from one source IP address,
+connections still shutting down. At most **32** may come from one IPv4 source address or native IPv6 /64 prefix,
 across all of that peer's TCP listeners. Source ports do not create new allowances;
 IPv4-mapped IPv6 addresses count as IPv4. Excess sockets close immediately before
 protocol dispatch or receive-buffer rental. Separate local peers have separate TCP
-allowances. Deployments with many peers behind one NAT may need a larger per-IP limit.
-Native IPv6 sources are counted by their full address (/128), without prefix grouping.
-Established sessions keep admission until they close; the cap does not evict idle
-sessions or reserve capacity for previously identified peers.
+allowances. Deployments with many peers behind one NAT or IPv6 prefix may need a larger per-source limit.
+Native IPv6 addresses in the same /64 share an allowance; scoped link-local addresses
+retain their interface scope. Established sessions keep admission until teardown finishes.
+When admission is full, a refused accept can disconnect an established session that
+has had no application operations for **60 seconds**. Open application streams,
+including negotiation and cleanup, and queued outbound calls protect a session from
+eviction. Multiplexer maintenance traffic does not restart this idle interval. A source
+limit evicts only a session from that source group. The refused socket is closed
+immediately; a retry can enter after the evicted connection releases its allowance.
+Active sessions and noncooperative custom protocols can still occupy all capacity.
 
 An inbound connection has **15 seconds** from connection-context creation to session
 registration, including security negotiation and the wait for the first Yamux stream.
@@ -109,7 +115,8 @@ ServiceProvider provider = new ServiceCollection()
         maxConcurrentInitializations: 128,
         inboundUpgradeTimeout: TimeSpan.FromSeconds(20),
         initializationTimeout: TimeSpan.FromSeconds(20),
-        negotiationTimeout: TimeSpan.FromSeconds(15)))
+        negotiationTimeout: TimeSpan.FromSeconds(15),
+        inboundTcpIdleTimeout: TimeSpan.FromSeconds(60)))
     .BuildServiceProvider();
 ```
 
