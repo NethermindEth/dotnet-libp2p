@@ -70,6 +70,38 @@ public class ProviderRetentionTests
         Assert.That((await store.GetProvidersAsync(new byte[] { 3 })).Single().PeerId, Is.EqualTo(record.PeerId));
     }
 
+    [TestCase(true, -1)]
+    [TestCase(true, 0)]
+    [TestCase(true, 1)]
+    [TestCase(false, -1)]
+    [TestCase(false, 0)]
+    [TestCase(false, 1)]
+    public async Task LiveReads_ExpireStrictlyAfterDeadline(bool getProviders, int ticksAfterDeadline)
+    {
+        var clock = new TestClock();
+        var store = CreateStore(clock, keys: 1);
+        byte[] key = [1];
+        var record = Record(clock);
+        Assert.That(await store.AddProviderAsync(key, record), Is.True);
+        clock.Advance(record.Ttl + TimeSpan.FromTicks(ticksAfterDeadline));
+        bool live = ticksAfterDeadline <= 0;
+
+        // Each case starts fresh so neither read API can prune on behalf of the other.
+        if (getProviders)
+        {
+            var providers = await store.GetProvidersAsync(key);
+            Assert.That(providers.Select(p => p.PeerId), Is.EqualTo(live ? new[] { record.PeerId } : Array.Empty<PeerId>()));
+        }
+        else
+        {
+            Assert.That(await store.HasProvidersAsync(key), Is.EqualTo(live));
+        }
+
+        Assert.That(store.TotalProviderCount, Is.EqualTo(live ? 1 : 0));
+        Assert.That(store.KeyCount, Is.EqualTo(live ? 1 : 0));
+        Assert.That(store.ExpiryIndexCount, Is.EqualTo(live ? 1 : 0));
+    }
+
     [Test]
     public async Task MixedExpiry_UsesLatestDeadlineAndPrunesRequestedKeyBeforeProviderLimit()
     {
@@ -211,13 +243,18 @@ public class ProviderRetentionTests
         var record = Record();
         // Four raw key bytes => eight Base64 chars; zero bytes encode as 32 Base58 '1' chars.
         int identityBytes = 16 + 32 + 64;
-        var exact = new InMemoryProviderStore(1, 1, 1, identityBytes);
+        // Leave a provider slot free so a missing identity-budget check cannot hide behind the per-key cap.
+        var exact = new InMemoryProviderStore(2, 1, 1, identityBytes);
         Assert.That(await exact.AddProviderAsync(new byte[4], record), Is.True);
         Assert.That(await new InMemoryProviderStore(1, 1, 1, identityBytes - 1).AddProviderAsync(new byte[4], record), Is.False);
         Assert.That(await exact.AddProviderAsync(new byte[4], record with { PeerId = new PeerId(new byte[1_000_000]) }), Is.False);
         // A nonzero ID needs more Base58 characters than the initial raw length check accounts for.
         var nonzero = record with { PeerId = new PeerId(Enumerable.Repeat((byte)255, 32).ToArray()) };
         Assert.That(await exact.AddProviderAsync(new byte[4], nonzero), Is.False);
+        Assert.That((await exact.GetProvidersAsync(new byte[4])).Select(p => p.PeerId), Is.EqualTo(new[] { record.PeerId }));
+        Assert.That(exact.TotalProviderCount, Is.EqualTo(1));
+        Assert.That(exact.KeyCount, Is.EqualTo(1));
+        Assert.That(exact.ExpiryIndexCount, Is.EqualTo(1));
     }
 
     [Test]

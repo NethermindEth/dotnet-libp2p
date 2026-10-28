@@ -19,7 +19,9 @@ internal static class ProviderRecordLimits
     }
 
     // Base58 uses at least one character per input byte (including leading zeroes).
-    // Reject impossible identities before copying bytes or doing Base64/Base58 conversion.
+    // Keep this cheap length-only check before copying or Base64/Base58 conversion:
+    // PeerId(byte[]) accepts attacker-sized arrays, making Base58 conversion potentially expensive.
+    // TryGetAddressBudget is authoritative and subsumes these rejections after conversion.
     internal static bool CanFitIdentity(int keyLength, int peerIdLength, int budget) =>
         KeyBytes(keyLength) + 3L * peerIdLength <= budget;
 
