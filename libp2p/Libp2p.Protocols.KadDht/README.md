@@ -117,6 +117,10 @@ Late service or protocol changes throw `InvalidOperationException`. Dispose the 
 (or the containing DI provider) after its peers; it disposes its own services and
 implicitly created protocols while leaving explicit instances and supplied services owned
 by their original registration. A failed build can be corrected and retried.
+Factories for different registrations may run concurrently. Factory calls and supplied
+provider resolution run outside the container cache lock. Disposal rejects new resolutions
+and waits for active resolutions before disposing owned services; concurrent disposal
+calls await the same cleanup.
 
 `AddKadDht`, `AddKadDht` on `IServiceCollection`, and `WithKadDht` share the same
 request handler. The standard builder creates routing state and runtime identity lazily

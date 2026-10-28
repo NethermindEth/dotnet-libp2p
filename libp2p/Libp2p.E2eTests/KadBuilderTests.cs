@@ -42,6 +42,75 @@ public class KadBuilderTests
     [TestCase(false, true)]
     [TestCase(true, false)]
     [TestCase(true, true)]
+    public async Task SuppliedDhtAliasDoesNotHoldBuilderLockWhileWaitingForPeer(bool enumerable, bool nestedFactory)
+    {
+        using var aliasEntered = new ManualResetEventSlim();
+        var services = new ServiceCollection().AddKadDht();
+        var registration = services.Single(d => d.ServiceType == typeof(SharedDhtState));
+        services.Remove(registration);
+        services.AddSingleton(sp =>
+        {
+            aliasEntered.Set();
+            return (SharedDhtState)registration.ImplementationFactory!(sp);
+        });
+        services.AddLibp2p(builder =>
+        {
+            builder.AddKadDht();
+            builder.Services.AddSingleton(sp => new StateConsumer(ResolveState(sp)));
+            return builder;
+        });
+        services.AddSingleton<ILocalPeer>(sp => sp.GetRequiredService<IPeerFactory>().Create());
+        await using var provider = services.BuildServiceProvider();
+        var peer = (LocalPeer)provider.GetRequiredService<ILocalPeer>();
+        var resolver = provider.GetRequiredService<ILibp2pPeerFactoryBuilder>().ServiceProvider;
+        var options = resolver.GetRequiredService<KadDhtOptions>();
+        var aliasResult = new TaskCompletionSource<SharedDhtState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var optionsResult = new TaskCompletionSource<KadDhtOptions>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Thread aliasThread = Worker(() => nestedFactory ? resolver.GetRequiredService<StateConsumer>().State : ResolveState(resolver), aliasResult);
+        Thread optionsThread = Worker(resolver.GetRequiredService<KadDhtOptions>, optionsResult);
+        bool aliasStarted = false;
+        bool optionsStarted = false;
+        bool optionsProgressed = false;
+        try
+        {
+            lock (peer.Sessions)
+            {
+                aliasThread.Start();
+                aliasStarted = true;
+                Assert.That(aliasEntered.Wait(TimeSpan.FromSeconds(5)), Is.True);
+                // The production alias must reach the peer lock before testing the other resolver.
+                Assert.That(SpinWait.SpinUntil(() => Waiting(aliasThread), TimeSpan.FromSeconds(5)), Is.True);
+                optionsThread.Start();
+                optionsStarted = true;
+                Assert.That(SpinWait.SpinUntil(() => optionsResult.Task.IsCompleted || Waiting(optionsThread), TimeSpan.FromSeconds(5)), Is.True);
+                optionsProgressed = optionsResult.Task.IsCompleted;
+            }
+        }
+        finally
+        {
+            // Release the peer lock before joining, including when the old container blocks both threads.
+            if (aliasStarted) Assert.That(aliasThread.Join(TimeSpan.FromSeconds(10)), Is.True);
+            if (optionsStarted) Assert.That(optionsThread.Join(TimeSpan.FromSeconds(10)), Is.True);
+        }
+
+        Assert.That(optionsProgressed, Is.True, "A peer alias must not block unrelated builder dependencies while waiting for peer initialization.");
+        Assert.That(await optionsResult.Task, Is.SameAs(options));
+        Assert.That(await aliasResult.Task, Is.SameAs(provider.GetRequiredService<SharedDhtState>()));
+
+        SharedDhtState ResolveState(IServiceProvider sp) => enumerable ? sp.GetServices<SharedDhtState>().Single() : sp.GetRequiredService<SharedDhtState>();
+        static bool Waiting(Thread thread) => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0;
+        static Thread Worker<T>(Func<T> resolve, TaskCompletionSource<T> result) => new(() =>
+        {
+            try { result.TrySetResult(resolve()); }
+            catch (Exception ex) { result.TrySetException(ex); }
+        })
+        { IsBackground = true };
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
     public async Task RegisteredWireHandlerSharesClientStoreAndHonorsCapacity(bool serviceRegistration, bool customId)
     {
         string id = customId ? "/test/kad/1.0.0" : KadDhtOptions.DefaultProtocolId;
@@ -341,6 +410,7 @@ public class KadBuilderTests
     public sealed class GenericDependency<T>(Dependency dependency) { public Dependency Dependency => dependency; }
     public sealed class ScopedDependency;
     public sealed class TransientDependency;
+    public sealed class StateConsumer(SharedDhtState state) { public SharedDhtState State => state; }
     private sealed class FailingStackBuilder : Libp2pPeerFactoryBuilder
     {
         public InvalidOperationException Failure { get; } = new("Simulated failure after wiring the protocol stack.");
