@@ -165,7 +165,20 @@ public class PubsubSettings
     // Score Decay
     public int DecayInterval { get; set; } = 1000; // 1 second
     public double DecayToZero { get; set; } = 0.01;
+
+    /// <summary>
+    /// Milliseconds a score that is not positive is kept after its peer disconnects, so that
+    /// reconnecting does not clear a penalty. The kept score does not decay while the peer is away,
+    /// as in go-libp2p and rust-libp2p, and is restored if the peer reconnects in time.
+    /// </summary>
     public int RetainScore { get; set; } = 10 * 60 * 1000; // 10 minutes
+
+    /// <summary>
+    /// Maximum number of scores kept for disconnected peers; zero keeps none. When full, an expired
+    /// score is dropped first, otherwise the least negative one, including the one arriving. A tie
+    /// keeps the score already there, so pushing out a penalized peer needs worse scores.
+    /// </summary>
+    public int MaxRetainedScores { get; set; } = 10_000;
 
     // Mesh Management
     public int DScore { get; set; } = 5;

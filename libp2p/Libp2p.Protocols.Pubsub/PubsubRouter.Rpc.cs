@@ -852,6 +852,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandlePrune(PeerId peerId, IEnumerable<ControlPrune> prunes, ConcurrentDictionary<PeerId, Rpc> peerMessages)
     {
+        HashSet<PeerId> exchanged = [];
         foreach (ControlPrune? prune in prunes)
         {
             if (topicState.GetValueOrDefault(prune.TopicID)?.IsSubscribed is true &&
@@ -873,10 +874,47 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     foreach (PeerInfo? peer in prune.Peers)
                     {
-                        _peerStore.Discover(peer.SignedPeerRecord);
+                        DiscoverExchangedPeer(peer, exchanged);
                     }
                 }
             }
+        }
+    }
+
+    /// <remarks>
+    /// The signed record is optional in gossipsub v1.1 peer exchange. A record is only
+    /// stored when its signer is the advertised peer. Without one, the peer is dialed
+    /// only if the store already has its addresses.
+    /// </remarks>
+    private void DiscoverExchangedPeer(PeerInfo exchanged, HashSet<PeerId> seen)
+    {
+        if (exchanged.PeerID.IsEmpty) return;
+        PeerId peerId = new(exchanged.PeerID.ToByteArray());
+        if (!seen.Add(peerId)) return;
+
+        if (!exchanged.SignedPeerRecord.IsEmpty)
+        {
+            if (RecordSigner(exchanged.SignedPeerRecord) == peerId) _peerStore.Discover(exchanged.SignedPeerRecord);
+            return;
+        }
+
+        if (peerId == localPeer?.Identity.PeerId || peerState.ContainsKey(peerId)) return;
+        if (_peerStore.TryGetPeerInfo(peerId, out Core.Discovery.PeerStore.PeerInfo? known) && known?.Addrs is { Count: > 0 } addrs)
+        {
+            _onNewPeer?.Invoke([.. addrs]);
+        }
+    }
+
+    private static PeerId? RecordSigner(ByteString signedPeerRecord)
+    {
+        try
+        {
+            Core.Dto.SignedEnvelope envelope = Core.Dto.SignedEnvelope.Parser.ParseFrom(signedPeerRecord);
+            return new PeerId(Core.Dto.PublicKeyDecoder.Decode(envelope.PublicKey));
+        }
+        catch (Exception e) when (e is InvalidProtocolBufferException or Core.Exceptions.Libp2pException)
+        {
+            return null;
         }
     }
 

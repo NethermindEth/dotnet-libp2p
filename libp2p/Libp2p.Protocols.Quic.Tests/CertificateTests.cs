@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.TestsBase;
 using System.Formats.Asn1;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -87,6 +88,46 @@ public class CertificateTests
             Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null, out string? failureReason), Is.False);
             Assert.That(failureReason, Is.EqualTo("libp2p public key extension is missing or invalid"));
         });
+    }
+
+    [TestCase("weak-rsa")]
+    [TestCase("trailing-rsa")]
+    public void RejectsUnusableRsaIdentityInLibp2pExtension(string shape)
+    {
+        Identity identity = shape == "weak-rsa" ? new(IdentityFixtures.LegacyRsaPrivateKey, KeyType.Rsa) : new(keyType: KeyType.Rsa);
+        PublicKey presented = identity.PublicKey.Clone();
+        if (shape == "trailing-rsa") presented.Data = ByteString.CopyFrom([.. presented.Data.ToByteArray(), 0]);
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presented);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.False);
+        Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+    }
+
+    [Test]
+    public void RejectsExplicitEcdsaIdentityBeforeAuthenticatingACertificate()
+    {
+        Identity identity = new(IdentityFixtures.P256PrivateKey, KeyType.Ecdsa);
+        PublicKey presented = new() { Type = KeyType.Ecdsa, Data = ByteString.CopyFrom(IdentityFixtures.ExplicitP256PublicKey) };
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presented);
+        Assert.Multiple(() =>
+        {
+            Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null), Is.False);
+            Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+        });
+    }
+
+    [Test]
+    public void CertificateIdentityUsesCanonicalKeyAndRejectsAliasExpectedId()
+    {
+        Identity identity = new();
+        PublicKey extended = PublicKey.Parser.ParseFrom([.. identity.PublicKey.ToByteArray(), 0x18, 0x01]);
+        PeerId alias = new(Multiformats.Hash.Multihash.Encode(extended.ToByteArray(), Multiformats.Hash.HashType.ID));
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, extended);
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.True);
+        Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.EqualTo(identity.PublicKey));
+        Assert.That(CertificateHelper.ValidateCertificate(certificate, alias.ToString()), Is.False);
     }
 
     [TestCase(0)]

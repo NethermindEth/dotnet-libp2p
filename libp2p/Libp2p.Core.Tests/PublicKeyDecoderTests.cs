@@ -99,7 +99,7 @@ public class PublicKeyDecoderTests
                 Is.True,
                 "padded key still verifies, which is why the length check is explicit");
             Assert.That(
-                new PeerId(new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(padded) }),
+                new PeerId(Multiformats.Hash.Multihash.Encode(new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(padded) }.ToByteArray(), Multiformats.Hash.HashType.ID)),
                 Is.Not.EqualTo(new PeerId(identity.PublicKey)),
                 "and it yields a different peer ID");
         });
