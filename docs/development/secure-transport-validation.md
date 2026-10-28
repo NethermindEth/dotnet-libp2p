@@ -33,6 +33,13 @@ lengths (`-32768` and `-1`). After the framing fix, the full Noise project passe
 38 cases. Writes now narrow with checked unsigned conversions, and the responder
 reserves two additional bytes for its prefix.
 
+### Separate transport-record follow-up
+
+The post-handshake receive loop has a separate short-record allocation and
+exception-propagation defect. The [issue draft and reproduction](noise-transport-follow-up.md)
+record the verified behavior. That follow-up is not yet filed; issue publication
+and an issue URL remain outstanding. No runtime fix or issue closure is claimed here.
+
 ## Received TLS certificate lists (#373, unresolved)
 
 The [TLS peer-authentication specification](https://github.com/libp2p/specs/blob/c750236de43cd8b246a824b377dfdb26bae686db/tls/tls.md#peer-authentication)
