@@ -60,10 +60,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r project; do
-            # Zero tests already fail with exit 8; minimum 1 records intent and parity.
-            dotnet test "$project" -c "$BUILD_CONFIG" --no-build -- --minimum-expected-tests 1
-          done < "$RUNNER_TEMP/test-projects.txt"
+          bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ${{ runner.temp }}/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   windows-quic-tls:
     name: Windows QUIC and TLS

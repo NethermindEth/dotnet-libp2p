@@ -26,10 +26,4 @@
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Compile the real chat sources to pin their independent receive limits without MAUI packaging. -->
-    <Compile Include="../../samples/chat/ChatProtocol.cs" Link="Samples/ChatProtocol.cs" />
-    <Compile Include="../../samples/maui-chat/ChatProtocol.cs" Link="Samples/MauiChatProtocol.cs" />
-  </ItemGroup>
-
 </Project>
