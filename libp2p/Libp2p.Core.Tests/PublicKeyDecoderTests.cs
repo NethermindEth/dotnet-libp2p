@@ -76,6 +76,7 @@ public class PublicKeyDecoderTests
     [TestCase(8193, 65537L)]
     [TestCase(16384, 65537L)]
     [TestCase(2048, 2147483648L)]
+    [TestCase(2048, 2147483649L)]
     [TestCase(2048, 4294967297L)]
     public void RemoteRsaRejectsUnboundedParameters(int bits, long exponent)
     {
