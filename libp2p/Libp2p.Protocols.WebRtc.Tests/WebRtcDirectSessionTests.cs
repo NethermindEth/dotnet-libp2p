@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
-using Org.BouncyCastle.Crypto;
-using Org.BouncyCastle.Tls;
-using Org.BouncyCastle.Tls.Crypto.Impl.BC;
-using Org.BouncyCastle.X509;
 using SIPSorcery.Net;
 using System.Net;
 using System.Net.Sockets;
@@ -91,7 +87,7 @@ public class WebRtcDirectSessionTests
     [CancelAfter(10_000)]
     public async Task ReceiveDtls_WithNoHandshakeSlot_PinsTheFirstSourceAndSendsNothing()
     {
-        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        var (_, chain, privateKey, _) = WebRtcDirectProtocol.CreateLocalCertificate();
         using SemaphoreSlim exhausted = new(0, 1);
         List<IPEndPoint> sentTo = [];
 
@@ -123,7 +119,7 @@ public class WebRtcDirectSessionTests
     [CancelAfter(30_000)]
     public async Task ReceiveDtls_WhenTheHandshakeFails_GivesTheHandshakeSlotBack(CancellationToken token)
     {
-        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        var (_, chain, privateKey, _) = WebRtcDirectProtocol.CreateLocalCertificate();
         using SemaphoreSlim slots = new(1, 1);
         await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
         IPEndPoint peer = new(IPAddress.Loopback, 1111);
@@ -155,7 +151,7 @@ public class WebRtcDirectSessionTests
     [CancelAfter(30_000)]
     public async Task ReceiveDtls_FromAnUnpinnedSource_CannotAbortAHandshakeInFlight(CancellationToken token)
     {
-        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        var (_, chain, privateKey, _) = WebRtcDirectProtocol.CreateLocalCertificate();
         using SemaphoreSlim slots = new(1, 1);
         await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
         IPEndPoint peer = new(IPAddress.Loopback, 1111);
@@ -182,7 +178,7 @@ public class WebRtcDirectSessionTests
     [CancelAfter(30_000)]
     public async Task ReceiveDtls_PastThePreHandshakeCap_StopsFeedingTheDtlsStack(CancellationToken token)
     {
-        (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
+        var (_, chain, privateKey, _) = WebRtcDirectProtocol.CreateLocalCertificate();
         using SemaphoreSlim slots = new(1, 1);
         await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
         IPEndPoint peer = new(IPAddress.Loopback, 1111);
@@ -254,8 +250,8 @@ public class WebRtcDirectSessionTests
 
         public Listener()
         {
-            (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
-            Fingerprint = DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(chain));
+            var (_, chain, privateKey, fingerprint) = WebRtcDirectProtocol.CreateLocalCertificate();
+            Fingerprint = fingerprint;
 
             _udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
             EndPoint = (IPEndPoint)_udp.Client.LocalEndPoint!;
@@ -344,14 +340,8 @@ public class WebRtcDirectSessionTests
 
         public Dialer(IPEndPoint listenerEndPoint, DtlsFingerprint listenerFingerprint)
         {
-            (Certificate chain, AsymmetricKeyParameter privateKey) = DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
-            Fingerprint = DtlsFingerprint.FromRtcFingerprint(DtlsUtils.Fingerprint(chain));
-
-            RTCCertificate2 certificate = new()
-            {
-                Certificate = new X509Certificate(chain.GetCertificateAt(0).GetEncoded()),
-                PrivateKey = privateKey,
-            };
+            var (certificate, _, _, fingerprint) = WebRtcDirectProtocol.CreateLocalCertificate();
+            Fingerprint = fingerprint;
 
             _pc = new RTCPeerConnection(new RTCConfiguration
             {

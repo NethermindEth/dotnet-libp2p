@@ -464,7 +464,14 @@ public class WebRtcDirectProtocol : ITransportProtocol
         return new RTCPeerConnection(config);
     }
 
-    private static (RTCCertificate2 Certificate, Certificate Chain, AsymmetricKeyParameter PrivateKey, DtlsFingerprint Fingerprint) CreateLocalCertificate()
+    /// <summary>
+    /// Internal rather than private so tests can obtain a certificate without naming BouncyCastle types.
+    /// The test assembly sees both BouncyCastle.Crypto (via SIPSorcery) and BouncyCastle.Cryptography
+    /// (via the Libp2p facade reference added in #422), which makes `Certificate`, `BcTlsCrypto` and
+    /// `AsymmetricKeyParameter` ambiguous there; this assembly sees only the former, so it can hand the
+    /// resolved types out.
+    /// </summary>
+    internal static (RTCCertificate2 Certificate, Certificate Chain, AsymmetricKeyParameter PrivateKey, DtlsFingerprint Fingerprint) CreateLocalCertificate()
     {
         (Certificate certificateChain, AsymmetricKeyParameter privateKey) =
             DtlsUtils.CreateSelfSignedTlsCert(new BcTlsCrypto());
