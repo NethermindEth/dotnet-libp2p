@@ -14,7 +14,7 @@ Undersized Noise transport records fault the receive pump without propagating fa
 
 ## Finding
 
-At revision `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`, the post-handshake
+At inspected candidate `6deef303642830456c3e6f46b9dc40117aea2a8a`, the post-handshake
 `ExchangeData` receive loop reads a peer-controlled unsigned length and its body,
 then allocates `new byte[length - 16]` without first checking the minimum size.
 Lengths 0 through 15 produce a negative allocation length and an
@@ -29,6 +29,9 @@ the production listener after authenticating and publishing the expected peer ID
 
 The same receive-loop allocation and task-return behavior exist in parent
 `0e731cc8b84ad51fd7af3bc31e58744678e0a427`.
+The complete `NoiseProtocol.cs` is byte-identical between the reproduction's
+revision `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053` and the inspected candidate;
+the dated reproduction below still describes the current code.
 
 ## Reproduction and observed results
 
