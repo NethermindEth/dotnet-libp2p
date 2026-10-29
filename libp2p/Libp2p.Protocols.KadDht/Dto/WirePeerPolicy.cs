@@ -158,7 +158,7 @@ internal sealed class WirePeerPolicy
             long stringBytes = 2L * raw.Length;
             // Bound even the whitespace scan before skipping blank entries without charging bytes.
             if (!CanRetain(retained, stringBytes) || string.IsNullOrWhiteSpace(raw)) continue;
-            if (!Retain(ref retained, stringBytes)) continue;
+            ChargeRetained(ref retained, stringBytes);
             try
             {
                 var address = Multiaddress.Decode(raw);
@@ -207,8 +207,13 @@ internal sealed class WirePeerPolicy
     private bool Retain(ref long retained, long size)
     {
         if (!CanRetain(retained, size)) return false;
+        ChargeRetained(ref retained, size);
+        return true;
+    }
+
+    private void ChargeRetained(ref long retained, long size)
+    {
         retained += size;
         _retained += size;
-        return true;
     }
 }
