@@ -4,8 +4,9 @@
 
 PR #416 now targets `main` and incorporates PR #411 through merge
 `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
-2026-10-30 against candidate `4a0094ca4527a289521e4b4c4a59dcff0cbc034d`.
-The pinned comparison base is `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`;
+2026-10-30 against candidate `23b93fa9dd3b3e04f59a93b6e5501c1bb24ed597`,
+which preserves the incoming main changes through `ec92be05`.
+The pinned comparison base is `ec92be05cf95d8702b20ee2d8961d99a12202f6e`;
 the candidate differs from that pinned base in 14 files. These documentation
 updates preserve the candidate's production code, tests, and CI configuration.
 
@@ -282,14 +283,15 @@ merge `eecbbaae5dc73e5915437d6f8786e951e0fb8a5d`, with that head and main revisi
 `ec92be05cf95d8702b20ee2d8961d99a12202f6e` as parents. These are CI merge results,
 not an execution of the unmerged candidate tree.
 
-The merge includes newer main changes, including an RSA admission guard and
-changes to other protocols and Linux CI discovery. Blob comparisons confirmed
-that the QUIC certificate helper and protocol, TLS protocol, Windows key tests,
-certificate tests, six-case certificate-list probe, identity fixtures, their
-project files, shared package/build properties, and SDK settings match the
-candidate. The full trees differ; equivalence of every input is not claimed.
-The Windows job's test commands are unchanged, and the log confirms the full
-suites and registered filter below.
+The tested merge includes main changes absent from its PR head `4a0094c`,
+including an RSA admission guard and changes to other protocols and Linux CI
+discovery. Candidate `23b93fa` incorporates those incoming updates. Comparing
+every tracked blob in the tested merge with the candidate found exactly one
+difference: this validation document. All production sources, tests, fixtures,
+project files, shared package/build properties, SDK settings, and workflows
+match. The results below are reused on that basis, rather than presented as a
+new Windows execution of `23b93fa`. The log confirms the full suites and
+registered filter below.
 
 The runner used Windows 10.0.26100 x64, SDK 10.0.403, and runtime 10.0.14. The raw
 step summaries show:
@@ -303,8 +305,9 @@ step summaries show:
 The QUIC invocation has no filter; all 33 cases completed without skips, including
 the three Windows key-reuse and normal-exit cases. Their source and assertions
 match the candidate. The non-Windows `Assert.Ignore` guards restrict native CNG
-tests to Windows; they remain appropriate on Linux. The TLS XML independently records 32 passing case nodes and
-all six `ReportsWireCertificateListAndCallbackContents` combinations. Each has
+tests to Windows; they remain appropriate on Linux. The TLS XML independently
+records 32 passing case nodes and all six
+`ReportsWireCertificateListAndCallbackContents` combinations. Each has
 `ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the leaf,
 1 for the unrelated extra certificate, and 0 for the duplicate leaf. All three
 list shapes and both receiver roles passed the platform-conditioned length and
@@ -314,8 +317,11 @@ The downloaded TLS report's SHA-256 is
 `b1c20bfa3b927ffdf0fa02de4736809dce3a9cd503e77a8dd9ab1b9378dbd076`.
 The raw Windows job log's SHA-256 is
 `455226113c6739ed016a42a0d903ed21614f0ba6f207a1a57c16befe2b70058c`.
-Raw files remain session artifacts; the linked Actions artifact contains the TLS
-XML, while QUIC and registered totals come from the linked job log.
+These hashes identify the raw files inspected earlier. The linked Actions
+artifact contains the TLS XML, while QUIC and registered totals come from the
+linked job log. During the later verification of `23b93fa`, fresh artifact and
+log retrieval returned HTTP 503 account egress-limit errors. The previously
+inspected case results are reused; no new raw-report inspection is claimed.
 
 These results verify normal Windows execution of the PR's transport changes in
 the tested merge. They do not exercise a busy `Monitor.TryEnter` shutdown, pin
@@ -337,13 +343,13 @@ settings; the bytes were stripped before inspecting the displayed summaries.
 
 ## Current candidate Linux validation
 
-Fresh Release checks on 2026-10-29 used candidate
-`6deef303642830456c3e6f46b9dc40117aea2a8a`, Ubuntu 22.04, SDK 10.0.402, and
-runtime 10.0.13. This host supports QUIC. All builds used
+Fresh Release checks on 2026-10-30 used candidate
+`23b93fa9dd3b3e04f59a93b6e5501c1bb24ed597`, SDK 10.0.402, and runtime
+10.0.13 on Linux. This host supports QUIC. All builds used
 `-p:TreatWarningsAsErrors=true` and one shared artifact root under `TMPDIR`.
-These Linux results are retained for the inspected candidate because production
-and test inputs are unchanged from `6deef30`; they were not rerun for this
-documentation refresh.
+The checks were rerun after the incoming main updates. Only this validation
+document changed afterward, so the successful results are reused for this
+documentation correction.
 
 | Scope | Passed | Skipped | Total |
 | --- | ---: | ---: | ---: |
@@ -358,14 +364,15 @@ is an environment difference, not a current result from this host. The full E2E
 suite was not rerun for this documentation revision; the 45 cases above are the
 explicitly filtered production-stack checks.
 
-Commands ran from the repository root. For each suite, the runner settings
-selected an NUnit output directory under the same session's `TMPDIR`:
+Commands ran from the repository root. The shared runner settings selected an
+NUnit output directory under the same session's `TMPDIR`. Each test command was
+wrapped with `timeout --signal=TERM --kill-after=10s 240s`:
 
 ```sh
-dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 40 --timeout 180s --settings "$TMPDIR/noise.runsettings"
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$TMPDIR/tls.runsettings"
-dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 25 --timeout 180s --settings "$TMPDIR/quic.runsettings"
-dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 45 --timeout 180s --settings "$TMPDIR/registered.runsettings" --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests'
+dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 40 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 25 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 45 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings" --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests'
 dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
 npx --no-install cspell --no-progress -c cspell.json docs/development/noise-transport-follow-up.md docs/development/secure-transport-validation.md
 ```
@@ -393,9 +400,11 @@ Closes #371
 #373 remains unresolved because the Windows callback loses transmitted duplicate
 entries. #402 is a partial mitigation of per-attempt key creation and retains one
 possible orphan per crashed process run. Neither issue has a closing reference.
-The published PR body now targets main and has the refreshed Linux totals, but
-on 2026-10-30 its header still called `37bfd9e` the current head. The host owns
-publication of the corrected head reference and current Windows evidence.
-Prepared publication text is kept outside the source checkout; this validation
-record is not a draft PR description. The separate Noise issue #431 remains open
-and outside this PR's runtime changes.
+The published PR body targets main, but authenticated inspection on 2026-10-30
+still found a stale `37bfd9e` head statement and older Windows evidence. A
+complete corrected description is returned through the host's disposition
+protocol, with validation pinned to its actual revisions and no moving-head
+claim. The host owns publication and the fresh audit afterward. Prepared
+publication text is kept outside the source checkout; this validation record
+is not a draft PR description. The separate Noise issue #431 remains open and
+outside this PR's runtime changes.
