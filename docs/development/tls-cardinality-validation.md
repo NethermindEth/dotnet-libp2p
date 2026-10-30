@@ -521,14 +521,61 @@ focused selection is:
 dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsCertificateGuardTests|FullyQualifiedName~TlsHandshakeClosureTests' --minimum-expected-tests 11 --timeout 90s --settings "$TMPDIR/tls373.xml"
 ```
 
-Historical evidence JSON and the pinned interoperability driver remain
-provenance and manual replay tools; their presence is not a CI execution claim.
-Neither Windows nor pinned Go interoperability was rerun for this repair.
-Earlier platform results retain their recorded source scope. The host-owned PR
-description should report the latest Linux counts above and label older Windows
-counts with their tested revision, rather than claim 58/58 on the revised source.
-ALPN compatibility and the approved managed-backend policy remain unchanged.
-Independent re-review and final verification must cover these changes.
+At the time of this repair, the evidence JSON and pinned interoperability driver
+were manual replay tools; neither Windows nor pinned Go interoperability was
+rerun for that repair. Earlier platform results retain their recorded source
+scope. ALPN compatibility remains unchanged. Task authorization for implementing
+the managed backend is distinct from maintainer approval of its operational
+policy; explicit maintainer sign-off remains pending.
+
+## Automated evidence and interoperability checks
+
+The `tls-evidence-and-interop` job in `.github/workflows/test.yml` now reads all
+ten historical evidence JSON files. Its catalog pins archive bytes, checks the
+recorded input manifests and their aggregate digests, and rejects missing,
+unlisted or modified archives. It compares recorded inputs with the checkout
+and publishes changed/missing paths in `evidence.json`, with counts in the job
+summary. Historical drift is visible without changing historical observations
+to fit new source. Matching recorded inputs is not sufficient for reuse: new
+files and environment changes still need review. The parent snapshot without
+an input manifest is marked as historical only, with no reuse inference.
+
+The job also builds and runs the retained `tests/tls-interop` driver using Go
+1.23.12, the checked-in module files and the real .NET transport sample. It runs
+the pinned go-libp2p reference tests with discovery checks, then tests TLS/Yamux
+traffic and authenticated identities in both roles. Failures block the job;
+logs and results are uploaded even on failure. The
+[CI helper documentation](../../.github/scripts/README.md#tls-evidence-and-interoperability)
+describes the checks and local replay. Archive integrity is not a new execution
+of its historical tests, and Linux interoperability is not Windows validation.
+
+The incoming main changes, including merged PR #416 at
+`ac723246c95286fce138c9bacbdcd387570c7fbe`, were preserved by merge candidate
+`cec21f66562494a68d3563fcbdef8cfc0cb3b7e8`. Its Linux Release checks with
+warnings as errors passed TLS 79/79, registered transport/identity controls
+76/76, Core identity/channel controls 226/226, Noise 40/40, pubsub signature
+controls 16/16 and TCP 24/24. QUIC passed 39 with three Windows-only skips.
+These results may be reused for the subsequent CI/documentation correction only
+while production and test inputs remain unchanged. Fresh published-revision
+Windows checks and independent review remain required.
+
+Local execution of the new CI commands on `cec21f66562494a68d3563fcbdef8cfc0cb3b7e8`
+plus this CI/documentation correction passed all 30 Python helper tests, the
+ten-archive integrity/manifest check, the Release transport sample build with
+warnings as errors, both pinned Go reference suites (six nested cases), and Go/.NET
+TLS/Yamux interoperability in both roles. The Go module files and .NET production
+and test sources were unchanged. Hosted execution of the new job remains pending
+publication; these local results do not claim a hosted or Windows run.
+
+## Pending maintainer decision
+
+The reviewer requested explicit maintainer sign-off for replacing
+Schannel/OpenSSL policy with managed Bouncy Castle policy. At
+`cec21f66562494a68d3563fcbdef8cfc0cb3b7e8`, the PR reviews address the
+final-write acknowledgement fix and documentation; none explicitly approves
+that backend decision. The implementation authorization and the review
+approvals do not establish this sign-off. It remains a host-coordinated decision,
+and this record does not claim that all review points are cleared.
 
 ## QUIC boundary and handoff
 
@@ -552,25 +599,3 @@ That review applies to `19d9aa1`; it does not approve a later head. The host mus
 complete the normal same-session independent re-review and final verification
 on the final head, including these documentation changes, before publication.
 Platform result reuse remains conditional on matching source/build/CI inputs.
-
-Required PR description text:
-
-> Stacked on PR #416, targeting `feature/20261023-212739-3e2248`. Preserves the parent fixes and is limited to TLS certificate-list cardinality enforcement.
-
-Use the following validation table in the host-published PR description. It
-replaces the obsolete claim of TLS 58/58 on both current platforms; it does not
-transfer historical Windows results to the revised source.
-
-| Check | Result | Tested source and scope |
-| --- | --- | --- |
-| Linux TLS, Release with warnings as errors | 79/79 passed, no skips | `77671d589fd4ec61a5cb5ed57db54cd6dce3ef8c` |
-| Linux registered transport and identity controls | 76/76 passed, no skips | Same revision and build configuration |
-| Windows TLS / QUIC / registered controls | 68/68 / 32/32 / 36/36 passed, no skips | Historical `7f27c7d64f1fa6c5ab9faaa082efe7dbf16b70d7`; predates the final-write acknowledgement repair |
-
-The managed backend uses Bouncy Castle cipher selection rather than OS
-Schannel/OpenSSL cipher policy. Absent-ALPN compatibility remains deliberate;
-QUIC remains on MsQuic. These operational choices must remain visible in the PR
-description. This repository text prepares publication; it does not edit the
-live PR or grant maintainer approval.
-
-Closes #373

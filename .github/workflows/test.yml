@@ -1,3 +1,4 @@
+# cspell:words GOCACHE GOMODCACHE
 name: Test
 
 on:
@@ -85,6 +86,67 @@ jobs:
           -c ${{ env.BUILD_CONFIG }} --no-build --
           --filter "FullyQualifiedName~WebRtcDirectFingerprintEnforcementTests"
           --minimum-expected-tests 6
+
+  tls-evidence-and-interop:
+    name: TLS evidence and pinned Go interoperability
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GOCACHE: ${{ runner.temp }}/go-build
+      GOMODCACHE: ${{ runner.temp }}/go-mod
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Check historical evidence integrity and report source drift
+        run: >-
+          python3 .github/scripts/check_tls_evidence.py
+          --output "$RUNNER_TEMP/tls-interop/evidence.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.12'
+          cache: false
+
+      - name: Install interoperability service
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+
+      - name: Build pinned Go peer and run reference tests
+        working-directory: tests/tls-interop
+        run: |
+          set -euo pipefail
+          go build -mod=readonly -o "$RUNNER_TEMP/tls-go-peer" .
+          go test -mod=readonly github.com/libp2p/go-libp2p/p2p/security/tls -run 'TestNewIdentityCertificates|TestVectors' -count=1 -v > "$RUNNER_TEMP/tls-interop/go-reference.log" 2>&1
+          cat "$RUNNER_TEMP/tls-interop/go-reference.log"
+          grep -q '^--- PASS: TestNewIdentityCertificates' "$RUNNER_TEMP/tls-interop/go-reference.log"
+          grep -q '^--- PASS: TestVectors' "$RUNNER_TEMP/tls-interop/go-reference.log"
+
+      - name: Build production transport interoperability sample
+        run: dotnet build samples/transport-interop/TransportInterop.csproj -c Release --artifacts-path "$RUNNER_TEMP/a" -p:TreatWarningsAsErrors=true
+
+      - name: Run Go and .NET TLS and Yamux in both roles
+        run: >-
+          python3 tests/tls-interop/run.py
+          --dotnet-dll "$RUNNER_TEMP/a/bin/TransportInterop/release/TransportInterop.dll"
+          --go-peer "$RUNNER_TEMP/tls-go-peer"
+          --output "$RUNNER_TEMP/tls-interop/peers"
+
+      - name: Upload evidence drift and interoperability results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-evidence-and-interop
+          path: ${{ runner.temp }}/tls-interop
+          if-no-files-found: error
 
   windows-quic-tls:
     name: Windows QUIC and TLS

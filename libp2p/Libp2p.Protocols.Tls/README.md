@@ -58,7 +58,7 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: Windows desktop candidates passed TLS 58/58, QUIC 32/32 and registered controls 36/36. After two Windows Server native-interoperability timeouts, the retry repair at `b295980` passed Server TLS 62/62, QUIC 32/32 and registered 36/36. Later shutdown changes and the successful-handshake fixture correction passed Linux TLS 68/68, including 40 loaded full-suite runs, and registered paths 76/76. The subsequent PR feedback repair passes Linux TLS 79/79 and registered paths 76/76, with direct tests for all three cardinality guards and a peer closing before final-write acknowledgement. Pinned Go TLS/Yamux interoperability passed in both roles on the prior checkpoint; Windows and Go have not been rerun for the latest repair. The [#373 validation record](../../docs/development/tls-cardinality-validation.md) distinguishes exact-source platform results, retained failures and replay commands. Earlier results are not transferred across later source changes. Final independent re-review and verification remain required.
+- **Platform Validation**: Windows desktop candidates passed TLS 58/58, QUIC 32/32 and registered controls 36/36. After two Windows Server native-interoperability timeouts, the retry repair at `b295980` passed Server TLS 62/62, QUIC 32/32 and registered 36/36. Later shutdown changes and the successful-handshake fixture correction passed Linux TLS 68/68, including 40 loaded full-suite runs, and registered paths 76/76. The subsequent PR feedback repair passes Linux TLS 79/79 and registered paths 76/76, with direct tests for all three cardinality guards and a peer closing before final-write acknowledgement. After preserving incoming main updates at `cec21f66`, Linux TLS 79/79 and registered paths 76/76 pass, and fresh pinned Go TLS/Yamux interoperability passes in both roles. Windows has not been rerun for this merge candidate. The [#373 validation record](../../docs/development/tls-cardinality-validation.md) distinguishes exact-source platform results, retained failures and replay commands. Earlier results are not transferred across later source changes. Final independent re-review and verification remain required.
 - **Parent Validation**: The earlier native backend at revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 on Windows without skips. The historical [parent validation record](../../docs/development/secure-transport-validation.md), replay commands, and CI gates are retained.
 - **Windows Keys**: The shared certificate helper retains the named CNG key needed by native QUIC. TLS uses the certificate's actual key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
 - **Crash Lifetime**: A crash or failed shutdown cleanup can leave one key per process run behind. Across repeated crashes this residual is unbounded; no legacy-key sweep is performed. See the [ownership and validation evidence](../../docs/development/secure-transport-validation.md).
@@ -95,6 +95,16 @@ that relied on OS cipher or crypto-policy enforcement must account for this
 backend change. The public protocol API and certificate lease/key ownership
 contracts remain. QUIC stays on MsQuic and has a separate certificate callback
 representation; this change does not establish QUIC list cardinality.
+Explicit maintainer sign-off for the backend's operational policy change remains
+pending; implementation authorization and approvals of individual fixes do not
+establish that decision.
+
+The `tls-evidence-and-interop` CI job checks historical evidence integrity,
+reports source drift, runs pinned Go reference tests and executes the retained
+Go/.NET TLS/Yamux driver in both roles. Its fresh results are separate from the
+archived platform observations above. See the
+[CI helper documentation](../../.github/scripts/README.md#tls-evidence-and-interoperability)
+for the archive contract and replay commands.
 
 See the [#373 validation record](../../docs/development/tls-cardinality-validation.md)
 for Windows/Linux enforcement results, historical failed checkpoints, native
