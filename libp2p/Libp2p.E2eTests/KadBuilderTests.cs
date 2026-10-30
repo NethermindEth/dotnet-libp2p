@@ -20,15 +20,31 @@ namespace Libp2p.E2eTests;
 
 public class KadBuilderTests
 {
-    [Test]
-    public async Task BuilderCreatesPeerBoundDhtWithoutLocalPeerRegistration()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task BuilderCreatesPeerBoundDhtWithoutLocalPeerRegistration(bool configureResources)
     {
-        await using var provider = new ServiceCollection()
+        var limits = new PeerResourceLimits(maxConcurrentInitializations: 2);
+        var protocolLimits = new BuiltInProtocolLimits { Ping = new InboundStreamLimit(2, 1) };
+        var clock = new ConfiguredClock();
+        var services = new ServiceCollection();
+        if (configureResources) services.AddSingleton(limits).AddSingleton(protocolLimits).AddSingleton<TimeProvider>(clock);
+        await using var provider = services
             .AddLibp2p(builder => builder.AddKadDht())
             .BuildServiceProvider();
         var factory = provider.GetRequiredService<IPeerFactory>();
+        var builder = (Libp2pPeerFactoryBuilder)provider.GetRequiredService<ILibp2pPeerFactoryBuilder>();
+        if (configureResources) Assert.That(builder.ProtocolLimits, Is.SameAs(protocolLimits));
+        var ping = provider.GetRequiredService<IProtocolStackSettings>().Protocols!.Keys.Single(p => p.Protocol is PingProtocol);
+        Assert.That(ping.InboundLimit, Is.SameAs(builder.ProtocolLimits.Ping));
         await using var first = factory.Create();
         await using var second = factory.Create();
+        foreach (var peer in new[] { first, second })
+        {
+            Assert.That(peer, Is.AssignableTo<IPeerServices>());
+            Assert.That(((LocalPeer)peer).ResourceLimits, Is.SameAs(configureResources ? limits : PeerResourceLimits.Default));
+            Assert.That(((LocalPeer)peer).Clock, Is.SameAs(configureResources ? clock : TimeProvider.System));
+        }
         var concurrent = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(first.GetKadDht)));
         Assert.That(concurrent.All(runtime => ReferenceEquals(runtime, concurrent[0])), Is.True);
         Assert.That(first.GetKadDht(), Is.Not.Null);
@@ -480,6 +496,7 @@ public class KadBuilderTests
     public sealed class TransientDependency;
     public sealed class StateConsumer(SharedDhtState state) { public SharedDhtState State => state; }
     public sealed class StateAlias(SharedDhtState state) { public SharedDhtState State => state; }
+    private sealed class ConfiguredClock : TimeProvider { }
     private sealed class FailingStackBuilder : Libp2pPeerFactoryBuilder
     {
         public InvalidOperationException Failure { get; } = new("Simulated failure after wiring the protocol stack.");

@@ -92,7 +92,8 @@ public class ReceiveBufferTests
             };
             await using (QuicPump pump = await QuicPump.StartAsync(local, remote, false, new QuicProtocol(null, pool), channel, token))
             {
-                await pool.WaitForRentAsync(token);
+                TrackingReceivePool.Rental rental = await pool.WaitForRentAsync(token);
+                Assert.That(rental.Capacity, Is.EqualTo(1024));
                 switch (ending)
                 {
                     case "eof": pump.Remote.CompleteWrites(); break;
