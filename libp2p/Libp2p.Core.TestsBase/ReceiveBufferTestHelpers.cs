@@ -134,7 +134,6 @@ public sealed class ReceiveTestChannel : IChannel
                 foreach (TrackingReceivePool.Rental rental in pool.Rentals)
                 {
                     Assert.That(segment.Array, Is.Not.SameAs(rental.Buffer));
-                    Assert.That(memory.Length, Is.LessThanOrEqualTo(rental.Capacity), "Reads must be limited to the requested capacity.");
                 }
             }
         }

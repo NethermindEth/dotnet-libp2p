@@ -143,10 +143,11 @@ public class IpTcpProtocol : ITransportProtocol
 #endif
                 Task readTask = Task.Run(async () =>
                 {
-                    int receiveCapacity = client.ReceiveBufferSize;
-                    byte[] buf = _receiveBufferPool.Rent(receiveCapacity);
+                    byte[]? buf = null;
                     try
                     {
+                        int receiveCapacity = client.ReceiveBufferSize;
+                        buf = _receiveBufferPool.Rent(receiveCapacity);
                         for (; client.Connected;)
                         {
                             if (client.Available == 0)
@@ -171,7 +172,10 @@ public class IpTcpProtocol : ITransportProtocol
                     }
                     finally
                     {
-                        _receiveBufferPool.Return(buf);
+                        if (buf is not null)
+                        {
+                            _receiveBufferPool.Return(buf);
+                        }
                     }
                 });
 
@@ -272,10 +276,11 @@ public class IpTcpProtocol : ITransportProtocol
 
         Task receiveTask = Task.Run(async () =>
         {
-            int receiveCapacity = client.ReceiveBufferSize;
-            byte[] buf = _receiveBufferPool.Rent(receiveCapacity);
+            byte[]? buf = null;
             try
             {
+                int receiveCapacity = client.ReceiveBufferSize;
+                buf = _receiveBufferPool.Rent(receiveCapacity);
                 while (client.Connected)
                 {
                     int dataLength = await client.ReceiveAsync(buf.AsMemory(0, receiveCapacity), SocketFlags.None);
@@ -295,7 +300,10 @@ public class IpTcpProtocol : ITransportProtocol
             }
             finally
             {
-                _receiveBufferPool.Return(buf);
+                if (buf is not null)
+                {
+                    _receiveBufferPool.Return(buf);
+                }
             }
         });
 
