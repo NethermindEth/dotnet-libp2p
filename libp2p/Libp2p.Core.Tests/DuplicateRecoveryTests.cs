@@ -73,6 +73,31 @@ public class DuplicateRecoveryTests
         }
     }
 
+    [Test]
+    public async Task PendingIncomingSessionIsRetainedWhenTheSmallerPeersOutboundSessionArrives()
+    {
+        Identity[] identities = [TestPeers.Identity(1), TestPeers.Identity(2)];
+        Array.Sort(identities, (a, b) => a.PeerId.CompareTo(b.PeerId));
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using GatedPeer peer = new(identities[0], new DuplicateTransport(), initialization.Task);
+        Multiaddress address = $"/ip4/127.0.0.1/tcp/4001/p2p/{identities[1].PeerId}";
+        LocalPeer.Session incoming = new(peer) { State = { RemoteAddress = address } };
+        LocalPeer.Session outgoing = new(peer) { State = { RemoteAddress = address } };
+        using INewSessionContext accepted = peer.UpgradeToSession(incoming, peer.Transport, true, null);
+        try
+        {
+            Assert.That(incoming.Connected.IsCompleted, Is.False, "The incoming initializer is held at its gate.");
+            Assert.Throws<SessionExistsException>(() => peer.UpgradeToSession(outgoing, peer.Transport, false, null));
+            Assert.That(peer.Sessions, Is.EqualTo(new[] { incoming }));
+            Assert.That(incoming.Closed.IsCancellationRequested, Is.False);
+            Assert.That(outgoing.Closed.IsCancellationRequested, Is.True);
+            initialization.TrySetResult();
+            await incoming.Connected.WaitAsync(Deadline);
+            Assert.That(incoming.Closed.IsCancellationRequested, Is.False);
+        }
+        finally { initialization.TrySetResult(); }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task ReplacementMustInitializeBeforeClosingTheOriginalSession(bool replacementSucceeds)

@@ -57,7 +57,7 @@ ISession knownPeerSession = await peer.DialAsync(remotePeerId);
 
 The address must include a `/p2p/<peer-id>` component so the peer store can associate it with the peer id.
 
-Simultaneous dials reuse a live session for the authenticated peer. When both outbound sessions are still initializing, a peer-id tie-break prefers the connection dialed by the smaller peer: the larger peer can initialize an inbound replacement for its pending outbound session. The original stays alive until the replacement initializes successfully. Established sessions and existing inbound sessions are retained, and a failed replacement leaves the original available.
+Simultaneous dials reuse a live session for the authenticated peer. When both peers have already registered outbound sessions that are still initializing, a peer-id tie-break prefers the connection dialed by the smaller peer: the larger peer can initialize an inbound replacement for its pending outbound session. The original stays alive until the replacement initializes successfully. Established sessions and existing inbound sessions are retained, including an inbound session whose initialization is still pending. A later outbound attempt reuses that inbound session rather than replacing it. A failed replacement leaves the original available.
 
 ## Incoming sessions
 

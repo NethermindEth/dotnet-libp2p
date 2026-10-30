@@ -17,8 +17,9 @@ namespace Nethermind.Libp2p.E2eTests;
 
 public class SimultaneousQuicTests
 {
-    [Test]
-    public async Task LargerPeersEarlierConnectionSurvivesRejectedEagerReplacement()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task LargerPeersEarlierConnectionSurvivesRejectedEagerReplacement(bool incomingStillInitializing)
     {
         if (!QuicListener.IsSupported) Assert.Ignore("QUIC is unavailable.");
         Identity[] identities = [new(), new()];
@@ -47,7 +48,14 @@ public class SimultaneousQuicTests
         {
             ISession originalAtSmall = await schedule.SmallerIncoming.Task.WaitAsync(deadline.Token);
             ISession originalAtLarge = await schedule.LargerOutgoing.Task.WaitAsync(deadline.Token);
-            await ((LocalPeer.Session)originalAtSmall).Connected.WaitAsync(deadline.Token);
+            if (incomingStillInitializing)
+                Assert.That(((LocalPeer.Session)originalAtSmall).Connected.IsCompleted, Is.False,
+                    "The smaller peer's incoming initializer is held at its gate.");
+            else
+            {
+                schedule.FinishSmallerInitialization.TrySetResult();
+                await ((LocalPeer.Session)originalAtSmall).Connected.WaitAsync(deadline.Token);
+            }
             Assert.That(largeDial.IsCompleted, Is.False, "The original outbound initializer is held at its gate.");
             schedule.StartSmallerDial.TrySetResult();
             rejected = await schedule.LargerNewIncoming.Task.WaitAsync(deadline.Token);
@@ -56,6 +64,8 @@ public class SimultaneousQuicTests
             await rejectedClosed.Task.WaitAsync(deadline.Token);
             Assert.That(originalAtLarge.Closed.IsCancellationRequested, Is.False,
                 "The rejected alternative must leave the original connection alive.");
+            Assert.That(originalAtSmall.Closed.IsCancellationRequested, Is.False);
+            schedule.FinishSmallerInitialization.TrySetResult();
             schedule.FinishLargerInitialization.TrySetResult();
             ISession[] sessions = await Task.WhenAll(smallDial, largeDial).WaitAsync(deadline.Token);
             Assert.That(sessions[0], Is.SameAs(originalAtSmall));
@@ -69,6 +79,7 @@ public class SimultaneousQuicTests
         finally
         {
             schedule.StartSmallerDial.TrySetResult();
+            schedule.FinishSmallerInitialization.TrySetResult();
             schedule.FinishLargerInitialization.TrySetResult();
             schedule.LargerNewIncoming.TrySetCanceled();
             deadline.Cancel();
@@ -83,6 +94,7 @@ public class SimultaneousQuicTests
         public TaskCompletionSource SmallerTransportFinished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource LargerReplacementDrained { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource StartSmallerDial { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FinishSmallerInitialization { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource FinishLargerInitialization { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<ISession> SmallerIncoming { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<ISession> LargerOutgoing { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -104,7 +116,11 @@ public class SimultaneousQuicTests
         protected override async Task ConnectedTo(ISession session, bool isDialer)
         {
             Task identify = base.ConnectedTo(session, isDialer);
-            if (Identity.PeerId == schedule.Smaller && !isDialer) schedule.SmallerIncoming.TrySetResult(session);
+            if (Identity.PeerId == schedule.Smaller && !isDialer)
+            {
+                schedule.SmallerIncoming.TrySetResult(session);
+                await schedule.FinishSmallerInitialization.Task.WaitAsync(session.Closed);
+            }
             if (Identity.PeerId != schedule.Smaller && isDialer)
             {
                 schedule.LargerOutgoing.TrySetResult(session);
