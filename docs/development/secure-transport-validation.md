@@ -51,9 +51,10 @@ exercise the unsigned reads, not this separate capacity property.
 ### Separate transport-record follow-up
 
 The post-handshake receive loop has a separate short-record allocation and
-exception-propagation defect. The [issue draft and reproduction](noise-transport-follow-up.md)
-record the verified behavior. That follow-up is not yet filed; issue publication
-and an issue URL remain outstanding. No runtime fix or issue closure is claimed here.
+exception-propagation defect. The [follow-up and reproduction](noise-transport-follow-up.md)
+record the verified behavior, now tracked in
+[issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
+PR #416 does not fix or close that separate issue.
 
 ## Received TLS certificate lists (#373, unresolved)
 
@@ -359,7 +360,8 @@ PR base `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`.
   cleanup. TLS stream-before-lease disposal is documented, not test-pinned.
 - Probe actual TLS certificate lists and assert the observed platform callback
   contents. #373 remains unresolved; #402 retains one possible orphan per crashed
-  process run. The separate Noise transport-record issue is not yet filed.
+  process run. The separate Noise transport-record defect is tracked in
+  [issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
 - Fresh Linux Release validation: Noise 40 passed, TLS 32 passed, QUIC 30 passed
   with three Windows-only skips, and registered identity/transport tests 45 passed.
   Formatting and spelling checks for the two changed documents pass.
@@ -368,5 +370,5 @@ PR base `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`.
   job reports success, but independent inspection of its raw case results and new
   platform assertions remains pending.
 
-Only #371 has a closing reference. Publishing this description does not file the
-separate Noise issue or complete the pending Windows evidence verification.
+Only #371 has a closing reference. The separate Noise issue #431 remains open;
+independent Windows evidence verification also remains pending.

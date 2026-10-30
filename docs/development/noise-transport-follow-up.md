@@ -1,14 +1,14 @@
 <!-- SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited -->
 <!-- SPDX-License-Identifier: MIT -->
 
-# Noise transport short-record failure: separate issue draft
+# Noise transport short-record failure: separate follow-up
 
-Status: **not filed**. Issue publication and a GitHub issue URL are still required.
-This draft records the separate follow-up requested in
+Status: **filed** as [issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
+This record describes the separate follow-up requested in
 [PR #416's review](https://github.com/NethermindEth/dotnet-libp2p/pull/416#pullrequestreview-5651700306).
-It does not fix the runtime defect or resolve that review request.
+The issue tracks the runtime correction separately; PR #416 leaves the defect unchanged.
 
-## Proposed issue title
+## Issue title
 
 Undersized Noise transport records fault the receive pump without propagating failure
 
