@@ -4,9 +4,12 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using Org.BouncyCastle.Crypto.EC;
+using Org.BouncyCastle.Security;
+using System.Security.Cryptography;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -64,6 +67,92 @@ public class SupportedSignaturesTests
         router.OnRpc(TestPeers.PeerId(1), invalid);
         Assert.That(deliveries, Has.Count.EqualTo(21));
         Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.LessThan(priorScore));
+    }
+
+    [Test]
+    public void ExplicitEcdsaParametersCannotAuthenticateAnAlias()
+    {
+        IdentityFixtures.Vector vector = IdentityFixtures.Signatures.Single(v => v.Type == KeyType.Ecdsa);
+        Message message = Message.Parser.ParseFrom(Convert.FromHexString(vector.MessageHex));
+        message.Signature = ByteString.CopyFrom(Convert.FromHexString(vector.SignatureHex));
+        message.Key = ByteString.CopyFrom(Convert.FromHexString(vector.PublicKeyHex));
+        Assert.That(message.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.True);
+        PublicKey explicitKey = new() { Type = KeyType.Ecdsa, Data = ByteString.CopyFrom(IdentityFixtures.ExplicitP256PublicKey) };
+        using ECDsa key = ECDsa.Create();
+        key.ImportSubjectPublicKeyInfo(explicitKey.Data.Span, out _);
+        PublicKey exported = new() { Type = KeyType.Ecdsa, Data = ByteString.CopyFrom(key.ExportSubjectPublicKeyInfo()) };
+        PeerId alias = new((byte[])Multiformats.Hash.Multihash.Sum(Multiformats.Hash.HashType.SHA2_256, exported.ToByteArray()));
+        Assert.That(alias, Is.Not.EqualTo(new Identity(IdentityFixtures.P256PrivateKey, KeyType.Ecdsa).PeerId));
+        message.From = ByteString.CopyFrom(alias.Bytes);
+        message.ClearKey();
+        message.ClearSignature();
+        message.Signature = ByteString.CopyFrom(new Identity(IdentityFixtures.P256PrivateKey, KeyType.Ecdsa).Sign(
+            [.. "libp2p-pubsub:"u8, .. message.ToByteArray()]));
+        message.Key = explicitKey.ToByteString();
+        Assert.That(message.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.False);
+    }
+
+    [Test]
+    public async Task LegacyRsaCanPublishWithoutBypassingRemoteAdmission()
+    {
+        Identity legacy = new(IdentityFixtures.LegacyRsaPrivateKey, KeyType.Rsa);
+        PublicKey canonical = legacy.PublicKey.Clone();
+        legacy.PublicKey.MergeFrom(new byte[] { 0x18, 0x01 });
+        byte[] originalKey = legacy.PublicKey.ToByteArray();
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(legacy);
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings { AutoConnect = false, HeartbeatInterval = int.MaxValue });
+        await router.StartAsync(localPeer);
+        List<Rpc> sent = [];
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, sent.Add);
+        router.OnRpc(TestPeers.PeerId(1), new Rpc().WithTopics(["legacy"], []));
+        sent.Clear();
+
+        router.Publish("legacy", [1, 2, 3]);
+
+        Message published = sent.SelectMany(r => r.Publish).Single();
+        Assert.That(published.Key, Is.EqualTo(canonical.ToByteString()));
+        Assert.That(published.From, Is.EqualTo(ByteString.CopyFrom(legacy.PeerId.Bytes)));
+        Message unsigned = published.Clone();
+        unsigned.ClearKey();
+        unsigned.ClearSignature();
+        Assert.That(legacy.VerifySignature([.. "libp2p-pubsub:"u8, .. unsigned.ToByteArray()], published.Signature.ToByteArray()), Is.True);
+        Assert.That(published.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.False);
+        Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(published.Key));
+        Assert.That(legacy.PublicKey.ToByteArray(), Is.EqualTo(originalKey));
+        Assert.That(legacy.PrivateKey!.Data.ToByteArray(), Is.EqualTo(IdentityFixtures.LegacyRsaPrivateKey));
+    }
+
+    [Test]
+    public void LargeRsaExponentCannotReachApplicationValidationOrDelivery()
+    {
+        Identity signer = new(keyType: KeyType.Rsa);
+        PublicKey key = RsaKeyFixtures.EquivalentLargeExponent(signer);
+        PeerId author = new((byte[])Multiformats.Hash.Multihash.Sum(Multiformats.Hash.HashType.SHA2_256, key.ToByteArray()));
+        Rpc rpc = new Rpc().WithMessages("signed", 1, author.Bytes, [1], signer);
+        rpc.Publish[0].Key = key.ToByteString();
+        // This is a valid signature for the large exponent, not merely malformed input.
+        Message unsigned = rpc.Publish[0].Clone();
+        unsigned.ClearSignature();
+        unsigned.ClearKey();
+        byte[] payload = [.. "libp2p-pubsub:"u8, .. unsigned.ToByteArray()];
+        var verifier = SignerUtilities.GetSigner("SHA256withRSA");
+        verifier.Init(false, PublicKeyFactory.CreateKey(key.Data.ToByteArray()));
+        verifier.BlockUpdate(payload, 0, payload.Length);
+        Assert.That(verifier.VerifySignature(rpc.Publish[0].Signature.ToByteArray()), Is.True);
+        using PubsubRouter router = new(new PeerStore());
+        router.Subscribe("signed");
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, new TaskCompletionSource().Task, _ => { });
+        int validations = 0, deliveries = 0;
+        router.VerifyMessage = (_, _) => { validations++; return MessageValidity.Accepted; };
+        router.OnMessage += (_, _, _) => deliveries++;
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+        Assert.Multiple(() =>
+        {
+            Assert.That(validations, Is.Zero);
+            Assert.That(deliveries, Is.Zero);
+            Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.LessThan(0));
+        });
     }
 
     [TestCase("empty")]

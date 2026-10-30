@@ -56,19 +56,41 @@ public class ChannelTests
         }
     }
 
-    [Test]
-    public async Task CloseCompletesWithAnUnreadPendingWrite()
+    [TestCase(nameof(Channel.CloseAsync), false)]
+    [TestCase(nameof(Channel.CloseAsync), true)]
+    [TestCase(nameof(Channel.AbortAsync), false)]
+    [TestCase(nameof(Channel.AbortAsync), true)]
+    [TestCase(nameof(Channel.CloseReadAsync), true)]
+    public async Task TeardownAbortsUnreadAndQueuedWrites(string teardown, bool reverse)
     {
         Channel channel = new();
         Task<IOResult> write = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
+        Assert.That(write.IsCompleted, Is.False);
+        Assert.That(((Channel.ReaderWriter)channel.Writer).TryWriteEof(), Is.False,
+            "The unread write must own the write semaphore before teardown.");
+        Task<IOResult> queuedWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 })).AsTask();
+        Assert.That(queuedWrite.IsCompleted, Is.False);
 
-        Task close = channel.CloseAsync().AsTask();
+        IChannel closing = reverse ? channel.Reverse : channel;
+        Task close = (teardown switch
+        {
+            nameof(Channel.CloseAsync) => closing.CloseAsync(),
+            nameof(Channel.AbortAsync) => closing.AbortAsync(),
+            nameof(Channel.CloseReadAsync) => closing.CloseReadAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(teardown))
+        }).AsTask();
         await close.WaitAsync(TimeSpan.FromSeconds(2));
         IOResult writeResult = await write.WaitAsync(TimeSpan.FromSeconds(2));
+        IOResult queuedResult = await queuedWrite.WaitAsync(TimeSpan.FromSeconds(2));
         ReadResult readResult = await channel.Reverse.ReadAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.That(writeResult, Is.EqualTo(IOResult.Ended));
-        Assert.That(readResult.Result, Is.EqualTo(IOResult.Aborted));
+        Assert.Multiple(() =>
+        {
+            Assert.That(writeResult, Is.EqualTo(IOResult.Aborted));
+            Assert.That(queuedResult, Is.EqualTo(IOResult.Aborted));
+            Assert.That(readResult.Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(readResult.Data.IsEmpty, Is.True);
+        });
         Assert.CatchAsync<ChannelAbortedException>(async () =>
         {
             await foreach (ReadOnlySequence<byte> _ in channel.Reverse.ReadAllAsync()) { }
@@ -83,7 +105,7 @@ public class ChannelTests
 
         await channel.CloseAsync();
 
-        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Ended));
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
@@ -98,7 +120,7 @@ public class ChannelTests
         Assert.That(await outboundWrite, Is.EqualTo(IOResult.Ok));
         await channel.CompleteProtocolAsync();
 
-        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Ended));
+        Assert.That(await inboundWrite, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
     }
@@ -112,7 +134,7 @@ public class ChannelTests
 
         await channel.CompleteProtocolAsync();
 
-        Assert.That(await unfinishedWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await unfinishedWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
@@ -140,8 +162,8 @@ public class ChannelTests
 
         await channel.CloseReadAsync();
 
-        Assert.That(await pendingInbound.WaitAsync(TimeSpan.FromSeconds(2)), Is.Not.EqualTo(IOResult.Ok));
-        Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 9 })), Is.Not.EqualTo(IOResult.Ok));
+        Assert.That(await pendingInbound.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+        Assert.That(await channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 9 })), Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await channel.Reverse.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
         Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
@@ -170,7 +192,7 @@ public class ChannelTests
         Assert.That(await (eof ?? channel.WriteEofAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(2)),
             Is.EqualTo(IOResult.Aborted));
         if (write is not null)
-            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
+            Assert.That(await write.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
@@ -204,7 +226,7 @@ public class ChannelTests
     }
 
     [Test]
-    public async Task CloseWithQueuedReadsAndWritesAbortsReaders()
+    public async Task CloseWithQueuedReadsAndWritesAbortsPendingIo()
     {
         Channel channel = new();
         Task<ReadResult> firstRead = channel.ReadAsync(1).AsTask();
@@ -216,8 +238,8 @@ public class ChannelTests
 
         Assert.That((await firstRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
         Assert.That((await secondRead.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
-        Assert.That(await firstWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
-        Assert.That(await secondWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Ended));
+        Assert.That(await firstWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
+        Assert.That(await secondWrite.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
@@ -235,10 +257,10 @@ public class ChannelTests
     }
 
     [Test]
-    public async Task StreamWriteCancelledAfterPartialReadEndsOnDispose()
+    public async Task StreamWriteCancelledAfterPartialReadAbortsOnDispose()
     {
         // The head is already downstream, so the token cannot retract the rest. Disposing is the
-        // caller's way out: it closes the channel and ends the write without delivering it.
+        // caller's way out: it closes the channel and aborts the undelivered remainder.
         Channel channel = new();
         Stream stream = channel.AsStream();
         using CancellationTokenSource cancel = new();
@@ -252,7 +274,7 @@ public class ChannelTests
 
         stream.Dispose();
         Assert.That(Assert.CatchAsync<IOException>(async () => await write.WaitAsync(TimeSpan.FromSeconds(5)))!.Message,
-            Is.EqualTo("Channel write failed: Ended."));
+            Is.EqualTo("Channel write failed: Aborted."));
     }
 
     [Test]
@@ -276,7 +298,7 @@ public class ChannelTests
         using Stream asynchronous = channel.Reverse.AsStream();
         Task<IOResult> pendingWrite = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })).AsTask();
         await channel.CloseAsync();
-        Assert.That(await pendingWrite, Is.EqualTo(IOResult.Ended));
+        Assert.That(await pendingWrite, Is.EqualTo(IOResult.Aborted));
 
 #pragma warning disable CA2022 // Intentionally exercise both Stream.Read implementations after abort.
         Assert.Throws<IOException>(() => synchronous.Read(new byte[1], 0, 1));

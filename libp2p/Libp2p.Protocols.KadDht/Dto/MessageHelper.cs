@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 using Google.Protobuf;
+using Libp2p.Protocols.KadDht;
 using Libp2p.Protocols.KadDht.Integration;
-using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 
 namespace Nethermind.Libp2P.Protocols.KadDht.Dto;
@@ -18,11 +17,16 @@ public static class MessageHelper
     /// <summary>
     /// Convert a DhtNode to a spec-compliant Message.Types.Peer for wire transmission.
     /// </summary>
-    public static Message.Types.Peer ToWirePeer(DhtNode node, Message.Types.ConnectionType connection = Message.Types.ConnectionType.Connected)
+    /// <exception cref="ArgumentException">
+    /// The peer ID is malformed or exceeds the default <see cref="KadDhtOptions.MaxPeerIdBytes"/> limit.
+    /// </exception>
+    public static Message.Types.Peer ToWirePeer(DhtNode node, Message.Types.ConnectionType connection = Message.Types.ConnectionType.NotConnected)
     {
+        if (!WirePeerPolicy.IsValidIdentity(node.PeerId.Bytes, new KadDhtOptions().MaxPeerIdBytes))
+            throw new ArgumentException("Invalid peer identity", nameof(node));
         var peer = new Message.Types.Peer
         {
-            Id = ByteString.CopyFrom(node.PeerId.Bytes.ToArray()),
+            Id = ByteString.CopyFrom(node.PeerId.Bytes),
             Connection = connection
         };
 
@@ -47,37 +51,8 @@ public static class MessageHelper
     /// </summary>
     public static DhtNode? FromWirePeer(Message.Types.Peer peer)
     {
-        if (!peer.HasId || peer.Id.IsEmpty) return null;
-
-        var idBytes = peer.Id.ToByteArray();
-        var peerId = new PeerId(idBytes);
-        var publicKey = new PublicKey(idBytes);
-
-        var addrs = new List<string>();
-        foreach (var addrBytes in peer.Addrs)
-        {
-            try
-            {
-                var multiaddress = Multiaddress.Decode(addrBytes.ToByteArray());
-                var addressPeerId = multiaddress.GetPeerId();
-
-                if (addressPeerId is null)
-                    addrs.Add(multiaddress.Add<P2P>(peerId.ToString()).ToString());
-                else if (addressPeerId.Equals(peerId))
-                    addrs.Add(multiaddress.ToString());
-            }
-            catch
-            {
-                // Skip malformed addresses
-            }
-        }
-
-        return new DhtNode
-        {
-            PeerId = peerId,
-            PublicKey = publicKey,
-            Multiaddrs = addrs.ToArray()
-        };
+        var options = new KadDhtOptions();
+        return new WirePeerPolicy(options).ReadPeer(peer, options.MaxAddressesPerPeer);
     }
 
     /// <summary>
@@ -102,12 +77,7 @@ public static class MessageHelper
     /// </summary>
     public static Message CreateFindNodeResponse(IEnumerable<DhtNode> closerPeers)
     {
-        var msg = new Message { Type = Message.Types.MessageType.FindNode };
-        foreach (var node in closerPeers)
-        {
-            msg.CloserPeers.Add(ToWirePeer(node));
-        }
-        return msg;
+        return CreatePeerResponse(Message.Types.MessageType.FindNode, new KadDhtOptions(), closerPeers);
     }
 
     /// <summary>
@@ -149,21 +119,15 @@ public static class MessageHelper
     /// </summary>
     public static Message CreateGetValueResponse(Record? record = null, IEnumerable<DhtNode>? closerPeers = null)
     {
-        var msg = new Message { Type = Message.Types.MessageType.GetValue };
-        if (record != null) msg.Record = record;
-        if (closerPeers != null)
-        {
-            foreach (var node in closerPeers)
-            {
-                msg.CloserPeers.Add(ToWirePeer(node));
-            }
-        }
-        return msg;
+        return CreatePeerResponse(Message.Types.MessageType.GetValue, new KadDhtOptions(), closerPeers, record: record);
     }
 
     /// <summary>
     /// Build an ADD_PROVIDER request message.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// A provider's peer ID is malformed or exceeds the default <see cref="KadDhtOptions.MaxPeerIdBytes"/> limit.
+    /// </exception>
     public static Message CreateAddProviderRequest(byte[] key, IEnumerable<DhtNode> providerPeers)
     {
         var msg = new Message
@@ -194,21 +158,16 @@ public static class MessageHelper
         IEnumerable<DhtNode>? providerPeers = null,
         IEnumerable<DhtNode>? closerPeers = null)
     {
-        var msg = new Message { Type = Message.Types.MessageType.GetProviders };
-        if (providerPeers != null)
-        {
-            foreach (var node in providerPeers)
-            {
-                msg.ProviderPeers.Add(ToWirePeer(node));
-            }
-        }
-        if (closerPeers != null)
-        {
-            foreach (var node in closerPeers)
-            {
-                msg.CloserPeers.Add(ToWirePeer(node));
-            }
-        }
-        return msg;
+        return CreatePeerResponse(Message.Types.MessageType.GetProviders, new KadDhtOptions(), closerPeers, providerPeers);
+    }
+
+    internal static Message CreatePeerResponse(Message.Types.MessageType type, KadDhtOptions options,
+        IEnumerable<DhtNode>? closerPeers = null, IEnumerable<DhtNode>? providerPeers = null, Record? record = null,
+        Func<PeerId, Message.Types.ConnectionType>? connection = null)
+    {
+        var message = new Message { Type = type };
+        if (record is not null) message.Record = record;
+        new WirePeerPolicy(options).AppendResponse(message, closerPeers, providerPeers, connection);
+        return message;
     }
 }

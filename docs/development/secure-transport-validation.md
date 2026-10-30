@@ -1,10 +1,26 @@
+<!-- cspell:words runsettings -->
+
 # Secure transport validation
 
-Stacked on PR #411, targeting `feature/20261023-122715-498974`. Preserves the parent fixes and limits changes to these secure-transport findings.
+This is the historical PR #416 record for its native TLS backend, not validation
+of the combined PR #424 tree. The [PR #424 record](tls-cardinality-validation.md)
+describes the managed backend that supersedes the certificate-list limitation
+recorded here. All results below retain their original revision scope.
 
-The parent revision is `0e731cc8b84ad51fd7af3bc31e58744678e0a427`. Its identity
-canonicalization, certificate self-signatures, expected peer checks, and registered
-protocol stack are preserved.
+PR #416 now targets `main` and incorporates PR #411 through merge
+`29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
+2026-10-30 against candidate `53a2456b94551eccf74a1fdbef231e38b7ddf96d`,
+which preserves the incoming main changes through `34963ed`, including the TCP
+and QUIC receive-buffer corrections from PR #406.
+The pinned comparison base is `34963edfd699234953e34efc33f23f3bc3764767`;
+the candidate differs from that pinned base in 14 files. These documentation
+updates preserve the candidate's production code, tests, and CI configuration.
+
+The original stacked parent was `0e731cc8b84ad51fd7af3bc31e58744678e0a427`,
+on `feature/20261023-122715-498974`. References to that parent below describe the
+original regression baseline, rather than the current PR target. Its identity
+canonicalization, certificate self-signatures, expected peer checks, and
+registered protocol stack are preserved.
 
 ## Noise framing (#371)
 
@@ -29,9 +45,23 @@ with an independent Noise handshake state and the production `Channel`:
 
 Against the unchanged parent, the 18 new cases discovered 12 failures and six
 passes. The failures reached each of the three signed reads and reported negative
-lengths (`-32768` and `-1`). After the framing fix, the full Noise project passes
-38 cases. Writes now narrow with checked unsigned conversions, and the responder
-reserves two additional bytes for its prefix.
+lengths (`-32768` and `-1`). The original framing revision passed 38 Noise cases;
+the current candidate passes 40, including the tests incorporated from PR #411.
+Writes now narrow with checked unsigned conversions, and the responder reserves
+two additional bytes for its prefix.
+
+The responder's `MaxMessageLength + 2` output capacity is documented rather than
+test-pinned. The locally constructed response is small, so the current tests do
+not reach its output-buffer boundary. The large incoming-frame regressions above
+exercise the unsigned reads, not this separate capacity property.
+
+### Separate transport-record follow-up
+
+The post-handshake receive loop has a separate short-record allocation and
+exception-propagation defect. The [follow-up and reproduction](noise-transport-follow-up.md)
+record the verified behavior, now tracked in
+[issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
+PR #416 does not fix or close that separate issue.
 
 ## Received TLS certificate lists (#373, unresolved)
 
@@ -103,6 +133,15 @@ README. #373 remains unresolved and must not have a closing reference in the PR.
 The existing Windows TLS job continues to run the six probes and upload their
 NUnit XML observations.
 
+The platform-conditioned `ExtraStore` assertions deliberately pin the observed
+OpenSSL and Schannel extraction behavior, including exact DER entries and
+duplicate multiplicity. A platform update can therefore fail these probes
+without a repository regression. For such a failure, compare the logged OS and
+runtime, actual serialized list, callback leaf, and callback collections with the
+tables above. Reproduce both roles and all three list shapes before updating an
+expectation; a changed platform observation must remain distinct from an error
+in certificate serialization, identity validation, or the probe itself.
+
 ## Session-key lifetime (#402, partial mitigation)
 
 The parent creates a fresh persisted named Windows CNG key on every helper call;
@@ -170,11 +209,18 @@ The existing QUIC tests also reject a missing client certificate before a
 successful dial. TLS disposes its native stream before the certificate lease on
 both success and authentication failure.
 
-The Windows job keeps the full TLS/QUIC suites, requires 32 executed QUIC cases,
-and retains the registered transport tests. The recorded Windows run confirms
-the handshake, concurrency, certificate lifetime, and normal-process-exit cleanup
-tests at the exact implementation revision. These are Windows execution results,
-not inferred from Linux results. The CI gates remain intact.
+The TLS disposal order is documented rather than test-pinned: both role methods
+explain why the lease must be declared before the `using SslStream`. The current
+TLS and E2E assertions do not detect removal of either stream's `using` or a
+reversal of the declaration order. No ordering-test coverage is claimed.
+
+The Windows job keeps the full TLS/QUIC suites, requires at least 32 executed QUIC
+cases, and retains the registered transport tests. The historical Windows run
+below confirms handshake, concurrency, certificate lifetime, and normal-exit
+cleanup at its recorded revision. The busy `Monitor.TryEnter` shutdown path has
+source inspection only; the normal-exit test does not exercise that branch.
+Neither Linux results nor the historical snapshot establish current Windows
+assertion coverage. The CI gates remain intact.
 
 ## Recorded Windows validation
 
@@ -226,37 +272,143 @@ dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tes
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 5 --timeout 180s --settings "$env:RUNNER_TEMP/secure-transports.xml" --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId"
 ```
 
-These results resolve the previous Windows execution-evidence blocker. They do
-not establish cross-client interoperability or hard-crash orphan recovery, and
-they do not turn the #373 visibility probe into protocol enforcement.
+These historical results resolved the execution-evidence blocker at their
+recorded revision. They do not establish cross-client interoperability or
+hard-crash orphan recovery, and they do not turn the #373 visibility probe into
+protocol enforcement. The later Windows `ExtraStore` assertions were not present
+in that run.
 
-## Validation commands
+### Current candidate Windows evidence
 
-Linux checks used the repository root as the working directory and `TMPDIR` for
-one shared artifact root. All builds used `-p:TreatWarningsAsErrors=true`:
+On 2026-10-30, authenticated `gh` reads retrieved and independently inspected the
+raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41061514588/job/124082159814)
+and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41061514588/artifacts/12979936070)
+from run `41061514588`, whose PR head is
+`53a2456b94551eccf74a1fdbef231e38b7ddf96d`. The actual checkout was CI merge
+`9621c796dce7cdac2af6e3e755fe755504787222`, with that head and main revision
+`34963edfd699234953e34efc33f23f3bc3764767` as parents.
+
+The checkout's complete Git tree is
+`9e41e6303bb10ed4a483b45a2e0c4a155cb07121`, exactly equal to the candidate's
+`HEAD^{tree}`. Thus every tracked source, test, fixture, build setting, and
+workflow matches the supplied candidate, including the incoming TCP and QUIC
+receive-buffer changes. The commit identities differ; these remain CI merge
+results with the candidate's exact tracked content. This documentation correction
+is the only subsequent worktree change.
+
+The Windows job and all its build/test/upload steps completed successfully. The
+wider Test workflow's Linux job was still running when inspected, so this is not
+a claim that the entire workflow completed. The Windows runner used Windows
+10.0.26100 x64, SDK 10.0.403, and runtime 10.0.14. Raw step summaries show:
+
+| Scope | Passed / total | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Full QUIC suite | 42 / 42 | 0 | 0 |
+| Full TLS suite | 32 / 32 | 0 | 0 |
+| Registered transport and alias controls | 5 / 5 | 0 | 0 |
+
+The unfiltered QUIC invocation executed all three Windows key-reuse and
+normal-exit cases, as well as the nine incoming receive-buffer cases, without
+skips. The non-Windows `Assert.Ignore` guards restrict native CNG tests to
+Windows; they remain appropriate on Linux. The TLS XML independently records
+32 passing case nodes, including all six
+`ReportsWireCertificateListAndCallbackContents` combinations. Each probe has
+`ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the
+leaf, 1 for the unrelated extra certificate, and 0 for the duplicate leaf. Both
+receiver roles and all three list shapes passed the platform-conditioned length
+and DER-entry assertions. This verifies actual cases beyond job metadata.
+
+The TLS report's SHA-256 is
+`5835592f4296723dbe64cb0041d94a5056cebca221e3986cb2cda17d7fd88bc7`.
+The raw Windows job log's SHA-256 is
+`20b790c1a7f5641a5db86eda2759154a2eff8c8f35091b26eaaaf754652cd604`.
+Raw files are session artifacts. The linked Actions artifact contains the TLS
+XML; QUIC and registered totals come from the linked job log. Retrieval succeeded
+for this run, independently of the earlier snapshot and earlier egress failures.
+
+These results verify normal Windows execution of the supplied transport code.
+They do not exercise a busy `Monitor.TryEnter` shutdown, pin TLS declaration
+order or responder buffer capacity with mutation tests, establish cross-client
+interoperability, or demonstrate hard-crash orphan recovery. Those coverage
+limits remain explicit.
+
+Read-only retrieval commands, with output under the session's `TMPDIR`:
 
 ```sh
-dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 38
-dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32
-dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 29
-dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests' --minimum-expected-tests 45
-dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~CanonicalIdentityTests|FullyQualifiedName~IdentityTests|FullyQualifiedName~PeerIdTests' --minimum-expected-tests 1
-dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
+gh run view 41061514588 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
+gh run download 41061514588 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41061514588"
+gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/124082159814/logs > "$TMPDIR/windows41061514588.log"
+gh api repos/NethermindEth/dotnet-libp2p/commits/9621c79
 ```
 
-A first local QUIC invocation with `--minimum-expected-tests 32` discovered all 32
-cases, passed 29, skipped the three Windows-only cases, and exited 9 because the
-runner excludes skips from its execution minimum. The Linux command above uses
-29; the Windows CI execution minimum remains 32. No CI gate was reduced.
+The API log command writes terminal control bytes to a file for parsing; those
+bytes are stripped before inspecting the summaries. No global settings change.
+
+#### Earlier Windows evidence
+
+Previously inspected run `41053009544`, with PR head `4a0094c` and CI merge
+`eecbbaae5dc73e5915437d6f8786e951e0fb8a5d`, passed QUIC 33/33, TLS 32/32,
+and registered controls 5/5. Its TLS XML and job log hashes were respectively
+`b1c20bfa3b927ffdf0fa02de4736809dce3a9cd503e77a8dd9ab1b9378dbd076` and
+`455226113c6739ed016a42a0d903ed21614f0ba6f207a1a57c16befe2b70058c`.
+Its complete tree differed from `23b93fa` only in this document; it predates
+PR #406's receive-buffer changes. These are historical results, superseded for
+the supplied candidate by the independently inspected run above.
+
+## Current candidate Linux validation
+
+Fresh Release checks on 2026-10-30 used candidate
+`53a2456b94551eccf74a1fdbef231e38b7ddf96d`, SDK 10.0.402, and runtime
+10.0.13 on Linux. This host supports QUIC. All builds used
+`-p:TreatWarningsAsErrors=true` and one shared artifact root under `TMPDIR`.
+The checks were rerun after the incoming main updates. Only this validation
+document changed afterward, so the successful results are reused for this
+documentation correction.
+
+| Scope | Passed | Skipped | Total |
+| --- | ---: | ---: | ---: |
+| TCP | 24 | 0 | 24 |
+| Noise | 40 | 0 | 40 |
+| TLS, including all six certificate-list probes | 32 | 0 | 32 |
+| QUIC | 39 | 3 | 42 |
+| Registered identity and secure-transport tests | 45 | 0 | 45 |
+
+The three QUIC skips are the Windows-only key-lifetime cases. XML inspection
+confirmed all 14 incoming TCP and nine incoming QUIC receive-buffer cases ran,
+including cancellation, failure, EOF, compact retained fragments, and exactly-once
+pool returns. All 18 Noise framing regressions, six TLS certificate-list probes,
+and three registered secure transports executed. The full E2E suite was not
+rerun; the 45 cases above are the explicitly filtered production-stack checks.
+
+Commands ran from the repository root. The shared runner settings selected an
+NUnit output directory under the same session's `TMPDIR`. Each test command was
+wrapped with `timeout --signal=TERM --kill-after=10s 240s`:
+
+```sh
+dotnet test --project libp2p/Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 14 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 40 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 25 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 45 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings" --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests'
+dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
+npx --no-install cspell --no-progress -c cspell.json docs/development/noise-transport-follow-up.md docs/development/secure-transport-validation.md
+```
+
+All five test commands exited 0: 180 cases passed and three were skipped. The
+QUIC minimum of 25 permits the established Linux skips on workers without QUIC
+support; the observed result here was 39 executed cases. The Windows CI execution minimum remains 32. No CI gate changed.
+
+### Historical results
+
+The earlier Linux check at `23b93fa` passed Noise 40, TLS 32, QUIC 30 with three
+Windows-only skips, and registered tests 45. It predates the incoming TCP/QUIC
+receive-buffer changes and is not the current candidate's result.
 
 The initial parent Noise baseline passed 20 tests. Retained Linux Release checks
-at `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52`, using the commands above with
-`-c Release`, passed Noise 38/38, TLS 32/32, QUIC 29 plus three Windows-only skips,
-and registered E2E 45/45. The Core identity tests passed 75/75 during the initial
-implementation. These results apply to unchanged protocol and test inputs;
-documentation-only edits do not change those inputs. The recorded Windows run
-supplies the native-platform results that Linux could not establish. All existing
-independent review, final verification, and CI gates remain.
+at `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` passed Noise 38/38, TLS 32/32,
+QUIC 29 plus three Windows-only skips, and registered E2E 45/45. The Core identity
+tests passed 75/75 during the initial implementation. These are historical
+measurements, not the current candidate's test counts.
 
 ## PR handoff
 
@@ -269,5 +421,11 @@ Closes #371
 #373 remains unresolved because the Windows callback loses transmitted duplicate
 entries. #402 is a partial mitigation of per-attempt key creation and retains one
 possible orphan per crashed process run. Neither issue has a closing reference.
-The stacked dependency on PR #411 and target branch stated above must remain in
-the PR description. The host owns publication and issue closure.
+The published PR body targets main, but authenticated inspection on 2026-10-30
+still found a stale `37bfd9e` head statement and older Windows evidence. A
+complete corrected description is returned through the host's disposition
+protocol, with validation pinned to its actual revisions and no moving-head
+claim. The host owns publication and the fresh audit afterward. Prepared
+publication text is kept outside the source checkout; this validation record
+is not a draft PR description. The separate Noise issue #431 remains open and
+outside this PR's runtime changes.

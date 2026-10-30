@@ -18,4 +18,8 @@
     <ProjectReference Include="../../samples/perf-benchmarks/PerfBenchmarks.csproj" />
     <ProjectReference Include="../Libp2p.Core.TestsBase/Libp2p.Core.TestsBase.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../../samples/ai-server/ChatProtocol.cs" Link="Samples/AiChatProtocol.cs" />
+  </ItemGroup>
 </Project>

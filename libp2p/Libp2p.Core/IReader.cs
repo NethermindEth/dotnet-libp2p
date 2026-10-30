@@ -33,10 +33,28 @@ public interface IReader
         }
     }
 
-    async Task<string> ReadLineAsync()
+    /// <summary>Reads a UTF-8 line with a maximum payload of 1,024 bytes, including any trailing newline.</summary>
+    /// <exception cref="InvalidDataException">The declared payload exceeds 1,024 bytes.</exception>
+    /// <exception cref="FormatException">The length prefix exceeds <see cref="int.MaxValue"/> or five bytes.</exception>
+    Task<string> ReadLineAsync() => ReadLineAsync(1024);
+
+    /// <summary>Reads a UTF-8 line with a bounded payload.</summary>
+    /// <param name="maxLength">Maximum payload length in bytes, including any trailing newline, excluding the length prefix.</param>
+    /// <param name="token">Cancellation token for both prefix and payload reads.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxLength"/> is negative.</exception>
+    /// <exception cref="InvalidDataException">The declared payload exceeds <paramref name="maxLength"/>.</exception>
+    /// <exception cref="FormatException">The length prefix exceeds <see cref="int.MaxValue"/> or five bytes.</exception>
+    async Task<string> ReadLineAsync(int maxLength, CancellationToken token = default)
     {
-        int size = await ReadVarintAsync();
-        return Encoding.UTF8.GetString((await ReadAsync(size).OrThrow()).ToArray()).TrimEnd('\n');
+        ArgumentOutOfRangeException.ThrowIfNegative(maxLength);
+
+        int size = await ReadVarintAsync(token);
+        if (size > maxLength)
+        {
+            throw new InvalidDataException($"Incoming line size {size} exceeds the limit of {maxLength} bytes");
+        }
+
+        return Encoding.UTF8.GetString((await ReadAsync(size, token: token).OrThrow()).ToArray()).TrimEnd('\n');
     }
 
     Task<int> ReadVarintAsync(CancellationToken token = default)

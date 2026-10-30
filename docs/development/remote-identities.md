@@ -3,7 +3,11 @@
 Public keys received from peers pass through `PublicKeyDecoder.Decode` before identity
 derivation. It returns a fresh protobuf with only `Type` and canonical `Data`:
 Ed25519 has exactly 32 bytes, secp256k1 uses compressed SEC1, and RSA/ECDSA use
-fully consumed, re-exported SubjectPublicKeyInfo. Unknown key fields do not create new identities.
+fully consumed, re-exported SubjectPublicKeyInfo. ECDSA keys must use a named curve:
+explicit curve parameters are rejected during decoding and PeerId construction,
+because re-export can preserve that alternate encoding of the same key. This follows
+the named-curve encoding in [RFC 5480, section 2.1.1](https://www.rfc-editor.org/rfc/rfc5480.html#section-2.1.1).
+Unknown key fields do not create new identities.
 `PeerId(PublicKey)` uses the same normalization without changing the supplied key.
 Raw PeerId byte and string constructors retain their existing representation contracts.
 
@@ -18,9 +22,14 @@ the Go-derived secp256k1 vectors. Reference behavior and tests are pinned to
 [Go's peer implementation](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/peer/peer.go)
 and [peer tests](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/peer/peer_test.go).
 
-Remote RSA keys require a modulus of at least 2048 significant bits. New local
+Remote RSA keys require a modulus of 2048 through 8192 significant bits and a
+public exponent between 2 and 2147483647. The upper bounds are checked from the encoded parameters
+before native key import, bounding subsequent RSA verification work. These are
+remote admission limits; local key normalization keeps its existing contract. New local
 RSA identities use 2048 bits. Existing private-key imports remain readable and
-are never regenerated silently. Operators with older, weaker identities must
+are never regenerated silently. Local pubsub publication uses `PublicKeyDecoder.Normalize`
+without applying remote RSA admission policy; receivers still reject weak keys.
+Operators with older, weaker identities must
 explicitly replace them to connect to peers enforcing this admission policy.
 The floor follows [Go's RSA policy](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/crypto/rsa_common.go)
 and [remote decoder](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/core/crypto/rsa_go.go).
