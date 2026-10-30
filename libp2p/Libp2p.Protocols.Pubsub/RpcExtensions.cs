@@ -32,7 +32,7 @@ internal static class RpcExtensions
         msg.Signature = ByteString.CopyFrom(identity.Sign(signingContent));
         if (PeerId.ExtractPublicKey(from) is null)
         {
-            msg.Key = PublicKeyDecoder.Decode(identity.PublicKey.ToByteString()).ToByteString();
+            msg.Key = PublicKeyDecoder.Normalize(identity.PublicKey).ToByteString();
         }
         rpc.Publish.Add(msg);
         return rpc;

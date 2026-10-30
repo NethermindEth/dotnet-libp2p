@@ -185,11 +185,10 @@ public class YamuxFuzzTests
     }
 
     [Test]
-    public async Task Fuzz_GoAwayOnStreamZero_EndsSessionWithOk(
+    public async Task Fuzz_GoAwayOnStreamZero_HonorsNormalAndFatalCodes(
         [Values(0, 1, 2, 99)] int code)
     {
-        // Any GoAway on stream 0 (even with an unknown code) is a legal session
-        // termination; the session answers with GoAway/Ok and closes the streams.
+        // Normal GoAway closes admission while nonzero codes terminate the session.
         await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
         await session.FeedFramesAsync(
@@ -205,6 +204,14 @@ public class YamuxFuzzTests
                 Payload = []
             }
         ], seed: 18);
+        if (code == 0)
+        {
+            await session.FeedFramesAsync([FuzzFrame.PingSyn(length: 19)], seed: 18);
+            Assert.That(await session.WaitForPingAckAsync(outbound, 19, session.Timeout.Token), Is.Not.Null);
+            Assert.That(session.FirstGoAway(outbound), Is.Null);
+            await session.ShutdownAsync();
+            return;
+        }
         FuzzObservation? goAway = await session.WaitForGoAwayAsync(outbound, session.Timeout.Token);
         Assert.That(goAway, Is.Not.Null, "Session end must emit a GoAway.");
         Assert.That(goAway!.Header.Length, Is.EqualTo((int)SessionTerminationCode.Ok));
@@ -273,7 +280,7 @@ public class YamuxFuzzTests
     }
 
     [Test]
-    public async Task Fuzz_DuplicateSyn_OnExistingStream_IsTolerated()
+    public async Task Fuzz_DuplicateSyn_OnExistingStream_IsRejected()
     {
         await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
@@ -283,9 +290,10 @@ public class YamuxFuzzTests
             FuzzFrame.Syn(streamId: 2),
             FuzzFrame.PingSyn(length: 9)
         ], seed: 7);
-        FuzzObservation? pingAck = await session.WaitForPingAckAsync(outbound, opaque: 9, session.Timeout.Token);
-        Assert.That(pingAck, Is.Not.Null, "Session must survive a duplicate SYN.");
-        Assert.That(session.FirstGoAway(outbound), Is.Null, "Duplicate SYN must not produce a GoAway.");
+        FuzzObservation? duplicateError = await session.WaitForGoAwayAsync(outbound, session.Timeout.Token);
+        Assert.That(duplicateError, Is.Not.Null);
+        Assert.That(duplicateError!.Header.Length, Is.EqualTo((int)SessionTerminationCode.ProtocolError));
+        await session.WaitForCompletionAsync();
         Assert.That(session.UpstreamChannels, Has.Count.EqualTo(1), "Duplicate SYN must not open a second stream.");
         await session.ShutdownAsync();
     }
@@ -423,7 +431,7 @@ public class YamuxFuzzTests
     }
 
     [Test]
-    public async Task Fuzz_GoAwayMidStream_ClosesStreamsAndEndsSession()
+    public async Task Fuzz_GoAwayMidStream_KeepsSessionServicingStreams()
     {
         await using FuzzSession session = FuzzSession.CreateDialer();
         List<FuzzObservation> outbound = session.StartDraining();
@@ -441,20 +449,11 @@ public class YamuxFuzzTests
                 Payload = []
             }
         ], seed: 13);
-        await session.WaitForCompletionAsync();
-        // The terminal GoAway/Ok is fire-and-forget: it usually lands, but the
-        // channel may close first under load. Either way the session must end
-        // cleanly with all streams closed.
-        FuzzObservation? goAway = await session.WaitForGoAwayAsync(outbound, session.Timeout.Token);
-        if (goAway is not null)
-        {
-            Assert.That(goAway.Header.Length, Is.EqualTo((int)SessionTerminationCode.Ok));
-        }
-        foreach (TestChannel up in session.UpstreamChannels)
-        {
-            Assert.That((await up.ReadAsync(1, token: session.Timeout.Token)).Result,
-                Is.Not.EqualTo(IOResult.Ok), "Open streams must be closed after GoAway.");
-        }
+        await session.FeedFramesAsync([FuzzFrame.PingSyn(length: 20)], seed: 13);
+        Assert.That(await session.WaitForPingAckAsync(outbound, 20, session.Timeout.Token), Is.Not.Null);
+        Assert.That(session.FirstGoAway(outbound), Is.Null);
+        Assert.That(session.UpstreamChannels, Has.Count.EqualTo(2));
+        await session.ShutdownAsync();
     }
 
     [Test]
@@ -888,7 +887,7 @@ public class YamuxFuzzTests
                     Payload = payload
                 });
 
-                if (type == (byte)YamuxHeaderType.GoAway && stream == 0)
+                if (type == (byte)YamuxHeaderType.GoAway && stream == 0 && length != 0)
                 {
                     break;
                 }

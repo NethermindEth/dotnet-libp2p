@@ -54,6 +54,15 @@ public class CertificateTests
     }
 
     [Test]
+    public void CertificateDiscoveryProvidesFactoriesWithoutCreatingCertificates()
+    {
+        TestCaseData[] fixtures = CertificatesSerialized().ToArray();
+        Assert.That(fixtures, Is.Not.Empty);
+        Assert.That(fixtures.Select(fixture => fixture.Arguments[0]), Is.All.InstanceOf<Func<byte[]>>(),
+            "Discovery must defer certificate creation until after child-process recovery barriers.");
+    }
+
+    [Test]
     public void RejectsInvalidSelfSignatureWithEmptyIssuer()
     {
         TestCaseData fixture = CertificatesSerialized().First();
@@ -112,6 +121,20 @@ public class CertificateTests
         using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presented);
         Assert.That(CertificateHelper.ValidateCertificate(certificate, identity.PeerId.ToString()), Is.False);
         Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+    }
+
+    [Test]
+    public void RejectsExplicitEcdsaIdentityBeforeAuthenticatingACertificate()
+    {
+        Identity identity = new(IdentityFixtures.P256PrivateKey, KeyType.Ecdsa);
+        PublicKey presented = new() { Type = KeyType.Ecdsa, Data = ByteString.CopyFrom(IdentityFixtures.ExplicitP256PublicKey) };
+        using RSA certificateKey = RSA.Create(2048);
+        using X509Certificate2 certificate = CreateRsaCertificate(certificateKey, identity, RSASignaturePadding.Pss, presented);
+        Assert.Multiple(() =>
+        {
+            Assert.That(CertificateHelper.ValidateCertificate(certificate, peerId: null), Is.False);
+            Assert.That(CertificateHelper.ExtractPublicKey(certificate, out _), Is.Null);
+        });
     }
 
     [Test]
