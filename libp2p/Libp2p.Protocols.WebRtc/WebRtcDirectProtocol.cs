@@ -63,16 +63,34 @@ public class WebRtcDirectProtocol : ITransportProtocol
     private readonly AsymmetricKeyParameter _privateKey;
 
     private readonly DtlsFingerprint _fingerprint;
+
+    /// <summary>
+    /// How the dial half learns the certificate the peer presented in DTLS, injectable so the
+    /// /certhash check stays coverable in CI without a live peer that lies about its certificate.
+    /// </summary>
     private readonly Func<RTCPeerConnection, RTCDtlsFingerprint?> _readRemoteFingerprint;
 
+    /// <summary>
+    /// The listen half's counterpart. There is no /certhash to compare against on this side -- the
+    /// listener dialled nobody -- so this value is what binds the certificate to the peer's libp2p
+    /// identity, through the Noise prologue. Injectable for the same reason as
+    /// <see cref="_readRemoteFingerprint"/>: a listener whose view of it is wrong must be unable to
+    /// finish the handshake, and that is only observable in CI if the value can be perturbed.
+    /// </summary>
+    private readonly Func<WebRtcDirectSession, DtlsFingerprint?> _readSessionFingerprint;
+
     public WebRtcDirectProtocol(ILoggerFactory? loggerFactory = null)
-        : this(pc => pc.RemotePeerDtlsFingerprint, loggerFactory)
+        : this(pc => pc.RemotePeerDtlsFingerprint, session => session.RemoteFingerprint, loggerFactory)
     {
     }
 
-    internal WebRtcDirectProtocol(Func<RTCPeerConnection, RTCDtlsFingerprint?> readRemoteFingerprint, ILoggerFactory? loggerFactory = null)
+    internal WebRtcDirectProtocol(
+        Func<RTCPeerConnection, RTCDtlsFingerprint?> readRemoteFingerprint,
+        Func<WebRtcDirectSession, DtlsFingerprint?> readSessionFingerprint,
+        ILoggerFactory? loggerFactory = null)
     {
         _readRemoteFingerprint = readRemoteFingerprint;
+        _readSessionFingerprint = readSessionFingerprint;
         _logger = loggerFactory?.CreateLogger<WebRtcDirectProtocol>();
         (_certificate, _certificateChain, _privateKey, _fingerprint) = CreateLocalCertificate();
     }
@@ -417,8 +435,9 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 throw new InvalidOperationException("WebRTC-Direct session could not be established: the row is gone or the established cap is full.");
             }
 
-            // All three are published by the completion above, not polled for.
-            if (session.RemoteFingerprint is not { } remoteFingerprint ||
+            // All three are published by the completion above, not polled for. The fingerprint is
+            // read through the injected accessor so the binding below stays coverable in CI.
+            if (_readSessionFingerprint(session) is not { } remoteFingerprint ||
                 session.Muxer is not { } muxer ||
                 session.RemoteEndPoint is not { } remoteEndPoint)
             {
