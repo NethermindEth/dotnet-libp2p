@@ -1,6 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.WebRtc.Internals;
+using NSubstitute;
+using System.Collections.Concurrent;
+
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
 [TestFixture]
@@ -34,5 +39,97 @@ public class WebRtcDirectProtocolTests
     public void Constructor_CreatesLocalDtlsCertificate()
     {
         Assert.That(() => new WebRtcDirectProtocol(), Throws.Nothing);
+    }
+
+    /// <summary>
+    /// The cap has to live in the session loop, not in the muxer, because only the listen half has
+    /// a muxer. On the dial half SIPSorcery allocates an inbound <c>RTCDataChannel</c> before this
+    /// transport ever sees it, so without a cap here a peer we dialled could hold an unbounded
+    /// number of live streams -- each one a data channel, a polling timer, a frame buffer and an
+    /// <c>Upgrade</c> into the protocol stack. <see cref="InboundStreamLimit"/> does not cover it:
+    /// it is opt-in per protocol and is applied after the stream has already been built and
+    /// negotiated.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task Session_CarriesInboundStreamsUpToTheCapAndClosesTheRest(CancellationToken token)
+    {
+        const int overCap = WebRtcDirectSctpMuxer.MaxConcurrentChannels + 4;
+        WebRtcDirectProtocol protocol = new();
+        SessionHarness harness = new();
+
+        FakeWebRtcDataChannel[] inbound = [.. Enumerable.Range(0, overCap)
+            .Select(i => new FakeWebRtcDataChannel { StreamId = (ushort)(i * 2 + 2) })];
+        foreach (FakeWebRtcDataChannel channel in inbound)
+        {
+            harness.Offer(channel);
+        }
+
+        harness.StopOfferingStreams();
+        await protocol.RunSessionAsync(harness.Connection, harness.OpenStream, harness.InboundStreams, token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Upgraded, Is.EqualTo(WebRtcDirectSctpMuxer.MaxConcurrentChannels),
+                "Every stream up to the cap must reach the protocol stack.");
+            Assert.That(inbound.Take(WebRtcDirectSctpMuxer.MaxConcurrentChannels).Select(c => c.IsClosed),
+                Is.All.False, "Admitted streams must stay open.");
+            Assert.That(inbound.Skip(WebRtcDirectSctpMuxer.MaxConcurrentChannels).Select(c => c.IsClosed),
+                Is.All.True, "A refused stream must be closed, not left for the peer to wonder about.");
+        });
+
+        harness.Release();
+    }
+
+    /// <summary>
+    /// The layer above the session loop, reduced to what the loop actually touches: a connection
+    /// that upgrades to a session, a dial-request queue and a sequence of inbound streams. The
+    /// <c>Upgrade</c> task never completes on its own, as in production, where it stands for the
+    /// protocol stack that owns the stream for the life of the connection -- which is also what
+    /// keeps a carried stream counted against the cap.
+    /// </summary>
+    private sealed class SessionHarness
+    {
+        private readonly BlockingCollection<UpgradeOptions> _requests = new();
+        private readonly System.Threading.Channels.Channel<IWebRtcDataChannel> _inbound =
+            System.Threading.Channels.Channel.CreateUnbounded<IWebRtcDataChannel>();
+        private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _upgraded;
+
+        public SessionHarness()
+        {
+            INewConnectionContext connection = Substitute.For<INewConnectionContext>();
+            INewSessionContext session = Substitute.For<INewSessionContext>();
+            connection.State.Returns(new State());
+            connection.UpgradeToSession().Returns(session);
+            connection.Upgrade(Arg.Any<IChannel>(), Arg.Any<UpgradeOptions?>()).Returns(_ =>
+            {
+                Interlocked.Increment(ref _upgraded);
+                return _held.Task;
+            });
+            session.DialRequests.Returns(_requests.GetConsumingEnumerable());
+            Connection = connection;
+        }
+
+        public INewConnectionContext Connection { get; }
+
+        public IAsyncEnumerable<IWebRtcDataChannel> InboundStreams => _inbound.Reader.ReadAllAsync();
+
+        public int Upgraded => Volatile.Read(ref _upgraded);
+
+        public Func<CancellationToken, Task<IWebRtcDataChannel>> OpenStream =>
+            _ => Task.FromException<IWebRtcDataChannel>(new NotSupportedException("This test opens no outbound streams."));
+
+        public void Offer(IWebRtcDataChannel channel) => _inbound.Writer.TryWrite(channel);
+
+        /// <summary>Ends the inbound sequence, which is what ends the session loop.</summary>
+        public void StopOfferingStreams() => _inbound.Writer.TryComplete();
+
+        public void Release()
+        {
+            _held.TrySetResult();
+            _requests.CompleteAdding();
+            _requests.Dispose();
+        }
     }
 }

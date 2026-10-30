@@ -506,7 +506,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
     /// <see cref="Quic.QuicProtocol"/>'s -- a transport that is its own muxer answers
     /// <see cref="INewSessionContext.DialRequests"/> and upgrades each inbound stream.
     /// </summary>
-    private async Task RunSessionAsync(
+    internal async Task RunSessionAsync(
         INewConnectionContext connectionContext,
         Func<CancellationToken, Task<IWebRtcDataChannel>> openStream,
         IAsyncEnumerable<IWebRtcDataChannel> inboundStreams,
@@ -514,6 +514,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
     {
         using INewSessionContext session = connectionContext.UpgradeToSession();
         using CancellationTokenSource stopping = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
+
+        // Live inbound streams, capped at the same number the listener's muxer allows. The cap
+        // belongs here rather than in the muxer because only the listen half has a muxer: on the
+        // dial half SIPSorcery allocates an inbound RTCDataChannel before this transport sees it,
+        // so a peer we dialled could otherwise hold an unbounded number of live streams, each one
+        // a data channel, a polling timer, a frame buffer and an Upgrade into the protocol stack.
+        // Core's InboundStreamLimit does not cover this: it is opt-in per protocol and applies
+        // after the stream has been built and negotiated.
+        int liveInboundStreams = 0;
 
         // Task.Run because DialRequests is a blocking enumerable: it parks the calling thread
         // between requests rather than yielding it.
@@ -542,7 +551,17 @@ public class WebRtcDirectProtocol : ITransportProtocol
         {
             await foreach (IWebRtcDataChannel channel in inboundStreams.WithCancellation(stopping.Token))
             {
-                Carry(channel, new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                if (Interlocked.Increment(ref liveInboundStreams) > WebRtcDirectSctpMuxer.MaxConcurrentChannels)
+                {
+                    Interlocked.Decrement(ref liveInboundStreams);
+
+                    // Closed rather than ignored: a stream left open and unread looks accepted to
+                    // the peer, which is worse for it than a refusal it can see.
+                    channel.Close();
+                    continue;
+                }
+
+                Observe(CarryInboundStreamAsync(channel), $"stream {channel.StreamId}");
             }
         }, stopping.Token);
 
@@ -562,6 +581,20 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
         void Carry(IWebRtcDataChannel channel, UpgradeOptions options) =>
             Observe(CarryStreamAsync(connectionContext, channel, options), $"stream {channel.StreamId}");
+
+        async Task CarryInboundStreamAsync(IWebRtcDataChannel channel)
+        {
+            try
+            {
+                await CarryStreamAsync(connectionContext, channel, new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+            }
+            finally
+            {
+                // Released on the way out, which is what makes this a concurrency cap rather than
+                // a lifetime one.
+                Interlocked.Decrement(ref liveInboundStreams);
+            }
+        }
     }
 
     /// <summary>One libp2p stream, from its data channel up to the protocol stack that consumes it.</summary>
