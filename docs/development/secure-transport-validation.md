@@ -4,7 +4,7 @@
 
 PR #416 now targets `main` and incorporates PR #411 through merge
 `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
-2026-10-30 against candidate `9139341fb475ab715c595b6c155ef35e2d378bf0`.
+2026-10-30 against candidate `4a0094ca4527a289521e4b4c4a59dcff0cbc034d`.
 The pinned comparison base is `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`;
 the candidate differs from that pinned base in 14 files. These documentation
 updates preserve the candidate's production code, tests, and CI configuration.
@@ -274,12 +274,12 @@ in that run.
 ### Current candidate Windows evidence
 
 On 2026-10-30, authenticated `gh` reads retrieved and independently inspected the
-raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41033830821/job/123989712333)
-and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41033830821/artifacts/12966968409)
-from run `41033830821`. The run's head is
-`9139341fb475ab715c595b6c155ef35e2d378bf0`; its checkout is GitHub's synthetic
-merge `c2560ecc2e43866bea929c6f6c4128553f168008`, with that head and main revision
-`dd360b27308e1bda07986be4369c10e0da82f05b` as parents. These are CI merge results,
+raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41053009544/job/124053463013)
+and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41053009544/artifacts/12975367797)
+from run `41053009544`. The run's head is
+`4a0094ca4527a289521e4b4c4a59dcff0cbc034d`; its checkout is GitHub's synthetic
+merge `eecbbaae5dc73e5915437d6f8786e951e0fb8a5d`, with that head and main revision
+`ec92be05cf95d8702b20ee2d8961d99a12202f6e` as parents. These are CI merge results,
 not an execution of the unmerged candidate tree.
 
 The merge includes newer main changes, including an RSA admission guard and
@@ -302,7 +302,8 @@ step summaries show:
 
 The QUIC invocation has no filter; all 33 cases completed without skips, including
 the three Windows key-reuse and normal-exit cases. Their source and assertions
-match the candidate. The TLS XML independently records 32 passing case nodes and
+match the candidate. The non-Windows `Assert.Ignore` guards restrict native CNG
+tests to Windows; they remain appropriate on Linux. The TLS XML independently records 32 passing case nodes and
 all six `ReportsWireCertificateListAndCallbackContents` combinations. Each has
 `ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the leaf,
 1 for the unrelated extra certificate, and 0 for the duplicate leaf. All three
@@ -310,9 +311,9 @@ list shapes and both receiver roles passed the platform-conditioned length and
 DER-entry assertions. This checks actual case results beyond job metadata.
 
 The downloaded TLS report's SHA-256 is
-`e9a31ee26a820b629bf85dd42d3776f02abf1a715bdb57046121efa171ac1262`.
+`b1c20bfa3b927ffdf0fa02de4736809dce3a9cd503e77a8dd9ab1b9378dbd076`.
 The raw Windows job log's SHA-256 is
-`ab9b0c72a42dab315265b00b84eb1441b17f9d0eef23aab6114c84a134d4e661`.
+`455226113c6739ed016a42a0d903ed21614f0ba6f207a1a57c16befe2b70058c`.
 Raw files remain session artifacts; the linked Actions artifact contains the TLS
 XML, while QUIC and registered totals come from the linked job log.
 
@@ -325,9 +326,9 @@ coverage limits remain explicit.
 Read-only retrieval commands, with output under the session's `TMPDIR`:
 
 ```sh
-gh run view 41033830821 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
-gh run download 41033830821 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41033830821"
-gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/123989712333/logs > "$TMPDIR/windows41033830821.log"
+gh run view 41053009544 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
+gh run download 41053009544 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41053009544"
+gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/124053463013/logs > "$TMPDIR/windows41053009544.log"
 ```
 
 The API log command writes terminal control bytes to a file for parsing. It
