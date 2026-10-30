@@ -131,6 +131,8 @@ router.UnsubscribeAll();
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
 It also removes pending validations for the topic and releases their capacity; their later `CompleteValidation` calls return `false`, even after resubscribing. Already accepted callbacks queued for dispatch may finish concurrently with unsubscribe. Application validation work is not cancelled.
 
+Outstanding IWANT promises survive local unsubscribe. Replies on the unwanted topic are ignored and do not fulfill those promises, so expiry can still incur a behavioral penalty for the peer that announced the message.
+
 ## Remote subscription limits
 
 Remote membership is retained independently of local subscriptions so a later local subscription can discover peers. Configure these positive settings before constructing the router:

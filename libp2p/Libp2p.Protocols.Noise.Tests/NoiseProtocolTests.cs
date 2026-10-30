@@ -512,18 +512,25 @@ public class NoiseProtocolTests
     [TestCase(true, "trailing-rsa")]
     [TestCase(false, "unknown-alias")]
     [TestCase(true, "unknown-alias")]
+    [TestCase(false, "explicit-ecdsa")]
+    [TestCase(true, "explicit-ecdsa")]
     public async Task HandshakeRejectsUnusableOrAliasedIdentityBeforeUpgrade(bool remoteInitiates, string shape)
     {
-        Identity remote = shape == "weak-rsa"
-            ? new Identity(IdentityFixtures.LegacyRsaPrivateKey, Core.Dto.KeyType.Rsa)
-            : new Identity(keyType: shape == "trailing-rsa" ? Core.Dto.KeyType.Rsa : Core.Dto.KeyType.Ed25519);
+        Identity remote = shape switch
+        {
+            "weak-rsa" => new(IdentityFixtures.LegacyRsaPrivateKey, Core.Dto.KeyType.Rsa),
+            "explicit-ecdsa" => new(IdentityFixtures.P256PrivateKey, Core.Dto.KeyType.Ecdsa),
+            _ => new(keyType: shape == "trailing-rsa" ? Core.Dto.KeyType.Rsa : Core.Dto.KeyType.Ed25519),
+        };
         Core.Dto.PublicKey presented = remote.PublicKey.Clone();
         if (shape == "trailing-rsa") presented.Data = ByteString.CopyFrom([.. presented.Data.ToByteArray(), 0]);
         if (shape == "unknown-alias") presented.MergeFrom(new byte[] { 0x18, 0x01 });
+        if (shape == "explicit-ecdsa") presented.Data = ByteString.CopyFrom(IdentityFixtures.ExplicitP256PublicKey);
         PeerId expected = shape == "unknown-alias"
             ? new PeerId(Multiformats.Hash.Multihash.Encode(presented.ToByteArray(), Multiformats.Hash.HashType.ID))
             : remote.PeerId;
-        (IConnectionContext subjectContext, State subjectState, Task upgraded) = Context(TestPeers.Identity(1), $"/ip4/127.0.0.1/tcp/0/p2p/{expected}");
+        string remoteAddress = shape == "explicit-ecdsa" ? "/ip4/127.0.0.1/tcp/0" : $"/ip4/127.0.0.1/tcp/0/p2p/{expected}";
+        (IConnectionContext subjectContext, State subjectState, Task upgraded) = Context(TestPeers.Identity(1), remoteAddress);
         (IConnectionContext wireContext, _, _) = Context(remote, $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(1)}");
         TestChannel channel = new();
         Task subject = remoteInitiates
@@ -534,9 +541,10 @@ public class NoiseProtocolTests
             : new MaliciousResponderProtocol(MaliciousResponderProtocol.CorruptionMode.EmptySignature) { PresentedKey = presented }.ListenAsync(channel.Reverse(), wireContext);
         try
         {
+            await Task.WhenAny(subject, upgraded).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(upgraded.IsCompleted, Is.False);
             Assert.ThrowsAsync<Libp2pException>(async () => await subject.WaitAsync(TimeSpan.FromSeconds(10)));
             Assert.That(subjectState.RemotePublicKey, Is.Null);
-            Assert.That(upgraded.IsCompleted, Is.False);
         }
         finally
         {
