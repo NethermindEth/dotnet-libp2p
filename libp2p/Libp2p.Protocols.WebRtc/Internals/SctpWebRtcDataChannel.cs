@@ -28,8 +28,7 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
     /// to a pump instead of being dispatched on it: one slow subscriber must not stall the other
     /// channels. <see cref="BoundedChannelFullMode.Wait"/> is what makes the TryWrite in
     /// <see cref="Receive"/> a genuine overflow signal; with DropWrite it would always report
-    /// success and silently discard, which is the trap the neighbouring DataChannelOverIChannel
-    /// falls into.
+    /// success and silently discard.
     /// </summary>
     private readonly Channel<byte[]> _incoming = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(MaxBufferedMessages)

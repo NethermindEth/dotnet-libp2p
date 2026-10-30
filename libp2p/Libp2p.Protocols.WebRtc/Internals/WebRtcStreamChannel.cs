@@ -37,6 +37,9 @@ internal sealed class WebRtcStreamChannel : IChannel
 
     public WebRtcStreamChannel(WebRtcStream stream) => _stream = stream;
 
+    /// <summary>The SCTP stream this channel runs on; see <see cref="IWebRtcDataChannel.StreamId"/>.</summary>
+    public ushort StreamId => _stream.StreamId;
+
     public TaskAwaiter GetAwaiter() => _completion.Task.GetAwaiter();
 
     public async ValueTask<ReadResult> ReadAsync(int length,

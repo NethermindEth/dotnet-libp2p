@@ -11,6 +11,13 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 internal interface IWebRtcDataChannel
 {
     /// <summary>
+    /// The SCTP stream this channel runs on. Carried on the seam because it is the only name a
+    /// libp2p stream has on this transport -- there is no label and no stream header -- so it is
+    /// what a log line, and the multi-stream integration test, identify a stream by.
+    /// </summary>
+    ushort StreamId { get; }
+
+    /// <summary>
     /// Bytes handed to the channel that it has not yet put on the wire, used as the backpressure
     /// signal: see <see cref="WebRtcStream.MaxBufferedAmount"/>.
     /// </summary>

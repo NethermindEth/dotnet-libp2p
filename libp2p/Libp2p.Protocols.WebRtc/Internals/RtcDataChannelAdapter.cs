@@ -36,6 +36,10 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
 
     public RtcDataChannelAdapter(RTCDataChannel channel)
     {
+        // Captured rather than read through: RTCDataChannel.id is nullable and is assigned when the
+        // channel joins the peer connection's collection, so a channel that reached here without
+        // one would be unusable -- SIPSorcery's own send() would address stream 0 for it.
+        StreamId = channel.id ?? throw new ArgumentException("The RTC data channel has no stream id.", nameof(channel));
         _channel = channel;
         _channel.onmessage += OnMessage;
         _channel.onclose += Close;
@@ -50,6 +54,8 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
     public event Action? BufferedAmountLow;
 
     public event Action? Closed;
+
+    public ushort StreamId { get; }
 
     /// <summary>
     /// <c>RTCDataChannel.bufferedAmount</c> is a <see cref="ulong"/> count of bytes queued on the

@@ -72,6 +72,9 @@ internal sealed class WebRtcStream : IAsyncDisposable
     /// caller that needs its original message boundaries has to delimit them itself, as it would on
     /// any other libp2p stream.
     /// </summary>
+    /// <summary>The SCTP stream this one runs on; see <see cref="IWebRtcDataChannel.StreamId"/>.</summary>
+    public ushort StreamId => _channel.StreamId;
+
     public async ValueTask<byte[]?> ReadAsync(CancellationToken token = default)
     {
         try

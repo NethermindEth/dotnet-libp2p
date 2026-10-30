@@ -21,6 +21,8 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
 
     public FakeWebRtcDataChannel? Peer { get; private set; }
 
+    public ushort StreamId { get; init; }
+
     public long BufferedAmount { get; private set; }
 
     public bool IsClosed { get; private set; }

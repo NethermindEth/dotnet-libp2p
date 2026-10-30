@@ -16,6 +16,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.WebRtc.Tests")]
 
@@ -164,9 +165,27 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
         try
         {
+            // Subscribed before anything can arrive: ondatachannel carries no backlog, so a stream
+            // the peer opens before this point would be lost rather than delayed.
+            IAsyncEnumerable<IWebRtcDataChannel> inboundStreams = SubscribeToInboundStreams(pc);
+
             RTCDataChannel noiseDataChannel = await pc.createDataChannel(NoiseChannelLabel, new RTCDataChannelInit { negotiated = true, id = 0 });
 
-            Task<RTCDataChannel> noiseOpenTask = WaitForDataChannelOpenAsync(noiseDataChannel, token);
+            // Attached HERE, before the connection is reported up, and not after. The listener is
+            // the Noise initiator and writes message 1 the moment its own SCTP association
+            // connects -- measured at ~20ms before this side finishes opening -- while
+            // RTCDataChannel.GotData invokes `onmessage?.Invoke(...)`, so a message that arrives
+            // with no subscriber is DROPPED, not queued. Attaching after the connection loses
+            // message 1 on about two runs in three and leaves both halves waiting on each other
+            // until the dial times out. Same hazard, and the same fix, as subscribing the SCTP
+            // muxer before its association can deliver.
+            //
+            // Ownership passes to RunNoiseHandshakeAsync below, which closes it as
+            // webrtc-direct.md Connection Security (3) requires. On any throw before that, the
+            // pc.close() in this method's finally closes the channel under it.
+            WebRtcStream noiseStream = new(new RtcDataChannelAdapter(noiseDataChannel));
+
+            Task noiseOpenTask = WaitForDataChannelOpenAsync(noiseDataChannel, token);
             Task connectionTask = WaitForConnectionAsync(pc, token);
 
             RTCSessionDescriptionInit offer = pc.createOffer(new RTCOfferOptions { X_WaitForIceGatheringToComplete = true });
@@ -184,7 +203,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             EnsureRemoteDescriptionApplied(pc.setRemoteDescription(answer), "answer");
 
             await connectionTask;
-            RTCDataChannel openedNoiseDataChannel = await noiseOpenTask;
+            await noiseOpenTask;
 
             // The answer above only claims the /certhash; this checks the certificate the peer
             // actually presented in the DTLS handshake against it. Read through the accessor
@@ -196,24 +215,59 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.LocalAddress = pc.GetRtpChannel().RTPLocalEndPoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = endpoint.ToMultiaddress(ProtocolType.Udp);
 
-            // webrtc-direct.md, Connection Security: the Noise handshake runs "over this channel"
-            // using "the message framing described in the Multiplexing section", not as raw
-            // datachannel messages. So it goes through WebRtcStream like any other stream; sending
-            // it unframed is invisible to a self-dial and interoperates with nothing.
-            RtcDataChannelAdapter noiseAdapter = new(openedNoiseDataChannel);
-            await using WebRtcStream noiseStream = new(noiseAdapter);
-            WebRtcStreamChannel handshakeChannel = new(noiseStream);
             // The dialer is _A_, the Noise RESPONDER. Both role-dependent values here come from
             // WebRtcDirectRoles, which carries the spec sentence behind each one; getting either
             // backwards is invisible to a loopback test, since both halves would be wrong
             // together, and fails against every real peer.
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
                 WebRtcDirectRoles.OrderFingerprints(isListener: false, local: _fingerprint, remote: expectedFingerprint);
-            byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
-            (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                handshakeChannel, context.Peer.Identity, prologue, isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
-            connectionContext.State.RemotePublicKey = remoteKey;
-            await connectionContext.Upgrade(encryptedChannel);
+
+            connectionContext.State.RemotePublicKey = await RunNoiseHandshakeAsync(
+                noiseStream,
+                context.Peer.Identity,
+                WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
+                isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator,
+                token);
+
+            // Ids are chosen here rather than left to SIPSorcery. RTCDataChannelCollection seeds
+            // its counter at ushort.MaxValue - 1 and adds 2 unchecked, so the first id it offers
+            // the DTLS client is 0 -- the reserved Noise id, which the handshake above has just
+            // closed and released. It only hands out 2 while id 0 is still occupied, which is no
+            // longer true by the time a stream is opened. RFC 8832 section 6 parity is ours to
+            // honour either way, and FirstOutboundStreamId is where it is written down.
+            int nextStreamId = WebRtcDirectRoles.FirstOutboundStreamId(isDtlsClient: !WebRtcDirectRoles.ListenerIsDtlsClient);
+
+            async Task<IWebRtcDataChannel> OpenStreamAsync(CancellationToken streamToken)
+            {
+                int streamId = Interlocked.Add(ref nextStreamId, 2) - 2;
+                if (streamId > ushort.MaxValue)
+                {
+                    throw new InvalidOperationException(
+                        "The SCTP stream id space for this side of the association is exhausted; stream ids are never reused.");
+                }
+
+                // A libp2p stream carries its own protocol negotiation, so the DCEP label and
+                // subprotocol have nothing to say -- the same empty pair WebRtcDirectSctpMuxer
+                // puts in the OPEN it builds by hand. createDataChannel waits for the peer's DCEP
+                // ACK with no timeout of its own and takes no token, so the token is applied here.
+                RTCDataChannel channel = await pc
+                    .createDataChannel(string.Empty, new RTCDataChannelInit { id = (ushort)streamId })
+                    .WaitAsync(streamToken);
+
+                // A channel created while the peer connection is not connected is parked as a
+                // placeholder and returned unopened, and RTCDataChannel.send logs a warning and
+                // DISCARDS on a transport that is not connected. Refusing it here turns that
+                // silent data loss into a failed stream open.
+                if (!channel.IsOpened)
+                {
+                    channel.close();
+                    throw new InvalidOperationException($"WebRTC data channel {streamId} did not open.");
+                }
+
+                return new RtcDataChannelAdapter(channel);
+            }
+
+            await RunSessionAsync(connectionContext, OpenStreamAsync, inboundStreams, token);
         }
         finally
         {
@@ -339,11 +393,6 @@ public class WebRtcDirectProtocol : ITransportProtocol
 
     /// <summary>
     /// Waits for one admitted session to come up and turns it into an upgraded libp2p connection.
-    /// <para>
-    /// This mirrors <see cref="DialAsync"/>'s tail deliberately rather than sharing it: moving both
-    /// halves to a common UpgradeToSession is the next change, and keeping the duplication here keeps
-    /// this one bisectable.
-    /// </para>
     /// </summary>
     private async Task DriveSessionAsync(
         ITransportContext context,
@@ -376,6 +425,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 throw new InvalidOperationException("Established WebRTC-Direct session published no fingerprint, muxer or peer address.");
             }
 
+            // Registered before the association is connected, so nothing the peer puts on stream 0
+            // can arrive before there is a channel to route it to: the muxer drops a frame whose
+            // stream it does not yet know. The dial half has the same hazard in a sharper form --
+            // see the comment in DialAsync.
+            WebRtcStream noiseStream = new(muxer.GetNegotiatedChannel(WebRtcDirectSctpMuxer.NoiseStreamId));
+
             // Established only means sctp.Start() has returned; the association has not yet seen the
             // peer's INIT at that point. SctpAssociation.SendData on an association still in Closed
             // logs a warning and DISCARDS the message, so writing the Noise handshake here rather
@@ -386,21 +441,26 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = remoteEndPoint.ToMultiaddress(ProtocolType.Udp);
 
-            // There is no /certhash to check this against -- the listener dialled nobody -- so the
-            // fingerprint is bound to the libp2p identity at Noise instead, through the prologue.
-            await using WebRtcStream noiseStream = new(muxer.GetNegotiatedChannel(WebRtcDirectSctpMuxer.NoiseStreamId));
-            WebRtcStreamChannel handshakeChannel = new(noiseStream);
-
             // The listener is _B_, the Noise INITIATOR, and _B_'s fingerprint goes second in the
-            // prologue. See WebRtcDirectRoles for the spec sentences behind both.
+            // prologue. See WebRtcDirectRoles for the spec sentences behind both. There is no
+            // /certhash to check the peer's certificate against -- the listener dialled nobody --
+            // so the fingerprint is bound to the libp2p identity at Noise instead, through the
+            // prologue.
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
                 WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
-            byte[] prologue = WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint);
-            (IChannel encryptedChannel, PublicKey remoteKey) = await WebRtcDirectNoiseHandshake.HandshakeAsync(
-                handshakeChannel, context.Peer.Identity, prologue, isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator, token);
 
-            connectionContext.State.RemotePublicKey = remoteKey;
-            await connectionContext.Upgrade(encryptedChannel);
+            connectionContext.State.RemotePublicKey = await RunNoiseHandshakeAsync(
+                noiseStream,
+                context.Peer.Identity,
+                WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
+                isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator,
+                token);
+
+            await RunSessionAsync(
+                connectionContext,
+                async streamToken => await muxer.OpenStreamAsync(streamToken),
+                muxer.InboundChannels,
+                token);
         }
         catch (Exception ex)
         {
@@ -412,6 +472,164 @@ public class WebRtcDirectProtocol : ITransportProtocol
             await session.DisposeAsync();
         }
     }
+
+    /// <summary>
+    /// Runs the Noise handshake on the negotiated stream-0 channel, returns the peer's identity key
+    /// and discards the channel, which is all webrtc-direct.md Connection Security (3) leaves of it:
+    /// "the datachannel used for the Noise handshake is closed". Nothing wraps the connection
+    /// afterwards -- DTLS, not Noise, is what encrypts the streams that follow.
+    /// <para>
+    /// Takes an already-attached <paramref name="handshakeStream"/>, and owns it from here: the
+    /// stream has to be subscribed to its data channel before the peer can send, which on the dial
+    /// half is well before this is called. The handshake goes through
+    /// <see cref="WebRtcStream"/> because the spec runs it "using the message framing described in
+    /// the Multiplexing section", not as raw datachannel messages.
+    /// </para>
+    /// </summary>
+    private static async Task<PublicKey> RunNoiseHandshakeAsync(
+        WebRtcStream handshakeStream,
+        Identity identity,
+        byte[] prologue,
+        bool isInitiator,
+        CancellationToken token)
+    {
+        await using WebRtcStream stream = handshakeStream;
+        return await WebRtcDirectNoiseHandshake.HandshakeAsync(
+            new WebRtcStreamChannel(stream), identity, prologue, isInitiator, token);
+    }
+
+    /// <summary>
+    /// The multi-stream half of a live connection, shared by both halves because they differ only
+    /// in where a stream comes from: the listener opens and accepts through
+    /// <see cref="WebRtcDirectSctpMuxer"/>, the dialer through the data channels
+    /// <see cref="RTCPeerConnection"/> allocates for it. The shape is
+    /// <see cref="Quic.QuicProtocol"/>'s -- a transport that is its own muxer answers
+    /// <see cref="INewSessionContext.DialRequests"/> and upgrades each inbound stream.
+    /// </summary>
+    private async Task RunSessionAsync(
+        INewConnectionContext connectionContext,
+        Func<CancellationToken, Task<IWebRtcDataChannel>> openStream,
+        IAsyncEnumerable<IWebRtcDataChannel> inboundStreams,
+        CancellationToken token)
+    {
+        using INewSessionContext session = connectionContext.UpgradeToSession();
+        using CancellationTokenSource stopping = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
+
+        // Task.Run because DialRequests is a blocking enumerable: it parks the calling thread
+        // between requests rather than yielding it.
+        Task dialling = Task.Run(async () =>
+        {
+            foreach (UpgradeOptions request in session.DialRequests)
+            {
+                IWebRtcDataChannel channel;
+                try
+                {
+                    channel = await openStream(stopping.Token);
+                }
+                catch (Exception ex)
+                {
+                    // Nothing else ever completes this source, so a caller parked in
+                    // DialAsync<TProtocol> would wait for the life of the process.
+                    request.CompletionSource?.TrySetException(ex);
+                    throw;
+                }
+
+                Carry(channel, request with { ModeOverride = UpgradeModeOverride.Dial });
+            }
+        }, stopping.Token);
+
+        Task accepting = Task.Run(async () =>
+        {
+            await foreach (IWebRtcDataChannel channel in inboundStreams.WithCancellation(stopping.Token))
+            {
+                Carry(channel, new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+            }
+        }, stopping.Token);
+
+        try
+        {
+            // Either loop ending ends the connection: DialRequests completes when the session is
+            // disconnected, and the inbound sequence completes when the association goes away. The
+            // streams already carried keep running until the connection itself is torn down.
+            Task first = await Task.WhenAny(dialling, accepting);
+            Observe(first == dialling ? accepting : dialling, "session loop");
+            await first;
+        }
+        finally
+        {
+            stopping.Cancel();
+        }
+
+        void Carry(IWebRtcDataChannel channel, UpgradeOptions options) =>
+            Observe(CarryStreamAsync(connectionContext, channel, options), $"stream {channel.StreamId}");
+    }
+
+    /// <summary>One libp2p stream, from its data channel up to the protocol stack that consumes it.</summary>
+    private static async Task CarryStreamAsync(
+        INewConnectionContext connectionContext,
+        IWebRtcDataChannel channel,
+        UpgradeOptions options)
+    {
+        await using WebRtcStream stream = new(channel);
+        await connectionContext.Upgrade(new WebRtcStreamChannel(stream), options);
+    }
+
+    /// <summary>
+    /// Surfaces the inbound data channels <see cref="RTCPeerConnection"/> hands the dial half as the
+    /// same sequence <see cref="WebRtcDirectSctpMuxer.InboundChannels"/> gives the listen half.
+    /// <para>
+    /// Completed when the peer connection goes down, because that is the only thing that tells the
+    /// session loop a dialled connection has ended: nothing else is watching liveness once the
+    /// handshake is behind us.
+    /// </para>
+    /// </summary>
+    private static IAsyncEnumerable<IWebRtcDataChannel> SubscribeToInboundStreams(RTCPeerConnection pc)
+    {
+        // ponytail: bounds the accept backlog, not the number of live streams -- SIPSorcery
+        // allocates an inbound channel before this sees it, so the dial half has no equivalent of
+        // the muxer's MaxConcurrentChannels. Per-connection, and only for a peer we chose to dial.
+        // Fully qualified: Nethermind.Libp2p.Core has a Channel of its own.
+        System.Threading.Channels.Channel<IWebRtcDataChannel> inbound =
+            System.Threading.Channels.Channel.CreateBounded<IWebRtcDataChannel>(
+            new BoundedChannelOptions(WebRtcDirectSctpMuxer.MaxConcurrentChannels)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait,
+            });
+
+        pc.ondatachannel += channel =>
+        {
+            RtcDataChannelAdapter adapter = new(channel);
+            if (!inbound.Writer.TryWrite(adapter))
+            {
+                // Refused rather than queued: a stream that is accepted and then never read is
+                // worse for the peer than one that is closed straight away.
+                adapter.Close();
+            }
+        };
+
+        pc.onconnectionstatechange += state =>
+        {
+            if (state is RTCPeerConnectionState.closed or RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected)
+            {
+                inbound.Writer.TryComplete();
+            }
+        };
+
+        return inbound.Reader.ReadAllAsync();
+    }
+
+    /// <summary>
+    /// Keeps a fire-and-forget task's failure out of <see cref="TaskScheduler.UnobservedTaskException"/>
+    /// and in the log, where a stream that died on its own is worth seeing.
+    /// </summary>
+    private void Observe(Task task, string what) =>
+        _ = task.ContinueWith(
+            finished => _logger?.LogDebug(finished.Exception, "WebRTC-Direct {What} ended", what),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
 
     /// <summary>
     /// Drives the table's TTLs, which it applies only when something asks it to, and disposes what it
@@ -504,10 +722,10 @@ public class WebRtcDirectProtocol : ITransportProtocol
         return connected.Task;
     }
 
-    private static Task<RTCDataChannel> WaitForDataChannelOpenAsync(RTCDataChannel channel, CancellationToken token)
+    private static Task WaitForDataChannelOpenAsync(RTCDataChannel channel, CancellationToken token)
     {
-        TaskCompletionSource<RTCDataChannel> opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        channel.onopen += () => opened.TrySetResult(channel);
+        TaskCompletionSource opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.onopen += () => opened.TrySetResult();
         channel.onclose += () => opened.TrySetException(new InvalidOperationException("Noise data channel closed before opening."));
         token.Register(() => opened.TrySetCanceled(token));
         return opened.Task;

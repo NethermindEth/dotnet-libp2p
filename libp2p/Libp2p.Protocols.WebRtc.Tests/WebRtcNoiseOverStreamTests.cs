@@ -44,8 +44,8 @@ public class WebRtcNoiseOverStreamTests
     {
         Handshake handshake = Handshake.Start();
 
-        (IChannel dialerEncrypted, PublicKey dialerSaw) = await handshake.Dialer.WaitAsync(token);
-        (IChannel listenerEncrypted, PublicKey listenerSaw) = await handshake.Listener.WaitAsync(token);
+        PublicKey dialerSaw = await handshake.Dialer.WaitAsync(token);
+        PublicKey listenerSaw = await handshake.Listener.WaitAsync(token);
 
         Assert.Multiple(() =>
         {
@@ -54,9 +54,6 @@ public class WebRtcNoiseOverStreamTests
             Assert.That(new Identity(listenerSaw).PeerId, Is.EqualTo(handshake.DialerIdentity.PeerId),
                 "The listener must recover the dialer's peer ID.");
         });
-
-        await dialerEncrypted.CloseAsync();
-        await listenerEncrypted.CloseAsync();
     }
 
     /// <summary>
@@ -70,8 +67,8 @@ public class WebRtcNoiseOverStreamTests
     public async Task Handshake_PutsOnlyFramedMessagesOnTheWire(CancellationToken token)
     {
         Handshake handshake = Handshake.Start();
-        (IChannel dialerEncrypted, _) = await handshake.Dialer.WaitAsync(token);
-        (IChannel listenerEncrypted, _) = await handshake.Listener.WaitAsync(token);
+        await handshake.Dialer.WaitAsync(token);
+        await handshake.Listener.WaitAsync(token);
 
         (byte[] listenerWire, byte[] listenerPayload) = Unframe(handshake.ListenerChannel.SentFrames);
         (byte[] dialerWire, byte[] dialerPayload) = Unframe(handshake.DialerChannel.SentFrames);
@@ -93,9 +90,6 @@ public class WebRtcNoiseOverStreamTests
             Assert.That(listenerWire, Has.Length.GreaterThan(listenerPayload.Length));
             Assert.That(dialerWire, Has.Length.GreaterThan(dialerPayload.Length));
         });
-
-        await dialerEncrypted.CloseAsync();
-        await listenerEncrypted.CloseAsync();
     }
 
     /// <summary>
@@ -156,8 +150,8 @@ public class WebRtcNoiseOverStreamTests
         FakeWebRtcDataChannel ListenerChannel,
         Identity DialerIdentity,
         Identity ListenerIdentity,
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> Dialer,
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> Listener)
+        Task<PublicKey> Dialer,
+        Task<PublicKey> Listener)
     {
         public static Handshake Start()
         {
@@ -178,13 +172,13 @@ public class WebRtcNoiseOverStreamTests
 
             // The responder is started first so it is already parked on its read when the
             // initiator's first frame is delivered -- FakeWebRtcDataChannel delivers inline.
-            Task<(IChannel, PublicKey)> dialerHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
+            Task<PublicKey> dialerHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
                 dialerSide,
                 dialer,
                 WebRtcNoisePrologue.Build(asDialer.a, asDialer.b),
                 isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator,
                 CancellationToken.None);
-            Task<(IChannel, PublicKey)> listenerHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
+            Task<PublicKey> listenerHandshake = WebRtcDirectNoiseHandshake.HandshakeAsync(
                 listenerSide,
                 listener,
                 WebRtcNoisePrologue.Build(asListener.a, asListener.b),

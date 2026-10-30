@@ -39,27 +39,24 @@ public class WebRtcDirectNoiseHandshakeTests
         Identity responder = new();
         byte[] prologue = Encoding.UTF8.GetBytes("test-prologue");
 
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> initiatorTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
+        Task<PublicKey> initiatorTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
             initiatorChannel,
             initiator,
             prologue,
             isInitiator: true,
             CancellationToken.None);
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
+        Task<PublicKey> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
             responderChannel,
             responder,
             prologue,
             isInitiator: false,
             CancellationToken.None);
 
-        (IChannel initiatorEncrypted, PublicKey initiatorRemoteKey) = await initiatorTask.WaitAsync(HandshakeTimeout);
-        (IChannel responderEncrypted, PublicKey responderRemoteKey) = await responderTask.WaitAsync(HandshakeTimeout);
+        PublicKey initiatorRemoteKey = await initiatorTask.WaitAsync(HandshakeTimeout);
+        PublicKey responderRemoteKey = await responderTask.WaitAsync(HandshakeTimeout);
 
         Assert.That(new Identity(initiatorRemoteKey).PeerId, Is.EqualTo(responder.PeerId));
         Assert.That(new Identity(responderRemoteKey).PeerId, Is.EqualTo(initiator.PeerId));
-
-        await initiatorEncrypted.CloseAsync();
-        await responderEncrypted.CloseAsync();
     }
 
     /// <summary>
@@ -109,50 +106,6 @@ public class WebRtcDirectNoiseHandshakeTests
         await abandoned.CancelAsync();
         await ObserveAsync(initiatorHandshake);
         await ObserveAsync(responderHandshake);
-    }
-
-    [Test]
-    public async Task AbortingEncryptedChannelAfterHalfClosePropagatesAbort()
-    {
-        Channel inner = new();
-        IChannel otherSide = inner.Reverse;
-        byte[] prologue = Encoding.UTF8.GetBytes("webrtc-abort-test");
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> initiatorTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
-            inner, new Identity(), prologue, isInitiator: true, CancellationToken.None);
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
-            otherSide, new Identity(), prologue, isInitiator: false, CancellationToken.None);
-
-        (IChannel encrypted, _) = await initiatorTask.WaitAsync(HandshakeTimeout);
-        (IChannel responderEncrypted, _) = await responderTask.WaitAsync(HandshakeTimeout);
-        Task<IOResult> incoming = responderEncrypted.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 5, 6 })).AsTask();
-        Assert.That((await encrypted.ReadAsync(1)).Data.ToArray(), Is.EqualTo(new byte[] { 5 }));
-        Assert.That(await incoming, Is.EqualTo(IOResult.Ok));
-        Assert.That(await encrypted.WriteEofAsync(), Is.EqualTo(IOResult.Ok));
-        await encrypted.AbortAsync();
-
-        Assert.That((await encrypted.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
-        Assert.That(await encrypted.WriteEofAsync(), Is.EqualTo(IOResult.Aborted));
-        Assert.That((await otherSide.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
-    }
-
-    [Test]
-    public async Task AbortDuringEncryptedFrameReadRemainsAborted()
-    {
-        Channel inner = new();
-        IChannel otherSide = inner.Reverse;
-        byte[] prologue = Encoding.UTF8.GetBytes("webrtc-frame-abort-test");
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> initiatorTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
-            inner, new Identity(), prologue, isInitiator: true, CancellationToken.None);
-        Task<(IChannel Encrypted, PublicKey RemoteKey)> responderTask = WebRtcDirectNoiseHandshake.HandshakeAsync(
-            otherSide, new Identity(), prologue, isInitiator: false, CancellationToken.None);
-
-        (IChannel encrypted, _) = await initiatorTask.WaitAsync(HandshakeTimeout);
-        await responderTask.WaitAsync(HandshakeTimeout);
-        Task<ReadResult> pending = encrypted.ReadAsync(1).AsTask();
-        Assert.That(await otherSide.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0, 10 })), Is.EqualTo(IOResult.Ok));
-        await otherSide.AbortAsync();
-
-        Assert.That((await pending.WaitAsync(TimeSpan.FromSeconds(2))).Result, Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
