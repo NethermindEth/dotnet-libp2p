@@ -93,9 +93,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    env:
-      GOCACHE: ${{ runner.temp }}/go-build
-      GOMODCACHE: ${{ runner.temp }}/go-mod
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -122,6 +119,9 @@ jobs:
 
       - name: Build pinned Go peer and run reference tests
         working-directory: tests/tls-interop
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build
+          GOMODCACHE: ${{ runner.temp }}/go-mod
         run: |
           set -euo pipefail
           go build -mod=readonly -o "$RUNNER_TEMP/tls-go-peer" .

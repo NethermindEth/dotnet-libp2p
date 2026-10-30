@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 # SPDX-License-Identifier: MIT
+# cspell:words GOCACHE GOMODCACHE
 
 import json
 from pathlib import Path
@@ -108,6 +109,18 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn(command, job)
         self.assertIn("if: always()", job)
         self.assertNotIn("continue-on-error", job)
+
+    def test_go_cache_paths_use_runner_context_only_at_step_scope(self):
+        workflow = (REPO / ".github/workflows/test.yml").read_text()
+        job = workflow.split("  tls-evidence-and-interop:\n", 1)[1].split("  windows-quic-tls:\n", 1)[0]
+        # GitHub validates job env before runner context is available. Ordinary
+        # YAML parsing and bash syntax checks cannot catch this rejection.
+        job_settings = job.split("    steps:\n", 1)[0]
+        self.assertNotIn("runner.", job_settings)
+        go_step = job.split("      - name: Build pinned Go peer and run reference tests\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("        env:\n", go_step)
+        for variable, folder in (("GOCACHE", "go-build"), ("GOMODCACHE", "go-mod")):
+            self.assertIn(f"          {variable}: ${{{{ runner.temp }}}}/{folder}\n", go_step)
 
 
 if __name__ == "__main__":
