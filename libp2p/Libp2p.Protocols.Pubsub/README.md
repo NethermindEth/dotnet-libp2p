@@ -224,9 +224,13 @@ both semaphore waiters and RPCs retained through dispatch. An admitted RPC stays
 synchronous application callbacks return, so inbound publish concurrency is bounded by the entry
 budget divided by handler latency; slow handlers cost incoming capacity rather than forwarding
 latency. Each connected peer may hold at most its per-peer share, charged across every inbound
-stream it has opened, so one peer cannot take the router-wide budget by opening many streams. A
-peer holding nothing always gets one RPC admitted, up to `MaxRpcBytes`, so a share smaller than a
-maximum-size RPC never blocks delivery; the share bounds that peer's additional concurrent RPCs.
+stream it has opened, so one peer cannot take the router-wide budget by opening many streams. The
+share narrows that exposure rather than closing it: the router-wide check runs first and reserves
+nothing for peers holding nothing, so with the defaults sixteen peers each holding eight entries,
+or fewer peers holding large RPCs up to the byte budget, exhaust the router-wide budget and every
+other peer's publishes are skipped with `reason` `capacity` until entries release. A peer holding
+nothing always gets one RPC admitted, up to `MaxRpcBytes`, so a share smaller than a maximum-size
+RPC never blocks delivery; the share bounds that peer's additional concurrent RPCs.
 The router-wide byte budget must be at least `MaxRpcBytes`, which construction enforces. At
 either limit, publishes are skipped before hashing, validation, caching, delivery credit or
 penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so

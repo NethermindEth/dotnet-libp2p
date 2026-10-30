@@ -82,7 +82,7 @@ public partial class PubsubRouter
         internal OutboundFrame? TailControl; // Last queued frame while it still accepts required control; owned by the outbound lock.
         internal int IncomingStreams; // Owned by the router lock.
         internal int IncomingEntries; // Admitted incoming message-ID RPCs; owned by the router lock.
-        internal long IncomingBytes;
+        internal long IncomingBytes; // Their protobuf bytes; owned by the router lock.
         internal int Entries;
         internal long Bytes;
         internal bool ExtensionsQueued;
