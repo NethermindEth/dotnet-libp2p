@@ -196,25 +196,39 @@ public class TlsChannelTests
         }
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task HandshakeCancellationStopsActualPendingIo(bool server)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task HandshakeCancellationStopsActualPendingIo(bool server, bool connectionCancellation)
     {
         using CancellationTokenSource cancellation = new();
+        using CancellationTokenSource otherLifetime = new();
         TestChannel channel = new();
         TapChannel observed = new(channel);
         TaskCompletionSource upgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        IConnectionContext context = Context(new TestChannel(), upgraded, cancellation.Token);
+        IConnectionContext context = Context(new TestChannel(), upgraded,
+            connectionCancellation ? otherLifetime.Token : cancellation.Token);
+        context.Token.Returns(connectionCancellation ? cancellation.Token : otherLifetime.Token);
         TlsProtocol protocol = new();
         Task run = server ? protocol.ListenAsync(observed, context) : protocol.DialAsync(observed, context);
-        await Task.WhenAny(observed.ReadEntered.Task, observed.WriteEntered.Task).WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
-        Exception? failure = Assert.CatchAsync(async () => await run.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.That(failure, Is.InstanceOf<OperationCanceledException>());
-        Assert.That(context.State.RemotePublicKey, Is.Null);
-        Assert.That(upgraded.Task.IsCompleted, Is.False);
-        Assert.That(observed.TokenAcquisitions, Is.EqualTo(1));
-        Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
+        try
+        {
+            await Task.WhenAny(observed.ReadEntered.Task, observed.WriteEntered.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            Exception? failure = Assert.CatchAsync(async () => await run.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.That(failure, Is.InstanceOf<OperationCanceledException>());
+            Assert.That(context.State.RemotePublicKey, Is.Null);
+            Assert.That(upgraded.Task.IsCompleted, Is.False);
+            Assert.That(observed.TokenAcquisitions, Is.EqualTo(1));
+            Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
+        }
+        finally
+        {
+            otherLifetime.Cancel();
+            await channel.AbortAsync();
+            await run.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
     }
 
     [TestCase(new byte[] { 22, 3, 3 })]
@@ -364,10 +378,12 @@ public class TlsChannelTests
         Assert.That((await pair.ClientApplication.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
-    [Test]
-    public async Task CallerCancellationWinsOverConcurrentTransportAbort()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CallerCancellationWinsOverConcurrentTransportAbort(bool withConnectionLifetime)
     {
-        await using Pair pair = await Pair.StartAsync();
+        using CancellationTokenSource connectionLifetime = new();
+        await using Pair pair = await Pair.StartAsync(connectionToken: withConnectionLifetime ? connectionLifetime.Token : default);
         using ManualResetEventSlim release = new();
         // This callback runs before the pump's linked registrations. The source
         // token is cancelled, but the linked tokens cannot observe it yet.
@@ -586,7 +602,8 @@ public class TlsChannelTests
         public IChannel ServerApplication => _serverUp.Reverse();
         public Task Client { get; private set; } = null!;
         public Task Server { get; private set; } = null!;
-        public static async Task<Pair> StartAsync(bool fragmented = false, Func<IChannel, bool, IChannel>? transport = null)
+        public static async Task<Pair> StartAsync(bool fragmented = false, Func<IChannel, bool, IChannel>? transport = null,
+            CancellationToken connectionToken = default)
         {
             Pair pair = new();
             pair.ClientDown = new(transport?.Invoke(pair._network, true) ?? pair._network, fragmented);
@@ -595,8 +612,12 @@ public class TlsChannelTests
             pair.ClientUp = new(pair._clientUp);
             TaskCompletionSource clientUpgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
             TaskCompletionSource serverUpgraded = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            pair.Server = new TlsProtocol().ListenAsync(pair.ServerDown, Context(pair.ServerUp, serverUpgraded, pair.Cancellation.Token, 2, 1));
-            pair.Client = new TlsProtocol().DialAsync(pair.ClientDown, Context(pair.ClientUp, clientUpgraded, pair.Cancellation.Token));
+            IConnectionContext serverContext = Context(pair.ServerUp, serverUpgraded, pair.Cancellation.Token, 2, 1);
+            IConnectionContext clientContext = Context(pair.ClientUp, clientUpgraded, pair.Cancellation.Token);
+            serverContext.Token.Returns(connectionToken);
+            clientContext.Token.Returns(connectionToken);
+            pair.Server = new TlsProtocol().ListenAsync(pair.ServerDown, serverContext);
+            pair.Client = new TlsProtocol().DialAsync(pair.ClientDown, clientContext);
             try { await Task.WhenAll(clientUpgraded.Task, serverUpgraded.Task).WaitAsync(TimeSpan.FromSeconds(10)); }
             catch { await pair.DisposeAsync(); throw; }
             return pair;

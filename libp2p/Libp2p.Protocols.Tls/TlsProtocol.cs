@@ -40,6 +40,8 @@ public class TlsProtocol : IConnectionProtocol
     {
         bool authenticated = false;
         CancellationToken cancellation = context.UpgradeOptions?.CancellationToken ?? default;
+        CancellationToken connectionToken = context.Token;
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation, connectionToken);
         try
         {
             using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
@@ -55,12 +57,20 @@ public class TlsProtocol : IConnectionProtocol
                 IChannel channel = context.Upgrade();
                 _logger?.LogDebug("TLS authenticated {RemotePeerId}", context.State.RemotePeerId);
                 return channel;
-            }, cancellation);
+            }, lifetime.Token);
         }
         catch (OperationCanceledException)
         {
             await downChannel.AbortAsync();
             throw;
+        }
+        catch (IOException ex) when (cancellation.IsCancellationRequested || connectionToken.IsCancellationRequested)
+        {
+            // A transport abort can precede the linked token's cancellation
+            // callback. Preserve cancellation from either original source.
+            await downChannel.AbortAsync();
+            throw new OperationCanceledException("TLS connection was cancelled.", ex,
+                cancellation.IsCancellationRequested ? cancellation : connectionToken);
         }
         catch (Exception ex) when (!authenticated && (ex is IOException or CryptographicException or Libp2pException))
         {

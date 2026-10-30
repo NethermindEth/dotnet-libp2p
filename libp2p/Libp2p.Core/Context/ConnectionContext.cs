@@ -9,6 +9,8 @@ public class ConnectionContext(LocalPeer localPeer, LocalPeer.Session session, P
     ActivitySource? activitySource, Activity? activity)
     : ContextBase(localPeer, session, protocol, isListener, upgradeOptions, activitySource, activity), IConnectionContext
 {
+    public CancellationToken Token => session.ConnectionToken;
+
     public UpgradeOptions? UpgradeOptions => upgradeOptions;
 
     public Task DisconnectAsync()

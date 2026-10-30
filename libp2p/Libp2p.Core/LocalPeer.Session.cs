@@ -68,22 +68,29 @@ public partial class LocalPeer
             token.ThrowIfCancellationRequested();
             CancellationToken connectionToken = ConnectionToken;
             connectionToken.ThrowIfCancellationRequested();
-
-            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
-            using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
-            connectionToken.ThrowIfCancellationRequested();
-
-            SubDialRequests.Add(new UpgradeOptions()
+            lock (_lifecycleLock)
             {
-                CompletionSource = tcs,
-                SelectedProtocol = protocol,
-                Argument = argument,
-                CancellationToken = token
-            }, token);
+                if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
+                _applicationOperations++;
+            }
+            try
+            {
+                TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+                using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
+                connectionToken.ThrowIfCancellationRequested();
 
-            object? result = await tcs.Task;
-            return result;
+                SubDialRequests.Add(new UpgradeOptions()
+                {
+                    CompletionSource = tcs,
+                    SelectedProtocol = protocol,
+                    Argument = argument,
+                    CancellationToken = token
+                }, token);
+
+                return await tcs.Task;
+            }
+            finally { lock (_lifecycleLock) EndApplicationOperation(); }
         }
 
 
@@ -94,11 +101,157 @@ public partial class LocalPeer
         private bool _sessionCounted;
         private PeerId? _retainedPeerId;
 
+        private ITimer? _deadline;
+        private int _deadlineStage;
+        private bool _deadlineExpired;
+        private bool _inboundInitializationAcquired;
+        private readonly HashSet<Task> _upgrades = [];
+        private int _applicationOperations;
+        private long _idleSince;
+        private bool _idleEviction;
+
+        // Called with the lifecycle lock held, including synchronous upgrade failures.
+        private void EndApplicationOperation()
+        {
+            if (--_applicationOperations == 0 && Connected.IsCompletedSuccessfully)
+                _idleSince = peer.Clock.GetTimestamp();
+        }
+
+        internal bool TryDisconnectIfIdle(TimeSpan idleTimeout)
+        {
+            if (idleTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(idleTimeout));
+            lock (_lifecycleLock)
+            {
+                if (_idleEviction || _disconnection is not null || !Connected.IsCompletedSuccessfully || _applicationOperations != 0 ||
+                    peer.Clock.GetElapsedTime(_idleSince, peer.Clock.GetTimestamp()) < idleTimeout)
+                    return false;
+                // Claim eviction before releasing the lock: no new application work may race admission.
+                _idleEviction = true;
+            }
+            ObserveLateFailure(DisconnectAsync());
+            return true;
+        }
+
+        internal void StartUpgradeDeadline()
+        {
+            lock (_lifecycleLock)
+            {
+                if (_deadlineStage != 0 || _disconnection is not null) return;
+                SetDeadline(1, peer.ResourceLimits.InboundUpgradeTimeout);
+            }
+        }
+
+        // Called with the lifecycle lock held. Stale callbacks cannot expire the next stage.
+        private void SetDeadline(int stage, TimeSpan timeout)
+        {
+            _deadline?.Dispose();
+            _deadlineStage = stage;
+            _deadline = peer.Clock.CreateTimer(_ =>
+            {
+                lock (_lifecycleLock)
+                {
+                    if (_deadlineStage != stage || _disconnection is not null) return;
+                    _deadlineExpired = true;
+                }
+                try { Libp2pMetrics.DeadlinesExpired.Add(1, new KeyValuePair<string, object?>("stage", stage == 1 ? "upgrade" : "initialization")); }
+                finally { ObserveLateFailure(DisconnectAsync()); }
+            }, null, timeout, Timeout.InfiniteTimeSpan);
+        }
+
+        internal bool TryBeginInitialization(bool isListener)
+        {
+            lock (_lifecycleLock)
+            {
+                if (_deadlineExpired || _disconnection is not null) throw new OperationCanceledException(ConnectionToken);
+                if (_deadlineStage == 2) return true;
+                if (isListener)
+                {
+                    if (Interlocked.Increment(ref peer._inboundInitializations) > peer.ResourceLimits.MaxConcurrentInitializations)
+                    {
+                        Interlocked.Decrement(ref peer._inboundInitializations);
+                        return false;
+                    }
+                    _inboundInitializationAcquired = true;
+                }
+                // Locally requested sessions keep their deadline without consuming inbound admission.
+                SetDeadline(2, peer.ResourceLimits.InitializationTimeout);
+                return true;
+            }
+        }
+
+        internal void EndInitialization()
+        {
+            lock (_lifecycleLock)
+            {
+                if (!_inboundInitializationAcquired) return;
+                _inboundInitializationAcquired = false;
+                Interlocked.Decrement(ref peer._inboundInitializations);
+            }
+        }
+
+        internal Task RunUpgrade(IChannel channel, Func<Task> run, bool isApplicationStream = false)
+        {
+            TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool closed;
+            lock (_lifecycleLock)
+            {
+                closed = _disconnection is not null || _deadlineExpired || _idleEviction;
+                if (!closed)
+                {
+                    _upgrades.Add(completion.Task);
+                    if (isApplicationStream) _applicationOperations++;
+                }
+            }
+            if (closed) return RejectAsync();
+            Task task;
+            try { task = run(); }
+            catch
+            {
+                lock (_lifecycleLock)
+                {
+                    _upgrades.Remove(completion.Task);
+                    if (isApplicationStream) EndApplicationOperation();
+                }
+                completion.TrySetResult();
+                throw;
+            }
+            _ = FinishAsync(task);
+            return task;
+
+            async Task RejectAsync()
+            {
+                await channel.AbortAsync();
+                throw new ChannelClosedException();
+            }
+
+            async Task FinishAsync(Task work)
+            {
+                await work.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                lock (_lifecycleLock)
+                {
+                    _upgrades.Remove(completion.Task);
+                    if (isApplicationStream) EndApplicationOperation();
+                }
+                completion.TrySetResult();
+            }
+        }
+
+        internal async Task DrainUpgradesAsync()
+        {
+            while (true)
+            {
+                Task[] pending;
+                lock (_lifecycleLock) pending = [.. _upgrades];
+                if (pending.Length == 0) return;
+                await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
+        }
+
         internal void RegisterConnection()
         {
             lock (_lifecycleLock)
             {
-                if (_disconnection is not null) throw new OperationCanceledException(ConnectionToken);
+                if (_deadlineExpired || _disconnection is not null) throw new OperationCanceledException(ConnectionToken);
                 if (_connectionCounted) return;
                 peer._connections.Add(this);
                 _connectionCounted = true;
@@ -111,7 +264,7 @@ public partial class LocalPeer
         {
             lock (_lifecycleLock)
             {
-                if (_disconnection is not null) throw new OperationCanceledException(ConnectionToken);
+                if (_deadlineExpired || _disconnection is not null) throw new OperationCanceledException(ConnectionToken);
                 if (_sessionCounted) return;
                 peer._connections.Add(this);
                 PeerId remotePeerId = State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
@@ -127,7 +280,14 @@ public partial class LocalPeer
         {
             lock (peer.Sessions)
                 lock (_lifecycleLock)
-                    return peer._disposal is null && _disconnection is null && ConnectedTcs.TrySetResult();
+                {
+                    if (peer._disposal is not null || _disconnection is not null || _deadlineExpired) return false;
+                    _deadlineStage = 3;
+                    _deadline?.Dispose();
+                    _deadline = null;
+                    if (_applicationOperations == 0) _idleSince = peer.Clock.GetTimestamp();
+                    return ConnectedTcs.TrySetResult();
+                }
         }
 
         public Task DisconnectAsync()
@@ -139,6 +299,9 @@ public partial class LocalPeer
             {
                 if (_disconnection is not null) return _disconnection.Task;
                 _disconnection = disconnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                _deadlineStage = 3;
+                _deadline?.Dispose();
+                _deadline = null;
                 closeSession = _sessionCounted;
                 closeConnection = _connectionCounted;
             }
