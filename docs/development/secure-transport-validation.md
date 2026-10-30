@@ -4,9 +4,10 @@
 
 PR #416 now targets `main` and incorporates PR #411 through merge
 `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
-2026-10-30 against candidate `23b93fa9dd3b3e04f59a93b6e5501c1bb24ed597`,
-which preserves the incoming main changes through `ec92be05`.
-The pinned comparison base is `ec92be05cf95d8702b20ee2d8961d99a12202f6e`;
+2026-10-30 against candidate `53a2456b94551eccf74a1fdbef231e38b7ddf96d`,
+which preserves the incoming main changes through `34963ed`, including the TCP
+and QUIC receive-buffer corrections from PR #406.
+The pinned comparison base is `34963edfd699234953e34efc33f23f3bc3764767`;
 the candidate differs from that pinned base in 14 files. These documentation
 updates preserve the candidate's production code, tests, and CI configuration.
 
@@ -275,76 +276,84 @@ in that run.
 ### Current candidate Windows evidence
 
 On 2026-10-30, authenticated `gh` reads retrieved and independently inspected the
-raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41053009544/job/124053463013)
-and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41053009544/artifacts/12975367797)
-from run `41053009544`. The run's head is
-`4a0094ca4527a289521e4b4c4a59dcff0cbc034d`; its checkout is GitHub's synthetic
-merge `eecbbaae5dc73e5915437d6f8786e951e0fb8a5d`, with that head and main revision
-`ec92be05cf95d8702b20ee2d8961d99a12202f6e` as parents. These are CI merge results,
-not an execution of the unmerged candidate tree.
+raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41061514588/job/124082159814)
+and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41061514588/artifacts/12979936070)
+from run `41061514588`, whose PR head is
+`53a2456b94551eccf74a1fdbef231e38b7ddf96d`. The actual checkout was CI merge
+`9621c796dce7cdac2af6e3e755fe755504787222`, with that head and main revision
+`34963edfd699234953e34efc33f23f3bc3764767` as parents.
 
-The tested merge includes main changes absent from its PR head `4a0094c`,
-including an RSA admission guard and changes to other protocols and Linux CI
-discovery. Candidate `23b93fa` incorporates those incoming updates. Comparing
-every tracked blob in the tested merge with the candidate found exactly one
-difference: this validation document. All production sources, tests, fixtures,
-project files, shared package/build properties, SDK settings, and workflows
-match. The results below are reused on that basis, rather than presented as a
-new Windows execution of `23b93fa`. The log confirms the full suites and
-registered filter below.
+The checkout's complete Git tree is
+`9e41e6303bb10ed4a483b45a2e0c4a155cb07121`, exactly equal to the candidate's
+`HEAD^{tree}`. Thus every tracked source, test, fixture, build setting, and
+workflow matches the supplied candidate, including the incoming TCP and QUIC
+receive-buffer changes. The commit identities differ; these remain CI merge
+results with the candidate's exact tracked content. This documentation correction
+is the only subsequent worktree change.
 
-The runner used Windows 10.0.26100 x64, SDK 10.0.403, and runtime 10.0.14. The raw
-step summaries show:
+The Windows job and all its build/test/upload steps completed successfully. The
+wider Test workflow's Linux job was still running when inspected, so this is not
+a claim that the entire workflow completed. The Windows runner used Windows
+10.0.26100 x64, SDK 10.0.403, and runtime 10.0.14. Raw step summaries show:
 
 | Scope | Passed / total | Failed | Skipped |
 | --- | ---: | ---: | ---: |
-| Full QUIC suite | 33 / 33 | 0 | 0 |
+| Full QUIC suite | 42 / 42 | 0 | 0 |
 | Full TLS suite | 32 / 32 | 0 | 0 |
 | Registered transport and alias controls | 5 / 5 | 0 | 0 |
 
-The QUIC invocation has no filter; all 33 cases completed without skips, including
-the three Windows key-reuse and normal-exit cases. Their source and assertions
-match the candidate. The non-Windows `Assert.Ignore` guards restrict native CNG
-tests to Windows; they remain appropriate on Linux. The TLS XML independently
-records 32 passing case nodes and all six
-`ReportsWireCertificateListAndCallbackContents` combinations. Each has
-`ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the leaf,
-1 for the unrelated extra certificate, and 0 for the duplicate leaf. All three
-list shapes and both receiver roles passed the platform-conditioned length and
-DER-entry assertions. This checks actual case results beyond job metadata.
+The unfiltered QUIC invocation executed all three Windows key-reuse and
+normal-exit cases, as well as the nine incoming receive-buffer cases, without
+skips. The non-Windows `Assert.Ignore` guards restrict native CNG tests to
+Windows; they remain appropriate on Linux. The TLS XML independently records
+32 passing case nodes, including all six
+`ReportsWireCertificateListAndCallbackContents` combinations. Each probe has
+`ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the
+leaf, 1 for the unrelated extra certificate, and 0 for the duplicate leaf. Both
+receiver roles and all three list shapes passed the platform-conditioned length
+and DER-entry assertions. This verifies actual cases beyond job metadata.
 
-The downloaded TLS report's SHA-256 is
-`b1c20bfa3b927ffdf0fa02de4736809dce3a9cd503e77a8dd9ab1b9378dbd076`.
+The TLS report's SHA-256 is
+`5835592f4296723dbe64cb0041d94a5056cebca221e3986cb2cda17d7fd88bc7`.
 The raw Windows job log's SHA-256 is
-`455226113c6739ed016a42a0d903ed21614f0ba6f207a1a57c16befe2b70058c`.
-These hashes identify the raw files inspected earlier. The linked Actions
-artifact contains the TLS XML, while QUIC and registered totals come from the
-linked job log. During the later verification of `23b93fa`, fresh artifact and
-log retrieval returned HTTP 503 account egress-limit errors. The previously
-inspected case results are reused; no new raw-report inspection is claimed.
+`20b790c1a7f5641a5db86eda2759154a2eff8c8f35091b26eaaaf754652cd604`.
+Raw files are session artifacts. The linked Actions artifact contains the TLS
+XML; QUIC and registered totals come from the linked job log. Retrieval succeeded
+for this run, independently of the earlier snapshot and earlier egress failures.
 
-These results verify normal Windows execution of the PR's transport changes in
-the tested merge. They do not exercise a busy `Monitor.TryEnter` shutdown, pin
-TLS declaration order or responder buffer capacity with mutation tests, establish
-cross-client interoperability, or demonstrate hard-crash orphan recovery. Those
-coverage limits remain explicit.
+These results verify normal Windows execution of the supplied transport code.
+They do not exercise a busy `Monitor.TryEnter` shutdown, pin TLS declaration
+order or responder buffer capacity with mutation tests, establish cross-client
+interoperability, or demonstrate hard-crash orphan recovery. Those coverage
+limits remain explicit.
 
 Read-only retrieval commands, with output under the session's `TMPDIR`:
 
 ```sh
-gh run view 41053009544 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
-gh run download 41053009544 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41053009544"
-gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/124053463013/logs > "$TMPDIR/windows41053009544.log"
+gh run view 41061514588 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
+gh run download 41061514588 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41061514588"
+gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/124082159814/logs > "$TMPDIR/windows41061514588.log"
+gh api repos/NethermindEth/dotnet-libp2p/commits/9621c79
 ```
 
-The API log command writes terminal control bytes to a file for parsing. It
-avoids `gh run view --log`'s unavailable cache directory without changing global
-settings; the bytes were stripped before inspecting the displayed summaries.
+The API log command writes terminal control bytes to a file for parsing; those
+bytes are stripped before inspecting the summaries. No global settings change.
+
+#### Earlier Windows evidence
+
+Previously inspected run `41053009544`, with PR head `4a0094c` and CI merge
+`eecbbaae5dc73e5915437d6f8786e951e0fb8a5d`, passed QUIC 33/33, TLS 32/32,
+and registered controls 5/5. Its TLS XML and job log hashes were respectively
+`b1c20bfa3b927ffdf0fa02de4736809dce3a9cd503e77a8dd9ab1b9378dbd076` and
+`455226113c6739ed016a42a0d903ed21614f0ba6f207a1a57c16befe2b70058c`.
+Its complete tree differed from `23b93fa` only in this document; it predates
+PR #406's receive-buffer changes. These are historical results, superseded for
+the supplied candidate by the independently inspected run above.
 
 ## Current candidate Linux validation
 
 Fresh Release checks on 2026-10-30 used candidate
-`23b93fa9dd3b3e04f59a93b6e5501c1bb24ed597`, SDK 10.0.402, and runtime
+`53a2456b94551eccf74a1fdbef231e38b7ddf96d`, SDK 10.0.402, and runtime
 10.0.13 on Linux. This host supports QUIC. All builds used
 `-p:TreatWarningsAsErrors=true` and one shared artifact root under `TMPDIR`.
 The checks were rerun after the incoming main updates. Only this validation
@@ -353,22 +362,25 @@ documentation correction.
 
 | Scope | Passed | Skipped | Total |
 | --- | ---: | ---: | ---: |
+| TCP | 24 | 0 | 24 |
 | Noise | 40 | 0 | 40 |
 | TLS, including all six certificate-list probes | 32 | 0 | 32 |
-| QUIC | 30 | 3 | 33 |
+| QUIC | 39 | 3 | 42 |
 | Registered identity and secure-transport tests | 45 | 0 | 45 |
 
-The three QUIC skips are the Windows-only key-lifetime cases. The reviewer host's
-25 passes and eight skips also excluded five cases requiring QUIC support; that
-is an environment difference, not a current result from this host. The full E2E
-suite was not rerun for this documentation revision; the 45 cases above are the
-explicitly filtered production-stack checks.
+The three QUIC skips are the Windows-only key-lifetime cases. XML inspection
+confirmed all 14 incoming TCP and nine incoming QUIC receive-buffer cases ran,
+including cancellation, failure, EOF, compact retained fragments, and exactly-once
+pool returns. All 18 Noise framing regressions, six TLS certificate-list probes,
+and three registered secure transports executed. The full E2E suite was not
+rerun; the 45 cases above are the explicitly filtered production-stack checks.
 
 Commands ran from the repository root. The shared runner settings selected an
 NUnit output directory under the same session's `TMPDIR`. Each test command was
 wrapped with `timeout --signal=TERM --kill-after=10s 240s`:
 
 ```sh
+dotnet test --project libp2p/Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 14 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 40 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 25 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
@@ -377,11 +389,15 @@ dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
 npx --no-install cspell --no-progress -c cspell.json docs/development/noise-transport-follow-up.md docs/development/secure-transport-validation.md
 ```
 
-All four test commands exited 0. The QUIC minimum of 25 permits the established
-Linux skips on workers without QUIC support; the observed result here was 30
-executed cases. The Windows CI execution minimum remains 32. No CI gate changed.
+All five test commands exited 0: 180 cases passed and three were skipped. The
+QUIC minimum of 25 permits the established Linux skips on workers without QUIC
+support; the observed result here was 39 executed cases. The Windows CI execution minimum remains 32. No CI gate changed.
 
 ### Historical results
+
+The earlier Linux check at `23b93fa` passed Noise 40, TLS 32, QUIC 30 with three
+Windows-only skips, and registered tests 45. It predates the incoming TCP/QUIC
+receive-buffer changes and is not the current candidate's result.
 
 The initial parent Noise baseline passed 20 tests. Retained Linux Release checks
 at `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` passed Noise 38/38, TLS 32/32,
