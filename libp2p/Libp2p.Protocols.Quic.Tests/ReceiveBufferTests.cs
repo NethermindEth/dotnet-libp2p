@@ -8,8 +8,10 @@ using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 
@@ -19,6 +21,38 @@ namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 public class ReceiveBufferTests
 {
     private static readonly List<SslApplicationProtocol> ApplicationProtocols = [new("libp2p")];
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ReceiveSetupFailureClosesTheChannelWithoutReturningAnUnrentedBuffer(bool locallyOpened)
+    {
+        await WithConnectionsAsync(async (local, remote, token) =>
+        {
+            OutOfMemoryException failure = new("Injected receive-buffer allocation failure");
+            TaskCompletionSource rentAttempted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            ArrayPool<byte> pool = Substitute.For<ArrayPool<byte>>();
+            pool.Rent(Arg.Any<int>()).Returns(_ =>
+            {
+                rentAttempted.TrySetResult();
+                throw failure;
+            });
+            ILogger logger = Substitute.For<ILogger>();
+            using ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+            loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+            ReceiveTestChannel channel = new();
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(loggerFactory, pool), channel, token))
+            {
+                await rentAttempted.Task.WaitAsync(token);
+                await pump.Completion.WaitAsync(TimeSpan.FromSeconds(3), token);
+                Assert.That((await channel.Upper.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Ended));
+                Assert.That(pump.Lifetime.IsCancellationRequested, Is.False);
+                pool.Received(1).Rent(Arg.Any<int>());
+                pool.DidNotReceive().Return(Arg.Any<byte[]>(), Arg.Any<bool>());
+                Assert.That(logger.ReceivedCalls().Where(call => call.GetMethodInfo().Name == nameof(ILogger.Log))
+                    .Select(call => call.GetArguments()[3]), Does.Contain(failure));
+            }
+        });
+    }
 
     [TestCase(false)]
     [TestCase(true)]
