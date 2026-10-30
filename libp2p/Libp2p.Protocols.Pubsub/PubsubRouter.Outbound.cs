@@ -57,7 +57,17 @@ public partial class PubsubRouter
         /// <summary>Required control could not be queued, or the generation was already terminal; its owning session is closing.</summary>
         Closing,
     }
-    internal sealed record OutboundFrame(byte[] Bytes, bool Extensions, IwantPromiseTracker.Promise? Promise, long AdmittedAt);
+    internal sealed class OutboundFrame(byte[] bytes, bool extensions, IwantPromiseTracker.Promise? promise, long admittedAt, Rpc? pendingControl)
+    {
+        public byte[] Bytes { get; private set; } = bytes;
+        public bool Extensions { get; } = extensions;
+        public IwantPromiseTracker.Promise? Promise { get; } = promise;
+        public long AdmittedAt { get; } = admittedAt;
+        /// <summary>Owned copy of queued required control; later control for other topics merges into it until the writer takes the frame.</summary>
+        public Rpc? PendingControl { get; private set; } = pendingControl;
+        internal void Replace(byte[] replacement, Rpc pending) { Bytes = replacement; PendingControl = pending; }
+        internal void Seal() => PendingControl = null;
+    }
 
     internal sealed partial class PubsubPeer
     {
@@ -69,6 +79,7 @@ public partial class PubsubRouter
         internal Func<ValueTask>? Abort;
         internal ITimer DeadlineTimer = null!;
         internal OutboundFrame? ActiveFrame;
+        internal OutboundFrame? TailControl; // Last queued frame while it still accepts required control; owned by the outbound lock.
         internal int IncomingStreams; // Owned by the router lock.
         internal int IncomingEntries; // Admitted incoming message-ID RPCs; owned by the router lock.
         internal long IncomingBytes;
@@ -219,6 +230,12 @@ public partial class PubsubRouter
     // the lower optional budgets and drop newest. Both charge the same per-peer limits.
     private SendResult AdmitFrameUnderLock(PubsubPeer peer, Rpc rpc, bool required, out string? dropReason)
     {
+        // A burst of required control to one peer, such as subscribing to many topics while its writer is busy
+        // or before its reply stream attaches, must not consume one entry per RPC and close a healthy generation.
+        if (required && peer.TailControl is { PendingControl: { } pending } tail && TryMergeControl(pending, rpc, out Rpc merged))
+        {
+            return ReplacePendingControlUnderLock(peer, tail, merged, out dropReason);
+        }
         int reserved = 0;
         IwantPromiseTracker.Promise? promise = null;
         try
@@ -248,7 +265,10 @@ public partial class PubsubRouter
                 VarInt.Encode((int)length, bytes, ref offset);
                 rpc.WriteTo(bytes.AsSpan(offset));
                 promise = _iwantPromises.Reserve(peer.PeerId, peer, SamplePromiseId(rpc));
-                peer.Queue.Enqueue(new(bytes, extensions, promise, admittedAt));
+                // Required frames keep an owned copy so later control can merge without reading the caller's RPC again.
+                OutboundFrame frame = new(bytes, extensions, promise, admittedAt, required ? rpc.Clone() : null);
+                peer.Queue.Enqueue(frame);
+                peer.TailControl = required ? frame : null;
                 peer.ExtensionsQueued |= extensions;
                 if (peer.Entries == 1) RefreshDeadlineUnderLock(peer);
                 dropReason = null;
@@ -263,6 +283,85 @@ public partial class PubsubRouter
         }
         if (required) TerminateUnderLock(peer, disconnect: true);
         return required ? SendResult.Closing : SendResult.Dropped;
+    }
+
+    // Re-serializes the pending control frame with the merged RPC. Entries are unchanged, the byte delta is charged
+    // like a new frame, and the frame keeps its original admission time, so merging never extends a deadline.
+    private SendResult ReplacePendingControlUnderLock(PubsubPeer peer, OutboundFrame tail, Rpc merged, out string? dropReason)
+    {
+        try
+        {
+            long length = merged.CalculateSize();
+            long size = length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length);
+            long delta = size - tail.Bytes.Length;
+            if (size > int.MaxValue || delta > _outboundLimits.PeerBytes - peer.Bytes || delta > _outboundLimits.Bytes - _outboundBytes)
+            {
+                dropReason = "capacity";
+            }
+            else
+            {
+                byte[] bytes = new byte[(int)size];
+                int offset = 0;
+                VarInt.Encode((int)length, bytes, ref offset);
+                merged.WriteTo(bytes.AsSpan(offset));
+                tail.Replace(bytes, merged);
+                peer.Bytes += delta;
+                _outboundBytes += delta;
+                dropReason = null;
+                return SendResult.Admitted;
+            }
+        }
+        catch
+        {
+            dropReason = "serialization";
+        }
+        TerminateUnderLock(peer, disconnect: true);
+        return SendResult.Closing;
+    }
+
+    // Merges required control for distinct topics into one pending frame. Control for a topic the pending frame
+    // already mentions keeps its own frame, so receivers observe the same per-topic order; a repeated GRAFT is
+    // redundant and a repeated PRUNE is superseded by the newer one. The result owns copies of both inputs.
+    private static bool TryMergeControl(Rpc pending, Rpc rpc, out Rpc merged)
+    {
+        merged = null!;
+        if (rpc.Control?.Extensions is not null) return false;
+        HashSet<string> subscribed = new(pending.Subscriptions.Select(s => s.Topicid ?? string.Empty), StringComparer.Ordinal);
+        HashSet<string> grafted = new((pending.Control?.Graft ?? []).Select(g => g.TopicID ?? string.Empty), StringComparer.Ordinal);
+        HashSet<string> pruned = new((pending.Control?.Prune ?? []).Select(g => g.TopicID ?? string.Empty), StringComparer.Ordinal);
+        foreach (Rpc.Types.SubOpts subscription in rpc.Subscriptions)
+        {
+            string topic = subscription.Topicid ?? string.Empty;
+            if (subscribed.Contains(topic) || grafted.Contains(topic) || pruned.Contains(topic)) return false;
+        }
+        foreach (ControlGraft graft in rpc.Control?.Graft ?? [])
+        {
+            string topic = graft.TopicID ?? string.Empty;
+            if (subscribed.Contains(topic) || pruned.Contains(topic)) return false;
+        }
+        foreach (ControlPrune prune in rpc.Control?.Prune ?? [])
+        {
+            string topic = prune.TopicID ?? string.Empty;
+            if (subscribed.Contains(topic) || grafted.Contains(topic)) return false;
+        }
+        Rpc incoming = rpc.Clone();
+        merged = pending.Clone();
+        merged.Subscriptions.Add(incoming.Subscriptions);
+        if (incoming.Control is { } control && (control.Graft.Count != 0 || control.Prune.Count != 0))
+        {
+            merged.Control ??= new ControlMessage();
+            foreach (ControlGraft graft in control.Graft)
+            {
+                if (grafted.Add(graft.TopicID ?? string.Empty)) merged.Control.Graft.Add(graft);
+            }
+            foreach (ControlPrune prune in control.Prune)
+            {
+                int existing = merged.Control.Prune.ToList().FindIndex(p => (p.TopicID ?? string.Empty) == (prune.TopicID ?? string.Empty));
+                if (existing >= 0) merged.Control.Prune[existing] = prune;
+                else merged.Control.Prune.Add(prune);
+            }
+        }
+        return true;
     }
 
     private static IEnumerable<MessageId> SamplePromiseId(Rpc rpc)
@@ -287,6 +386,7 @@ public partial class PubsubRouter
         peer.Terminal = true;
         peer.Stop.TrySetResult();
         _iwantPromises.ClearOwner(peer);
+        peer.TailControl = null;
         while (peer.Queue.TryDequeue(out OutboundFrame? frame)) ReleaseUnderLock(peer, frame.Bytes.Length);
     }
 
@@ -349,6 +449,9 @@ public partial class PubsubRouter
                     {
                         if (peer.Terminal) return;
                         if (peer.Write is null || !peer.Queue.TryDequeue(out frame)) break;
+                        // Once the writer owns the frame its bytes are final; later control starts a new frame.
+                        if (ReferenceEquals(peer.TailControl, frame)) peer.TailControl = null;
+                        frame.Seal();
                         peer.ActiveFrame = frame;
                     }
                     try

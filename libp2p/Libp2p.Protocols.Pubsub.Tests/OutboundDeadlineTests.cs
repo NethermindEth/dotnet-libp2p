@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
@@ -46,6 +47,27 @@ public class OutboundDeadlineTests
         Assert.That(router.IwantPromiseCount, Is.Zero);
         Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
         Assert.That(clock.ActiveTimers, Is.Zero);
+    }
+
+    [Test]
+    public async Task MergedControlKeepsTheOriginalAdmissionDeadline()
+    {
+        Clock clock = new();
+        await using PubsubRouter router = new(new PeerStore(), Settings(), timeProvider: clock);
+        OutboundWorkTests.PausedWriter writer = new();
+        router.InboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, () => Task.CompletedTask, writer.Disconnect);
+        PubsubRouter.PubsubPeer peer = Peer(router);
+        Assert.That(peer.Send(new Rpc().WithTopics(["a"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        clock.Advance(TimeSpan.FromMilliseconds(99));
+        Assert.That(peer.Send(new Rpc().WithTopics(["b"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(1), "The second subscription merged into the pending frame.");
+        Assert.That(peer.Terminal, Is.False);
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.That(peer.Terminal, Is.True, "Merging did not restart the pending frame's deadline.");
+        await peer.Completion.WaitAsync(Deadline);
+        Assert.That(writer.Disconnects, Is.EqualTo(1));
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
     }
 
     [Test]

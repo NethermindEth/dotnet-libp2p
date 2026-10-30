@@ -173,6 +173,12 @@ never waits for space. Each peer has one asynchronous writer and owns immutable 
 mutating an RPC after admission cannot change queued data. Reservations remain charged until the
 underlying write finishes, including a partly consumed write during shutdown. Byte limits measure
 encoded payloads, rather than total managed memory; entry limits also bound queue overhead.
+Required control queued behind a busy writer, or before a reply stream attaches, is coalesced: a
+subscribe, unsubscribe, GRAFT or PRUNE for a topic the pending frame does not yet mention merges into
+that frame, so subscribing to many topics in a burst costs one entry rather than one per topic. A
+repeated GRAFT is redundant and a repeated PRUNE is superseded; control for a topic already pending
+starts a new frame so receivers see the same per-topic order. Merging charges only the byte delta,
+keeps the frame's original admission time, and never reads the caller's RPC again.
 
 At capacity, payloads, partial messages, IHAVE, IDONTWANT and IWANT requests drop newest without a
 score penalty. Losing a subscribe, unsubscribe, GRAFT, PRUNE or first-frame extension advertisement
@@ -224,7 +230,9 @@ maximum-size RPC never blocks delivery; the share bounds that peer's additional 
 The router-wide byte budget must be at least `MaxRpcBytes`, which construction enforces. At
 either limit, publishes are skipped before hashing, validation, caching, delivery credit or
 penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so
-gossip can request them again. Control-only, unwanted-topic and graylisted traffic keep their early
+gossip can request them again. A skip also cancels the sender's pending IWANT promises, as a
+throttled validation does, so local overload never becomes a broken-promise penalty for a peer
+that did deliver. Control-only, unwanted-topic and graylisted traffic keep their early
 gates. Calculations share the existing concurrency limit with synchronous application publishing.
 Cancellation stops pending admission; already running host calculations and application callbacks
 cannot be forcibly cancelled.

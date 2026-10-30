@@ -83,6 +83,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                             reservedBytes = bytes;
                             interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
                         }
+                        if (skipReason is not null)
+                        {
+                            // The peer delivered publishes this router chose not to process. A local capacity
+                            // decision must not become a broken-promise penalty, as with MessageValidity.Throttled.
+                            _iwantPromises.Clear(peerId);
+                        }
                     }
                 }
                 if (skipReason is not null)

@@ -26,9 +26,14 @@ public class IncomingAdmissionTests
         MaxConcurrentMessageIdCalculations = 1,
         GetMessageId = message => new MessageId(message.Data.ToByteArray()),
     };
-    private static PubsubRouter.PubsubPeer Connect(PubsubRouter router, int index) =>
-        router.OutboundConnection(TestPeers.Multiaddr(index), PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task,
+    private static PubsubRouter.PubsubPeer Connect(PubsubRouter router, int index, string protocol = PubsubRouter.FloodsubProtocolVersion) =>
+        router.OutboundConnection(TestPeers.Multiaddr(index), protocol, new TaskCompletionSource().Task,
             (_, _) => ValueTask.FromResult(IOResult.Ok), () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+    private sealed class Clock : TimeProvider
+    {
+        public DateTimeOffset Now = DateTimeOffset.UtcNow;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
     private static ISessionContext Context(int index)
     {
         ISessionContext context = Substitute.For<ISessionContext>();
@@ -252,6 +257,43 @@ public class IncomingAdmissionTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new PubsubRouter(new PeerStore(), settings));
         settings.MaxIncomingMessageIdRpcBytes = settings.MaxRpcBytes;
         using PubsubRouter router = new(new PeerStore(), settings);
+        Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CapacitySkipCancelsTheSendersIwantPromisesInsteadOfPenalizingDelivery(bool perPeer)
+    {
+        Clock clock = new();
+        PubsubSettings settings = Settings();
+        settings.DecayInterval = int.MaxValue;
+        settings.IWantFollowupTime = 100;
+        if (perPeer) settings.MaxIncomingMessageIdRpcEntriesPerPeer = 1;
+        else settings.MaxIncomingMessageIdRpcEntries = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings, timeProvider: clock);
+        router.GetTopic("wanted");
+        PubsubRouter.PubsubPeer responder = Connect(router, 1, PubsubRouter.GossipsubProtocolVersionV11);
+        PubsubRouter.PubsubPeer other = Connect(router, 2, PubsubRouter.GossipsubProtocolVersionV11);
+        await router.OnRpcAsync(responder.PeerId, new Rpc
+        {
+            Control = new ControlMessage { Ihave = { new ControlIHave { TopicID = "wanted", MessageIDs = { ByteString.CopyFrom([7]) } } } },
+        });
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.IwantPromiseCount, Is.EqualTo(1), "Our IWANT was written, so its promise is armed.");
+        SemaphoreSlim slots = Slots(router);
+        await slots.WaitAsync(Deadline);
+        // Saturate the budget the responder will hit: router-wide through another peer, or its own share.
+        Task occupant = router.OnRpcAsync(perPeer ? responder.PeerId : other.PeerId, Message(9));
+        Assert.That(occupant.IsCompleted, Is.False);
+        Assert.That(router.IncomingUsage.Entries, Is.EqualTo(1));
+        await router.OnRpcAsync(responder.PeerId, Message(7)).WaitAsync(Deadline);
+        Assert.That(router.IncomingUsage.Entries, Is.EqualTo(1), "The delivery was skipped for capacity.");
+        Assert.That(router.IwantPromiseCount, Is.Zero, "A local capacity decision cancels the sender's pending promises.");
+        clock.Now += TimeSpan.FromHours(1);
+        await router.Heartbeat();
+        Assert.That(responder.Score.BehaviorPenalty, Is.Zero, "The peer delivered what it promised; the router declined to process it.");
+        slots.Release();
+        await occupant.WaitAsync(Deadline);
         Assert.That(router.IncomingUsage, Is.EqualTo((0, 0L)));
     }
 
