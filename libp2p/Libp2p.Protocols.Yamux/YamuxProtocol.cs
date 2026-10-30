@@ -90,12 +90,28 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         ConcurrentDictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
         Timer? timer = null;
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.Token);
+        CancellationToken lifetimeToken = lifetime.Token;
         object admissionLock = new();
         AdmissionState admission = AdmissionState.Open;
         int inboundStreamCount = 0;
         TaskCompletionSource<INewSessionContext> sessionReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenSource workerStop = new();
-        CancellationToken workerToken = workerStop.Token;
+        using CancellationTokenRegistration abort = lifetimeToken.Register(() =>
+        {
+            if (!channel.GetAwaiter().IsCompleted) _ = channel.AbortAsync();
+        });
+        Task requestWorker = Task.CompletedTask;
+        HashSet<Task> streamWorkers = [];
+
+        void TrackWorker(Task worker)
+        {
+            lock (streamWorkers) streamWorkers.Add(worker);
+            _ = worker.ContinueWith(t =>
+            {
+                _ = t.Exception;
+                lock (streamWorkers) streamWorkers.Remove(t);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
 
         try
         {
@@ -108,20 +124,16 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 sessionReady.TrySetResult(session);
             }
 
-            // Observe shutdown and worker failures, including the listener that never creates a session.
-            _ = Task.Run(async () =>
+            requestWorker = Task.Run(async () =>
             {
                 try
                 {
-                    INewSessionContext readySession = await sessionReady.Task.WaitAsync(workerToken);
+                    INewSessionContext readySession = await sessionReady.Task.WaitAsync(lifetimeToken);
                     uint pingCounter = 0;
                     lock (admissionLock)
                     {
-                        if (admission == AdmissionState.Closed) return;
-                        timer = new((s) =>
-                        {
-                            _ = SendPingAsync();
-                        }, null, PingDelay, PingDelay);
+                        if (admission == AdmissionState.Closed || lifetimeToken.IsCancellationRequested) return;
+                        timer = new((s) => TrackWorker(SendPingAsync()), null, PingDelay, PingDelay);
                     }
 
                     foreach (UpgradeOptions request in readySession.DialRequests)
@@ -148,7 +160,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                 Type = YamuxHeaderType.Ping,
                                 Flags = YamuxHeaderFlags.Syn,
                                 Length = (int)(++pingCounter % int.MaxValue)
-                            }, token: workerToken);
+                            }, token: lifetimeToken);
                         }
                         catch (Exception ex)
                         {
@@ -156,7 +168,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         }
                     }
                 }
-                catch (OperationCanceledException) when (workerToken.IsCancellationRequested || session?.Token.IsCancellationRequested == true) { }
+                catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested || session?.Token.IsCancellationRequested == true) { }
                 catch (Exception ex)
                 {
                     _logger?.LogDebug(ex, "Ctx({ctx}): Dial worker stopped", context.Id);
@@ -200,13 +212,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(session?.Id ?? NoSession, channel,
+                            TrackWorker(WriteHeaderAsync(session?.Id ?? NoSession, channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
                                     Type = YamuxHeaderType.Ping,
                                     Length = header.Length,
-                                });
+                                }, token: lifetimeToken));
 
                             _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? NoSession);
                         }
@@ -327,7 +339,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                header.StreamID, available, stream.LocalWindow.Available);
 
                     int dataLength = (int)data.Length;
-                    _ = stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
+                    TrackWorker(stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
                         if (!t.IsCompletedSuccessfully)
                         {
@@ -337,7 +349,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         }
 
                         ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    });
+                    }));
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -354,7 +366,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
                 {
                     stream.FinReceived = true;
-                    _ = stream.Channel?.WriteEofAsync();
+                    if (stream.Channel is { } streamChannel) TrackWorker(streamChannel.WriteEofAsync().AsTask());
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Finish receiving", session.Id, header.StreamID);
                 }
             }
@@ -523,7 +535,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                 });
 
-                _ = CleanUpClosedStreamAsync();
+                TrackWorker(CleanUpClosedStreamAsync());
 
                 async Task ResetAbortedHalfClosedStreamAsync()
                 {
@@ -620,15 +632,38 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
         finally
         {
+            Timer? stoppedTimer;
             lock (admissionLock)
             {
                 admission = AdmissionState.Closed;
-                timer?.Dispose();
+                stoppedTimer = timer;
             }
-            workerStop.Cancel();
+            await channel.CloseAsync();
+            lifetime.Cancel();
             AbortStreams();
             session?.Dispose();
-            _ = channel.CloseAsync();
+            if (context.Token.CanBeCanceled || session is null || requestWorker.IsCompleted)
+                await requestWorker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            else
+            {
+                // Legacy contexts may supply an application enumerable without cancellation support. Keep its
+                // exceptions observed; built-in contexts always expose a cancellable lifetime.
+                _ = requestWorker.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            }
+            if (stoppedTimer is not null) await stoppedTimer.DisposeAsync();
+            if (context.Token.CanBeCanceled)
+            {
+                while (true)
+                {
+                    Task[] pending;
+                    lock (streamWorkers) pending = [.. streamWorkers];
+                    if (pending.Length == 0) break;
+                    await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                    lock (streamWorkers) streamWorkers.ExceptWith(pending);
+                }
+            }
+            // Without a lifetime token, legacy contexts can retain FIN payloads until the
+            // application reads them. Their tracked workers still observe every exception.
         }
 
         void RemoveStream(int streamId, ChannelState state)
@@ -668,13 +703,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
                     if (extendedBy is not 0)
                     {
-                        _ = WriteHeaderAsync(sessionId, channel,
+                        TrackWorker(WriteHeaderAsync(sessionId, channel,
                             new YamuxHeader
                             {
                                 Type = YamuxHeaderType.WindowUpdate,
                                 Length = extendedBy,
                                 StreamID = streamId
-                            });
+                            }, token: lifetimeToken));
                     }
                 }
             }

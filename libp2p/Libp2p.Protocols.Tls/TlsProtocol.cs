@@ -60,7 +60,7 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogTrace("SslStream initialized.");
             try
             {
-                await sslStream.AuthenticateAsServerAsync(serverAuthenticationOptions);
+                await sslStream.AuthenticateAsServerAsync(serverAuthenticationOptions, context.Token);
                 LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
                 if (sslStream.RemoteCertificate is X509Certificate2 remoteCert)
@@ -79,9 +79,8 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogDebug("SubDialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
             IChannel upChannel = context.Upgrade();
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            await ExchangeData(sslStream, upChannel, _logger);
+            await ExchangeData(sslStream, downChannel, upChannel, context.Token);
             _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            _ = upChannel.CloseAsync();
         }
         catch (Exception ex)
         {
@@ -139,7 +138,7 @@ public class TlsProtocol : IConnectionProtocol
 
             try
             {
-                await sslStream.AuthenticateAsClientAsync(clientAuthenticationOptions);
+                await sslStream.AuthenticateAsClientAsync(clientAuthenticationOptions, context.Token);
 
                 LastNegotiatedApplicationProtocol = sslStream.NegotiatedApplicationProtocol;
 
@@ -160,9 +159,8 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogDebug("SubDialing protocols: {Protocols}.", string.Join(", ", context.SubProtocols.Select(x => x.Id)));
             IChannel upChannel = context.Upgrade();
             _logger?.LogDebug("SubDial completed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            await ExchangeData(sslStream, upChannel, _logger);
+            await ExchangeData(sslStream, downChannel, upChannel, context.Token);
             _logger?.LogDebug("Connection closed for PeerId {RemotePeerId}.", context.State.RemotePeerId);
-            _ = upChannel.CloseAsync();
         }
         catch (Exception ex)
         {
@@ -189,74 +187,72 @@ public class TlsProtocol : IConnectionProtocol
         }
     }
 
-    private static async Task ExchangeData(SslStream sslStream, IChannel upChannel,
-        ILogger<TlsProtocol>? logger)
+    private static async Task ExchangeData(SslStream sslStream, IChannel downChannel, IChannel upChannel, CancellationToken connectionToken)
     {
-        upChannel.GetAwaiter().OnCompleted(() =>
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(connectionToken);
+        CancellationToken token = lifetime.Token;
+        using CancellationTokenRegistration abort = token.Register(() =>
         {
-            sslStream.Close();
-            logger?.LogDebug("Stream: Closed");
+            if (!upChannel.GetAwaiter().IsCompleted) _ = upChannel.AbortAsync();
+            if (!downChannel.GetAwaiter().IsCompleted) _ = downChannel.AbortAsync();
         });
-        logger?.LogTrace("Starting data exchange between sslStream and upChannel.");
-        Task writeTask = Task.Run(async () =>
+        Task<bool> write = WriteAsync();
+        Task<bool> read = ReadAsync();
+        bool orderly = false;
+        try { orderly = await await Task.WhenAny(write, read); }
+        catch (Exception failure) when (
+            failure is IOException or OperationCanceledException or ChannelClosedException or ChannelAbortedException or ObjectDisposedException &&
+            (connectionToken.IsCancellationRequested || downChannel.GetAwaiter().IsCompleted || upChannel.GetAwaiter().IsCompleted))
         {
-            try
-            {
-                logger?.LogDebug("Starting to write to sslStream");
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync())
-                {
-                    logger?.LogDebug(
-                        $"Got data to send to peer: {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
-                    await sslStream.WriteAsync(data.ToArray());
-                    await sslStream.FlushAsync();
-                    logger?.LogDebug(
-                        $"Data sent to sslStream {{{Encoding.UTF8.GetString(data).Replace("\n", "\\n").Replace("\r", "\\r")}}}");
-                }
-            }
-            catch (ChannelAbortedException)
-            {
-                logger?.LogDebug("TLS outgoing channel aborted");
-            }
-            catch (Exception ex)
-            {
-                logger?.LogError(ex, "Error while writing to sslStream");
-                await upChannel.CloseAsync();
-            }
-        });
-        Task readTask = Task.Run(async () =>
+            // Closing the connection interrupts TLS reads as well as channel operations.
+        }
+        finally
         {
             try
             {
-                logger?.LogDebug("Starting to read from sslStream");
-                while (true)
+                if (orderly && !connectionToken.IsCancellationRequested)
                 {
-                    byte[] data = new byte[1024];
-                    int len = await sslStream.ReadAtLeastAsync(data, 1, false);
-                    if (len == 0)
-                    {
-                        break;
-                    }
-
-                    logger?.LogDebug(
-                        $"Received {len} bytes from sslStream: {{{Encoding.UTF8.GetString(data, 0, len).Replace("\r", "\\r").Replace("\n", "\\n")}}}");
-                    try
-                    {
-                        await upChannel.WriteAsync(new ReadOnlySequence<byte>(data.ToArray()[..len]));
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.LogError(ex, "Error while reading from sslStream");
-                    }
-                    logger?.LogDebug($"Data received from sslStream, {len}");
+                    await upChannel.CloseAsync();
+                    await downChannel.CloseAsync();
                 }
-                await upChannel.WriteEofAsync();
+                else
+                {
+                    await upChannel.AbortAsync();
+                    await downChannel.AbortAsync();
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                logger?.LogError(ex, "Error while reading from sslStream");
+                lifetime.Cancel();
+                await ((Task)Task.WhenAll(write, read)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
-        });
+        }
 
-        await Task.WhenAll(writeTask, readTask);
+        async Task<bool> WriteAsync()
+        {
+            await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+            {
+                await sslStream.WriteAsync(data.ToArray(), token);
+                await sslStream.FlushAsync(token);
+            }
+            await sslStream.ShutdownAsync();
+            return true;
+        }
+
+        async Task<bool> ReadAsync()
+        {
+            while (true)
+            {
+                byte[] data = new byte[1024];
+                int length = await sslStream.ReadAsync(data, token);
+                if (length == 0)
+                {
+                    await upChannel.WriteEofAsync(token);
+                    return true;
+                }
+                IOResult result = await upChannel.WriteAsync(new ReadOnlySequence<byte>(data, 0, length), token);
+                if (result != IOResult.Ok) return result == IOResult.Ended;
+            }
+        }
     }
 }

@@ -116,8 +116,11 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
 
     protected ProtocolRef Get<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>() where TProtocol : IProtocol
     {
-        return new ProtocolRef(CreateProtocolInstance<TProtocol>(ServiceProvider));
+        return Get<TProtocol>(null);
     }
+
+    protected ProtocolRef Get<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(InboundStreamLimit? inboundLimit) where TProtocol : IProtocol
+        => new(CreateProtocolInstance<TProtocol>(ServiceProvider), inboundLimit: inboundLimit);
 
     public IPeerFactory Build()
     {

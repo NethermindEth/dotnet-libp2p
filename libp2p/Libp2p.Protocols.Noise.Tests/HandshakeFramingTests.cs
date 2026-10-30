@@ -90,6 +90,36 @@ public class HandshakeFramingTests
         }
     }
 
+    [TestCase(0, true)]
+    [TestCase(1, true)]
+    [TestCase(2, true)]
+    [TestCase(0, false)]
+    [TestCase(1, false)]
+    [TestCase(2, false)]
+    public async Task ConnectionCancellationStopsPartialHandshakeReads(int message, bool partialPrefix)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using CancellationTokenSource connection = new();
+        using HandshakePeer peer = new(message, connection.Token);
+        try
+        {
+            await peer.PrepareAsync(deadline.Token);
+            byte[] frame = peer.Frame(peer.Payload(0x8000));
+            // Await consumption of a prefix fragment or the first payload byte, proving
+            // that the handshake has reached its blocked read before cancellation.
+            await peer.SendAsync(frame[..(partialPrefix ? 1 : 3)], true, deadline.Token);
+            Assert.That(peer.Subject.IsCompleted, Is.False);
+            connection.Cancel();
+            Assert.ThrowsAsync<ChannelClosedException>(async () => await peer.Subject.WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.That(peer.Upgraded.Task.IsCompleted, Is.False);
+            Assert.That(peer.Context.State.RemotePublicKey, Is.Null);
+        }
+        finally
+        {
+            await peer.CloseAsync(allowRejection: true);
+        }
+    }
+
     private sealed class HandshakePeer : IDisposable
     {
         private readonly int _message;
@@ -103,12 +133,13 @@ public class HandshakeFramingTests
         public TaskCompletionSource Upgraded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Subject { get; }
 
-        public HandshakePeer(int message)
+        public HandshakePeer(int message, CancellationToken connectionToken = default)
         {
             _message = message;
             Protocol protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
             _handshake = protocol.Create(message != 1, s: _key.PrivateKey);
             Context.Peer.Identity.Returns(TestPeers.Identity(1));
+            Context.Token.Returns(connectionToken);
             Context.State.Returns(new State { RemoteAddress = $"/ip4/127.0.0.1/tcp/0/p2p/{TestPeers.PeerId(2)}" });
             Context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
             {
