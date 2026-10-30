@@ -713,6 +713,27 @@ public class GossipsubControlLimitsTests
         Assert.That(DialsTo(setup.LocalPeer, known), Is.EqualTo(1));
     }
 
+    /// <remarks>
+    /// go-libp2p and js-libp2p shuffle the PX list and keep at most <c>PrunePeers</c> (16)
+    /// entries, so one PRUNE cannot make us dial every peer it names.
+    /// </remarks>
+    [Test]
+    public async Task Prune_DialsAtMostPrunePeersExchangedPeers()
+    {
+        await using RouterSetup setup = await PrunableSetup();
+        PeerInfo[] exchanged = Enumerable.Range(100, 100).Select(i =>
+        {
+            setup.PeerStore.GetPeerInfo(TestPeers.PeerId(i)).Addrs = [TestPeers.Multiaddr(i)];
+            return new PeerInfo { PeerID = ByteString.CopyFrom(TestPeers.PeerId(i).Bytes) };
+        }).ToArray();
+
+        setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic, exchanged));
+
+        int dials = setup.LocalPeer.ReceivedCalls()
+            .Count(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[]);
+        Assert.That(dials, Is.EqualTo(16));
+    }
+
     private static int DialsTo(ILocalPeer localPeer, PeerId peerId) => localPeer.ReceivedCalls()
         .Count(call => call.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync) && call.GetArguments()[0] is Multiaddress[] addrs && addrs[0].GetPeerId() == peerId);
 
