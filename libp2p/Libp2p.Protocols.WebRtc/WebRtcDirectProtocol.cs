@@ -580,7 +580,18 @@ public class WebRtcDirectProtocol : ITransportProtocol
                     continue;
                 }
 
-                Observe(CarryInboundStreamAsync(channel), $"stream {channel.StreamId}");
+                // The token is what gives the stream an abort path: Peer.Upgrade registers on
+                // UpgradeOptions.CancellationToken and aborts the channel from there, and an
+                // accepted stream has no caller holding one of its own the way a dialled stream
+                // does. Without it a session that ends leaves what it accepted running until the
+                // data channel underneath happens to die.
+                Observe(
+                    CarryInboundStreamAsync(channel, new UpgradeOptions
+                    {
+                        ModeOverride = UpgradeModeOverride.Listen,
+                        CancellationToken = stopping.Token,
+                    }),
+                    $"stream {channel.StreamId}");
             }
         }, stopping.Token);
 
@@ -601,11 +612,11 @@ public class WebRtcDirectProtocol : ITransportProtocol
         void Carry(IWebRtcDataChannel channel, UpgradeOptions options) =>
             Observe(CarryStreamAsync(connectionContext, channel, options), $"stream {channel.StreamId}");
 
-        async Task CarryInboundStreamAsync(IWebRtcDataChannel channel)
+        async Task CarryInboundStreamAsync(IWebRtcDataChannel channel, UpgradeOptions options)
         {
             try
             {
-                await CarryStreamAsync(connectionContext, channel, new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                await CarryStreamAsync(connectionContext, channel, options);
             }
             finally
             {

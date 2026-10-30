@@ -82,6 +82,37 @@ public class WebRtcDirectProtocolTests
     }
 
     /// <summary>
+    /// A stream this transport accepted is nobody else's to cancel: the dial side of a stream has a
+    /// caller holding its <see cref="UpgradeOptions.CancellationToken"/>, an accepted one has
+    /// nobody. Without a token on the options, <c>Peer.Upgrade</c> has no path to abort the channel
+    /// (it registers on exactly that token), so a session that ends leaves every stream it accepted
+    /// running until the data channel underneath happens to die.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task Session_GivesEveryStreamItAcceptsACancellationPath(CancellationToken token)
+    {
+        WebRtcDirectProtocol protocol = new();
+        SessionHarness harness = new();
+
+        harness.Offer(new FakeWebRtcDataChannel { StreamId = 2 });
+        harness.StopOfferingStreams();
+        await protocol.RunSessionAsync(harness.Connection, harness.OpenStream, harness.InboundStreams, token);
+
+        UpgradeOptions accepted = harness.AcceptedOptions.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(accepted.ModeOverride, Is.EqualTo(UpgradeModeOverride.Listen));
+            Assert.That(accepted.CancellationToken.CanBeCanceled, Is.True,
+                "An accepted stream must carry a token, or nothing can ever abort its channel.");
+            Assert.That(accepted.CancellationToken.IsCancellationRequested, Is.True,
+                "And that token must be cancelled when the session that accepted it ends.");
+        });
+
+        harness.Release();
+    }
+
+    /// <summary>
     /// The layer above the session loop, reduced to what the loop actually touches: a connection
     /// that upgrades to a session, a dial-request queue and a sequence of inbound streams. The
     /// <c>Upgrade</c> task never completes on its own, as in production, where it stands for the
@@ -94,6 +125,7 @@ public class WebRtcDirectProtocolTests
         private readonly System.Threading.Channels.Channel<IWebRtcDataChannel> _inbound =
             System.Threading.Channels.Channel.CreateUnbounded<IWebRtcDataChannel>();
         private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<UpgradeOptions> _accepted = [];
         private int _upgraded;
 
         public SessionHarness()
@@ -102,9 +134,17 @@ public class WebRtcDirectProtocolTests
             INewSessionContext session = Substitute.For<INewSessionContext>();
             connection.State.Returns(new State());
             connection.UpgradeToSession().Returns(session);
-            connection.Upgrade(Arg.Any<IChannel>(), Arg.Any<UpgradeOptions?>()).Returns(_ =>
+            connection.Upgrade(Arg.Any<IChannel>(), Arg.Any<UpgradeOptions?>()).Returns(call =>
             {
                 Interlocked.Increment(ref _upgraded);
+                if (call.Arg<UpgradeOptions?>() is { } options)
+                {
+                    lock (_accepted)
+                    {
+                        _accepted.Add(options);
+                    }
+                }
+
                 return _held.Task;
             });
             session.DialRequests.Returns(_requests.GetConsumingEnumerable());
@@ -116,6 +156,17 @@ public class WebRtcDirectProtocolTests
         public IAsyncEnumerable<IWebRtcDataChannel> InboundStreams => _inbound.Reader.ReadAllAsync();
 
         public int Upgraded => Volatile.Read(ref _upgraded);
+
+        public IReadOnlyList<UpgradeOptions> AcceptedOptions
+        {
+            get
+            {
+                lock (_accepted)
+                {
+                    return [.. _accepted];
+                }
+            }
+        }
 
         public Func<CancellationToken, Task<IWebRtcDataChannel>> OpenStream =>
             _ => Task.FromException<IWebRtcDataChannel>(new NotSupportedException("This test opens no outbound streams."));
