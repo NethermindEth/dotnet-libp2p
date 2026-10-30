@@ -42,10 +42,30 @@ public class SharedDhtState
     /// Gets the distributed value store for the DHT.
     /// </summary>
     [Obsolete("Use IValueStore or the peer-bound DhtClient asynchronous API.")]
-    public DhtValueStore ValueStore => _legacyValues;
+    public DhtValueStore ValueStore => ClaimValueStore();
+    private readonly Lock _valueStoreLock = new();
     private DhtValueStore _legacyValues;
-    internal IValueStore Values => _legacyValues.Store;
-    internal void UseValueStore(IValueStore values, TimeSpan ttl) => _legacyValues = new DhtValueStore(values, ttl);
+    private bool _valueStoreBound;
+    internal DhtValueStore ClaimValueStore()
+    {
+        lock (_valueStoreLock)
+        {
+            _valueStoreBound = true;
+            return _legacyValues;
+        }
+    }
+
+    internal void UseValueStore(IValueStore values, TimeSpan ttl)
+    {
+        lock (_valueStoreLock)
+        {
+            bool matches = ReferenceEquals(values, _legacyValues.Store) && ttl == _legacyValues.DefaultTtl;
+            if (_valueStoreBound && !matches)
+                throw new InvalidOperationException("SharedDhtState is already bound to a different value store or record TTL. Use a separate state for each store and TTL.");
+            if (!matches) _legacyValues = new DhtValueStore(values, ttl);
+            _valueStoreBound = true;
+        }
+    }
 
     /// <summary>
     /// Creates shared DHT state with optional routing table reference.
@@ -64,6 +84,7 @@ public class SharedDhtState
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
         _legacyValues = new DhtValueStore(values, ttl);
+        _valueStoreBound = true;
     }
 
     /// <summary>

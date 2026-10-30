@@ -190,6 +190,16 @@ construction remains supported; reads filter expiration, and explicit store clea
 reclaims expired entries. The facade does not own or dispose its backing store. Production
 operations use the asynchronous store directly. There is no wire ID or protobuf change.
 The `DhtClient` constructor accepting an `IValueStore` binds the supplied state's
-compatibility facade to that store and the configured record TTL. Manually constructed
-clients sharing one `SharedDhtState` must use the same store and TTL; use separate state
-objects for different stores. Production registration creates one client per peer-bound state.
+compatibility facade to that store and the configured record TTL once, atomically.
+Subsequent clients must supply the same store instance and TTL or construction throws
+`InvalidOperationException`; concurrent clients cannot replace each other's facade.
+Reading `ValueStore` or constructing a legacy client also fixes the existing binding,
+so a facade already handed to a caller cannot become detached. Legacy clients inherit
+that binding's record TTL. Same-store clients retain
+the same facade instance. Use separate state objects for different stores or TTLs.
+Production registration binds the store when creating each peer-bound state.
+
+If protocol activation fails, builder rollback attempts both directly activated and
+container-owned cleanup and restores the configuration for retry. Cleanup exceptions do
+not replace the original build exception; they are retained as an `AggregateException`
+in its `Data["RollbackFailures"]` entry.

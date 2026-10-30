@@ -56,6 +56,7 @@ public class KadBuilderTests
         services.AddLibp2p(builder =>
         {
             builder.AddKadDht();
+            builder.Services.AddSingleton(sp => new StateAlias(sp.GetRequiredService<SharedDhtState>()));
             builder.Services.AddSingleton(sp => new StateConsumer(ResolveState(sp)));
             return builder;
         });
@@ -97,7 +98,8 @@ public class KadBuilderTests
         Assert.That(await optionsResult.Task, Is.SameAs(options));
         Assert.That(await aliasResult.Task, Is.SameAs(provider.GetRequiredService<SharedDhtState>()));
 
-        SharedDhtState ResolveState(IServiceProvider sp) => enumerable ? sp.GetServices<SharedDhtState>().Single() : sp.GetRequiredService<SharedDhtState>();
+        // Both direct and nested cases execute a builder-owned factory that calls the supplied alias.
+        SharedDhtState ResolveState(IServiceProvider sp) => (enumerable ? sp.GetServices<StateAlias>().Single() : sp.GetRequiredService<StateAlias>()).State;
         static bool Waiting(Thread thread) => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0;
         static Thread Worker<T>(Func<T> resolve, TaskCompletionSource<T> result) => new(() =>
         {
@@ -377,25 +379,42 @@ public class KadBuilderTests
         Assert.Throws<InvalidOperationException>(() => builder.WithPubsub());
     }
 
-    [Test]
-    public async Task FailedBuildDiscardsWiredStackAndDisposedProtocolsBeforeRetry()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailedBuildDiscardsWiredStackAndDisposedProtocolsBeforeRetry(bool disposalThrows)
     {
         await using var builder = new FailingStackBuilder();
         var constructed = new List<RetryProtocol>();
+        var tracker = new ActivationTracker { DisposalFailure = disposalThrows ? new InvalidOperationException("Activated disposal failed.") : null };
+        var providerFailure = disposalThrows ? new InvalidOperationException("Provider disposal failed.") : null;
+        builder.Services.AddSingleton(tracker);
         builder.Services.AddTransient(_ =>
         {
-            var protocol = new RetryProtocol();
+            var protocol = new RetryProtocol(constructed.Count == 0 ? providerFailure : null);
             constructed.Add(protocol);
             return protocol;
         });
         builder.AddProtocol<RetryProtocol>();
+        // No service registration: this protocol is owned by the builder's activated list.
+        builder.AddProtocol<ActivatedRetryProtocol>();
 
-        Assert.That(Assert.Throws<InvalidOperationException>(() => builder.Build()), Is.SameAs(builder.Failure));
+        var failure = Assert.Throws<InvalidOperationException>(() => builder.Build());
+        Assert.That(failure, Is.SameAs(builder.Failure));
+        if (disposalThrows)
+        {
+            var cleanup = failure!.Data["RollbackFailures"] as AggregateException;
+            Assert.That(cleanup, Is.Not.Null);
+            Assert.That(cleanup!.Flatten().InnerExceptions, Is.EquivalentTo(new[] { tracker.DisposalFailure, providerFailure }));
+        }
         Assert.That(builder.StackBuilds, Is.EqualTo(1));
         Assert.That(constructed, Has.Count.EqualTo(1));
         var failedProtocol = constructed.Single();
         Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(tracker.Protocols, Has.Count.EqualTo(1));
+        var failedActivated = tracker.Protocols.Single();
+        Assert.That(failedActivated.Disposals, Is.EqualTo(1));
 
+        builder.Services.AddSingleton<Dependency>();
         Assert.That(builder.Build(), Is.Not.Null);
         Assert.That(builder.StackBuilds, Is.EqualTo(2));
         Assert.That(constructed, Has.Count.EqualTo(2));
@@ -406,10 +425,18 @@ public class KadBuilderTests
         Assert.That(stack.Protocols!.Keys.Count(p => p.Protocol is RetryProtocol), Is.EqualTo(1));
         Assert.That(stack.Protocols.Keys.Single(p => p.Protocol is RetryProtocol).Protocol, Is.SameAs(retryProtocol));
         Assert.That(stack.Protocols.Keys.Select(p => p.Protocol), Does.Not.Contain(failedProtocol));
+        Assert.That(tracker.Protocols, Has.Count.EqualTo(2));
+        var retryActivated = tracker.Protocols[1];
+        Assert.That(retryActivated, Is.Not.SameAs(failedActivated));
+        Assert.That(retryActivated.Disposals, Is.Zero);
+        Assert.That(stack.Protocols.Keys.Single(p => p.Protocol is ActivatedRetryProtocol).Protocol, Is.SameAs(retryActivated));
+        Assert.That(stack.Protocols.Keys.Select(p => p.Protocol), Does.Not.Contain(failedActivated));
 
         await builder.DisposeAsync();
         Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
         Assert.That(retryProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(failedActivated.Disposals, Is.EqualTo(1));
+        Assert.That(retryActivated.Disposals, Is.EqualTo(1));
     }
 
     [Test]
@@ -452,6 +479,7 @@ public class KadBuilderTests
     public sealed class ScopedDependency;
     public sealed class TransientDependency;
     public sealed class StateConsumer(SharedDhtState state) { public SharedDhtState State => state; }
+    public sealed class StateAlias(SharedDhtState state) { public SharedDhtState State => state; }
     private sealed class FailingStackBuilder : Libp2pPeerFactoryBuilder
     {
         public InvalidOperationException Failure { get; } = new("Simulated failure after wiring the protocol stack.");
@@ -464,11 +492,36 @@ public class KadBuilderTests
             return stack;
         }
     }
-    public sealed class RetryProtocol : IProtocol, IDisposable
+    public sealed class RetryProtocol(Exception? disposalFailure = null) : IProtocol, IDisposable
     {
         public string Id => "/retry";
         public int Disposals { get; private set; }
-        public void Dispose() => Disposals++;
+        public void Dispose()
+        {
+            Disposals++;
+            if (disposalFailure is not null) throw disposalFailure;
+        }
+    }
+    public sealed class ActivationTracker
+    {
+        public List<ActivatedRetryProtocol> Protocols { get; } = [];
+        public Exception? DisposalFailure { get; init; }
+    }
+    public sealed class ActivatedRetryProtocol : IProtocol, IDisposable
+    {
+        private readonly Exception? _disposalFailure;
+        public ActivatedRetryProtocol(ActivationTracker tracker)
+        {
+            _disposalFailure = tracker.Protocols.Count == 0 ? tracker.DisposalFailure : null;
+            tracker.Protocols.Add(this);
+        }
+        public string Id => "/activated-retry";
+        public int Disposals { get; private set; }
+        public void Dispose()
+        {
+            Disposals++;
+            if (_disposalFailure is not null) throw _disposalFailure;
+        }
     }
     public sealed class DependentProtocol(FactoryDependent dependency) : IProtocol
     {

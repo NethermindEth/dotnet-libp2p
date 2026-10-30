@@ -200,17 +200,18 @@ public static class KadDhtProtocolExtensions
                 return new Message { Type = Message.Types.MessageType.AddProvider };
 
             var senderPeerId = ctx.State.RemoteAddress?.GetPeerId();
+            var logger = loggerFactory?.CreateLogger("KadDhtProtocolExtensions");
+            bool logMismatch = logger?.IsEnabled(LogLevel.Debug) == true;
+            ByteString? firstMismatch = null;
+            int rejectedCount = 0;
 
             foreach (var wirePeer in request.ProviderPeers.Take(options.MaxProvidersPerKey))
             {
                 if (!WirePeerPolicy.IsValidIdentity(wirePeer.Id.Span, options.MaxPeerIdBytes)) continue;
                 if (senderPeerId is not null && !wirePeer.Id.Span.SequenceEqual(senderPeerId.Bytes))
                 {
-                    var logger = loggerFactory?.CreateLogger("KadDhtProtocolExtensions");
-                    // Id validation and the warning gate precede identity copies/formatting.
-                    if (logger?.IsEnabled(LogLevel.Warning) == true)
-                        logger.LogWarning("ADD_PROVIDER rejected: provider PeerId {ProviderId} does not match sender {SenderId}",
-                            new PeerId(wirePeer.Id.ToByteArray()), senderPeerId);
+                    if (logMismatch) firstMismatch ??= wirePeer.Id;
+                    rejectedCount++;
                     continue;
                 }
                 if (!ProviderRecordLimits.CanFitIdentity(request.Key.Length, wirePeer.Id.Length, options.MaxProviderRecordBytes))
@@ -252,6 +253,11 @@ public static class KadDhtProtocolExtensions
 
                 await providerStore.AddProviderAsync(request.Key.ToByteArray(), providerRecord, token);
             }
+
+            // One diagnostic per request, with identity copies/formatting behind the Debug gate.
+            if (firstMismatch is not null)
+                logger!.LogDebug("ADD_PROVIDER rejected {RejectedCount} provider entries: first provider PeerId {ProviderId} does not match sender {SenderId}",
+                    rejectedCount, new PeerId(firstMismatch.ToByteArray()), senderPeerId);
 
             return new Message { Type = Message.Types.MessageType.AddProvider };
         }

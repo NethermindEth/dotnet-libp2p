@@ -28,6 +28,7 @@ internal sealed class DhtRuntime : IDisposable, IAsyncDisposable
         var providers = sp.GetRequiredService<IProviderStore>();
         var validator = sp.GetRequiredService<IRecordValidator>();
         state ??= new SharedDhtState(values, loggerFactory, options.RecordTtl);
+        state.UseValueStore(values, options.RecordTtl);
         state.LocalPeerKey = new PublicKey(peer.Identity.PeerId.Bytes);
         state.KValue = options.KSize;
         sender ??= new LibP2pKademliaMessageSender(options, peer, loggerFactory,

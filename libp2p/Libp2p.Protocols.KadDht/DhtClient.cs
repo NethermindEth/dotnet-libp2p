@@ -33,9 +33,10 @@ public sealed class DhtClient : IDisposable, IAsyncDisposable
     {
         _state = sharedState ?? throw new ArgumentNullException(nameof(sharedState));
         ArgumentNullException.ThrowIfNull(messageSender);
-        _values = sharedState.Values;
+        var binding = sharedState.ClaimValueStore();
+        _values = binding.Store;
         _validator = CompositeRecordValidator.CreateDefault();
-        _options = new KadDhtOptions();
+        _options = new KadDhtOptions { RecordTtl = binding.DefaultTtl };
         _logger = loggerFactory?.CreateLogger<DhtClient>();
         _put = (peer, key, value, token) => messageSender.PutValue(peer, key, value, token: token);
         _get = async (peer, key, token) =>
@@ -45,6 +46,8 @@ public sealed class DhtClient : IDisposable, IAsyncDisposable
         };
     }
 
+    /// <summary>Creates a client sharing the state's authoritative value store and record TTL.</summary>
+    /// <exception cref="InvalidOperationException">The state already exposes a different store or record TTL.</exception>
     public DhtClient(SharedDhtState sharedState, IDhtMessageSender messageSender, IValueStore valueStore,
         IRecordValidator validator, KadDhtOptions options, ILoggerFactory? loggerFactory = null)
     {
@@ -53,10 +56,10 @@ public sealed class DhtClient : IDisposable, IAsyncDisposable
         _values = valueStore ?? throw new ArgumentNullException(nameof(valueStore));
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _state.UseValueStore(_values, _options.RecordTtl);
         _logger = loggerFactory?.CreateLogger<DhtClient>();
         _put = messageSender.PutValueAsync;
         _get = messageSender.GetValueAsync;
+        _state.UseValueStore(_values, _options.RecordTtl);
     }
 
     public async Task<int> PutValueAsync(string key, string value, CancellationToken token = default)
