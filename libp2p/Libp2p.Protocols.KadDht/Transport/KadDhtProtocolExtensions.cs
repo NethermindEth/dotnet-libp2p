@@ -108,10 +108,8 @@ public static class KadDhtProtocolExtensions
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
         if (remotePeerId is not null && !WirePeerPolicy.IsValidIdentity(remotePeerId.Bytes, options.MaxPeerIdBytes))
             remotePeerId = null;
-        // Inspect one extra candidate for the requester, while bounding even a callback
-        // that repeatedly yields that identity. The wire policy still emits at most K.
-        var neighbours = findNearest(target, remotePeerId).Take(WirePeerPolicy.FindNodeCandidateLimit(options))
-            .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
+        var neighbours = WirePeerPolicy.FilterFindNodeCandidates(
+            findNearest(target, remotePeerId), remotePeerId, options.KSize);
         return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: CreateConnectionResolver(ctx));
     }
 

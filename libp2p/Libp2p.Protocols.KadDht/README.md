@@ -72,8 +72,9 @@ address parsing consumes budget even on failure; oversized whole addresses are
 skipped. These response limits also apply to custom stores and nearest-peer callbacks
 and do not replace the provider store's retention limits above.
 
-When serving FIND_NODE, the handler inspects at most `KSize + 1` candidates before
-excluding the requester and emits at most `KSize` peers. The registered routing
+When serving FIND_NODE, the requester is excluded before the wire policy applies
+the `KSize` output limit. A separate inspection budget bounds the callback iterator
+to at most `KSize + 1` candidates. The registered routing
 callbacks exclude the requester during the table lookup, before its own K limit,
 so a requester among the nearest peers does not leave the response short. Custom
 callbacks should supply up to `KSize + 1` candidates when available. Repeated

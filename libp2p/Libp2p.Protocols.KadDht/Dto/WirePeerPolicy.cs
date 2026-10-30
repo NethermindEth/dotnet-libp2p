@@ -24,9 +24,17 @@ internal sealed class WirePeerPolicy
         _options = options;
     }
 
-    // One bounded extra candidate can replace the requester in a FIND_NODE reply.
-    internal static int FindNodeCandidateLimit(KadDhtOptions options) =>
-        options.KSize == int.MaxValue ? int.MaxValue : options.KSize + 1;
+    // Exclude the requester before Append applies K, with a separate inspection budget.
+    internal static IEnumerable<DhtNode> FilterFindNodeCandidates(
+        IEnumerable<DhtNode> candidates, PeerId? requester, int kSize)
+    {
+        int remaining = kSize == int.MaxValue ? int.MaxValue : kSize + 1;
+        foreach (var node in candidates)
+        {
+            if (requester is null || !node.PeerId.Equals(requester)) yield return node;
+            if (--remaining == 0) yield break;
+        }
+    }
 
     internal static void Validate(KadDhtOptions options)
     {

@@ -123,13 +123,21 @@ public class ReviewFeedbackTests
     public async Task FindNodeFillsRequesterSlotWithinBoundedCandidatePrefix(bool allRequester)
     {
         int inspected = 0;
+        bool disposed = false;
         IEnumerable<DhtNode> Nearest()
         {
-            for (int i = 0; i < 5; i++)
+            try
             {
-                inspected++;
-                Assert.That(inspected, Is.LessThanOrEqualTo(4), "Even repeated requester entries must have a bounded prefix.");
-                yield return Id(allRequester ? 1 : i + 1).ToDhtNode();
+                for (int i = 0; i < 5; i++)
+                {
+                    inspected++;
+                    Assert.That(inspected, Is.LessThanOrEqualTo(4), "Even repeated requester entries must have a bounded prefix.");
+                    yield return Id(allRequester ? 1 : i + 1).ToDhtNode();
+                }
+            }
+            finally
+            {
+                disposed = true;
             }
         }
         using var harness = new KadWireHarness("direct", new KadDhtOptions { KSize = 3 }, nearest: _ => Nearest());
@@ -138,6 +146,7 @@ public class ReviewFeedbackTests
         var response = await harness.SendAsync(MessageHelper.CreateFindNodeRequest([1]));
 
         Assert.That(inspected, Is.EqualTo(4));
+        Assert.That(disposed, Is.True, "Both the inspection budget and the output cap must dispose the callback iterator.");
         Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
             Is.EqualTo(allRequester ? [] : new[] { Id(2), Id(3), Id(4) }));
     }
