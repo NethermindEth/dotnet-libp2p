@@ -57,6 +57,54 @@ The store owns a read-only address-list snapshot. Incoming announcements apply t
 payload policy before calling a custom store; custom stores own their aggregate limits.
 Operators may raise these positive limits explicitly.
 
+Wire peer responses have separate positive limits: `MaxPeerIdBytes` (128 bytes),
+`MaxAddressesPerPeer` (16 closer-peer address slots), `MaxPeerRecordBytes` (8 KiB
+per peer), and `MaxPeerResponseBytes` (64 KiB across both peer lists). The first
+`KSize` closer entries and `MaxProvidersPerKey` provider entries are inspected;
+provider addresses use `MaxAddressesPerProvider`. Invalid, duplicate, and skipped
+entries consume slots. GET_PROVIDERS gives provider records priority when building
+and reading a response; closer peers use the remaining combined budget. Provider
+records can still be truncated when they exhaust that budget themselves. Encoded
+bytes (including protobuf peer-field framing) and retained payload
+are bounded independently. Retained payload charges both identity copies and UTF-16
+address strings, including destination IDs appended during normalization. Admitted
+address parsing consumes budget even on failure; oversized whole addresses are
+skipped. These response limits also apply to custom stores and nearest-peer callbacks
+and do not replace the provider store's retention limits above.
+
+When serving FIND_NODE, the requester is excluded before the wire policy applies
+the `KSize` output limit. A separate inspection budget bounds the callback iterator
+to at most `KSize + 1` candidates. The registered routing
+callbacks exclude the requester during the table lookup, before its own K limit,
+so a requester among the nearest peers does not leave the response short. Custom
+callbacks should supply up to `KSize + 1` candidates when available. Repeated
+requester, invalid, or duplicate entries never extend the bounded prefix, so a
+response can still be shorter than `KSize`.
+
+Wire identities must be complete multihashes with minimal unsigned varint headers of at
+most nine bytes and an exact digest length; unknown hash codes remain structurally
+acceptable. Response addresses bound to another destination are omitted. Received
+closer peers without usable addresses are excluded from lookup and discovery;
+provider records may still have no addresses. Protobuf parsing is separately bounded
+by `MaxMessageSize`; response budgets bound subsequent conversion and retention.
+These limits bound one response, rather than cumulative discovery over many requests.
+
+The public `MessageHelper.ToWirePeer` and `CreateAddProviderRequest` helpers throw
+`ArgumentException` for malformed peer IDs or IDs exceeding the default 128-byte
+limit. Response builders omit invalid entries instead. Callers using the public
+helpers should validate their inputs or handle that exception.
+
+PUT_VALUE echoes a record only when the store reports that its bytes were stored.
+The envelope and record keys must match. Channel closure cancels cancellation-aware
+storage operations, and cancelled operations produce no acknowledgement. Connection
+flags default to `NOT_CONNECTED`; registered response handlers report `CONNECTED`
+only for a matching successfully established session whose closure token is live.
+This is evidence at serialization time, rather than a guarantee of future reachability.
+
+Wire semantics follow the [Kad-DHT specification](https://github.com/libp2p/specs/blob/89582889fa291d572c11723b3c0c6b2a964947aa/kad-dht/README.md#protocol-messages)
+and [multiformats unsigned varint encoding](https://github.com/multiformats/unsigned-varint/blob/dd184f1ce89c81808503bb719b5fcb13844d08f3/README.md#practical-maximum-of-9-bytes-for-security).
+The conservative connection mapping also matches [go-libp2p](https://github.com/libp2p/go-libp2p-kad-dht/blob/c5e0ce5abb0b63c4c47426bfae910fcf73e2a265/pb/message.go#L205).
+
 At key capacity, new keys are rejected while all buckets contain live records. Existing
 providers can still refresh, and expired providers on the requested key are pruned before
 admission. A fully expired unrelated bucket is reclaimed when needed, even without

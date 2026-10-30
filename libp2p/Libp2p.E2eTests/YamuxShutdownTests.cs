@@ -4,6 +4,8 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,12 +15,100 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Yamux;
+using NSubstitute;
 using NUnit.Framework;
 
 namespace Libp2p.E2eTests;
 
 public class YamuxShutdownTests
 {
+    [Test]
+    public async Task HeldListenerWaitsForDriverAfterCleanEof()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        HoldProtocol protocol = new(timeout.Token);
+        Channel transport = new();
+        IChannel application = transport.Reverse;
+        Task listener = protocol.ListenAsync(application, Substitute.For<ISessionContext>());
+        Control control = await protocol.Accepted.Reader.ReadAsync(timeout.Token);
+        try
+        {
+            Assert.That(await transport.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That(await application.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+            await application;
+            control.Done.TrySetResult();
+            // A clean channel completion must not cancel the held listener. The production
+            // upgrade wrapper would turn that canceled protocol task into an abort.
+            await listener.WaitAsync(timeout.Token);
+            Assert.That((await application.ReadAsync(1, token: timeout.Token)).Result, Is.EqualTo(IOResult.Ended));
+        }
+        finally
+        {
+            control.Done.TrySetResult();
+        }
+    }
+
+    [Test]
+    public async Task HeldListenerStopsWhenFixtureIsDisposed()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        using CancellationTokenSource lifetime = new();
+        HoldProtocol protocol = new(lifetime.Token);
+        Task listener = protocol.ListenAsync(new Channel(), Substitute.For<ISessionContext>());
+        await protocol.Accepted.Reader.ReadAsync(timeout.Token);
+
+        lifetime.Cancel();
+        OperationCanceledException? canceled = Assert.CatchAsync<OperationCanceledException>(async () =>
+            await listener.WaitAsync(timeout.Token));
+        Assert.That(canceled!.CancellationToken, Is.EqualTo(lifetime.Token));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task RegisteredRequestResponseHandlerSurvivesGoAway(bool listener)
+    {
+        TaskCompletionSource<CancellationToken> entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using Pair pair = new(configure: builder => builder.AddRequestResponseProtocol<BytesValue, BytesValue>(
+            async (request, _, token) =>
+            {
+                entered.TrySetResult(token);
+                await release.Task.WaitAsync(token);
+                return request;
+            }, "/yamux-request-response-test/1.0.0", maxMessageSize: 1024 * 1024));
+        await pair.Connect();
+        int target = listener ? 1 : 0;
+        int remote = 1 - target;
+        byte[] bytes = new byte[600 * 1024];
+        new Random(394).NextBytes(bytes);
+        var request = new BytesValue { Value = ByteString.CopyFrom(bytes) };
+        try
+        {
+            Task<BytesValue> response = pair.Sessions[remote]
+                .DialAsync<RequestResponseProtocol<BytesValue, BytesValue>, BytesValue, BytesValue>(request, pair.Token);
+            CancellationToken lifetime = await entered.Task.WaitAsync(pair.Token);
+            Assert.That(lifetime.CanBeCanceled, Is.True);
+            Boundary localWire = await pair.Muxers[target].Ready.Task.WaitAsync(pair.Token);
+            Boundary remoteWire = await pair.Muxers[remote].Ready.Task.WaitAsync(pair.Token);
+            await remoteWire.Send(3, 0, 0, 0, pair.Token);
+            await remoteWire.Send(2, 1, 0, 394, pair.Token);
+            await localWire.WaitFrame(2, 2, 394, pair.Token); // Receive-loop barrier after GoAway/OK.
+
+            Assert.That(lifetime.IsCancellationRequested, Is.False);
+            Assert.That(pair.Sessions[target].Closed.IsCancellationRequested, Is.False);
+            Assert.That(response.IsCompleted, Is.False, "The handler has entered and is still waiting for release.");
+            release.TrySetResult();
+            Assert.That((await response.WaitAsync(pair.Token)).Value, Is.EqualTo(request.Value));
+            Assert.ThrowsAsync<ChannelClosedException>(async () => await pair.Sessions[target]
+                .DialAsync<RequestResponseProtocol<BytesValue, BytesValue>, BytesValue, BytesValue>(request, pair.Token)
+                .WaitAsync(pair.Token));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task RegisteredStackKeepsExistingApplicationTrafficAfterGoAway(bool listener)
@@ -172,7 +262,7 @@ public class YamuxShutdownTests
     }
     public sealed record Control(IChannel Channel, TaskCompletionSource Done);
 
-    public sealed class HoldProtocol : ISessionProtocol<Request, int>
+    public sealed class HoldProtocol(CancellationToken lifetime) : ISessionProtocol<Request, int>
     {
         public string Id => "/yamux-shutdown-test/1.0.0";
         public global::System.Threading.Channels.Channel<Control> Accepted { get; } = global::System.Threading.Channels.Channel.CreateUnbounded<Control>();
@@ -189,7 +279,10 @@ public class YamuxShutdownTests
             Interlocked.Increment(ref _listenerCalls);
             TaskCompletionSource done = new(TaskCreationOptions.RunContinuationsAsynchronously);
             await Accepted.Writer.WriteAsync(new Control(channel, done));
-            await done.Task.WaitAsync(channel.CancellationToken);
+            // The driver owns the channel and must finish its EOF assertions before this
+            // protocol returns. Channel completion also fires on clean bidirectional FIN;
+            // canceling here would make the production upgrade wrapper abort that EOF.
+            await done.Task.WaitAsync(lifetime);
         }
     }
 
@@ -280,7 +373,7 @@ public class YamuxShutdownTests
         public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
     }
 
-    private sealed class Pair(int? enlargedOnly = null) : IAsyncDisposable
+    private sealed class Pair(int? enlargedOnly = null, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? configure = null) : IAsyncDisposable
     {
         private readonly CancellationTokenSource _timeout = new(TimeSpan.FromSeconds(45));
         public CancellationToken Token => _timeout.Token;
@@ -294,8 +387,10 @@ public class YamuxShutdownTests
             for (int i = 0; i < 2; i++)
             {
                 ServiceProvider provider = new ServiceCollection()
-                    .AddLibp2p<Builder>(builder => builder.AddProtocol<HoldProtocol>())
-                    .AddSingleton<HoldProtocol>()
+                    .AddLibp2p<Builder>(builder => configure is null
+                        ? builder.AddProtocol<HoldProtocol>()
+                        : configure(builder.AddProtocol<HoldProtocol>()))
+                    .AddSingleton(new HoldProtocol(Token))
                     .AddSingleton(new YamuxWindowSettings { InitialWindowSize = enlargedOnly is null || enlargedOnly == i ? 524288 : 262144 })
                     .AddSingleton<InspectedYamux>()
                     .AddSingleton<YamuxProtocol>(sp => sp.GetRequiredService<InspectedYamux>())

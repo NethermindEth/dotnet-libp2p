@@ -7,6 +7,7 @@ using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nethermind.Kademlia;
+using Nethermind.Libp2p.Core;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -72,6 +73,9 @@ public class SharedDhtState
     /// physical peer (e.g. different multiaddresses) don't produce duplicate RPCs.
     /// </summary>
     public DhtNode[] GetKNearestPeers(PublicKey targetKey, int k = 0)
+        => GetKNearestPeers(targetKey, k, null);
+
+    internal DhtNode[] GetKNearestPeers(PublicKey targetKey, int k, PeerId? excludedPeer)
     {
         if (k <= 0) k = KValue;
 
@@ -87,8 +91,13 @@ public class SharedDhtState
         var seen = new HashSet<string>();
         var closestPeers = new List<DhtNode>(k);
 
-        foreach (var peer in _routingTable.GetKNearestNeighbour(targetKey.Hash, excludeSelf: true))
+        // Exclude during lookup: the underlying table itself caps ordinary results at K.
+        var candidates = excludedPeer is null
+            ? _routingTable.GetKNearestNeighbour(targetKey.Hash, excludeSelf: true)
+            : _routingTable.GetKNearestNeighbourExcluding(targetKey.Hash, PublicKey.ComputeHash(excludedPeer.Bytes), true);
+        foreach (var peer in candidates)
         {
+            if (excludedPeer is not null && excludedPeer.Equals(peer.PeerId)) continue;
             var peerIdStr = peer.PeerId?.ToString();
             if (peerIdStr != null && !seen.Add(peerIdStr))
             {
