@@ -15,12 +15,54 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Yamux;
+using NSubstitute;
 using NUnit.Framework;
 
 namespace Libp2p.E2eTests;
 
 public class YamuxShutdownTests
 {
+    [Test]
+    public async Task HeldListenerWaitsForDriverAfterCleanEof()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        HoldProtocol protocol = new(timeout.Token);
+        Channel transport = new();
+        IChannel application = transport.Reverse;
+        Task listener = protocol.ListenAsync(application, Substitute.For<ISessionContext>());
+        Control control = await protocol.Accepted.Reader.ReadAsync(timeout.Token);
+        try
+        {
+            Assert.That(await transport.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+            Assert.That(await application.WriteEofAsync(timeout.Token), Is.EqualTo(IOResult.Ok));
+            await application;
+            control.Done.TrySetResult();
+            // A clean channel completion must not cancel the held listener. The production
+            // upgrade wrapper would turn that canceled protocol task into an abort.
+            await listener.WaitAsync(timeout.Token);
+            Assert.That((await application.ReadAsync(1, token: timeout.Token)).Result, Is.EqualTo(IOResult.Ended));
+        }
+        finally
+        {
+            control.Done.TrySetResult();
+        }
+    }
+
+    [Test]
+    public async Task HeldListenerStopsWhenFixtureIsDisposed()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        using CancellationTokenSource lifetime = new();
+        HoldProtocol protocol = new(lifetime.Token);
+        Task listener = protocol.ListenAsync(new Channel(), Substitute.For<ISessionContext>());
+        await protocol.Accepted.Reader.ReadAsync(timeout.Token);
+
+        lifetime.Cancel();
+        OperationCanceledException? canceled = Assert.CatchAsync<OperationCanceledException>(async () =>
+            await listener.WaitAsync(timeout.Token));
+        Assert.That(canceled!.CancellationToken, Is.EqualTo(lifetime.Token));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task RegisteredRequestResponseHandlerSurvivesGoAway(bool listener)
@@ -220,7 +262,7 @@ public class YamuxShutdownTests
     }
     public sealed record Control(IChannel Channel, TaskCompletionSource Done);
 
-    public sealed class HoldProtocol : ISessionProtocol<Request, int>
+    public sealed class HoldProtocol(CancellationToken lifetime) : ISessionProtocol<Request, int>
     {
         public string Id => "/yamux-shutdown-test/1.0.0";
         public global::System.Threading.Channels.Channel<Control> Accepted { get; } = global::System.Threading.Channels.Channel.CreateUnbounded<Control>();
@@ -237,7 +279,10 @@ public class YamuxShutdownTests
             Interlocked.Increment(ref _listenerCalls);
             TaskCompletionSource done = new(TaskCreationOptions.RunContinuationsAsynchronously);
             await Accepted.Writer.WriteAsync(new Control(channel, done));
-            await done.Task.WaitAsync(channel.CancellationToken);
+            // The driver owns the channel and must finish its EOF assertions before this
+            // protocol returns. Channel completion also fires on clean bidirectional FIN;
+            // canceling here would make the production upgrade wrapper abort that EOF.
+            await done.Task.WaitAsync(lifetime);
         }
     }
 
@@ -345,7 +390,7 @@ public class YamuxShutdownTests
                     .AddLibp2p<Builder>(builder => configure is null
                         ? builder.AddProtocol<HoldProtocol>()
                         : configure(builder.AddProtocol<HoldProtocol>()))
-                    .AddSingleton<HoldProtocol>()
+                    .AddSingleton(new HoldProtocol(Token))
                     .AddSingleton(new YamuxWindowSettings { InitialWindowSize = enlargedOnly is null || enlargedOnly == i ? 524288 : 262144 })
                     .AddSingleton<InspectedYamux>()
                     .AddSingleton<YamuxProtocol>(sp => sp.GetRequiredService<InspectedYamux>())
