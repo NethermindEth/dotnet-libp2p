@@ -196,6 +196,13 @@ public class PubsubSettings
     public int DScore { get; set; } = 5;
     public int DOut { get; set; } = 2;
     public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
+
+    /// <summary>
+    /// Maximum peer exchange entries handled from one PRUNE. Longer lists are shuffled and
+    /// truncated first, as with <c>PrunePeers</c> in go-libp2p and js-libp2p.
+    /// </summary>
+    public int PrunePeers { get; set; } = 16;
+
     public int UnsubscribeBackoff { get; set; } = 10 * 1000; // 10 seconds
     public bool FloodPublish { get; set; } = true;
     public double GossipFactor { get; set; } = 0.25;
