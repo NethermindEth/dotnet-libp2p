@@ -27,42 +27,17 @@ public class CertificateHelper
 {
     private const string PubkeyExtensionOidString = "1.3.6.1.4.1.53594.1.1";
     private static readonly Oid PubkeyExtensionOid = new(PubkeyExtensionOidString);
+    private static readonly Lazy<WindowsCertificateKey> WindowsKey = new(CreateWindowsProcessKey);
 
     /// <summary>
-    /// Creates a libp2p certificate. On Windows the certificate uses a persisted named CNG key;
-    /// callers must delete that key after the certificate's last TLS use.
+    /// Creates a libp2p certificate using the supplied session key outside Windows.
+    /// Windows certificates share a process-owned named key required by Schannel.
+    /// Dispose the returned certificate after its last TLS use; do not delete its shared key.
     /// </summary>
     public static X509Certificate2 CertificateFromIdentity(ECDsa sessionKey, Identity identity)
-    {
-        // On Windows, SslStream (SChannel) requires a named CNG key.
-        // Ephemeral keys from ECDsa.Create() cannot be used with SslStream on Windows.
-        ECDsa certKey = sessionKey;
-        if (OperatingSystem.IsWindows())
-        {
-            certKey = CreateWindowsCompatibleKey();
-        }
-
-        try
-        {
-            return CreateCertificate(certKey, identity);
-        }
-        catch
-        {
-            if (certKey is ECDsaCng cngKey)
-            {
-                using CngKey key = cngKey.Key;
-                key.Delete();
-            }
-            throw;
-        }
-        finally
-        {
-            if (!ReferenceEquals(certKey, sessionKey))
-            {
-                certKey.Dispose();
-            }
-        }
-    }
+        => OperatingSystem.IsWindows()
+            ? WindowsKey.Value.CreateCertificate(identity)
+            : CreateCertificate(sessionKey, identity);
 
     internal static CertificateLease CreateCertificateLease(ECDsa sessionKey, Identity identity) =>
         new(CertificateFromIdentity(sessionKey, identity));
@@ -71,24 +46,73 @@ public class CertificateHelper
     {
         public X509Certificate2 Certificate { get; } = certificate;
 
-        public void Dispose()
+        public void Dispose() => Certificate.Dispose();
+    }
+
+    private static WindowsCertificateKey CreateWindowsProcessKey()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        WindowsProcessKey.Recover();
+        WindowsCertificateKey owner = new();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
+            if (!OperatingSystem.IsWindows()) return;
+            try { owner.DeleteAtProcessExit(); }
+            catch (CryptographicException)
+            {
+                // Shutdown cleanup is best effort. A later process can recover this
+                // marked key after proving this process incarnation has terminated.
+            }
+        };
+        return owner;
+    }
+
+    private sealed class WindowsCertificateKey
+    {
+        private readonly object _sync = new();
+        private ECDsaCng? _key;
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public WindowsCertificateKey()
+        {
+            WindowsProcessKey.Ownership owner = WindowsProcessKey.CurrentOwner();
+            using CngKey key = CngKey.Create(CngAlgorithm.ECDsaP256, owner.KeyName, WindowsProcessKey.CreationParameters(owner));
+            try { _key = new ECDsaCng(key); }
+            catch
+            {
+                key.Delete();
+                throw;
+            }
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public X509Certificate2 CreateCertificate(Identity identity)
+        {
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_key is null, this);
+                return CertificateHelper.CreateCertificate(_key, identity);
+            }
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public void DeleteAtProcessExit()
+        {
+            // Do not wait on an application thread during process termination. If it is
+            // still signing, retain the same bounded residual as failed shutdown cleanup.
+            if (!Monitor.TryEnter(_sync)) return;
             try
             {
-                if (OperatingSystem.IsWindows())
+                if (_key is null) return;
+                using CngKey ownedKey = _key.Key;
+                try { ownedKey.Delete(); }
+                finally
                 {
-                    using ECDsa? privateKey = Certificate.GetECDsaPrivateKey();
-                    if (privateKey is ECDsaCng cngKey)
-                    {
-                        using CngKey key = cngKey.Key;
-                        key.Delete();
-                    }
+                    _key.Dispose();
+                    _key = null;
                 }
             }
-            finally
-            {
-                Certificate.Dispose();
-            }
+            finally { Monitor.Exit(_sync); }
         }
     }
 
@@ -117,18 +141,6 @@ public class CertificateHelper
         return certRequest.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow.AddYears(100));
-    }
-
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static ECDsa CreateWindowsCompatibleKey()
-    {
-        CngKeyCreationParameters cngParams = new()
-        {
-            ExportPolicy = CngExportPolicies.AllowPlaintextExport,
-            KeyUsage = CngKeyUsages.AllUsages,
-        };
-        using CngKey cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"libp2p-{Guid.NewGuid():N}", cngParams);
-        return new ECDsaCng(cngKey);
     }
 
     public static bool ValidateCertificate(X509Certificate2 certificate, string? peerId) =>

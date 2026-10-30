@@ -28,18 +28,19 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
     protected LocalPeer.Session session = session;
     protected ProtocolRef protocol = protocol;
     protected UpgradeOptions? upgradeOptions = upgradeOptions;
+    protected virtual bool IsApplicationStream => false;
 
     public IChannel Upgrade(UpgradeOptions? upgradeOptions = null)
-        => localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
+        => localPeer.Upgrade(session, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity, IsApplicationStream);
 
     public IChannel Upgrade(IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
-        => localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
+        => localPeer.Upgrade(session, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity, IsApplicationStream);
 
     public Task Upgrade(IChannel parentChannel, UpgradeOptions? upgradeOptions = null)
-        => localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
+        => localPeer.Upgrade(session, parentChannel, protocol, null, upgradeOptions ?? this.upgradeOptions, isListener, Activity, IsApplicationStream);
 
     public Task Upgrade(IChannel parentChannel, IProtocol specificProtocol, UpgradeOptions? upgradeOptions = null)
-        => localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity);
+        => localPeer.Upgrade(session, parentChannel, protocol, specificProtocol, upgradeOptions ?? this.upgradeOptions, isListener, Activity, IsApplicationStream);
 
     public INewConnectionContext CreateConnection()
         => localPeer.CreateConnection(protocol, null, isListener, Activity);

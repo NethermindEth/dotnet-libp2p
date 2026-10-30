@@ -294,7 +294,7 @@ public class QuicProtocol : ITransportProtocol
                     QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, session.Token);
                     try
                     {
-                        IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                        IChannel upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                         TrackExchange(stream, upChannel);
                     }
                     catch
@@ -327,7 +327,7 @@ public class QuicProtocol : ITransportProtocol
                 QuicStream inboundStream = await completedAccept;
                 try
                 {
-                    IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                    IChannel upChannel = session.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
                     TrackExchange(inboundStream, upChannel);
                 }
                 catch
@@ -406,10 +406,11 @@ public class QuicProtocol : ITransportProtocol
 
         Task incoming = Task.Run(async () =>
         {
-            const int receiveCapacity = 1024;
-            byte[] buf = _receiveBufferPool.Rent(receiveCapacity);
+            byte[]? buf = null;
             try
             {
+                const int receiveCapacity = 1024;
+                buf = _receiveBufferPool.Rent(receiveCapacity);
                 while (stream.CanRead)
                 {
                     int len = await stream.ReadAtLeastAsync(buf.AsMemory(0, receiveCapacity), 1, false, pumpCancellation.Token);
@@ -437,7 +438,10 @@ public class QuicProtocol : ITransportProtocol
             }
             finally
             {
-                _receiveBufferPool.Return(buf);
+                if (buf is not null)
+                {
+                    _receiveBufferPool.Return(buf);
+                }
             }
         });
 

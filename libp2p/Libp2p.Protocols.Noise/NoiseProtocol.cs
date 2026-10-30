@@ -59,13 +59,13 @@ public class NoiseProtocol : IConnectionProtocol
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg0 = handshakeState.WriteMessage(null, buffer);
 
         byte[]? lenBytes = new byte[2];
-        BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg0.BytesWritten);
+        BinaryPrimitives.WriteUInt16BigEndian(lenBytes.AsSpan(), checked((ushort)msg0.BytesWritten));
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes), token: context.Token);
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg0.BytesWritten), token: context.Token);
 
         lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
 
-        int len = BinaryPrimitives.ReadInt16BigEndian(lenBytes.AsSpan());
+        int len = BinaryPrimitives.ReadUInt16BigEndian(lenBytes.AsSpan());
         ReadOnlySequence<byte> received = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.ReadMessage(received.ToArray(), buffer);
@@ -131,7 +131,7 @@ public class NoiseProtocol : IConnectionProtocol
 
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.WriteMessage(payload.ToByteArray(), buffer);
-        BinaryPrimitives.WriteInt16BigEndian(lenBytes.AsSpan(), (short)msg2.BytesWritten);
+        BinaryPrimitives.WriteUInt16BigEndian(lenBytes.AsSpan(), checked((ushort)msg2.BytesWritten));
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(lenBytes), token: context.Token);
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg2.BytesWritten), token: context.Token);
         Transport? transport = msg2.Transport;
@@ -158,7 +158,7 @@ public class NoiseProtocol : IConnectionProtocol
                 s: serverStatic.PrivateKey);
 
         byte[]? lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
-        short len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
+        int len = BinaryPrimitives.ReadUInt16BigEndian(lenBytes);
         byte[] buffer = new byte[Protocol.MaxMessageLength];
         ReadOnlySequence<byte> msg0Bytes = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         handshakeState.ReadMessage(msg0Bytes.ToArray(), buffer);
@@ -176,14 +176,14 @@ public class NoiseProtocol : IConnectionProtocol
         };
 
         // Send the second handshake message to the client.
-        buffer = new byte[Protocol.MaxMessageLength];
+        buffer = new byte[Protocol.MaxMessageLength + 2];
         (int BytesWritten, byte[] HandshakeHash, Transport Transport) msg1 =
             handshakeState.WriteMessage(payload.ToByteArray(), buffer.AsSpan(2));
-        BinaryPrimitives.WriteInt16BigEndian(buffer.AsSpan(), (short)msg1.BytesWritten);
+        BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), checked((ushort)msg1.BytesWritten));
         await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, msg1.BytesWritten + 2), token: context.Token);
 
         lenBytes = (await downChannel.ReadAsync(2, token: context.Token).OrThrow()).ToArray();
-        len = BinaryPrimitives.ReadInt16BigEndian(lenBytes);
+        len = BinaryPrimitives.ReadUInt16BigEndian(lenBytes);
         ReadOnlySequence<byte> hs2Bytes = await downChannel.ReadAsync(len, token: context.Token).OrThrow();
         (int BytesRead, byte[] HandshakeHash, Transport Transport) msg2 =
             handshakeState.ReadMessage(hs2Bytes.ToArray(), buffer);

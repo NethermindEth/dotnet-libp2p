@@ -96,6 +96,23 @@ The core protocol class provides:
 
 When `expectsResponse` returns `false`, `DialAsync()` completes after a successful write and returns an empty `TResponse`; this is not a remote acknowledgement. `ListenAsync()` still invokes the handler but does not send its response.
 
+### Handler cancellation and graceful admission shutdown
+
+The cancellation-aware handler overload receives the application channel's lifetime
+token. Closing or resetting that channel cancels the token; a request-side FIN
+alone leaves the reply direction open. Before sending a response, the protocol
+checks that token again, including when a handler ignores cancellation and returns
+normally. Cancellation of that token propagates without an ordinary error log or
+a response acknowledging the operation.
+
+This is also the contract when integrating Yamux's graceful GoAway behavior from
+PR #419: GoAway/OK stops admission of new streams while existing channels and
+their handlers continue. It must not be treated as cancellation of every handler.
+Actual stream termination, fatal connection shutdown, or transport loss still
+cancels affected channel tokens. RequestResponse keeps
+the channel token and cancellation propagation; it does not substitute a token
+for stream admission or suppress cancellation after a channel has closed.
+
 ### RequestResponseExtensions
 
 The extension class provides a convenient builder method:

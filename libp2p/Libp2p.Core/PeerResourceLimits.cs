@@ -10,7 +10,7 @@ public sealed class PeerResourceLimits
 
     public PeerResourceLimits(int maxInboundTcpConnections = 256, int maxInboundTcpConnectionsPerIp = 32,
         int maxConcurrentInitializations = 128, TimeSpan? inboundUpgradeTimeout = null,
-        TimeSpan? initializationTimeout = null, TimeSpan? negotiationTimeout = null)
+        TimeSpan? initializationTimeout = null, TimeSpan? negotiationTimeout = null, TimeSpan? inboundTcpIdleTimeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInboundTcpConnections);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInboundTcpConnectionsPerIp);
@@ -21,7 +21,14 @@ public sealed class PeerResourceLimits
         InboundUpgradeTimeout = Validate(inboundUpgradeTimeout ?? TimeSpan.FromSeconds(15));
         InitializationTimeout = Validate(initializationTimeout ?? TimeSpan.FromSeconds(15));
         NegotiationTimeout = Validate(negotiationTimeout ?? TimeSpan.FromSeconds(15));
+        InboundTcpIdleTimeout = Validate(inboundTcpIdleTimeout ?? TimeSpan.FromSeconds(60));
     }
+
+    public PeerResourceLimits(int maxInboundTcpConnections, int maxInboundTcpConnectionsPerIp, int maxConcurrentInitializations,
+        TimeSpan? inboundUpgradeTimeout, TimeSpan? initializationTimeout, TimeSpan? negotiationTimeout)
+        : this(maxInboundTcpConnections, maxInboundTcpConnectionsPerIp, maxConcurrentInitializations,
+            inboundUpgradeTimeout, initializationTimeout, negotiationTimeout, null)
+    { }
 
     private static TimeSpan Validate(TimeSpan timeout)
     {
@@ -32,8 +39,11 @@ public sealed class PeerResourceLimits
 
     public int MaxInboundTcpConnections { get; }
     public int MaxInboundTcpConnectionsPerIp { get; }
+    /// <summary>Maximum concurrent inbound session initializations, including cancelled work still stopping. Outbound initialization does not consume this allowance.</summary>
     public int MaxConcurrentInitializations { get; }
     public TimeSpan InboundUpgradeTimeout { get; }
     public TimeSpan InitializationTimeout { get; }
     public TimeSpan NegotiationTimeout { get; }
+    /// <summary>Minimum time without application operations before an established TCP connection may be evicted under admission pressure.</summary>
+    public TimeSpan InboundTcpIdleTimeout { get; }
 }

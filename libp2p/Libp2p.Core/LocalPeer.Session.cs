@@ -68,22 +68,29 @@ public partial class LocalPeer
             token.ThrowIfCancellationRequested();
             CancellationToken connectionToken = ConnectionToken;
             connectionToken.ThrowIfCancellationRequested();
-
-            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
-            using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
-            connectionToken.ThrowIfCancellationRequested();
-
-            SubDialRequests.Add(new UpgradeOptions()
+            lock (_lifecycleLock)
             {
-                CompletionSource = tcs,
-                SelectedProtocol = protocol,
-                Argument = argument,
-                CancellationToken = token
-            }, token);
+                if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
+                _applicationOperations++;
+            }
+            try
+            {
+                TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+                using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
+                connectionToken.ThrowIfCancellationRequested();
 
-            object? result = await tcs.Task;
-            return result;
+                SubDialRequests.Add(new UpgradeOptions()
+                {
+                    CompletionSource = tcs,
+                    SelectedProtocol = protocol,
+                    Argument = argument,
+                    CancellationToken = token
+                }, token);
+
+                return await tcs.Task;
+            }
+            finally { lock (_lifecycleLock) EndApplicationOperation(); }
         }
 
 
@@ -97,8 +104,33 @@ public partial class LocalPeer
         private ITimer? _deadline;
         private int _deadlineStage;
         private bool _deadlineExpired;
-        private bool _initializationAcquired;
+        private bool _inboundInitializationAcquired;
         private readonly HashSet<Task> _upgrades = [];
+        private int _applicationOperations;
+        private long _idleSince;
+        private bool _idleEviction;
+
+        // Called with the lifecycle lock held, including synchronous upgrade failures.
+        private void EndApplicationOperation()
+        {
+            if (--_applicationOperations == 0 && Connected.IsCompletedSuccessfully)
+                _idleSince = peer.Clock.GetTimestamp();
+        }
+
+        internal bool TryDisconnectIfIdle(TimeSpan idleTimeout)
+        {
+            if (idleTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(idleTimeout));
+            lock (_lifecycleLock)
+            {
+                if (_idleEviction || _disconnection is not null || !Connected.IsCompletedSuccessfully || _applicationOperations != 0 ||
+                    peer.Clock.GetElapsedTime(_idleSince, peer.Clock.GetTimestamp()) < idleTimeout)
+                    return false;
+                // Claim eviction before releasing the lock: no new application work may race admission.
+                _idleEviction = true;
+            }
+            ObserveLateFailure(DisconnectAsync());
+            return true;
+        }
 
         internal void StartUpgradeDeadline()
         {
@@ -126,18 +158,22 @@ public partial class LocalPeer
             }, null, timeout, Timeout.InfiniteTimeSpan);
         }
 
-        internal bool TryBeginInitialization()
+        internal bool TryBeginInitialization(bool isListener)
         {
             lock (_lifecycleLock)
             {
                 if (_deadlineExpired || _disconnection is not null) throw new OperationCanceledException(ConnectionToken);
-                if (_initializationAcquired) return true;
-                if (Interlocked.Increment(ref peer._initializations) > peer.ResourceLimits.MaxConcurrentInitializations)
+                if (_deadlineStage == 2) return true;
+                if (isListener)
                 {
-                    Interlocked.Decrement(ref peer._initializations);
-                    return false;
+                    if (Interlocked.Increment(ref peer._inboundInitializations) > peer.ResourceLimits.MaxConcurrentInitializations)
+                    {
+                        Interlocked.Decrement(ref peer._inboundInitializations);
+                        return false;
+                    }
+                    _inboundInitializationAcquired = true;
                 }
-                _initializationAcquired = true;
+                // Locally requested sessions keep their deadline without consuming inbound admission.
                 SetDeadline(2, peer.ResourceLimits.InitializationTimeout);
                 return true;
             }
@@ -147,27 +183,35 @@ public partial class LocalPeer
         {
             lock (_lifecycleLock)
             {
-                if (!_initializationAcquired) return;
-                _initializationAcquired = false;
-                Interlocked.Decrement(ref peer._initializations);
+                if (!_inboundInitializationAcquired) return;
+                _inboundInitializationAcquired = false;
+                Interlocked.Decrement(ref peer._inboundInitializations);
             }
         }
 
-        internal Task RunUpgrade(IChannel channel, Func<Task> run)
+        internal Task RunUpgrade(IChannel channel, Func<Task> run, bool isApplicationStream = false)
         {
             TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             bool closed;
             lock (_lifecycleLock)
             {
-                closed = _disconnection is not null || _deadlineExpired;
-                if (!closed) _upgrades.Add(completion.Task);
+                closed = _disconnection is not null || _deadlineExpired || _idleEviction;
+                if (!closed)
+                {
+                    _upgrades.Add(completion.Task);
+                    if (isApplicationStream) _applicationOperations++;
+                }
             }
             if (closed) return RejectAsync();
             Task task;
             try { task = run(); }
             catch
             {
-                lock (_lifecycleLock) _upgrades.Remove(completion.Task);
+                lock (_lifecycleLock)
+                {
+                    _upgrades.Remove(completion.Task);
+                    if (isApplicationStream) EndApplicationOperation();
+                }
                 completion.TrySetResult();
                 throw;
             }
@@ -183,7 +227,11 @@ public partial class LocalPeer
             async Task FinishAsync(Task work)
             {
                 await work.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-                lock (_lifecycleLock) _upgrades.Remove(completion.Task);
+                lock (_lifecycleLock)
+                {
+                    _upgrades.Remove(completion.Task);
+                    if (isApplicationStream) EndApplicationOperation();
+                }
                 completion.TrySetResult();
             }
         }
@@ -237,6 +285,7 @@ public partial class LocalPeer
                     _deadlineStage = 3;
                     _deadline?.Dispose();
                     _deadline = null;
+                    if (_applicationOperations == 0) _idleSince = peer.Clock.GetTimestamp();
                     return ConnectedTcs.TrySetResult();
                 }
         }

@@ -43,6 +43,14 @@ Listeners should also call `context.ListenerReady(realListenAddress)` after bind
 
 When a listener closes its listening endpoints, it can call `context.ListenerStopped()` before draining accepted connections. This lets peer disposal finish even when a handler awaits disposal itself. The transport still owns its accepted connections and admission allowances until `ListenAsync` returns. Transports that omit this optional notification must finish their listen task before peer disposal completes.
 
+### Receive buffer ownership and retention
+
+TCP and QUIC receive pumps reuse one pooled scratch buffer per pump and copy each received fragment into an independent array before publishing it to the upper channel. A `Channel.ReadAsync(length, ReadBlockingMode.WaitAll)` reader can acknowledge writes while retaining their fragments until the requested length arrives. Published memory must therefore remain valid after `WriteAsync` completes and after the scratch buffer is reused or returned.
+
+Follow-up for [#399](https://github.com/NethermindEth/dotnet-libp2p/issues/399): compact fragment arrays remove the receive-buffer-sized allocation retained for every fragment, but impose no aggregate per-peer memory limit. A pending `WaitAll` read can accumulate payload up to its caller's requested length, plus one array header and one `MemorySegment<byte>` node per fragment. A fragment crossing the read boundary can also keep its remaining bytes alive. Concurrent reads and QUIC streams multiply these costs, and completed read results retain their storage for as long as callers keep them.
+
+On a typical 64-bit .NET runtime, a one-byte fragment uses roughly 32 bytes for its array and 48 bytes for its segment node: about 80 managed bytes per received byte, rather than a whole receive array (for example, 131072 bytes with a 128 KiB TCP receive buffer). This is an estimate that depends on runtime layout and excludes the active pooled scratch buffers and other connection state. Bounding requested read lengths, fragment overhead and aggregate retention across a peer's connections and streams remains follow-up work.
+
 ## Connection protocol
 
 Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.
@@ -93,6 +101,17 @@ its protocol upgrades before releasing connection admission. The default complet
 is already complete for older custom contexts; implementations with background work
 should supply their own completion task. Do not await completion from inside one of
 that same connection's protocol upgrades.
+
+Built-in connection contexts implement `TryDisconnectIfIdle` for pressure-driven TCP
+admission recovery. The check and the start of application operations share the
+session lifecycle lock, so an eviction cannot race a newly admitted stream. Queued
+dials and stream upgrades, including negotiation, count as application operations.
+Legacy contexts default to ineligible; custom contexts can implement the same idle
+check without changing their completion or cancellation ownership.
+
+TCP emits `connected {endpoint}` on an activity owned by that connection and disposes
+it after protocol teardown. Listener activities retain readiness diagnostics without
+accumulating an event for every historical accept.
 
 A transport's connection cancellation registrations must be disposed when its pumps
 stop. TCP cancels and joins both pumps, preserves one pooled scratch receive buffer

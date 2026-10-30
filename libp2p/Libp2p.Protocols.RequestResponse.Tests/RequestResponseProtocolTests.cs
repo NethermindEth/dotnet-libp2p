@@ -124,7 +124,7 @@ public class RequestResponseProtocolTests
         byte[] expected = [(byte)response.Length, .. response];
         Assert.That(received.ToArray(), Is.EqualTo(expected));
         await listener.WaitAsync(timeout.Token);
-        Assert.That(await trailingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Ended));
+        Assert.That(await trailingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]

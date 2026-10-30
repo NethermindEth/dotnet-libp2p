@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.TestsBase;
 using NUnit.Framework;
 using Org.BouncyCastle.Asn1.X9;
 using Org.BouncyCastle.Crypto.EC;
@@ -63,6 +64,37 @@ public class PublicKeyDecoderTests
         Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(key.ToByteString()));
     }
 
+    [TestCase(2048, 3L)]
+    [TestCase(8192, 65537L)]
+    [TestCase(2048, 2147483647L)]
+    public void RemoteRsaAcceptsBoundedParameters(int bits, long exponent)
+    {
+        PublicKey key = RsaKeyFixtures.PublicKey(bits, exponent);
+        Assert.That(PublicKeyDecoder.Decode(key.ToByteString()), Is.EqualTo(key));
+    }
+
+    [TestCase(8193, 65537L)]
+    [TestCase(16384, 65537L)]
+    [TestCase(2048, 2147483648L)]
+    [TestCase(2048, 2147483649L)]
+    [TestCase(2048, 4294967297L)]
+    public void RemoteRsaRejectsUnboundedParameters(int bits, long exponent)
+    {
+        PublicKey key = RsaKeyFixtures.PublicKey(bits, exponent);
+        byte[] original = key.ToByteArray();
+        Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(key.ToByteString()));
+        Assert.That(key.ToByteArray(), Is.EqualTo(original));
+    }
+
+    [TestCase(-1)]
+    [TestCase(0)]
+    [TestCase(1)]
+    public void RemoteRsaRejectsTooSmallOrNegativeExponent(int exponent)
+    {
+        PublicKey key = RsaKeyFixtures.PublicKey(2048, exponent);
+        Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(key.ToByteString()));
+    }
+
     /// <remarks>
     /// Ed25519 verification reads the first 32 bytes and ignores the rest, so a
     /// padded key verifies the same signatures under a different peer ID. Only
@@ -99,7 +131,7 @@ public class PublicKeyDecoderTests
                 Is.True,
                 "padded key still verifies, which is why the length check is explicit");
             Assert.That(
-                new PeerId(new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(padded) }),
+                new PeerId(Multiformats.Hash.Multihash.Encode(new PublicKey { Type = KeyType.Ed25519, Data = ByteString.CopyFrom(padded) }.ToByteArray(), Multiformats.Hash.HashType.ID)),
                 Is.Not.EqualTo(new PeerId(identity.PublicKey)),
                 "and it yields a different peer ID");
         });

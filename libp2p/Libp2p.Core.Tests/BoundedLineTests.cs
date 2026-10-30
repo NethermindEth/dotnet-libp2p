@@ -41,17 +41,25 @@ public class BoundedLineTests
         }
     }
 
-    [TestCase(1023, true)]
-    [TestCase(1024, false)]
-    public async Task ExplicitBoundAllowsItsBoundaryAndLegacyDefaultStillAcceptsLongerLines(int characters, bool bounded)
+    [TestCase(1023, 1024)]
+    [TestCase(1023, null)]
+    [TestCase(1024, 1025)]
+    public async Task ExplicitAndDefaultBoundsAcceptTheirPayloadBoundary(int characters, int? maxLength)
     {
         Channel channel = new();
         IReader reader = channel;
         string expected = new('a', characters);
-        Task<string> read = bounded ? reader.ReadLineAsync(1024) : reader.ReadLineAsync();
-        await channel.Reverse.WriteLineAsync(expected);
-        Assert.That(await read, Is.EqualTo(expected));
-        await channel.CloseAsync();
+        Task<string> read = maxLength is { } limit ? reader.ReadLineAsync(limit) : reader.ReadLineAsync();
+        try
+        {
+            await channel.Reverse.WriteLineAsync(expected);
+            Assert.That(await read, Is.EqualTo(expected));
+        }
+        finally
+        {
+            await channel.AbortAsync();
+            await ((Task)read).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
     }
 
     private sealed class RecordingReader : IReader

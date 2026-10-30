@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
     {
         var options = new KadDhtOptions();
         configureOptions?.Invoke(options);
+        WirePeerPolicy.Validate(options);
         services.AddSingleton(options);
 
         services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
@@ -31,7 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IValueStore>(sp =>
             new InMemoryValueStore(options.MaxStoredValues, sp.GetService<ILoggerFactory>()));
         services.AddSingleton<IProviderStore>(sp =>
-            new InMemoryProviderStore(options.MaxProvidersPerKey, sp.GetService<ILoggerFactory>()));
+            new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes, sp.GetService<ILoggerFactory>()));
 
         services.AddSingleton<SharedDhtState>(sp =>
         {
@@ -46,7 +47,7 @@ public static class ServiceCollectionExtensions
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<PeerStore>();
             var sharedState = sp.GetRequiredService<SharedDhtState>();
-            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
+            return new Integration.LibP2pKademliaMessageSender(options, localPeer, loggerFactory,
                 onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null,
                 onPingResponse: node => sharedState.AddNodeCallback?.Invoke(node));
         });
@@ -90,7 +91,7 @@ public static class ServiceCollectionExtensions
         var valueStore = serviceProvider.GetService<IValueStore>()
             ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
         var providerStore = serviceProvider.GetService<IProviderStore>()
-            ?? new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
+            ?? new InMemoryProviderStore(options.MaxProvidersPerKey, options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes, loggerFactory);
         var validator = serviceProvider.GetService<IRecordValidator>()
             ?? CompositeRecordValidator.CreateDefault();
         var peerStore = serviceProvider.GetService<PeerStore>();
@@ -132,10 +133,10 @@ public static class ServiceCollectionExtensions
 
         // Delegate to AddKadDhtProtocols so all incoming message handling uses the same code path
         builder.AddKadDhtProtocols(
-            findNearest: publicKey =>
+            findNearest: (publicKey, excludedPeer) =>
             {
                 EnsureInitialized();
-                var peers = sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
+                var peers = sharedState?.GetKNearestPeers(publicKey, options.KSize, excludedPeer) ?? Array.Empty<DhtNode>();
                 // Enrich addresses from PeerStore (which has correct listen addresses from Identify exchange)
                 // before sending in FindNode responses
                 return EnrichPeerAddresses(peers, peerStore);
@@ -206,9 +207,6 @@ public static class ServiceCollectionExtensions
         if (peerStore == null) return;
         try
         {
-            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? existingInfo) && existingInfo?.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
-                return;
-
             var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
             foreach (string address in node.Multiaddrs)
             {
@@ -219,6 +217,8 @@ public static class ServiceCollectionExtensions
                     addresses.Add(normalized);
             }
 
+            // Let PeerStore protect configured and signed addresses while allowing
+            // records without usable addresses to receive discovery updates.
             if (addresses.Count > 0)
                 peerStore.Discover(addresses.ToArray(), isTrusted: false);
         }

@@ -40,6 +40,8 @@ public class TlsProtocol : IConnectionProtocol
             _logger?.LogInformation("Starting ListenAsync: PeerId {LocalPeerId}", context.Peer.Identity.PeerId);
 
             Stream str = new ChannelStream(downChannel);
+            // Declare the lease before sslStream so reverse disposal order releases
+            // native TLS handles before the certificate, including on authentication failure.
             using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
             X509Certificate2 certificate = certificateLease.Certificate;
             _logger?.LogDebug("Successfully created X509Certificate for PeerId {LocalPeerId}. Certificate Subject: {Subject}, Issuer: {Issuer}", context.Peer.Identity.PeerId, certificate.Subject, certificate.Issuer);
@@ -93,7 +95,7 @@ public class TlsProtocol : IConnectionProtocol
     private static bool VerifyRemoteCertificate(Multiaddress? remotePeerAddress,
         X509Certificate? certificate)
     {
-        // Per libp2p TLS spec: Must be single certificate, not a chain
+        // SslStream exposes the leaf here; its built X509Chain is not the transmitted list.
         if (certificate is not X509Certificate2 x509Certificate2)
         {
             return false;
@@ -108,6 +110,8 @@ public class TlsProtocol : IConnectionProtocol
         try
         {
             _logger?.LogInformation("Starting DialAsync: LocalPeerId {LocalPeerId}", context.Peer.Identity.PeerId);
+            // Declare the lease before sslStream so reverse disposal order releases
+            // native TLS handles before the certificate, including on authentication failure.
             using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
             X509Certificate2 clientCert = certificateLease.Certificate;
 

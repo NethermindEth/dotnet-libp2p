@@ -24,7 +24,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
 
     public PeerResourceLimits ResourceLimits { get; } = resourceLimits ?? PeerResourceLimits.Default;
     internal TimeProvider Clock { get; } = timeProvider ?? TimeProvider.System;
-    private int _initializations;
+    private int _inboundInitializations;
 
     private const int ConnectionTimeout = 15_000;
     private const int MaxConcurrentDials = 16;
@@ -267,7 +267,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         PeerId? remotePeerId = session.State.RemotePeerId ??
             throw new Libp2pSetupException($"{nameof(session.State.RemoteAddress)} should be initialized before session creation");
 
-        bool initializationAcquired = false;
+        bool initializationStarted = false;
         Session? replaced = null;
         try
         {
@@ -289,8 +289,8 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     }
                     replaced = existing;
                 }
-                if (!session.TryBeginInitialization()) throw new Libp2pException("Concurrent initialization limit reached.");
-                initializationAcquired = true;
+                if (!session.TryBeginInitialization(isListener)) throw new Libp2pException("Concurrent initialization limit reached.");
+                initializationStarted = true;
                 session.RegisterSession();
                 session.IsListenerSession = isListener;
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
@@ -309,7 +309,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         catch
         {
-            ObserveLateFailure(initializationAcquired ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
+            ObserveLateFailure(initializationStarted ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
             throw;
         }
 
@@ -968,17 +968,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     // An explicit instance is a leaf for this upgrade only, never a shared registration.
     private sealed class InstanceProtocolRef(IProtocol protocol) : ProtocolRef(protocol, false);
 
-    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
+    internal IChannel Upgrade(Session session, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity, bool isApplicationStream = false)
     {
         Channel downChannel = new();
 
-        ObserveLateFailure(Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity));
+        ObserveLateFailure(Upgrade(session, downChannel.Reverse, parentProtocol, upgradeProtocol, options, isListener, activity, isApplicationStream));
 
         return downChannel;
     }
 
-    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
-        => session.RunUpgrade(downChannel, () => RunUpgradeAsync(session, downChannel, parentProtocol, upgradeProtocol, options, isListener, activity));
+    internal Task Upgrade(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity, bool isApplicationStream = false)
+        => session.RunUpgrade(downChannel, () => RunUpgradeAsync(session, downChannel, parentProtocol, upgradeProtocol, options, isListener, activity), isApplicationStream);
 
     private Task RunUpgradeAsync(Session session, IChannel downChannel, ProtocolRef parentProtocol, IProtocol? upgradeProtocol, UpgradeOptions? options, bool isListener, Activity? activity)
     {

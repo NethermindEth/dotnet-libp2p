@@ -23,6 +23,7 @@ public class PeerResourceLimitsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new PeerResourceLimits(inboundUpgradeTimeout: timeout));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PeerResourceLimits(initializationTimeout: timeout));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PeerResourceLimits(negotiationTimeout: timeout));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PeerResourceLimits(inboundTcpIdleTimeout: timeout));
     }
 
     [Test]
@@ -39,6 +40,9 @@ public class PeerResourceLimitsTests
             Assert.That(limits.InboundUpgradeTimeout, Is.EqualTo(shortest));
             Assert.That(limits.InitializationTimeout, Is.EqualTo(longest));
             Assert.That(limits.NegotiationTimeout, Is.EqualTo(TimeSpan.FromSeconds(7)));
+            Assert.That(limits.InboundTcpIdleTimeout, Is.EqualTo(TimeSpan.FromSeconds(60)));
+            Assert.That(new PeerResourceLimits(inboundTcpIdleTimeout: shortest).InboundTcpIdleTimeout, Is.EqualTo(shortest));
+            Assert.That(new PeerResourceLimits(inboundTcpIdleTimeout: longest).InboundTcpIdleTimeout, Is.EqualTo(longest));
         });
     }
 }

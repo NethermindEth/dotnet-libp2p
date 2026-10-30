@@ -241,7 +241,7 @@ public class YamuxProtocolTests
             Task<IOResult> pendingWrite = appChannel.Reverse().WriteAsync(
                 new ReadOnlySequence<byte>(new byte[] { 1 }), timeout.Token).AsTask();
             await appChannel.CloseAsync();
-            Assert.That(await pendingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Ended));
+            Assert.That(await pendingWrite.WaitAsync(timeout.Token), Is.EqualTo(IOResult.Aborted));
 
             IChannel remote = transport.Reverse();
             YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());

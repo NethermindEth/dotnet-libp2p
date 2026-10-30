@@ -40,6 +40,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     internal sealed class PubsubPeer
     {
+        // Membership and byte accounting are owned by the router lock, independently of local interest.
+        public HashSet<string> RemoteSubscriptions { get; } = new(StringComparer.Ordinal);
+        public long RemoteSubscriptionTopicBytes { get; set; }
+
         public PubsubPeer(PeerId peerId, string protocolId, ILogger? logger, PubsubSettings settings, ReconnectionPolicy reconnectionPolicy)
         {
             PeerId = peerId;
@@ -337,6 +341,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly PeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
     private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
+    private readonly ConcurrentDictionary<PeerId, byte> pendingDials = new();
     private long heartbeatTick;
     private ulong seqNo = 1;
 
@@ -394,6 +399,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ArgumentOutOfRangeException.ThrowIfNegative(_settings.ReconnectionAttempts);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationMessages);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxPendingValidationBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionsPerPeer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionTopicBytesPerPeer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxRemoteSubscriptionTopicBytes);
         if (_settings.PendingValidationTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(PubsubSettings.PendingValidationTimeout));
@@ -470,7 +479,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     {
                         return;
                     }
-                    Track(Connect(addrs, lifetime, true));
+                    // Coalesces repeated discoveries of a peer while its dial is in flight.
+                    PeerId? dialed = addrs.FirstOrDefault()?.GetPeerId();
+                    if (dialed is not null && !pendingDials.TryAdd(dialed, 0))
+                    {
+                        return;
+                    }
+                    Task connect = Connect(addrs, lifetime, true);
+                    Track(connect);
+                    if (dialed is not null)
+                    {
+                        _ = connect.ContinueWith(t => pendingDials.TryRemove(dialed, out byte _), TaskScheduler.Default);
+                    }
                 };
                 // Subscribing replays already known peers, so it goes last.
                 _peerStore.OnNewPeer += _onNewPeer;
@@ -608,6 +628,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             _pendingValidations.Clear();
             _pendingValidationBytes = 0;
+            foreach (PubsubPeer peer in peerState.Values)
+            {
+                RemoveRemoteSubscriptions(peer);
+            }
         }
 
         _messageCache.Clear();
@@ -840,8 +864,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }
 
-            foreach (string topic in gPeers.Keys.Concat(fanout.Keys).Distinct()
-                .Where(topic => topicState.GetValueOrDefault(topic)?.IsSubscribed is true || fanout.ContainsKey(topic))
+            foreach (string topic in mesh.Keys.Concat(fanout.Keys).Distinct()
                 .ToArray())
             {
                 IReadOnlyList<MessageId> messageIds = _messageCache.GetGossipIds(topic);
@@ -939,10 +962,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         lock (this)
         {
+            // Scored before removal, as GetPeerScore would, while the peer still counts towards its own colocation.
+            double score = ScoreOf(peer);
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
                 _iwantPromises.Clear(peerId);
-                foreach (var peersByTopic in new[] { fPeers, gPeers, fanout, mesh })
+                KeepDisconnectedScore(peerId, peer.Score, score);
+                RemoveRemoteSubscriptions(peer);
+                foreach (var peersByTopic in new[] { fanout, mesh })
                 {
                     foreach (HashSet<PeerId> topicPeers in peersByTopic.Values)
                     {
@@ -975,7 +1002,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return Canceled;
 
-        PubsubPeer peer = peerState.GetOrAdd(peerId, (id) => new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local });
+        // The kept score is looked up and the peer listed under the router lock, which RemovePeer also
+        // holds to remove a peer and keep its score. Another connection to the same peer therefore cannot
+        // keep a score after this lookup missed it but before this peer is listed.
+        PubsubPeer peer;
+        lock (this)
+        {
+            PubsubPeer? created = null;
+            RetainedScore? restored = null;
+            peer = peerState.GetOrAdd(peerId, (id) => created = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, SendRpc = sendRpc, InitiatedBy = ConnectionInitiation.Local }, out restored));
+            if (ReferenceEquals(created, peer) && restored is not null)
+            {
+                ForgetRetainedScore(peerId, restored);
+            }
+        }
 
         lock (peer)
         {
@@ -1032,8 +1072,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
         if (policy.Suppressed) return (Canceled, static () => { });
 
+        // Looked up and listed under the router lock, as in OutboundConnection. The kept score is only
+        // forgotten below, once the peer is not dropped as suppressed.
         PubsubPeer? newPeer = null;
-        PubsubPeer existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote });
+        RetainedScore? restored = null;
+        PubsubPeer existingPeer;
+        lock (this)
+        {
+            existingPeer = peerState.GetOrAdd(peerId, (id) => newPeer = WithRetainedScore(new PubsubPeer(peerId, protocolId, logger, _settings, policy) { Address = addr, InitiatedBy = ConnectionInitiation.Remote }, out restored));
+        }
         lock (existingPeer)
         {
             bool isNewPeer = ReferenceEquals(newPeer, existingPeer);
@@ -1042,7 +1089,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 if (isNewPeer)
                 {
-                    ((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, existingPeer));
+                    lock (this)
+                    {
+                        if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, existingPeer)))
+                        {
+                            // Another stream may already have announced topics. Roll back those
+                            // memberships without changing the retained score used for admission.
+                            RemoveRemoteSubscriptions(existingPeer);
+                        }
+                    }
                 }
                 return (Canceled, static () => { });
             }
@@ -1050,6 +1105,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (isNewPeer)
             {
                 logger?.LogDebug("Inbound, let's dial {peerId} via remotely initiated connection", peerId);
+                if (restored is not null)
+                {
+                    ForgetRetainedScore(peerId, restored);
+                }
                 listTask.ContinueWith(t =>
                 {
                     RemovePeer(peerId, addr, existingPeer);

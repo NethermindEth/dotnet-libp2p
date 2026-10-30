@@ -263,7 +263,7 @@ public class DuplicateRecoveryTests
     }
 
     private sealed class ReplacementPeer(Identity identity, Task original, Task replacement)
-        : LocalPeer(identity, null, new ProtocolStackSettings())
+        : LocalPeer(identity, null, new ProtocolStackSettings(), resourceLimits: new PeerResourceLimits(maxConcurrentInitializations: 1))
     {
         public ProtocolRef Transport { get; } = new(new DuplicateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => isDialer ? original : replacement;

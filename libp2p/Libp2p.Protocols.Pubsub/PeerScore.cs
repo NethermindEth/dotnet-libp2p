@@ -131,6 +131,22 @@ public class PeerScore
     {
         _topicScores.TryRemove(topic, out _);
     }
+
+    /// <summary>
+    /// Prepares the score to be kept while its peer is disconnected, as go-libp2p and
+    /// rust-libp2p do: first-delivery credit is dropped, and every mesh the peer was in
+    /// is left, which turns a mesh delivery deficit into a P3b penalty. Recent delivery
+    /// times only matter while connected, so they are not kept.
+    /// </summary>
+    public void Disconnect()
+    {
+        foreach (TopicScore ts in _topicScores.Values)
+        {
+            ts.FirstMessageDeliveries = 0;
+            ts.RecentFirstDeliveries.Clear();
+            ts.LeaveMesh();
+        }
+    }
 }
 
 /// <summary>

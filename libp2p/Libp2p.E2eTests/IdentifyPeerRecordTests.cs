@@ -18,6 +18,54 @@ public class IdentifyPeerRecordTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public async Task SessionAppliesConfiguredPeerAddressesWhenTheSameRecordArrivedViaPeerExchange(bool push)
+    {
+        Identity remote = TestPeers.Identity(81);
+        PeerStore store = new();
+        store.Discover([Multiformats.Address.Multiaddress.Decode($"/p2p/{remote.PeerId}")]);
+        string address = $"/ip4/192.0.2.7/tcp/4007/p2p/{remote.PeerId}";
+        ByteString record = SigningHelper.CreateSignedEnvelope(remote, [address], 2);
+        store.Discover(record);
+        List<Multiformats.Address.Multiaddress[]> notifications = [];
+        store.OnNewPeer += notifications.Add;
+        notifications.Clear();
+        Identify message = new() { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = record };
+        await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
+        await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
+
+        PeerStore.PeerInfo info = store.GetPeerInfo(remote.PeerId);
+        Assert.That(info.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
+        Assert.That(info.SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(info.Seq, Is.EqualTo(2UL));
+        Assert.That(notifications, Has.Count.EqualTo(1));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task IdentifyAndPushCannotRollBackARecordLearnedFromPeerExchange(bool push)
+    {
+        Identity remote = TestPeers.Identity(81);
+        PeerStore store = new();
+        string currentAddress = $"/ip4/192.0.2.42/tcp/4042/p2p/{remote.PeerId}";
+        ByteString current = SigningHelper.CreateSignedEnvelope(remote, [currentAddress], 42);
+        store.Discover(current);
+        State state = new() { RemoteAddress = TestPeers.Multiaddr(remote), RemotePublicKey = remote.PublicKey };
+        ByteString stale = SigningHelper.CreateSignedEnvelope(remote, [TestPeers.Multiaddr(remote)], 41);
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = stale },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(current));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(state.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
+        ByteString next = SigningHelper.CreateSignedEnvelope(remote, [TestPeers.Multiaddr(remote)], 43);
+        await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = next },
+            PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
+        store.Discover(current);
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task LocallyOwnedProtocolIdsAreNotTruncatedOrRetainedFromTheWire(bool push)
     {
         Identity remote = TestPeers.Identity(82);
