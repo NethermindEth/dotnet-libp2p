@@ -177,6 +177,9 @@ jobs:
       - name: Test QUIC
         run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
+      - name: Test Windows process-key creation and recovery
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --filter "FullyQualifiedName~WindowsProcessKeyRecoveryTests&FullyQualifiedName!~ChildProcess" --minimum-expected-tests 20 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+
       - name: Test TLS
         run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 79 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
@@ -185,6 +188,9 @@ jobs:
 
       - name: Test registered transport lifetime and parent identity guarantees
         run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~TlsCertificateListTests" --minimum-expected-tests 36 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+
+      - name: Test registered Windows crash recovery with a live peer
+        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredWindowsKeyRecoveryTests&FullyQualifiedName!~ChildListener" --minimum-expected-tests 2 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Upload certificate probe observations
         if: always()
