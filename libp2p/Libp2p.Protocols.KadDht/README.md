@@ -62,18 +62,24 @@ Wire peer responses have separate positive limits: `MaxPeerIdBytes` (128 bytes),
 per peer), and `MaxPeerResponseBytes` (64 KiB across both peer lists). The first
 `KSize` closer entries and `MaxProvidersPerKey` provider entries are inspected;
 provider addresses use `MaxAddressesPerProvider`. Invalid, duplicate, and skipped
-entries consume slots. Closer peers take priority over providers in the combined
-budget. Encoded bytes (including protobuf peer-field framing) and retained payload
+entries consume slots. GET_PROVIDERS gives provider records priority when building
+and reading a response; closer peers use the remaining combined budget. Provider
+records can still be truncated when they exhaust that budget themselves. Encoded
+bytes (including protobuf peer-field framing) and retained payload
 are bounded independently. Retained payload charges both identity copies and UTF-16
 address strings, including destination IDs appended during normalization. Admitted
 address parsing consumes budget even on failure; oversized whole addresses are
 skipped. These response limits also apply to custom stores and nearest-peer callbacks
 and do not replace the provider store's retention limits above.
 
-FIND_NODE also counts requester entries toward the inspected prefix before excluding
-them from the response. This can return fewer than `KSize` peers; filtering first
-would permit unbounded enumeration of a custom nearest-peer callback containing
-repeated requester entries.
+When serving FIND_NODE, the requester is excluded before the wire policy applies
+the `KSize` output limit. A separate inspection budget bounds the callback iterator
+to at most `KSize + 1` candidates. The registered routing
+callbacks exclude the requester during the table lookup, before its own K limit,
+so a requester among the nearest peers does not leave the response short. Custom
+callbacks should supply up to `KSize + 1` candidates when available. Repeated
+requester, invalid, or duplicate entries never extend the bounded prefix, so a
+response can still be shorter than `KSize`.
 
 Wire identities must be complete multihashes with minimal unsigned varint headers of at
 most nine bytes and an exact digest length; unknown hash codes remain structurally

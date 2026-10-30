@@ -39,10 +39,11 @@ public class PeerIdTests
     {
         PublicKey key = new Identity().PublicKey;
         PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. key.Data.ToByteArray(), 0x00]) };
-        PeerId peerId = new(padded);
+        PeerId peerId = new(Multihash.Encode(padded.ToByteArray(), HashType.ID));
         Assert.That(Multihash.Decode(peerId.Bytes).Code, Is.EqualTo(HashType.ID), "precondition: the padded key is still inlined");
 
         Assert.That(PeerId.ExtractPublicKey(peerId.Bytes), Is.Null);
+        Assert.Throws<Exceptions.Libp2pException>(() => new PeerId(padded));
     }
 
     [Test]

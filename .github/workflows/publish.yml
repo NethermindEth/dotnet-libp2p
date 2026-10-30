@@ -39,6 +39,14 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
 
+      - name: List test projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
+          cat "$RUNNER_TEMP/test-projects.txt"
+
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
         run: dotnet restore
@@ -48,20 +56,21 @@ jobs:
         run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
 
       - name: Test
+        timeout-minutes: 30
         working-directory: ${{ env.WORKING_DIR }}
-        env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
+        shell: bash
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
-          #dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
+          set -euo pipefail
+          bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-test-logs
+          path: ${{ runner.temp }}/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: NuGet login
         uses: nuget/login@v1

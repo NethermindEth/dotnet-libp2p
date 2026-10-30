@@ -30,6 +30,8 @@ public class ProtocolTests
 
     [TestCase(KeyType.Ed25519)]
     [TestCase(KeyType.Secp256K1)]
+    [TestCase(KeyType.Rsa)]
+    [TestCase(KeyType.Ecdsa)]
     public async Task QuicTransport_ConnectsAuthenticatedPeersAndExchangesData(KeyType keyType)
     {
         if (!QuicListener.IsSupported)

@@ -43,7 +43,7 @@ internal sealed class DhtRuntime : IDisposable, IAsyncDisposable
             Protocol = protocol,
             Client = new DhtClient(state, sender, values, validator, options, loggerFactory),
             Handler = new(options, values, providers, validator,
-                key => ServiceCollectionExtensions.EnrichPeerAddresses(state.GetKNearestPeers(key), peerStore),
+                (key, excludedPeer) => ServiceCollectionExtensions.EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), peerStore),
                 node =>
                 {
                     protocol.AddNode(ServiceCollectionExtensions.EnrichNodeFromPeerStore(node, peerStore));

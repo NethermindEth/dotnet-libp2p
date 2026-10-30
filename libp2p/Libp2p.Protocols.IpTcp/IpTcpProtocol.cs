@@ -19,9 +19,21 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
+public class IpTcpProtocol : ITransportProtocol
 {
-    private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+    private readonly ILogger? _logger;
+    private readonly ArrayPool<byte> _receiveBufferPool;
+
+    public IpTcpProtocol(ILoggerFactory? loggerFactory = null) : this(loggerFactory, ArrayPool<byte>.Shared)
+    {
+    }
+
+    internal IpTcpProtocol(ILoggerFactory? loggerFactory, ArrayPool<byte> receiveBufferPool)
+    {
+        _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
+        _receiveBufferPool = receiveBufferPool;
+    }
+
     private static Multiaddress ToTcpMultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}");
 
     internal static async ValueTask<bool> SendAllAsync(Socket socket, ReadOnlySequence<byte> data, CancellationToken token = default)
@@ -131,8 +143,11 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 #endif
                 Task readTask = Task.Run(async () =>
                 {
+                    byte[]? buf = null;
                     try
                     {
+                        int receiveCapacity = client.ReceiveBufferSize;
+                        buf = _receiveBufferPool.Rent(receiveCapacity);
                         for (; client.Connected;)
                         {
                             if (client.Available == 0)
@@ -140,10 +155,10 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                                 await Task.Yield();
                             }
 
-                            byte[] buf = new byte[client.ReceiveBufferSize];
-                            int length = await client.ReceiveAsync(buf, SocketFlags.None);
+                            int length = await client.ReceiveAsync(buf.AsMemory(0, receiveCapacity), SocketFlags.None);
 
-                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..length])) != IOResult.Ok)
+                            // WaitAll readers can retain fragments after WriteAsync completes.
+                            if (length is 0 || await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, length).ToArray())) != IOResult.Ok)
                             {
                                 break;
                             }
@@ -154,6 +169,13 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
                         connectionCtx.Activity?.SetStatus(ActivityStatusCode.Error);
                         connectionCtx.Activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
                         _ = upChannel.CloseAsync();
+                    }
+                    finally
+                    {
+                        if (buf is not null)
+                        {
+                            _receiveBufferPool.Return(buf);
+                        }
                     }
                 });
 
@@ -254,15 +276,18 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
 
         Task receiveTask = Task.Run(async () =>
         {
+            byte[]? buf = null;
             try
             {
+                int receiveCapacity = client.ReceiveBufferSize;
+                buf = _receiveBufferPool.Rent(receiveCapacity);
                 while (client.Connected)
                 {
-                    byte[] buf = new byte[client.ReceiveBufferSize];
-                    int dataLength = await client.ReceiveAsync(buf, SocketFlags.None);
+                    int dataLength = await client.ReceiveAsync(buf.AsMemory(0, receiveCapacity), SocketFlags.None);
                     _logger?.LogDebug("Ctx({0}): receive, length={1}", connectionCtx.Id, dataLength);
 
-                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf[..dataLength]))) != IOResult.Ok)
+                    // Publish owned storage so later receives cannot overwrite retained fragments.
+                    if (dataLength == 0 || (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, dataLength).ToArray()))) != IOResult.Ok)
                     {
                         break;
                     }
@@ -272,6 +297,13 @@ public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportPro
             catch (SocketException e)
             {
                 _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connectionCtx.Id, e.Message);
+            }
+            finally
+            {
+                if (buf is not null)
+                {
+                    _receiveBufferPool.Return(buf);
+                }
             }
         });
 

@@ -107,6 +107,47 @@ public class KadBuilderTests
         { IsBackground = true };
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task PeerBoundFindNodeReplacesRequesterBeforeRoutingLimit(bool serviceRegistration)
+    {
+        var services = new ServiceCollection();
+        if (serviceRegistration) services.AddKadDht(options => options.KSize = 3);
+        services.AddLibp2p(builder => serviceRegistration
+            ? builder.WithKadDht()
+            : builder.AddKadDht(options => options.KSize = 3));
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IPeerFactory>();
+        await using var server = factory.Create();
+        var routing = server.GetKadDht()!.RoutingTable!;
+        var identities = Enumerable.Range(1, 64)
+            .Select(i => new Identity(Enumerable.Repeat((byte)i, 32).ToArray()))
+            // Keep both root buckets below K so this fixture does not launch eviction probes.
+            .GroupBy(identity => PublicKey.ComputeHash(identity.PeerId.Bytes).Bytes[0] & 0x80)
+            .SelectMany(group => group.Take(2)).ToArray();
+        Assert.That(identities, Has.Length.EqualTo(4));
+        for (int i = 0; i < identities.Length; i++)
+            server.GetKadDht()!.AddNode(identities[i].PeerId.ToDhtNode([$"/ip4/127.0.0.1/tcp/{4001 + i}"]));
+        var target = new PublicKey([1]);
+        var requester = routing.GetKNearestNeighbour(target.Hash, true)[0];
+        var expected = routing.GetKNearestNeighbourExcluding(target.Hash, requester.PublicKey.Hash, true);
+        Assert.That(expected, Has.Length.EqualTo(3));
+        await using var client = factory.Create(identities.Single(identity => identity.PeerId.Equals(requester.PeerId)));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await server.StartListenAsync([Multiaddress.Decode("/ip4/127.0.0.1/tcp/0")], deadline.Token);
+        var session = await client.DialAsync(server.ListenAddresses.ToArray(), deadline.Token);
+
+        var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            MessageHelper.CreateFindNodeRequest([1]), deadline.Token);
+
+        Assert.That(response.CloserPeers, Has.Count.EqualTo(3));
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())), Does.Not.Contain(requester.PeerId));
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
+            Is.EqualTo(expected.Select(node => node.PeerId)));
+        Assert.That(response.CloserPeers.Select(peer => Multiaddress.Decode(peer.Addrs.Single().ToByteArray()).ToString()),
+            Is.EqualTo(expected.Select(node => node.Multiaddrs.Single())));
+    }
+
     [TestCase(false, false)]
     [TestCase(false, true)]
     [TestCase(true, false)]
