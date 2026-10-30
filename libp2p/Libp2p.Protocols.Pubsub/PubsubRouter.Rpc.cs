@@ -870,7 +870,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 {
                     logger?.LogDebug("Received {count} peer(s) via PX from {peerId} for topic {topic}", prune.Peers.Count, peerId, prune.TopicID);
 
-                    foreach (PeerInfo? peer in prune.Peers)
+                    PeerInfo[] peers = [.. prune.Peers];
+                    if (peers.Length > _settings.PrunePeers)
+                    {
+                        Random.Shared.Shuffle(peers);
+                        peers = peers[..Math.Max(0, _settings.PrunePeers)];
+                    }
+
+                    foreach (PeerInfo peer in peers)
                     {
                         DiscoverExchangedPeer(peer, exchanged);
                     }
