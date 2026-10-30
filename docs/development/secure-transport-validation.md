@@ -4,8 +4,8 @@
 
 PR #416 now targets `main` and incorporates PR #411 through merge
 `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
-2026-10-29 against candidate `6deef303642830456c3e6f46b9dc40117aea2a8a`.
-The public PR base at that time was `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`;
+2026-10-30 against candidate `9139341fb475ab715c595b6c155ef35e2d378bf0`.
+The pinned comparison base is `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`;
 the candidate differs from that pinned base in 14 files. These documentation
 updates preserve the candidate's production code, tests, and CI configuration.
 
@@ -273,19 +273,66 @@ in that run.
 
 ### Current candidate Windows evidence
 
-On 2026-10-29 the public Actions API reported the
-[Windows QUIC and TLS job](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/40743780537/job/123012045542)
-for exact head `6deef303642830456c3e6f46b9dc40117aea2a8a` as completed with
-conclusion `success`. Its QUIC, TLS, and registered-test steps succeeded, and its
-`windows-secure-transport-results` artifact was listed as available and unexpired.
-These are job metadata observations, not independently checked test counts or
-NUnit results. Fetching the job's raw logs returned HTTP 403; downloading the
-artifact returned HTTP 401 in this unauthenticated runner. The repository snapshot
-contains historical summaries and report hashes, not those current raw reports.
+On 2026-10-30, authenticated `gh` reads retrieved and independently inspected the
+raw [Windows job log](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41033830821/job/123989712333)
+and [TLS NUnit artifact](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41033830821/artifacts/12966968409)
+from run `41033830821`. The run's head is
+`9139341fb475ab715c595b6c155ef35e2d378bf0`; its checkout is GitHub's synthetic
+merge `c2560ecc2e43866bea929c6f6c4128553f168008`, with that head and main revision
+`dd360b27308e1bda07986be4369c10e0da82f05b` as parents. These are CI merge results,
+not an execution of the unmerged candidate tree.
 
-Independent inspection of the current Windows case results and six platform
-assertions therefore remains pending. The host needs to provide the job logs and
-TLS NUnit artifact for verification. No acceptance of deferral is recorded here.
+The merge includes newer main changes, including an RSA admission guard and
+changes to other protocols and Linux CI discovery. Blob comparisons confirmed
+that the QUIC certificate helper and protocol, TLS protocol, Windows key tests,
+certificate tests, six-case certificate-list probe, identity fixtures, their
+project files, shared package/build properties, and SDK settings match the
+candidate. The full trees differ; equivalence of every input is not claimed.
+The Windows job's test commands are unchanged, and the log confirms the full
+suites and registered filter below.
+
+The runner used Windows 10.0.26100 x64, SDK 10.0.403, and runtime 10.0.14. The raw
+step summaries show:
+
+| Scope | Passed / total | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Full QUIC suite | 33 / 33 | 0 | 0 |
+| Full TLS suite | 32 / 32 | 0 | 0 |
+| Registered transport and alias controls | 5 / 5 | 0 | 0 |
+
+The QUIC invocation has no filter; all 33 cases completed without skips, including
+the three Windows key-reuse and normal-exit cases. Their source and assertions
+match the candidate. The TLS XML independently records 32 passing case nodes and
+all six `ReportsWireCertificateListAndCallbackContents` combinations. Each has
+`ChainElements=1` and `leafCopies=0`; in both roles, `ExtraStore` is 0 for the leaf,
+1 for the unrelated extra certificate, and 0 for the duplicate leaf. All three
+list shapes and both receiver roles passed the platform-conditioned length and
+DER-entry assertions. This checks actual case results beyond job metadata.
+
+The downloaded TLS report's SHA-256 is
+`e9a31ee26a820b629bf85dd42d3776f02abf1a715bdb57046121efa171ac1262`.
+The raw Windows job log's SHA-256 is
+`ab9b0c72a42dab315265b00b84eb1441b17f9d0eef23aab6114c84a134d4e661`.
+Raw files remain session artifacts; the linked Actions artifact contains the TLS
+XML, while QUIC and registered totals come from the linked job log.
+
+These results verify normal Windows execution of the PR's transport changes in
+the tested merge. They do not exercise a busy `Monitor.TryEnter` shutdown, pin
+TLS declaration order or responder buffer capacity with mutation tests, establish
+cross-client interoperability, or demonstrate hard-crash orphan recovery. Those
+coverage limits remain explicit.
+
+Read-only retrieval commands, with output under the session's `TMPDIR`:
+
+```sh
+gh run view 41033830821 --repo NethermindEth/dotnet-libp2p --json headSha,status,conclusion,jobs,url
+gh run download 41033830821 --repo NethermindEth/dotnet-libp2p --name windows-secure-transport-results --dir "$TMPDIR/windows41033830821"
+gh api --allow-escape-sequences repos/NethermindEth/dotnet-libp2p/actions/jobs/123989712333/logs > "$TMPDIR/windows41033830821.log"
+```
+
+The API log command writes terminal control bytes to a file for parsing. It
+avoids `gh run view --log`'s unavailable cache directory without changing global
+settings; the bytes were stripped before inspecting the displayed summaries.
 
 ## Current candidate Linux validation
 
@@ -293,6 +340,9 @@ Fresh Release checks on 2026-10-29 used candidate
 `6deef303642830456c3e6f46b9dc40117aea2a8a`, Ubuntu 22.04, SDK 10.0.402, and
 runtime 10.0.13. This host supports QUIC. All builds used
 `-p:TreatWarningsAsErrors=true` and one shared artifact root under `TMPDIR`.
+These Linux results are retained for the inspected candidate because production
+and test inputs are unchanged from `6deef30`; they were not rerun for this
+documentation refresh.
 
 | Scope | Passed | Skipped | Total |
 | --- | ---: | ---: | ---: |
@@ -342,33 +392,9 @@ Closes #371
 #373 remains unresolved because the Windows callback loses transmitted duplicate
 entries. #402 is a partial mitigation of per-attempt key creation and retains one
 possible orphan per crashed process run. Neither issue has a closing reference.
-The published PR body still had the old stacked target and Linux totals when
-inspected on 2026-10-29. The host owns that update; it remains pending until
-published. The following replacement describes the inspected candidate and the
-fresh results without crediting this PR with the absorbed parent changes:
-
-### Replacement PR description
-
-Targets `main`; incorporates PR #411. The inspected candidate is
-`6deef303642830456c3e6f46b9dc40117aea2a8a`, with 14 changed files against pinned
-PR base `5811fe009c6ea2f4a0f7d55e55063381a3cc9c44`.
-
-- Fix all three Noise handshake reads to use unsigned lengths and check unsigned
-  write conversions. The responder prefix capacity is documented, not test-pinned.
-- Bound Windows persisted key creation to one process-owned key per loaded
-  helper. Keep certificate leases independent and attempt exact-key normal-exit
-  cleanup. TLS stream-before-lease disposal is documented, not test-pinned.
-- Probe actual TLS certificate lists and assert the observed platform callback
-  contents. #373 remains unresolved; #402 retains one possible orphan per crashed
-  process run. The separate Noise transport-record defect is tracked in
-  [issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
-- Fresh Linux Release validation: Noise 40 passed, TLS 32 passed, QUIC 30 passed
-  with three Windows-only skips, and registered identity/transport tests 45 passed.
-  Formatting and spelling checks for the two changed documents pass.
-- Historical Windows evidence at `84e0e22`: QUIC 32/32, TLS 32/32, registered
-  transport/alias controls 5/5, no skips. The current candidate's Windows Actions
-  job reports success, but independent inspection of its raw case results and new
-  platform assertions remains pending.
-
-Only #371 has a closing reference. The separate Noise issue #431 remains open;
-independent Windows evidence verification also remains pending.
+The published PR body now targets main and has the refreshed Linux totals, but
+on 2026-10-30 its header still called `37bfd9e` the current head. The host owns
+publication of the corrected head reference and current Windows evidence.
+Prepared publication text is kept outside the source checkout; this validation
+record is not a draft PR description. The separate Noise issue #431 remains open
+and outside this PR's runtime changes.
