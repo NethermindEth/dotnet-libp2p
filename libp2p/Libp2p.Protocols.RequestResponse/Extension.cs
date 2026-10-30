@@ -29,4 +29,19 @@ public static class RequestResponseExtensions
 
         return builder.AddProtocol(protocol, isExposed);
     }
+
+    public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
+        this IPeerFactoryBuilder builder,
+        Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> cancellationHandler,
+        string protocolId,
+        bool isExposed = true,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue)
+        where TRequest : class, IMessage<TRequest>, new()
+        where TResponse : class, IMessage<TResponse>, new()
+    {
+        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
+            cancellationHandler, protocolId, builder.ServiceProvider.GetService<ILoggerFactory>(), expectsResponse, maxMessageSize);
+        return builder.AddProtocol(protocol, isExposed);
+    }
 }

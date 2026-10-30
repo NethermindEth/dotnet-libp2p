@@ -309,7 +309,7 @@ public class PeerStoreTests
     {
         Identity peer = new();
         PublicKey padded = Key(KeyType.Ed25519, [.. peer.PublicKey.Data.ToByteArray(), 0x00]);
-        PeerId paddedPeerId = new(padded);
+        PeerId paddedPeerId = new(Multiformats.Hash.Multihash.Encode(padded.ToByteArray(), Multiformats.Hash.HashType.ID));
         SignedEnvelope template = SignedEnvelope.Parser.ParseFrom(SignedRecord(peer));
         template.PublicKey = padded.ToByteString();
         PeerRecord record = new() { PeerId = ByteString.CopyFrom(paddedPeerId.Bytes), Seq = 1 };
