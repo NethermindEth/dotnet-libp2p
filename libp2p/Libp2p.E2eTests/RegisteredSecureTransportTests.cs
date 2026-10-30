@@ -56,7 +56,7 @@ public class RegisteredSecureTransportTests
         }
     }
 
-    private static ServiceProvider Services(string transport)
+    internal static ServiceProvider Services(string transport)
     {
         IServiceCollection services = new ServiceCollection();
         if (transport == "tls")

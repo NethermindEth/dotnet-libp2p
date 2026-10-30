@@ -60,7 +60,7 @@ X.509 Certificate:
 ### Platform Support
 - **Platform Validation**: Linux transport tests pass. Recorded validation of revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on Windows 10.0.26200 / .NET 10.0.12 passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 without skips. The [validation record](../../docs/development/secure-transport-validation.md) links a portable results snapshot, replay commands, and the CI artifact configuration; all CI gates remain.
 - **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
-- **Crash Lifetime**: A crash or failed shutdown cleanup can leave one key per process run behind. Across repeated crashes this residual is unbounded; no legacy-key sweep is performed. See the [ownership and validation evidence](../../docs/development/secure-transport-validation.md).
+- **Crash Lifetime**: Fresh Windows key initialization attempts recovery of exactly marked process keys after proving their owning process incarnation has terminated. Live owners, unknown liveness and unmarked legacy keys are retained. Contention, access restrictions and deletion failure defer recovery to another initialization. See the [recovery contract and validation status](../../docs/development/windows-process-key-recovery.md).
 
 ### Received certificate lists
 
