@@ -350,7 +350,7 @@ public class Channel : IChannel
 
                 if (_eow)
                 {
-                    return IOResult.Ended;
+                    return ClosedIoResult;
                 }
 
                 if (_bytes.Length != 0)
@@ -366,7 +366,7 @@ public class Channel : IChannel
                 if ((Interlocked.Or(ref _state, PendingWrite) & Closed) != 0)
                 {
                     Interlocked.And(ref _state, ~PendingWrite);
-                    return IOResult.Ended;
+                    return ClosedIoResult;
                 }
                 _bytes = bytes;
                 _canRead.Release();
@@ -419,7 +419,7 @@ public class Channel : IChannel
             }
             catch (OperationCanceledException)
             {
-                return _closed.IsCancellationRequested ? IOResult.Ended : IOResult.Cancelled;
+                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
             }
             finally
             {

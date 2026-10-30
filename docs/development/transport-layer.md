@@ -41,6 +41,14 @@ When a real connection is established, the implementation should:
 
 Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
+### Receive buffer ownership and retention
+
+TCP and QUIC receive pumps reuse one pooled scratch buffer per pump and copy each received fragment into an independent array before publishing it to the upper channel. A `Channel.ReadAsync(length, ReadBlockingMode.WaitAll)` reader can acknowledge writes while retaining their fragments until the requested length arrives. Published memory must therefore remain valid after `WriteAsync` completes and after the scratch buffer is reused or returned.
+
+Follow-up for [#399](https://github.com/NethermindEth/dotnet-libp2p/issues/399): compact fragment arrays remove the receive-buffer-sized allocation retained for every fragment, but impose no aggregate per-peer memory limit. A pending `WaitAll` read can accumulate payload up to its caller's requested length, plus one array header and one `MemorySegment<byte>` node per fragment. A fragment crossing the read boundary can also keep its remaining bytes alive. Concurrent reads and QUIC streams multiply these costs, and completed read results retain their storage for as long as callers keep them.
+
+On a typical 64-bit .NET runtime, a one-byte fragment uses roughly 32 bytes for its array and 48 bytes for its segment node: about 80 managed bytes per received byte, rather than a whole receive array (for example, 131072 bytes with a 128 KiB TCP receive buffer). This is an estimate that depends on runtime layout and excludes the active pooled scratch buffers and other connection state. Bounding requested read lengths, fragment overhead and aggregate retention across a peer's connections and streams remains follow-up work.
+
 ## Connection protocol
 
 Connection protocols implement `IConnectionProtocol`. They receive a channel from the lower protocol and can either select, transform, or multiplex the next protocol.

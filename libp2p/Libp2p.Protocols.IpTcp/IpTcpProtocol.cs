@@ -242,10 +242,11 @@ public class IpTcpProtocol : ITransportProtocol
 
             async Task<bool> ReceiveAsync()
             {
-                int capacity = client.ReceiveBufferSize;
-                byte[] scratch = _receiveBufferPool.Rent(capacity);
+                byte[]? scratch = null;
                 try
                 {
+                    int capacity = client.ReceiveBufferSize;
+                    scratch = _receiveBufferPool.Rent(capacity);
                     while (true)
                     {
                         int length = await client.ReceiveAsync(scratch.AsMemory(0, capacity), SocketFlags.None, lifetime.Token);
@@ -259,7 +260,25 @@ public class IpTcpProtocol : ITransportProtocol
                         if (result != IOResult.Ok) return result == IOResult.Ended;
                     }
                 }
-                finally { _receiveBufferPool.Return(scratch); }
+                catch (SocketException failure)
+                {
+                    if (remoteAddr is null)
+                    {
+                        Activity? activity = connectionActivity ?? connection.Activity;
+                        activity?.SetStatus(ActivityStatusCode.Error);
+                        activity?.AddEvent(new ActivityEvent("disconnected due to a socket exception"));
+                    }
+                    else
+                    {
+                        _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connection.Id, failure.Message);
+                    }
+                    // No receive began when setup failed. Preserve orderly completion for this path;
+                    // socket failures after renting remain transport failures and abort the connection.
+                    if (scratch is not null) throw;
+                    await channel.WriteEofAsync(lifetime.Token);
+                    return true;
+                }
+                finally { if (scratch is not null) _receiveBufferPool.Return(scratch); }
             }
 
             async Task<bool> SendAsync()

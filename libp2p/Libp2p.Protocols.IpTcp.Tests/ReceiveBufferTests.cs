@@ -5,16 +5,53 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Multiformats.Address.Net;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
+using NSubstitute;
 
 namespace Libp2p.Protocols.IpTcp.Tests;
 
 public class ReceiveBufferTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ReceiveSetupSocketErrorUsesTheExistingHandlerAndClosesTheChannel(bool listen)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using Activity activity = new("receive-setup-failure");
+        SocketException failure = new((int)SocketError.NoBufferSpaceAvailable);
+        ArrayPool<byte> pool = Substitute.For<ArrayPool<byte>>();
+        pool.Rent(Arg.Any<int>()).Returns(_ => throw failure);
+        ILogger logger = Substitute.For<ILogger>();
+        using ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        ReceiveTestChannel channel = new();
+        Task<ReadResult> reading = channel.Upper.ReadAsync(1, token: deadline.Token).AsTask();
+
+        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(loggerFactory, pool), channel, deadline.Token, activity))
+        {
+            await pump.Context.Disposed.Task.WaitAsync(deadline.Token);
+            Assert.That((await reading.WaitAsync(deadline.Token)).Result, Is.EqualTo(IOResult.Ended));
+            pool.Received(1).Rent(Arg.Is<int>(capacity => capacity > 0));
+            pool.DidNotReceive().Return(Arg.Any<byte[]>(), Arg.Any<bool>());
+            if (listen)
+            {
+                Assert.That(activity.Status, Is.EqualTo(ActivityStatusCode.Error));
+                Assert.That(activity.Events.Select(item => item.Name), Does.Contain("disconnected due to a socket exception"));
+            }
+            else
+            {
+                Assert.That(logger.ReceivedCalls().Where(call => call.GetMethodInfo().Name == nameof(ILogger.Log))
+                    .Select(call => call.GetArguments()[2]?.ToString()),
+                    Does.Contain($"Ctx(receive-test): end receiving, socket exception {failure.Message}"));
+            }
+        }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task FragmentedWaitAllRetainsOnlyReceivedBytes(bool listen)
@@ -107,10 +144,10 @@ public class ReceiveBufferTests
         public Socket Remote { get; } = remote;
         public ReceiveContext Context { get; } = context;
 
-        public static async Task<TcpPump> StartAsync(bool listen, IpTcpProtocol protocol, ReceiveTestChannel channel, CancellationToken token)
+        public static async Task<TcpPump> StartAsync(bool listen, IpTcpProtocol protocol, ReceiveTestChannel channel, CancellationToken token, Activity? activity = null)
         {
             CancellationTokenSource lifetime = new();
-            ReceiveContext context = new(channel);
+            ReceiveContext context = new(channel) { Activity = activity };
             Socket? remote = null;
             Task? transport = null;
             try
@@ -190,7 +227,7 @@ public class ReceiveBufferTests
         public State State { get; } = new();
         public CancellationToken Token => Lifetime.Token;
         public ILocalPeer Peer => throw new NotSupportedException();
-        public Activity? Activity => null;
+        public Activity? Activity { get; init; }
         public IEnumerable<IProtocol> SubProtocols => [];
         public void ListenerReady(Multiaddress address) => Ready.TrySetResult(address.ToEndPoint());
         public INewConnectionContext CreateConnection() => this;

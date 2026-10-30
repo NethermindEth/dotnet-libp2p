@@ -134,6 +134,7 @@ public class StrictNoSignTests
             GetMessageId = message => new(message.Data.ToByteArray()),
         };
         using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("no-sign");
         PeerId propagatingPeer = TestPeers.PeerId(1);
         PeerId? validatedPeer = null;
         router.VerifyMessage = (peerId, _) =>
