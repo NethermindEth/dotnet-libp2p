@@ -23,10 +23,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             // decompresses Snappy and hashes the uncompressed payload, up to 10 MiB. Running it
             // under the router lock stalls every other peer and the heartbeat. Admit the RPC under
             // a short lock, calculate outside it, then take the lock again to update state. The
-            // admission check keeps a stopped router and graylisted peers away from the
-            // calculation; it is advisory, and the authoritative check runs under the second lock.
-            bool admitted = false;
+            // admission check keeps stopped routers, graylisted peers and unwanted topics away
+            // from the calculation; authoritative checks run under the second lock.
             PubsubPeer? admittedPeer = null;
+            Message[] interestedMessages = [];
             if (rpc.Publish.Count != 0)
             {
                 lock (this)
@@ -36,20 +36,24 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                         return;
                     }
 
-                    admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
+                    bool admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
                     peerState.TryGetValue(peerId, out admittedPeer);
+                    if (admitted)
+                    {
+                        interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                    }
                 }
             }
 
             MessageId[]? publishIds = null;
-            if (admitted)
+            if (interestedMessages.Length != 0)
             {
                 // The router lock used to serialize these calculations. Bound them explicitly now
                 // that it does not, so the transient memory does not scale with peer count.
                 _messageIdCalculations.Wait();
                 try
                 {
-                    publishIds = ComputeMessageIds(rpc.Publish);
+                    publishIds = ComputeMessageIds(interestedMessages);
                 }
                 finally
                 {
@@ -95,7 +99,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     if (publishIds is not null && (admittedPeer is null ||
                         (peerState.TryGetValue(peerId, out PubsubPeer? sender) && ReferenceEquals(sender, admittedPeer))))
                     {
-                        if (HandleNewMessages(peerId, rpc.Publish, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages) &&
+                        if (HandleNewMessages(peerId, interestedMessages, publishIds, peerMessages, idontwantMessages, receivedMessages, deferredMessages) &&
                             ShouldIgnoreRpc(peerId, isDirectPeer))
                         {
                             return;
@@ -276,7 +280,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     /// Completes a message for which <see cref="VerifyMessage"/> returned
     /// <see cref="MessageValidity.Deferred"/>. The exact message instance passed to the
     /// validator is required, so a late completion cannot finish a replacement with the same ID.
-    /// Returns false if it was not pending, expired, or was changed after validation began.
+    /// Returns false if it was not pending, expired, its topic was unsubscribed,
+    /// or it was changed after validation began.
     /// </summary>
     public bool CompleteValidation(Message message, MessageValidity validity)
     {
@@ -307,7 +312,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
             _pendingValidations.Remove(entry.Key);
             _pendingValidationBytes -= pending.Size;
-            if (!message.Equals(pending.Snapshot))
+            if (!IsLocallySubscribed(pending.Snapshot.Topic) || !message.Equals(pending.Snapshot))
             {
                 return false;
             }
@@ -517,6 +522,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         for (int i = 0; i < messages.Count; i++)
         {
             Message message = messages[i];
+            // Interest may change while host-supplied message IDs are computed outside the lock.
+            if (!IsLocallySubscribed(message.Topic))
+            {
+                continue;
+            }
             MessageId messageId = messageIds[i];
             if (IsKnownMessage(messageId))
             {
@@ -535,6 +545,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             Func<PeerId, Message, MessageValidity>? verify = VerifyMessage;
             Message? authenticated = verify is null ? null : message.Clone();
             MessageValidity validity = verify?.Invoke(peerId, message) ?? MessageValidity.Accepted;
+            // A synchronous validator can unsubscribe from inside its callback.
+            if (!IsLocallySubscribed(authenticated?.Topic ?? message.Topic))
+            {
+                continue;
+            }
             if (authenticated is not null && !message.Equals(authenticated))
             {
                 logger?.LogWarning("Pubsub validator changed a message after authentication for topic {topic}", authenticated.Topic);
@@ -609,6 +624,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private void AcceptMessage(MessageId messageId, Message message, PeerId peerId, ConcurrentDictionary<PeerId, Rpc> peerMessages,
         Dictionary<PeerId, Rpc> idontwantMessages, List<(string Topic, PeerId PeerId, byte[] Data)> receivedMessages)
     {
+        if (!IsLocallySubscribed(message.Topic))
+        {
+            return;
+        }
         _seenMessages.Add(messageId);
         _messageCache.Put(messageId, message);
         _iwantPromises.Fulfill(messageId);
@@ -717,55 +736,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private void HandleSubscriptions(PeerId peerId, IEnumerable<Rpc.Types.SubOpts> subscriptions)
     {
-        foreach (Rpc.Types.SubOpts? sub in subscriptions)
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? state))
         {
-            PubsubPeer? state = peerState.GetValueOrDefault(peerId);
-            if (state is null)
-            {
-                return;
-            }
-            if (sub.Subscribe)
-            {
-                if (state.IsGossipSub)
-                {
-                    gPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
-                }
-                else if (state.IsFloodSub)
-                {
-                    fPeers.GetOrAdd(sub.Topicid, _ => []).Add(peerId);
-                }
+            return;
+        }
 
-                if (_settings.EnablePartialMessages && state.SupportsPartialMessagesExtension)
-                {
-                    bool requestsPartialMessages = sub.RequestsPartial;
-                    state.UpdatePartialMessagesSubscription(
-                        sub.Topicid,
-                        requestsPartialMessages,
-                        sub.SupportsSendingPartial);
-                }
-            }
-            else
+        foreach (Rpc.Types.SubOpts sub in subscriptions)
+        {
+            if (!sub.Subscribe)
             {
-                state.RemovePartialMessagesSubscription(sub.Topicid);
-                if (state.IsGossipSub)
-                {
-                    gPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);
-                    if (mesh.ContainsKey(sub.Topicid))
-                    {
-                        if (mesh[sub.Topicid].Remove(peerId))
-                        {
-                            RecordPeerLeaveMesh(peerId, sub.Topicid);  // Track for scoring
-                        }
-                    }
-                    if (fanout.ContainsKey(sub.Topicid))
-                    {
-                        fanout[sub.Topicid].Remove(peerId);
-                    }
-                }
-                else if (state.IsFloodSub)
-                {
-                    fPeers.GetOrAdd(sub.Topicid, _ => []).Remove(peerId);
-                }
+                RemoveRemoteSubscription(state, sub.Topicid);
+                continue;
+            }
+
+            if (!TryAddRemoteSubscription(state, sub.Topicid, out string retainedTopic))
+            {
+                continue;
+            }
+            if (_settings.EnablePartialMessages && state.SupportsPartialMessagesExtension)
+            {
+                state.UpdatePartialMessagesSubscription(retainedTopic, sub.RequestsPartial, sub.SupportsSendingPartial);
             }
         }
     }
@@ -840,8 +830,16 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 if (!topicMesh.Contains(peerId))
                 {
+                    if (!peerState.TryGetValue(peerId, out PubsubPeer? graftPeer) || !graftPeer.IsGossipSub ||
+                        !TryAddRemoteSubscription(graftPeer, graft.TopicID, out _))
+                    {
+                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                            .Ensure(r => r.Control.Prune)
+                            .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)Math.Max(1, _settings.PruneBackoff / 1_000) });
+                        continue;
+                    }
+
                     topicMesh.Add(peerId);
-                    gPeers[graft.TopicID].Add(peerId);
                     RecordPeerJoinMesh(peerId, graft.TopicID);  // Track for scoring
                 }
             }

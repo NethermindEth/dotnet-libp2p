@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using Org.BouncyCastle.Crypto.EC;
+using Org.BouncyCastle.Security;
 using System.Security.Cryptography;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
@@ -120,6 +121,38 @@ public class SupportedSignaturesTests
         Assert.Throws<Libp2pException>(() => PublicKeyDecoder.Decode(published.Key));
         Assert.That(legacy.PublicKey.ToByteArray(), Is.EqualTo(originalKey));
         Assert.That(legacy.PrivateKey!.Data.ToByteArray(), Is.EqualTo(IdentityFixtures.LegacyRsaPrivateKey));
+    }
+
+    [Test]
+    public void LargeRsaExponentCannotReachApplicationValidationOrDelivery()
+    {
+        Identity signer = new(keyType: KeyType.Rsa);
+        PublicKey key = RsaKeyFixtures.EquivalentLargeExponent(signer);
+        PeerId author = new((byte[])Multiformats.Hash.Multihash.Sum(Multiformats.Hash.HashType.SHA2_256, key.ToByteArray()));
+        Rpc rpc = new Rpc().WithMessages("signed", 1, author.Bytes, [1], signer);
+        rpc.Publish[0].Key = key.ToByteString();
+        // This is a valid signature for the large exponent, not merely malformed input.
+        Message unsigned = rpc.Publish[0].Clone();
+        unsigned.ClearSignature();
+        unsigned.ClearKey();
+        byte[] payload = [.. "libp2p-pubsub:"u8, .. unsigned.ToByteArray()];
+        var verifier = SignerUtilities.GetSigner("SHA256withRSA");
+        verifier.Init(false, PublicKeyFactory.CreateKey(key.Data.ToByteArray()));
+        verifier.BlockUpdate(payload, 0, payload.Length);
+        Assert.That(verifier.VerifySignature(rpc.Publish[0].Signature.ToByteArray()), Is.True);
+        using PubsubRouter router = new(new PeerStore());
+        router.Subscribe("signed");
+        router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13, new TaskCompletionSource().Task, _ => { });
+        int validations = 0, deliveries = 0;
+        router.VerifyMessage = (_, _) => { validations++; return MessageValidity.Accepted; };
+        router.OnMessage += (_, _, _) => deliveries++;
+        router.OnRpc(TestPeers.PeerId(1), rpc);
+        Assert.Multiple(() =>
+        {
+            Assert.That(validations, Is.Zero);
+            Assert.That(deliveries, Is.Zero);
+            Assert.That(router.GetPeerScore(TestPeers.PeerId(1)), Is.LessThan(0));
+        });
     }
 
     [TestCase("empty")]

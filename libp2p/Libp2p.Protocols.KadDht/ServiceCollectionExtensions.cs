@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
     {
         var options = new KadDhtOptions();
         configureOptions?.Invoke(options);
+        WirePeerPolicy.Validate(options);
         services.AddSingleton(options);
 
         services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
@@ -46,7 +47,7 @@ public static class ServiceCollectionExtensions
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var peerStore = sp.GetService<PeerStore>();
             var sharedState = sp.GetRequiredService<SharedDhtState>();
-            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
+            return new Integration.LibP2pKademliaMessageSender(options, localPeer, loggerFactory,
                 onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null,
                 onPingResponse: node => sharedState.AddNodeCallback?.Invoke(node));
         });
@@ -132,10 +133,10 @@ public static class ServiceCollectionExtensions
 
         // Delegate to AddKadDhtProtocols so all incoming message handling uses the same code path
         builder.AddKadDhtProtocols(
-            findNearest: publicKey =>
+            findNearest: (publicKey, excludedPeer) =>
             {
                 EnsureInitialized();
-                var peers = sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
+                var peers = sharedState?.GetKNearestPeers(publicKey, options.KSize, excludedPeer) ?? Array.Empty<DhtNode>();
                 // Enrich addresses from PeerStore (which has correct listen addresses from Identify exchange)
                 // before sending in FindNode responses
                 return EnrichPeerAddresses(peers, peerStore);

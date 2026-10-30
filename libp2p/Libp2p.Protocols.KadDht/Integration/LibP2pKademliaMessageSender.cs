@@ -14,6 +14,7 @@ namespace Libp2p.Protocols.KadDht.Integration;
 public class LibP2pKademliaMessageSender : IDhtMessageSender
 {
     private readonly ILocalPeer _localPeer;
+    private readonly KadDhtOptions _options;
     private readonly ILogger<LibP2pKademliaMessageSender>? _logger;
     private readonly TimeSpan _operationTimeout;
     private readonly Action<DhtNode>? _onPeerDiscovered;
@@ -25,7 +26,20 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         TimeSpan? operationTimeout = null,
         Action<DhtNode>? onPeerDiscovered = null,
         Action<DhtNode>? onPingResponse = null)
+        : this(new KadDhtOptions(), localPeer, loggerFactory, operationTimeout, onPeerDiscovered, onPingResponse)
     {
+    }
+
+    public LibP2pKademliaMessageSender(
+        KadDhtOptions options,
+        ILocalPeer localPeer,
+        ILoggerFactory? loggerFactory = null,
+        TimeSpan? operationTimeout = null,
+        Action<DhtNode>? onPeerDiscovered = null,
+        Action<DhtNode>? onPingResponse = null)
+    {
+        WirePeerPolicy.Validate(options);
+        _options = options;
         _localPeer = localPeer ?? throw new ArgumentNullException(nameof(localPeer));
         _logger = loggerFactory?.CreateLogger<LibP2pKademliaMessageSender>();
         _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(30);
@@ -215,11 +229,8 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             var request = MessageHelper.CreateGetProvidersRequest(key);
             var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, timeoutCts.Token);
 
-            return new GetProvidersResult
-            {
-                Providers = ParsePeersAndStore(response.ProviderPeers),
-                CloserPeers = ParseCloserPeers(response)
-            };
+            var peers = new WirePeerPolicy(_options).ReadResponse(response, _onPeerDiscovered);
+            return new GetProvidersResult { Providers = peers.Providers, CloserPeers = peers.Closer };
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -235,25 +246,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
     private DhtNode[] ParseCloserPeers(Message response)
     {
-        return ParsePeersAndStore(response.CloserPeers);
-    }
-
-    private DhtNode[] ParsePeersAndStore(IReadOnlyList<Message.Types.Peer> wirePeers)
-    {
-        if (wirePeers.Count == 0) return Array.Empty<DhtNode>();
-
-        var nodes = new List<DhtNode>(wirePeers.Count);
-        foreach (var wp in wirePeers)
-        {
-            if (MessageHelper.FromWirePeer(wp) is { } node)
-            {
-                nodes.Add(node);
-                // Per spec: persist discovered peer addresses to peerbook
-                if (_onPeerDiscovered is not null && node.Multiaddrs.Count > 0)
-                    _onPeerDiscovered(node);
-            }
-        }
-        return nodes.ToArray();
+        return new WirePeerPolicy(_options).ReadResponse(response, _onPeerDiscovered, includeProviders: false).Closer;
     }
 
     private async Task<ISession> DialNodeAsync(DhtNode targetNode, CancellationToken cancellationToken)

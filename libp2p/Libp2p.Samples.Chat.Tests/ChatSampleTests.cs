@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-namespace Nethermind.Libp2p.Core.Tests;
+using Nethermind.Libp2p.Core;
+using NUnit.Framework;
+
+namespace Nethermind.Libp2p.Samples.Chat.Tests;
 
 public class ChatSampleTests
 {

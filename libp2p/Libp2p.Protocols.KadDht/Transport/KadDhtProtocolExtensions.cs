@@ -43,37 +43,57 @@ public static class KadDhtProtocolExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(findNearest);
+        return builder.AddKadDhtProtocols((target, _) => findNearest(target), onPeerSeen,
+            baseId, loggerFactory, isExposed, options, valueStore, providerStore, validator);
+    }
+
+    internal static IPeerFactoryBuilder AddKadDhtProtocols(
+        this IPeerFactoryBuilder builder,
+        Func<PublicKey, PeerId?, IEnumerable<DhtNode>> findNearest,
+        Action<DhtNode>? onPeerSeen = null,
+        string baseId = DefaultBaseId,
+        ILoggerFactory? loggerFactory = null,
+        bool isExposed = true,
+        KadDhtOptions? options = null,
+        IValueStore? valueStore = null,
+        IProviderStore? providerStore = null,
+        IRecordValidator? validator = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(findNearest);
 
         var dhtOptions = options ?? new KadDhtOptions();
+        WirePeerPolicy.Validate(dhtOptions);
         ProviderRecordLimits.Validate(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys,
             dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes);
         var dhtValueStore = valueStore ?? new InMemoryValueStore(dhtOptions.MaxStoredValues, loggerFactory);
         var dhtProviderStore = providerStore ?? new InMemoryProviderStore(dhtOptions.MaxProvidersPerKey, dhtOptions.MaxProviderKeys, dhtOptions.MaxAddressesPerProvider, dhtOptions.MaxProviderRecordBytes, loggerFactory);
         var dhtValidator = validator ?? DefaultRecordValidator.Instance;
+        IEnumerable<DhtNode> FindNearest(PublicKey target) => findNearest(target, null);
 
         builder = builder.AddRequestResponseProtocol<Message, Message>(
-            baseId,
-            async (request, ctx) =>
+            async (request, ctx, token) =>
             {
-                TryTrackPeer(ctx, onPeerSeen);
+                TryTrackPeer(ctx, onPeerSeen, dhtOptions);
 
                 return request.Type switch
                 {
                     Message.Types.MessageType.Ping => MessageHelper.CreatePingResponse(),
 
-                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest, ctx),
+                    Message.Types.MessageType.FindNode => HandleFindNode(request, findNearest, ctx, dhtOptions),
 
-                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, dhtValidator, loggerFactory),
+                    Message.Types.MessageType.PutValue => await HandlePutValue(request, dhtOptions, dhtValueStore, dhtValidator, loggerFactory, token),
 
-                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtValueStore, findNearest, loggerFactory),
+                    Message.Types.MessageType.GetValue => await HandleGetValue(request, dhtOptions, dhtValueStore, FindNearest, loggerFactory, ctx, token),
 
-                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory),
+                    Message.Types.MessageType.AddProvider => await HandleAddProvider(request, ctx, dhtOptions, dhtProviderStore, loggerFactory, token),
 
-                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, findNearest, loggerFactory),
+                    Message.Types.MessageType.GetProviders => await HandleGetProviders(request, dhtOptions, dhtProviderStore, FindNearest, loggerFactory, ctx, token),
 
                     _ => new Message()
                 };
             },
+            baseId,
             maxMessageSize: dhtOptions.MaxMessageSize,
             isExposed: isExposed,
             expectsResponse: request => request.Type != Message.Types.MessageType.AddProvider);
@@ -81,25 +101,27 @@ public static class KadDhtProtocolExtensions
         return builder;
     }
 
-    private static Message HandleFindNode(Message request, Func<PublicKey, IEnumerable<DhtNode>> findNearest, ISessionContext ctx)
+    private static Message HandleFindNode(Message request, Func<PublicKey, PeerId?, IEnumerable<DhtNode>> findNearest, ISessionContext ctx, KadDhtOptions options)
     {
         if (!request.HasKey) return MessageHelper.CreateFindNodeResponse(Enumerable.Empty<DhtNode>());
         var target = new PublicKey(request.Key.ToByteArray());
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
-        var neighbours = findNearest(target)
-            .Where(n => remotePeerId == null || !n.PeerId.Equals(remotePeerId));
-        return MessageHelper.CreateFindNodeResponse(neighbours);
+        if (remotePeerId is not null && !WirePeerPolicy.IsValidIdentity(remotePeerId.Bytes, options.MaxPeerIdBytes))
+            remotePeerId = null;
+        var neighbours = WirePeerPolicy.FilterFindNodeCandidates(
+            findNearest(target, remotePeerId), remotePeerId, options.KSize);
+        return MessageHelper.CreatePeerResponse(Message.Types.MessageType.FindNode, options, neighbours, connection: CreateConnectionResolver(ctx));
     }
 
     private static async Task<Message> HandlePutValue(Message request, KadDhtOptions options,
-        IValueStore valueStore, IRecordValidator validator, ILoggerFactory? loggerFactory)
+        IValueStore valueStore, IRecordValidator validator, ILoggerFactory? loggerFactory, CancellationToken token)
     {
         try
         {
             if (options.Mode != KadDhtMode.Server)
                 return MessageHelper.CreatePutValueResponse();
 
-            if (request.Record == null || request.Record.Value.Length > options.MaxValueSize)
+            if (request.Record == null || request.Record.Value.Length > options.MaxValueSize || !request.Key.Equals(request.Record.Key))
                 return MessageHelper.CreatePutValueResponse();
 
             byte[] key = request.Key.ToByteArray();
@@ -115,8 +137,13 @@ public static class KadDhtProtocolExtensions
                 Ttl = options.RecordTtl
             };
 
-            await valueStore.PutValueAsync(key, storedValue);
-            return MessageHelper.CreatePutValueResponse(request.Record);
+            bool stored = await valueStore.PutValueAsync(key, storedValue, token);
+            token.ThrowIfCancellationRequested();
+            return MessageHelper.CreatePutValueResponse(stored ? request.Record : null);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -126,15 +153,15 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static async Task<Message> HandleGetValue(Message request, IValueStore valueStore,
-        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory)
+    private static async Task<Message> HandleGetValue(Message request, KadDhtOptions options, IValueStore valueStore,
+        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory, ISessionContext ctx, CancellationToken token)
     {
         try
         {
             var target = new PublicKey(request.Key.ToByteArray());
             var closerPeers = findNearest(target);
 
-            var storedValue = await valueStore.GetValueAsync(request.Key.ToByteArray());
+            var storedValue = await valueStore.GetValueAsync(request.Key.ToByteArray(), token);
             if (storedValue != null)
             {
                 var record = new Record
@@ -143,9 +170,13 @@ public static class KadDhtProtocolExtensions
                     Value = ByteString.CopyFrom(storedValue.Value),
                     TimeReceived = DateTimeOffset.FromUnixTimeSeconds(storedValue.Timestamp).ToString("o")
                 };
-                return MessageHelper.CreateGetValueResponse(record, closerPeers);
+                return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, record: record, connection: CreateConnectionResolver(ctx));
             }
-            return MessageHelper.CreateGetValueResponse(closerPeers: closerPeers);
+            return MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetValue, options, closerPeers, connection: CreateConnectionResolver(ctx));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -156,7 +187,7 @@ public static class KadDhtProtocolExtensions
     }
 
     private static async Task<Message> HandleAddProvider(Message request, ISessionContext ctx, KadDhtOptions options,
-        IProviderStore providerStore, ILoggerFactory? loggerFactory)
+        IProviderStore providerStore, ILoggerFactory? loggerFactory, CancellationToken token)
     {
         try
         {
@@ -165,8 +196,18 @@ public static class KadDhtProtocolExtensions
 
             var senderPeerId = ctx.State.RemoteAddress?.GetPeerId();
 
-            foreach (var wirePeer in request.ProviderPeers)
+            foreach (var wirePeer in request.ProviderPeers.Take(options.MaxProvidersPerKey))
             {
+                if (!WirePeerPolicy.IsValidIdentity(wirePeer.Id.Span, options.MaxPeerIdBytes)) continue;
+                if (senderPeerId is not null && !wirePeer.Id.Span.SequenceEqual(senderPeerId.Bytes))
+                {
+                    var logger = loggerFactory?.CreateLogger("KadDhtProtocolExtensions");
+                    // Id validation and the warning gate precede identity copies/formatting.
+                    if (logger?.IsEnabled(LogLevel.Warning) == true)
+                        logger.LogWarning("ADD_PROVIDER rejected: provider PeerId {ProviderId} does not match sender {SenderId}",
+                            new PeerId(wirePeer.Id.ToByteArray()), senderPeerId);
+                    continue;
+                }
                 if (!ProviderRecordLimits.CanFitIdentity(request.Key.Length, wirePeer.Id.Length, options.MaxProviderRecordBytes))
                     continue;
 
@@ -174,14 +215,6 @@ public static class KadDhtProtocolExtensions
                 if (!ProviderRecordLimits.TryGetAddressBudget(request.Key.Length, wirePeer.Id.Length,
                     providerPeerId.ToString(), options.MaxProviderRecordBytes, out long remaining))
                     continue;
-
-                if (senderPeerId != null && !providerPeerId.Equals(senderPeerId))
-                {
-                    loggerFactory?.CreateLogger("KadDhtProtocolExtensions")
-                        ?.LogWarning("ADD_PROVIDER rejected: provider PeerId {ProviderId} does not match sender {SenderId}",
-                            providerPeerId, senderPeerId);
-                    continue;
-                }
 
                 var addresses = new List<string>();
                 for (int i = 0; i < Math.Min(wirePeer.Addrs.Count, options.MaxAddressesPerProvider); i++)
@@ -191,7 +224,10 @@ public static class KadDhtProtocolExtensions
                     if (encoded.Length > remaining) continue;
                     try
                     {
-                        string address = Multiaddress.Decode(encoded.ToByteArray()).ToString();
+                        var multiaddress = Multiaddress.Decode(encoded.ToByteArray());
+                        var destination = multiaddress.GetPeerId();
+                        if (destination is not null && !destination.Equals(providerPeerId)) continue;
+                        string address = multiaddress.ToString();
                         if (!string.IsNullOrEmpty(address) && ProviderRecordLimits.TryRetainAddress(address, ref remaining))
                             addresses.Add(address);
                     }
@@ -209,10 +245,14 @@ public static class KadDhtProtocolExtensions
                     Ttl = options.ProviderRecordTtl
                 };
 
-                await providerStore.AddProviderAsync(request.Key.ToByteArray(), providerRecord);
+                await providerStore.AddProviderAsync(request.Key.ToByteArray(), providerRecord, token);
             }
 
             return new Message { Type = Message.Types.MessageType.AddProvider };
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -223,21 +263,25 @@ public static class KadDhtProtocolExtensions
     }
 
     private static async Task<Message> HandleGetProviders(Message request, KadDhtOptions options, IProviderStore providerStore,
-        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory)
+        Func<PublicKey, IEnumerable<DhtNode>> findNearest, ILoggerFactory? loggerFactory, ISessionContext ctx, CancellationToken token)
     {
         try
         {
-            var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), options.MaxProvidersPerKey);
+            var providers = await providerStore.GetProvidersAsync(request.Key.ToByteArray(), options.MaxProvidersPerKey, token);
             var target = new PublicKey(request.Key.ToByteArray());
-            var response = MessageHelper.CreateGetProvidersResponse(
-                providerPeers: providers.Select(p => new Integration.DhtNode
+            var response = MessageHelper.CreatePeerResponse(Message.Types.MessageType.GetProviders, options,
+                providerPeers: providers.Take(options.MaxProvidersPerKey).Where(p => WirePeerPolicy.IsValidIdentity(p.PeerId.Bytes, options.MaxPeerIdBytes)).Select(p => new Integration.DhtNode
                 {
                     PeerId = p.PeerId,
                     PublicKey = new PublicKey(p.PeerId.Bytes),
                     Multiaddrs = p.Multiaddrs
                 }),
-                closerPeers: findNearest(target));
+                closerPeers: findNearest(target), connection: CreateConnectionResolver(ctx));
             return response;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -247,11 +291,11 @@ public static class KadDhtProtocolExtensions
         }
     }
 
-    private static void TryTrackPeer(ISessionContext ctx, Action<DhtNode>? onPeerSeen)
+    private static void TryTrackPeer(ISessionContext ctx, Action<DhtNode>? onPeerSeen, KadDhtOptions options)
     {
         if (onPeerSeen == null) return;
         var remotePeerId = ctx.State.RemoteAddress?.GetPeerId();
-        if (remotePeerId == null) return;
+        if (remotePeerId == null || !WirePeerPolicy.IsValidIdentity(remotePeerId.Bytes, options.MaxPeerIdBytes)) return;
         try
         {
             onPeerSeen(new DhtNode
@@ -262,5 +306,35 @@ public static class KadDhtProtocolExtensions
             });
         }
         catch { }
+    }
+
+    private static Func<PeerId, Message.Types.ConnectionType> CreateConnectionResolver(ISessionContext context)
+    {
+        ILookup<PeerId, CancellationToken>? connected = null;
+        return peerId =>
+        {
+            // Build only when a validated response peer needs a flag, and share the result
+            // across both peer lists. Copy eligible sessions under their collection lock;
+            // converting addresses to peer IDs must not hold up session admission/teardown.
+            if (connected is null)
+            {
+                LocalPeer.Session[] sessions = [];
+                if (context.Peer is LocalPeer local)
+                {
+                    lock (local.Sessions)
+                    {
+                        sessions = local.Sessions.Where(session => session.Connected.IsCompletedSuccessfully &&
+                            !session.Closed.IsCancellationRequested).ToArray();
+                    }
+                }
+                connected = sessions.Select(session => (PeerId: session.State.RemotePeerId, session.Closed))
+                    .Where(session => session.PeerId is not null)
+                    .ToLookup(session => session.PeerId!, session => session.Closed);
+            }
+            // A session can close after the snapshot, and another session for that same
+            // identity can remain live. Check the retained closure tokens at each lookup.
+            return connected[peerId].Any(closed => !closed.IsCancellationRequested)
+                ? Message.Types.ConnectionType.Connected : Message.Types.ConnectionType.NotConnected;
+        };
     }
 }
