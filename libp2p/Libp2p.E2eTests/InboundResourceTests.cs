@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Collections.Specialized;
 using System.Net.Sockets;
 using NUnit.Framework;
 using Microsoft.Extensions.DependencyInjection;
@@ -76,7 +77,14 @@ public class InboundResourceTests
     [TestCase(false, true)]
     [TestCase(true, false)]
     [TestCase(true, true)]
-    public async Task RegisteredIdentifyInitializationExpiresAndRestoresStoreCapacity(bool inbound, bool stallResponse)
+    public Task RegisteredIdentifyInitializationExpiresAndRestoresStoreCapacity(bool inbound, bool stallResponse)
+        => AssertIdentifyInitializationExpiresAndRestoresStoreCapacity(inbound, stallResponse);
+
+    [Test]
+    public Task RegisteredIdentifyExpiryWaitsForLocalCancellationCallbacks()
+        => AssertIdentifyInitializationExpiresAndRestoresStoreCapacity(true, true, holdCancellation: true);
+
+    private static async Task AssertIdentifyInitializationExpiresAndRestoresStoreCapacity(bool inbound, bool stallResponse, bool holdCancellation = false)
     {
         PeerStore store = new(3);
         using ServiceProvider services = new ServiceCollection().AddLibp2p()
@@ -104,6 +112,7 @@ public class InboundResourceTests
                 stack.Protocols[muxer] = [selector];
                 LocalPeer attacker = new(new Identity(), new PeerStore(), stack);
                 attackers.Add(attacker);
+                using CancellationGate? cancellation = holdCancellation ? new((LocalPeer)target, attacker.Identity.PeerId) : null;
                 Task<ISession> dial;
                 if (inbound)
                 {
@@ -119,10 +128,27 @@ public class InboundResourceTests
                 }
                 dials.Add(dial);
                 await stall.Entered.Task.WaitAsync(lifetime.Token);
+                LocalPeer.Session targetSession;
+                lock (((LocalPeer)target).Sessions)
+                    targetSession = ((LocalPeer)target).Sessions.Single(session => session.RemotePeerId == attacker.Identity.PeerId);
+                TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenRegistration closure = targetSession.Closed.Register(() => closed.TrySetResult());
                 PeerStore.PeerInfo info = store.GetPeerInfo(attacker.Identity.PeerId);
                 Assert.That(info.Sessions, Is.EqualTo(1), "The real secure/multiplexed initialization retained this peer.");
                 retained.Add(info);
                 await stall.Stopped.Task.WaitAsync(lifetime.Token);
+                // Remote EOF can precede local cancellation callbacks and pin release.
+                // Observe expiry before joining shutdown so the test cannot initiate it.
+                await closed.Task.WaitAsync(lifetime.Token);
+                Task disconnection = targetSession.DisconnectAsync();
+                if (cancellation is not null)
+                {
+                    await cancellation.Entered.Task.WaitAsync(lifetime.Token);
+                    Assert.That(info.Sessions, Is.EqualTo(1), "The local cancellation callback is still held at its barrier.");
+                    Assert.That(disconnection.IsCompleted, Is.False, "Disconnection must wait for its cancellation callbacks.");
+                    cancellation.Release();
+                }
+                await disconnection.WaitAsync(lifetime.Token);
                 if (!inbound) Assert.CatchAsync<Exception>(async () => await dial);
                 // Remote teardown precedes pin release; target-side removal follows release.
                 var targetSessions = ((LocalPeer)target).Sessions;
@@ -388,6 +414,47 @@ public class InboundResourceTests
             finally { Stopped.TrySetResult(); }
         }
         public Task ListenAsync(IChannel channel, IConnectionContext context) => DialAsync(channel, context);
+    }
+
+    private sealed class CancellationGate : IDisposable
+    {
+        private readonly LocalPeer _peer;
+        private readonly PeerId _remotePeerId;
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenRegistration _registration;
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CancellationGate(LocalPeer peer, PeerId remotePeerId)
+        {
+            _peer = peer;
+            _remotePeerId = remotePeerId;
+            peer.Sessions.CollectionChanged += SessionAdded;
+        }
+
+        private void SessionAdded(object? sender, NotifyCollectionChangedEventArgs change)
+        {
+            if (change.NewItems is null) return;
+            foreach (LocalPeer.Session session in change.NewItems)
+            {
+                if (session.RemotePeerId != _remotePeerId) continue;
+                // Register before Identify adds its cancellation callbacks. They can stop
+                // the remote handler while this callback still holds local disconnection.
+                _registration = session.Closed.Register(() =>
+                {
+                    Entered.TrySetResult();
+                    _release.Task.GetAwaiter().GetResult();
+                });
+            }
+        }
+
+        public void Release() => _release.TrySetResult();
+
+        public void Dispose()
+        {
+            Release();
+            lock (_peer.Sessions) _peer.Sessions.CollectionChanged -= SessionAdded;
+            _registration.Dispose();
+        }
     }
 
     private sealed class StallingSelector(bool response) : IConnectionProtocol

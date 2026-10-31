@@ -281,7 +281,7 @@ public partial class LocalPeer
             lock (peer.Sessions)
                 lock (_lifecycleLock)
                 {
-                    if (peer._disposal is not null || _disconnection is not null || _deadlineExpired) return false;
+                    if (peer._disposal is not null || _disconnection is not null || _deadlineExpired || DuplicateSessionFailure is not null) return false;
                     _deadlineStage = 3;
                     _deadline?.Dispose();
                     _deadline = null;
@@ -336,6 +336,16 @@ public partial class LocalPeer
         public CancellationToken ConnectionToken => connectionTokenSource.Token;
 
 
+        internal bool IsListenerConnection { get; set; }
+        internal bool IsListenerSession { get; set; }
+        internal volatile SessionExistsException? DuplicateSessionFailure;
+        internal volatile Session? Replacement;
+        internal Session? Replaces;
+
+        internal SessionExistsException? GetDuplicateFailure()
+            => DuplicateSessionFailure ?? (Replacement is { } replacement && CanAwaitSession(replacement)
+                ? new SessionExistsException(RemotePeerId) : null);
+
         public TaskCompletionSource ConnectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Connected => ConnectedTcs.Task;
 
@@ -359,6 +369,7 @@ public partial class LocalPeer
                     failure = failure is null ? exception : new AggregateException(failure, exception);
                 }
                 _connections.Remove(session);
+                if (session.Replaces is { } original && ReferenceEquals(original.Replacement, session)) original.Replacement = null;
                 if (failure is null) completion.TrySetResult();
                 else completion.TrySetException(failure);
             }

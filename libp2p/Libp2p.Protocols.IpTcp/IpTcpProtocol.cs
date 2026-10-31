@@ -133,9 +133,16 @@ public class IpTcpProtocol : ITransportProtocol
             try { lifetime.Cancel(); }
             finally
             {
-                Task[] pending;
-                lock (active) pending = [.. active];
-                await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                // Closing the accept socket is distinct from draining its handlers. A handler
+                // may itself await peer disposal; its permit must remain owned until it returns.
+                listener.Close();
+                try { context.ListenerStopped(); }
+                finally
+                {
+                    Task[] pending;
+                    lock (active) pending = [.. active];
+                    await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                }
             }
         }
         if (setupFailure is not null and not ChannelClosedException)

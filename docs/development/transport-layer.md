@@ -41,6 +41,8 @@ When a real connection is established, the implementation should:
 
 Listeners should also call `context.ListenerReady(realListenAddress)` after binding so libp2p can advertise the actual address, including any OS-assigned port.
 
+When a listener closes its listening endpoints, it can call `context.ListenerStopped()` before draining accepted connections. This lets peer disposal finish even when a handler awaits disposal itself. The transport still owns its accepted connections and admission allowances until `ListenAsync` returns. Transports that omit this optional notification must finish their listen task before peer disposal completes.
+
 ### Receive buffer ownership and retention
 
 TCP and QUIC receive pumps reuse one pooled scratch buffer per pump and copy each received fragment into an independent array before publishing it to the upper channel. A `Channel.ReadAsync(length, ReadBlockingMode.WaitAll)` reader can acknowledge writes while retaining their fragments until the requested length arrives. Published memory must therefore remain valid after `WriteAsync` completes and after the scratch buffer is reused or returned.
