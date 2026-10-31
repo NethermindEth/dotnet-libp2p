@@ -15,6 +15,7 @@ using NUnit.Framework;
 
 namespace Nethermind.Libp2p.Protocols.Tests;
 
+[NonParallelizable]
 public class RequestResponseReadTests
 {
     [TestCase(false)]
@@ -395,14 +396,17 @@ public class RequestResponseReadTests
         }
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task FailingTimeoutMetricListenerPreservesReadFailure(bool dialer)
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task FailingTimeoutMetricListenerPreservesReadFailure(bool dialer, bool diagnosticThrows)
     {
+        var telemetryFailure = new InvalidOperationException("Telemetry failure");
         using MetricRecorder metrics = new("libp2p.request_response.read_timeouts", "/test/1",
-            () => throw new InvalidOperationException("Telemetry failure"));
+            () => throw telemetryFailure);
         ManualTimeProvider clock = new();
-        RecordingLogger logger = new();
+        RecordingLogger logger = new() { ThrowOn = diagnosticThrows ? telemetryFailure : null };
         var protocol = new RequestResponseProtocol<StringValue, StringValue>(ReadTimeout, "/test/1",
             (request, _) => Task.FromResult(request), logger, timeProvider: clock);
         Channel wire = new();
@@ -416,8 +420,12 @@ public class RequestResponseReadTests
             var failure = Assert.ThrowsAsync<ChannelClosedException>(async () => await exchange.WaitAsync(TestTimeout));
             Assert.That(failure!.Message, Does.Contain(nameof(IOResult.Cancelled)));
             Assert.That(metrics.Measurements, Has.Count.EqualTo(1));
-            Assert.That(logger.Failures.Single().Exception, Is.SameAs(failure));
-            Assert.That(logger.Failures.Single().Level, Is.EqualTo(LogLevel.Debug));
+            Assert.That(logger.Failures, Has.Count.EqualTo(2));
+            var diagnostic = logger.Failures.Single(record => ReferenceEquals(record.Exception, telemetryFailure));
+            Assert.That(diagnostic.Level, Is.EqualTo(LogLevel.Debug));
+            Assert.That(diagnostic.State, Does.Contain(new KeyValuePair<string, object?>("ProtocolId", "/test/1")));
+            Assert.That(diagnostic.State, Does.Contain(new KeyValuePair<string, object?>("Direction", dialer ? "outbound" : "inbound")));
+            Assert.That(logger.Failures.Single(record => ReferenceEquals(record.Exception, failure)).Level, Is.EqualTo(LogLevel.Debug));
         }
         finally
         {
@@ -532,6 +540,7 @@ public class RequestResponseReadTests
 
     private sealed class RecordingLogger : ILoggerFactory, ILogger
     {
+        public Exception? ThrowOn { get; init; }
         public List<(LogLevel Level, Exception Exception, KeyValuePair<string, object?>[] State)> Failures { get; } = [];
         public ILogger CreateLogger(string categoryName) => this;
         public void AddProvider(ILoggerProvider provider) { }
@@ -540,7 +549,11 @@ public class RequestResponseReadTests
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (exception is not null) Failures.Add((logLevel, exception, ((IEnumerable<KeyValuePair<string, object?>>)(object)state!).ToArray()));
+            if (exception is not null)
+            {
+                Failures.Add((logLevel, exception, ((IEnumerable<KeyValuePair<string, object?>>)(object)state!).ToArray()));
+                if (ReferenceEquals(exception, ThrowOn)) throw new InvalidOperationException("Logger failure");
+            }
         }
     }
 }

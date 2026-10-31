@@ -209,9 +209,17 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         {
             Libp2pMetrics.RequestResponseReadTimeouts.Add(1, new("protocol", Id), new("direction", direction));
         }
-        catch (Exception)
+        catch (Exception telemetryFailure)
         {
-            // A failing telemetry listener must not replace the original read failure.
+            try
+            {
+                _logger?.LogDebug(telemetryFailure,
+                    "Failed to record read timeout for protocol {ProtocolId} ({Direction})", Id, direction);
+            }
+            catch (Exception)
+            {
+                // Neither a telemetry listener nor its diagnostic may replace the original read failure.
+            }
         }
     }
 

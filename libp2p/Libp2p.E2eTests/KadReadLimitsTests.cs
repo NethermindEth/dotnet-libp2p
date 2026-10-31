@@ -18,6 +18,7 @@ using NUnit.Framework;
 
 namespace Libp2p.E2eTests;
 
+[NonParallelizable]
 public class KadReadLimitsTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);

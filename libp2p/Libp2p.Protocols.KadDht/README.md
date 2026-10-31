@@ -177,7 +177,7 @@ refusing inbound DHT negotiation and omitting DHT from Identify. The additive
 interfaces have no new mandatory members. Handler-only custom builders remain supported
 when they enforce the inbound stream allowance.
 
-**Compatibility note for PR #420:** Kademlia registrations now always attach an
+Kademlia registrations now always attach an
 `InboundStreamLimit`, including with default options. A custom builder implementing
 only the two-argument `AddProtocol(instance, isExposed)` now throws
 `NotSupportedException` when registering Kademlia. Implement the three-argument
