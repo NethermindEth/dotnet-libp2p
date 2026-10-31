@@ -61,24 +61,31 @@ public class KadBuilderTests
     public async Task SuppliedDhtAliasDoesNotHoldBuilderLockWhileWaitingForPeer(bool enumerable, bool nestedFactory)
     {
         using var aliasEntered = new ManualResetEventSlim();
+        using var releaseAlias = new ManualResetEventSlim();
+        int aliasFactoryCalls = 0;
         var services = new ServiceCollection().AddKadDht();
         var registration = services.Single(d => d.ServiceType == typeof(SharedDhtState));
         services.Remove(registration);
         services.AddSingleton(sp =>
         {
             aliasEntered.Set();
+            if (!releaseAlias.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Alias factory was not released.");
             return (SharedDhtState)registration.ImplementationFactory!(sp);
         });
         services.AddLibp2p(builder =>
         {
             builder.AddKadDht();
-            builder.Services.AddSingleton(sp => new StateAlias(sp.GetRequiredService<SharedDhtState>()));
+            builder.Services.AddSingleton(sp =>
+            {
+                Interlocked.Increment(ref aliasFactoryCalls);
+                return new StateAlias(sp.GetRequiredService<SharedDhtState>());
+            });
             builder.Services.AddSingleton(sp => new StateConsumer(ResolveState(sp)));
             return builder;
         });
         services.AddSingleton<ILocalPeer>(sp => sp.GetRequiredService<IPeerFactory>().Create());
         await using var provider = services.BuildServiceProvider();
-        var peer = (LocalPeer)provider.GetRequiredService<ILocalPeer>();
+        _ = provider.GetRequiredService<ILocalPeer>();
         var resolver = provider.GetRequiredService<ILibp2pPeerFactoryBuilder>().ServiceProvider;
         var options = resolver.GetRequiredService<KadDhtOptions>();
         var aliasResult = new TaskCompletionSource<SharedDhtState>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -90,22 +97,21 @@ public class KadBuilderTests
         bool optionsProgressed = false;
         try
         {
-            lock (peer.Sessions)
-            {
-                aliasThread.Start();
-                aliasStarted = true;
-                Assert.That(aliasEntered.Wait(TimeSpan.FromSeconds(5)), Is.True);
-                // The production alias must reach the peer lock before testing the other resolver.
-                Assert.That(SpinWait.SpinUntil(() => Waiting(aliasThread), TimeSpan.FromSeconds(5)), Is.True);
-                optionsThread.Start();
-                optionsStarted = true;
-                Assert.That(SpinWait.SpinUntil(() => optionsResult.Task.IsCompleted || Waiting(optionsThread), TimeSpan.FromSeconds(5)), Is.True);
-                optionsProgressed = optionsResult.Task.IsCompleted;
-            }
+            aliasThread.Start();
+            aliasStarted = true;
+            Assert.That(aliasEntered.Wait(TimeSpan.FromSeconds(5)), Is.True);
+            Assert.That(Volatile.Read(ref aliasFactoryCalls), Is.EqualTo(1), "Both direct and nested paths must enter the builder-owned factory.");
+            // The supplied alias must reach the factory barrier before testing the other resolver.
+            Assert.That(SpinWait.SpinUntil(() => Waiting(aliasThread), TimeSpan.FromSeconds(5)), Is.True);
+            optionsThread.Start();
+            optionsStarted = true;
+            Assert.That(SpinWait.SpinUntil(() => optionsResult.Task.IsCompleted || Waiting(optionsThread), TimeSpan.FromSeconds(5)), Is.True);
+            optionsProgressed = optionsResult.Task.IsCompleted;
         }
         finally
         {
-            // Release the peer lock before joining, including when the old container blocks both threads.
+            // Release the factory before joining, including when the old container blocks both threads.
+            releaseAlias.Set();
             if (aliasStarted) Assert.That(aliasThread.Join(TimeSpan.FromSeconds(10)), Is.True);
             if (optionsStarted) Assert.That(optionsThread.Join(TimeSpan.FromSeconds(10)), Is.True);
         }

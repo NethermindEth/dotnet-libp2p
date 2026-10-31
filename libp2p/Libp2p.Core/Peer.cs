@@ -438,6 +438,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
+    private readonly Lock _peerServicesLock = new();
     private readonly Dictionary<Type, object> _peerServices = [];
     private readonly HashSet<Type> _initializingServices = [];
     private readonly List<object> _ownedPeerServices = [];
@@ -445,9 +446,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     /// <summary>Gets or creates a service owned by this local peer.</summary>
     public TService? GetPeerService<TService>() where TService : class
     {
-        lock (Sessions)
+        lock (_peerServicesLock)
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposal) is not null, this);
             if (_peerServices.TryGetValue(typeof(TService), out var service)) return (TService)service;
             if (!_initializingServices.Add(typeof(TService)))
                 throw new InvalidOperationException($"Circular peer service dependency resolving {typeof(TService)}.");
@@ -1210,13 +1211,15 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         lock (Sessions)
         {
             if (_disposal is not null) return new(_disposal.Task);
-            _disposal = disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _disposal, disposal);
             sessions = [.. _connections.Union(Sessions)];
             listeners = [.. _listeners.Values.Select(listener => listener.Stopped.Task)];
         }
-        // Collection/metric notifications can synchronously reenter disposal while
-        // admission holds the lifecycle boundary. Run cancellation after it is released.
-        if (Monitor.IsEntered(Sessions)) _ = Task.Run(() => DisposeResourcesAsync(sessions, listeners, disposal));
+        // Notifications and service factories can synchronously reenter disposal.
+        // Run cleanup after admission and factory publication release their locks.
+        if (Monitor.IsEntered(Sessions) || _peerServicesLock.IsHeldByCurrentThread)
+            _ = Task.Run(() => DisposeResourcesAsync(sessions, listeners, disposal));
         else _ = DisposeResourcesAsync(sessions, listeners, disposal);
         return new(disposal.Task);
     }
@@ -1236,7 +1239,12 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         catch (Exception failure) { failures.Add(failure); }
         finally
         {
-            foreach (object service in _ownedPeerServices.AsEnumerable().Reverse().Distinct(ReferenceEqualityComparer.Instance))
+            object[] peerServices;
+            // Shutdown closes admission before waiting for an in-flight service factory.
+            // Never hold Sessions while taking the service lock or disposing user code.
+            lock (_peerServicesLock)
+                peerServices = _ownedPeerServices.AsEnumerable().Reverse().Distinct(ReferenceEqualityComparer.Instance).ToArray();
+            foreach (object service in peerServices)
             {
                 try
                 {
