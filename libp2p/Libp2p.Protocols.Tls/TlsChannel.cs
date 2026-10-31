@@ -83,7 +83,7 @@ internal static class TlsChannel
                     // draining input; only receipt of close_notify permits clean
                     // completion below. No application write is covered here.
                     if (!(networkWriteIsClose && IsTransportEnded(result)))
-                        Check(result, token);
+                        Check(result, token, handshakePending: !handshake.Complete);
                     networkWrite = null;
                     progress = true;
                 }
@@ -127,7 +127,7 @@ internal static class TlsChannel
                     }
                     else
                     {
-                        Check(chunk.Result, token);
+                        Check(chunk.Result, token, handshakePending: !handshake.Complete);
                         chunk.Data.CopyTo(record, received);
                         received += chunk.Data.Length;
                         if (received == record.Length)
@@ -325,10 +325,14 @@ internal static class TlsChannel
         return new Chunk(result.Result, result.Data.ToArray());
     }
 
-    private static void Check(IOResult result, CancellationToken token)
+    private static void Check(IOResult result, CancellationToken token, bool handshakePending = false)
     {
         if (result == IOResult.Ok) return;
         token.ThrowIfCancellationRequested();
+        // A returned transport termination before Finished is a failed handshake,
+        // distinct from an IOException thrown by the transport implementation.
+        if (handshakePending && IsTransportEnded(result))
+            throw new EndOfStreamException("TLS transport ended before mutual authentication completed.");
         throw new IOException($"TLS channel I/O failed: {result}.");
     }
 

@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Nethermind.Libp2p.Core;
@@ -97,6 +98,94 @@ public class TlsHandshakeClosureTests
                 catch (Exception) { /* Preserve the primary assertion or protocol failure. */ }
             }
         }
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task PeerTerminationBeforeFinishedFailsAuthentication(bool server, bool abort)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        Nethermind.Libp2p.Core.Channel transport = new();
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Peer.Identity.Returns(TestPeers.Identity(1));
+        context.State.Returns(new State());
+        context.Token.Returns(deadline.Token);
+        TlsProtocol protocol = new();
+        Task run = server ? protocol.ListenAsync(transport.Reverse, context) : protocol.DialAsync(transport.Reverse, context);
+        try
+        {
+            if (server)
+                Assert.That(await transport.WriteAsync(new ReadOnlySequence<byte>(ClientHello()), deadline.Token), Is.EqualTo(IOResult.Ok));
+            ReadResult flight = await transport.ReadAsync(65536, ReadBlockingMode.WaitAny, deadline.Token);
+            Assert.That(flight.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(flight.Data.IsEmpty, Is.False, "Reach a real handshake flight before terminating the peer transport.");
+            if (abort) await transport.AbortAsync();
+            else await transport.WriteEofAsync(deadline.Token);
+
+            Assert.ThrowsAsync<AuthenticationException>(async () => await run.WaitAsync(deadline.Token));
+            Assert.That(deadline.IsCancellationRequested, Is.False);
+            Assert.That(context.State.RemotePublicKey, Is.Null);
+            _ = context.DidNotReceive().Upgrade(Arg.Any<UpgradeOptions>());
+            Assert.That(transport.GetAwaiter().IsCompleted, Is.True);
+        }
+        finally
+        {
+            await transport.AbortAsync();
+            await run.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [TestCase(false, IOResult.Ended)]
+    [TestCase(false, IOResult.Aborted)]
+    [TestCase(true, IOResult.Ended)]
+    [TestCase(true, IOResult.Aborted)]
+    public async Task NetworkWriteTerminationBeforeFinishedFailsAuthentication(bool server, IOResult result)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        Nethermind.Libp2p.Core.Channel transport = new();
+        IChannel inner = transport.Reverse;
+        IChannel failed = Substitute.For<IChannel>();
+        failed.CancellationToken.Returns(inner.CancellationToken);
+        failed.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>())
+            .Returns(call => inner.ReadAsync(call.Arg<int>(), call.Arg<ReadBlockingMode>(), call.Arg<CancellationToken>()));
+        failed.WriteAsync(Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns(result);
+        failed.AbortAsync().Returns(_ => inner.AbortAsync());
+        failed.CloseAsync().Returns(_ => inner.CloseAsync());
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Peer.Identity.Returns(TestPeers.Identity(1));
+        context.State.Returns(new State());
+        context.Token.Returns(deadline.Token);
+        TlsProtocol protocol = new();
+        Task run = server ? protocol.ListenAsync(failed, context) : protocol.DialAsync(failed, context);
+        Task<IOResult>? hello = server
+            ? transport.WriteAsync(new ReadOnlySequence<byte>(ClientHello()), deadline.Token).AsTask() : null;
+        try
+        {
+            AuthenticationException? failure = Assert.ThrowsAsync<AuthenticationException>(async () => await run.WaitAsync(deadline.Token));
+            Assert.That(failure!.InnerException, Is.InstanceOf<EndOfStreamException>());
+            await failed.Received().WriteAsync(Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>());
+            Assert.That(deadline.IsCancellationRequested, Is.False);
+            Assert.That(context.State.RemotePublicKey, Is.Null);
+            _ = context.DidNotReceive().Upgrade(Arg.Any<UpgradeOptions>());
+            Assert.That(transport.GetAwaiter().IsCompleted, Is.True);
+        }
+        finally
+        {
+            await transport.AbortAsync();
+            await run.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (hello is not null) await hello.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static byte[] ClientHello()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using X509Certificate2 certificate = CertificateHelper.CertificateFromIdentity(key, TestPeers.Identity(2));
+        using TlsHandshake client = new(certificate, false, _ => true);
+        client.Start();
+        return Drain(client.Engine);
     }
 
     [TestCase(false)]

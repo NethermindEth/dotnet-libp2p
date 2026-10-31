@@ -664,3 +664,87 @@ Hosted Linux and Windows TLS 82/82 results belong to the unmodified supplied
 head, not this correction. Windows, pinned Go interoperability and benchmarks
 have not been rerun for the correction. Explicit maintainer backend-policy
 acceptance remains pending; this repair does not establish it.
+
+## PR feedback: classify transport termination before Finished
+
+Finding F1 was confirmed against merge revision
+`7cf82f9cddef3819d9912da67ec1a8ea5c200057`. The authenticated GitHub jobs API
+also confirmed the earlier [Windows QUIC and TLS failure](https://github.com/NethermindEth/dotnet-libp2p/actions/runs/41153396945/job/124394773701)
+at `417927d73b80d76a3c824bb120bb24fa10d88f0c`: the registered selection passed
+35/36, with `RegisteredTlsRequiresExactlyOneReceivedCertificate(False,16)`
+receiving a plain `IOException` when the peer withheld Finished and the transport
+returned `Aborted`. The TLS sources in those two revisions are identical.
+
+Network reads returning `Aborted`, and network writes returning `Ended` or
+`Aborted`, now raise `EndOfStreamException` while mutual authentication is
+incomplete. The existing protocol catch classifies this as an authentication
+failure. Orderly read EOF still follows the existing TLS input-close path.
+Thrown adapter `IOException` instances and local TLS `internal_error` alerts
+retain their original categories. Caller and connection cancellation still
+take precedence; application I/O and authenticated shutdown behavior are
+unchanged.
+
+Eight new production-protocol cases cover both roles: a real in-memory peer
+reads the outgoing handshake flight before half-closing or aborting, and a
+transport wrapper returns each termination result from a network write. They
+require authentication failure, no identity publication or upgrade, and
+transport completion. On the unchanged production source, six failed with a
+plain `IOException` and the two orderly read-EOF controls passed. With the fix,
+all eight pass. The 22-case focused selection also preserves the thrown-fault,
+pending-I/O cancellation and concurrent-abort controls.
+
+Linux, SDK 10.0.402, Release validation of this correction on top of the merge:
+
+| Check | Result |
+| --- | --- |
+| TLS suite | 94/94 passed, no skips |
+| Registered transport, expected identity and certificate-list selection | 36/36 passed, no skips |
+| Core duplicate-session recovery selection | 14/14 passed, no skips |
+| TLS, E2E and Core test-project builds with warnings as errors | 0 warnings, 0 errors |
+| CI Python helper tests | 31/31 passed |
+| Historical evidence integrity | Ten archives checked; input drift reported, no old results reused |
+| Whitespace formatting and diff checks | Passed |
+| Spelling on the four changed files | 0 issues |
+
+Both CI TLS execution minima increase from 86 to 94 without changing deadlines
+or exclusions. All 17 files introduced by the incoming merge still match their
+blobs at incoming parent `70c2d24876c655c5f3de96e0eaf6fee913614e9d`; this
+correction changes none of them. In particular, `libp2p/Libp2p.Core/Peer.cs`
+retains SHA256 `a61a5c0f1da7cff2b356a04b778f5ea50edd7e965f0be3746c4a32eac8ab9115`.
+
+Commands run from the repository root with the configured session `TMPDIR`:
+
+```sh
+# Red: six failures, two passes before the production repair.
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/tls-termination/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~PeerTerminationBeforeFinishedFailsAuthentication|FullyQualifiedName~NetworkWriteTerminationBeforeFinishedFailsAuthentication' --minimum-expected-tests 8 --timeout 90s
+
+# Green: 22/22, with compilation warnings as errors.
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/tls-termination/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsHandshakeClosureTests|FullyQualifiedName~HandshakeCancellationStopsActualPendingIo|FullyQualifiedName~CallerCancellationWinsOverConcurrentTransportAbort' --minimum-expected-tests 22 --timeout 90s
+
+dotnet build libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/tls-termination/artifacts" -p:TreatWarningsAsErrors=true
+dotnet build libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj -c Release --artifacts-path "$TMPDIR/tls-termination/artifacts" -p:TreatWarningsAsErrors=true
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build --artifacts-path "$TMPDIR/tls-termination/artifacts" -- --minimum-expected-tests 94 --timeout 180s
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build --artifacts-path "$TMPDIR/tls-termination/artifacts" -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~TlsCertificateListTests' --minimum-expected-tests 36 --timeout 180s
+dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj -c Release --no-build --artifacts-path "$TMPDIR/tls-termination/artifacts" -- --filter 'FullyQualifiedName~DuplicateRecoveryTests' --minimum-expected-tests 14 --timeout 90s
+python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+python3 .github/scripts/check_tls_evidence.py --output "$TMPDIR/tls-termination/evidence.json"
+dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
+npx --no-install cspell --no-progress --config cspell.json libp2p/Libp2p.Protocols.Tls/TlsChannel.cs libp2p/Libp2p.Protocols.Tls.Tests/TlsHandshakeClosureTests.cs .github/workflows/test.yml docs/development/tls-cardinality-validation.md
+git diff --check
+```
+
+The repaired production/test/CI inputs have these SHA256 hashes:
+
+| Path | SHA256 |
+| --- | --- |
+| `libp2p/Libp2p.Protocols.Tls/TlsChannel.cs` | `01207f7ee44d7652d407fbbaa6e8dd6240fe8d54c390bb2b43b4e9b6c7b60b39` |
+| `libp2p/Libp2p.Protocols.Tls.Tests/TlsHandshakeClosureTests.cs` | `504cb20f3afd11e21385dd6432e6ac91eaad47fd8ada584374e973fde406cfb5` |
+| `.github/workflows/test.yml` | `70bdb20704f2e1a0e5a0bf14540f00fb45b04c5549869789ce90ac36908f092b` |
+
+Windows must rerun the TLS suite with minimum 94 and the registered selection
+with minimum 36 in the hosted Windows QUIC and TLS job. The earlier Windows
+failure is confirmed evidence, not a successful Windows validation of this
+repair. Pinned Go interoperability and benchmarks were not rerun for this
+exception-classification change. Explicit maintainer backend-policy acceptance
+remains pending, and any code correction requires independent re-review before
+publication.

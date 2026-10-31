@@ -77,7 +77,7 @@ jobs:
         run: >-
           dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj
           -c ${{ env.BUILD_CONFIG }} --no-build --
-          --minimum-expected-tests 86
+          --minimum-expected-tests 94
 
       - name: Require WebRTC fingerprint enforcement controls
         working-directory: ${{ env.WORKING_DIR }}
@@ -181,7 +181,7 @@ jobs:
         run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --filter "FullyQualifiedName~WindowsProcessKeyRecoveryTests&FullyQualifiedName!~ChildProcess" --minimum-expected-tests 20 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test TLS
-        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 86 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 94 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Build registered transport tests
         run: dotnet build Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
