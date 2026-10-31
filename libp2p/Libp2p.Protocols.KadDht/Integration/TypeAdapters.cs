@@ -43,6 +43,7 @@ internal static class TypeAdapters
     /// <summary>
     /// Convert DhtNode to TestNode for Kademlia operations.
     /// </summary>
+    [Obsolete("Legacy TestNode conversion. Use DhtNode.")]
     public static TestNode ToTestNode(this DhtNode dhtNode)
     {
         return new TestNode(dhtNode.PeerId);
@@ -51,6 +52,7 @@ internal static class TypeAdapters
     /// <summary>
     /// Convert TestNode to DhtNode.
     /// </summary>
+    [Obsolete("Legacy TestNode conversion. Use DhtNode.")]
     public static DhtNode ToDhtNode(this TestNode testNode)
     {
         return new DhtNode

@@ -6,25 +6,26 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
 using Nethermind.Kademlia;
+using Libp2p.Protocols.KadDht.Integration;
 using Nethermind.Libp2p.Core;
 
 namespace Libp2p.Protocols.KadDht;
 
+[Obsolete("Use the peer-bound KadDhtProtocol and DhtNode APIs.")]
 public sealed class KademliaSessionManager : ISessionManager
 {
     private readonly SessionOptions _options;
     private readonly ILoggerFactory _logFactory;
     private readonly ILogger<KademliaSessionManager> _log;
 
-    private readonly IKeyOperator<PublicKey, TestNode, ValueHash256> _keyOperator;
-    private readonly IKademliaMessageSender<PublicKey, TestNode> _transportMessageSender;
-    private readonly Nethermind.Kademlia.IKademliaMessageSender<PublicKey, TestNode> _kademliaMessageSender;
-    private readonly KademliaConfig<TestNode> _config;
-    private readonly INodeHashProvider<TestNode, ValueHash256> _nodeHashProvider;
-    private readonly IRoutingTable<TestNode, ValueHash256> _routingTable;
-    private readonly NodeHealthTracker<PublicKey, TestNode, ValueHash256> _nodeHealthTracker;
-    private readonly ILookupAlgo<TestNode, ValueHash256> _lookupAlgo;
-    private readonly Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256> _kad;
+    private readonly IKeyOperator<PublicKey, DhtNode, ValueHash256> _keyOperator;
+    private readonly Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode> _kademliaMessageSender;
+    private readonly KademliaConfig<DhtNode> _config;
+    private readonly INodeHashProvider<DhtNode, ValueHash256> _nodeHashProvider;
+    private readonly IRoutingTable<DhtNode, ValueHash256> _routingTable;
+    private readonly NodeHealthTracker<PublicKey, DhtNode, ValueHash256> _nodeHealthTracker;
+    private readonly ILookupAlgo<DhtNode, ValueHash256> _lookupAlgo;
+    private readonly Nethermind.Kademlia.Kademlia<PublicKey, DhtNode, ValueHash256> _kad;
 
     private readonly CancellationTokenSource _cts = new();
     private readonly Lock _lifecycleLock = new();
@@ -43,9 +44,8 @@ public sealed class KademliaSessionManager : ISessionManager
         _logFactory = logFactory ?? NullLoggerFactory.Instance;
         _log = _logFactory.CreateLogger<KademliaSessionManager>();
 
-        _keyOperator = new PublicKeyKeyOperator();
-        _transportMessageSender = messageSender;
-        _kademliaMessageSender = new MessageSenderAdapter(_transportMessageSender);
+        _keyOperator = new DhtKeyOperator();
+        _kademliaMessageSender = new MessageSenderAdapter(messageSender);
 
         var bootstrapAddresses = options.BootstrapMultiAddresses.Select(address =>
         {
@@ -55,23 +55,23 @@ public sealed class KademliaSessionManager : ISessionManager
             return (PeerId: peerId, Address: multiaddress);
         }).ToArray();
 
-        _config = new KademliaConfig<TestNode>
+        _config = new KademliaConfig<DhtNode>
         {
-            CurrentNodeId = new TestNode(localPeerId),
+            CurrentNodeId = localPeerId.ToDhtNode(),
             BootNodes = bootstrapAddresses.GroupBy(entry => entry.PeerId)
-                .Select(group => new TestNode(group.Key) { Addresses = group.Select(entry => entry.Address).ToArray() })
+                .Select(group => group.Key.ToDhtNode(group.Select(entry => entry.Address.ToString())))
                 .ToArray()
         };
         if (options.KSize is int k) _config.KSize = k;
         if (options.RefreshInterval is TimeSpan r) _config.RefreshInterval = r;
 
         var distance = new ValueHash256Distance();
-        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, TestNode, ValueHash256>(_keyOperator);
-        _routingTable = new KBucketTree<TestNode, ValueHash256>(_config, _nodeHashProvider, distance);
-        _nodeHealthTracker = new NodeHealthTracker<PublicKey, TestNode, ValueHash256>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender);
-        _lookupAlgo = new LookupKNearestNeighbour<PublicKey, TestNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, _config);
+        _nodeHashProvider = new FromKeyNodeHashProvider<PublicKey, DhtNode, ValueHash256>(_keyOperator);
+        _routingTable = new KBucketTree<DhtNode, ValueHash256>(_config, _nodeHashProvider, distance);
+        _nodeHealthTracker = new NodeHealthTracker<PublicKey, DhtNode, ValueHash256>(_config, _routingTable, _nodeHashProvider, _kademliaMessageSender);
+        _lookupAlgo = new LookupKNearestNeighbour<PublicKey, DhtNode, ValueHash256>(_routingTable, _nodeHashProvider, distance, _nodeHealthTracker, _config);
 
-        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, TestNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config, _logFactory);
+        _kad = new Nethermind.Kademlia.Kademlia<PublicKey, DhtNode, ValueHash256>(_keyOperator, _kademliaMessageSender, _routingTable, _lookupAlgo, _nodeHealthTracker, _config, _logFactory);
     }
 
     public Task BootstrapAsync(CancellationToken ct) => TrackAsync(async token =>
@@ -126,7 +126,8 @@ public sealed class KademliaSessionManager : ISessionManager
             ct).ConfigureAwait(false);
 
         if (typeof(TNode) == typeof(TestNode))
-            return (TNode[])(object)nodes.Where(node => !node.Equals(_config.CurrentNodeId)).ToArray();
+            return (TNode[])(object)nodes.Where(node => !node.Equals(_config.CurrentNodeId))
+                .Select(node => new TestNode(node.PeerId) { Addresses = node.Multiaddrs.Select(Multiaddress.Decode).ToArray() }).ToArray();
 
         throw new NotSupportedException("Provide an adapter to map TestNode to your domain node type.");
     }

@@ -16,7 +16,7 @@ namespace Nethermind.Libp2p.Core;
 public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
     ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null,
     PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
-    : ILocalPeer
+    : ILocalPeer, IPeerServices
 {
     public LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
         ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory, MultiaddrResolver? multiaddrResolver)
@@ -414,7 +414,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         finally { session.EndInitialization(); }
     }
 
-    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol)
+    internal IEnumerable<IProtocol> GetProtocolsFor(ProtocolRef protocol, bool isListener = false)
     {
         if (_protocolStackSettings.Protocols is null)
         {
@@ -428,7 +428,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             throw new Libp2pSetupException($"{protocol} is not added");
         }
 
-        return _protocolStackSettings.Protocols[protocol].Select(p => p.Protocol);
+        return _protocolStackSettings.Protocols[protocol].Where(p => !isListener || p.AcceptInbound).Select(p => p.Protocol);
     }
 
 
@@ -438,20 +438,50 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Protocol.GetType() == typeof(TProtocol))?.Protocol;
     }
 
-    /// <summary>
-    /// Get a protocol instance by type.
-    /// </summary>
-    /// <typeparam name="T">The protocol type to retrieve.</typeparam>
-    /// <returns>The protocol instance, or null if not found.</returns>
+    private readonly Lock _peerServicesLock = new();
+    private readonly Dictionary<Type, object> _peerServices = [];
+    private readonly HashSet<Type> _initializingServices = [];
+    private readonly List<object> _ownedPeerServices = [];
+
+    /// <summary>Gets or creates a service owned by this local peer.</summary>
+    public TService? GetPeerService<TService>() where TService : class
+    {
+        lock (_peerServicesLock)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposal) is not null, this);
+            if (_peerServices.TryGetValue(typeof(TService), out var service)) return (TService)service;
+            if (!_initializingServices.Add(typeof(TService)))
+                throw new InvalidOperationException($"Circular peer service dependency resolving {typeof(TService)}.");
+            try
+            {
+                var registration = PeerServiceRegistry.Get(_protocolStackSettings, typeof(TService));
+                service = registration?.Factory(this);
+                if (service is not null)
+                {
+                    _peerServices.Add(typeof(TService), service);
+                    if (registration!.OwnsInstance) _ownedPeerServices.Add(service);
+                }
+                return (TService?)service;
+            }
+            finally { _initializingServices.Remove(typeof(TService)); }
+        }
+    }
+
+    /// <summary>Gets an installed protocol or a peer-bound protocol service by type.</summary>
     public T? GetProtocol<T>() where T : class, IProtocol
     {
-        return GetProtocolInstance<T>() as T;
+        return GetProtocolInstance<T>() as T ??
+            (PeerServiceRegistry.Get(_protocolStackSettings, typeof(T)) is not null ? GetPeerService<T>() : null);
     }
 
     /// <summary>Gets the first installed protocol matching the type and wire identifier.</summary>
     public T? GetProtocol<T>(string protocolId) where T : class, IProtocol
     {
-        return _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId && p.Protocol is T)?.Protocol as T;
+        var installed = _protocolStackSettings.Protocols?.Keys.FirstOrDefault(p => p.Id == protocolId && p.Protocol is T)?.Protocol as T;
+        if (installed is not null) return installed;
+        if (PeerServiceRegistry.Get(_protocolStackSettings, typeof(T)) is null) return null;
+        var service = GetPeerService<T>();
+        return service?.Id == protocolId ? service : null;
     }
 
     public Task<ISession> DialAsync(Multiaddress[] addrs, CancellationToken token)
@@ -1181,13 +1211,15 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         lock (Sessions)
         {
             if (_disposal is not null) return new(_disposal.Task);
-            _disposal = disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _disposal, disposal);
             sessions = [.. _connections.Union(Sessions)];
             listeners = [.. _listeners.Values.Select(listener => listener.Stopped.Task)];
         }
-        // Collection/metric notifications can synchronously reenter disposal while
-        // admission holds the lifecycle boundary. Run cancellation after it is released.
-        if (Monitor.IsEntered(Sessions)) _ = Task.Run(() => DisposeResourcesAsync(sessions, listeners, disposal));
+        // Notifications and service factories can synchronously reenter disposal.
+        // Run cleanup after admission and factory publication release their locks.
+        if (Monitor.IsEntered(Sessions) || _peerServicesLock.IsHeldByCurrentThread)
+            _ = Task.Run(() => DisposeResourcesAsync(sessions, listeners, disposal));
         else _ = DisposeResourcesAsync(sessions, listeners, disposal);
         return new(disposal.Task);
     }
@@ -1207,6 +1239,20 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         catch (Exception failure) { failures.Add(failure); }
         finally
         {
+            object[] peerServices;
+            // Shutdown closes admission before waiting for an in-flight service factory.
+            // Never hold Sessions while taking the service lock or disposing user code.
+            lock (_peerServicesLock)
+                peerServices = _ownedPeerServices.AsEnumerable().Reverse().Distinct(ReferenceEqualityComparer.Instance).ToArray();
+            foreach (object service in peerServices)
+            {
+                try
+                {
+                    if (service is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
+                    else if (service is IDisposable disposable) disposable.Dispose();
+                }
+                catch (Exception failure) { failures.Add(failure); }
+            }
             try
             {
                 _listenerLifetime.Dispose();

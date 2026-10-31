@@ -169,7 +169,7 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
             byte[]? value = null;
             long timestamp = 0;
-            if (response.Record is { Value.IsEmpty: false })
+            if (response.Record is { Value.IsEmpty: false } && response.Record.Key.Span.SequenceEqual(key))
             {
                 value = response.Record.Value.ToByteArray();
                 if (response.Record.HasTimeReceived && DateTimeOffset.TryParse(response.Record.TimeReceived, out var dto))

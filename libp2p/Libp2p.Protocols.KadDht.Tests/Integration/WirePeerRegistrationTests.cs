@@ -17,6 +17,7 @@ using static Nethermind.Libp2p.Protocols.KadDht.Tests.Integration.WirePeerSafety
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
 
+[Obsolete("Exercises the retained legacy sender API.")]
 public class WirePeerRegistrationTests
 {
     [TestCase(0, 2)]

@@ -216,36 +216,54 @@ public class ReviewFeedbackTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public async Task SenderMismatchWarningNamesBothValidatedPeersOnlyWhenEnabled(bool warningEnabled)
+    public async Task SenderMismatchLogsOneDebugSummaryPerRequestOnlyWhenEnabled(bool debugEnabled)
     {
-        var logger = new WarningLogger(warningEnabled);
+        var logger = new ProviderLogger(debugEnabled);
         var factory = Substitute.For<ILoggerFactory>();
-        factory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        factory.CreateLogger("KadDhtProtocolExtensions").Returns(logger);
         var store = Substitute.For<IProviderStore>();
-        using var harness = new KadWireHarness("fallback", new KadDhtOptions(), providers: store, loggerFactory: factory);
+        using var harness = new KadWireHarness("fallback", new KadDhtOptions { MaxProvidersPerKey = 3 }, providers: store, loggerFactory: factory);
         harness.Context.State.RemoteAddress = Multiaddress.Decode($"/p2p/{Id(2)}");
         var request = new Message { Type = Message.Types.MessageType.AddProvider, Key = ByteString.CopyFrom(new byte[] { 1 }) };
         request.ProviderPeers.Add(WirePeer(1));
+        request.ProviderPeers.Add(WirePeer(3));
+        request.ProviderPeers.Add(WirePeer(4));
+        request.ProviderPeers.Add(WirePeer(5));
         await harness.SendAsync(request);
-        request.ProviderPeers[0].Id = ByteString.CopyFrom(new byte[] { 255, 255, 255 });
+        factory.Received(1).CreateLogger("KadDhtProtocolExtensions");
+        Assert.That(logger.Warnings, Is.Empty);
+        Assert.That(logger.DebugMessages, Has.Count.EqualTo(debugEnabled ? 1 : 0));
+        Assert.That(logger.RejectedCounts, Is.EqualTo(debugEnabled ? new[] { 3 } : Array.Empty<int>()));
+        if (debugEnabled)
+        {
+            Assert.That(logger.DebugMessages.Single(), Does.Contain(Id(1).ToString()).And.Contain(Id(2).ToString()));
+        }
+
+        logger.DebugMessages.Clear();
+        request.ProviderPeers.Clear();
+        request.ProviderPeers.Add(new Message.Types.Peer { Id = ByteString.CopyFrom(new byte[] { 255, 255, 255 }) });
         await harness.SendAsync(request);
 
         await store.DidNotReceive().AddProviderAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<ProviderRecord>(), Arg.Any<CancellationToken>());
-        Assert.That(logger.Warnings, Has.Count.EqualTo(warningEnabled ? 1 : 0));
-        if (warningEnabled)
-        {
-            Assert.That(logger.Warnings.Single(), Does.Contain(Id(1).ToString()).And.Contain(Id(2).ToString()));
-        }
+        Assert.That(logger.Warnings, Is.Empty);
+        Assert.That(logger.DebugMessages, Is.Empty, "Malformed identities must not be formatted as PeerIds.");
     }
 
-    private sealed class WarningLogger(bool enabled) : ILogger
+    private sealed class ProviderLogger(bool enabled) : ILogger
     {
         internal List<string> Warnings { get; } = [];
-        public bool IsEnabled(LogLevel logLevel) => enabled && logLevel == LogLevel.Warning;
+        internal List<string> DebugMessages { get; } = [];
+        internal List<int> RejectedCounts { get; } = [];
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Warning || (enabled && logLevel == LogLevel.Debug);
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (logLevel == LogLevel.Warning) Warnings.Add(formatter(state, exception));
+            if (logLevel == LogLevel.Debug)
+            {
+                DebugMessages.Add(formatter(state, exception));
+                RejectedCounts.Add((int)((IEnumerable<KeyValuePair<string, object?>>)(object)state!).Single(field => field.Key == "RejectedCount").Value!);
+            }
         }
     }
 }

@@ -10,11 +10,14 @@ using Libp2p.Protocols.KadDht.Kademlia;
 using Nethermind.Libp2p.Core;
 using NSubstitute;
 using NUnit.Framework;
+#pragma warning disable CS0618 // Alias for the compatibility API exercised by this fixture.
 using SessionNode = Libp2p.Protocols.KadDht.TestNode;
+#pragma warning restore CS0618
 
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
 [TestFixture]
+[Obsolete("Exercises the retained legacy API.")]
 public class KademliaSessionManagerTests
 {
     [Test]
@@ -32,12 +35,12 @@ public class KademliaSessionManagerTests
         };
         var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
         KademliaSessionManager manager = new(options, localPeerId, sender);
-        var config = (Nethermind.Kademlia.KademliaConfig<SessionNode>)typeof(KademliaSessionManager)
+        var config = (Nethermind.Kademlia.KademliaConfig<global::Libp2p.Protocols.KadDht.Integration.DhtNode>)typeof(KademliaSessionManager)
             .GetField("_config", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(manager)!;
 
-        Assert.That(config.BootNodes, Does.Contain(new SessionNode(bootstrapPeerId)));
-        Assert.That(config.BootNodes.Single().Addresses!.Select(address => address.ToString()),
+        Assert.That(config.BootNodes.Select(node => node.PeerId), Does.Contain(bootstrapPeerId));
+        Assert.That(config.BootNodes.Single().Multiaddrs,
             Is.EquivalentTo(new[] { firstAddress, secondAddress }));
         await manager.StopAsync(CancellationToken.None);
     }
@@ -72,10 +75,10 @@ public class KademliaSessionManagerTests
         PeerId localPeerId = new Identity(new byte[32]).PeerId;
         var sender = Substitute.For<global::Libp2p.Protocols.KadDht.IKademliaMessageSender<PublicKey, SessionNode>>();
         KademliaSessionManager manager = new(new SessionOptions(), localPeerId, sender);
-        var config = (Nethermind.Kademlia.KademliaConfig<SessionNode>)typeof(KademliaSessionManager)
+        var config = (Nethermind.Kademlia.KademliaConfig<global::Libp2p.Protocols.KadDht.Integration.DhtNode>)typeof(KademliaSessionManager)
             .GetField("_config", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(manager)!;
-        Assert.That(config.CurrentNodeId.Id, Is.EqualTo(localPeerId));
+        Assert.That(config.CurrentNodeId.PeerId, Is.EqualTo(localPeerId));
 
         Task run = manager.RunAsync(CancellationToken.None);
         await manager.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));

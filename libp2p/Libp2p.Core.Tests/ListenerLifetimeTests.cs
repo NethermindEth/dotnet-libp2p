@@ -168,6 +168,95 @@ public class ListenerLifetimeTests
         }
     }
 
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task ListenerShutdownPrecedesOwnedServicesAndPreservesAllFailures(bool listenerFails, bool serviceFails)
+    {
+        ControlledTransport transport = new();
+        ProtocolRef reference = new(transport);
+        ProtocolStackSettings settings = new() { TopProtocols = [reference], Protocols = new() { [reference] = [] } };
+        List<string> releases = [];
+        SynchronousResource synchronous = new(() => releases.Add("synchronous"));
+        SynchronousResource borrowed = new(() => releases.Add("borrowed"));
+        InvalidOperationException listenerFailure = new("listener teardown failed");
+        InvalidOperationException serviceFailure = new("service teardown failed");
+        AsynchronousResource asynchronous = new(releases, serviceFails ? serviceFailure : null);
+        PeerServiceRegistry.Configure(settings, new()
+        {
+            [typeof(SynchronousResource)] = new(_ => synchronous, true),
+            [typeof(IDisposable)] = new(_ => synchronous, true),
+            [typeof(IAsyncDisposable)] = new(_ => asynchronous, true),
+            [typeof(object)] = new(_ => borrowed, false)
+        });
+        LocalPeer peer = new(TestPeers.Identity(1), null, settings);
+        Assert.That(peer.GetPeerService<SynchronousResource>(), Is.SameAs(synchronous));
+        Assert.That(peer.GetPeerService<IDisposable>(), Is.SameAs(synchronous));
+        Assert.That(peer.GetPeerService<IAsyncDisposable>(), Is.SameAs(asynchronous));
+        Assert.That(peer.GetPeerService<object>(), Is.SameAs(borrowed));
+        Task start = peer.StartListenAsync([TestPeers.Multiaddr(1)]);
+        await transport.Entered.Task.WaitAsync(Deadline);
+        transport.Context!.ListenerReady(TestPeers.Multiaddr(1));
+        await start.WaitAsync(Deadline);
+        LocalPeer.Session session = new(peer) { State = { RemoteAddress = TestPeers.Multiaddr(2) } };
+        peer.UpgradeToSession(session, reference, false, null);
+        Task disposal = peer.DisposeAsync().AsTask();
+        try
+        {
+            await transport.Stopping.Task.WaitAsync(Deadline);
+            Assert.That(disposal.IsCompleted, Is.False, "Listener teardown is held at its barrier.");
+            Assert.That(releases, Is.Empty, "Services must remain alive while the listener is stopping.");
+            Assert.That(peer.DisposeAsync().AsTask(), Is.SameAs(disposal));
+            if (listenerFails) transport.Release.TrySetException(listenerFailure);
+            else transport.Release.TrySetResult();
+            await asynchronous.Entered.Task.WaitAsync(Deadline);
+            Assert.That(session.Closed.IsCancellationRequested, Is.True);
+            Assert.That(peer.ListenAddresses, Is.Empty);
+            Assert.That(disposal.IsCompleted, Is.False, "Disposal must await its asynchronous service.");
+            Assert.That(releases, Is.EqualTo(new[] { "asynchronous" }));
+            asynchronous.Release.TrySetResult();
+            List<Exception> expected = [];
+            if (listenerFails) expected.Add(listenerFailure);
+            if (serviceFails) expected.Add(serviceFailure);
+            if (expected.Count == 0) await disposal.WaitAsync(Deadline);
+            else
+            {
+                Assert.ThrowsAsync<InvalidOperationException>(async () => await disposal.WaitAsync(Deadline));
+                Assert.That(disposal.Exception!.Flatten().InnerExceptions, Is.EquivalentTo(expected));
+            }
+            Assert.That(peer.DisposeAsync().AsTask(), Is.SameAs(disposal));
+            Assert.That(releases, Is.EqualTo(new[] { "asynchronous", "synchronous" }),
+                "Owned aliases are released once in reverse order; borrowed services retain their owner.");
+        }
+        finally
+        {
+            transport.ForceStop.TrySetResult();
+            transport.Release.TrySetResult();
+            asynchronous.Release.TrySetResult();
+            try { await disposal.WaitAsync(Deadline); }
+            catch when (disposal.IsFaulted) { }
+        }
+    }
+
+    private sealed class SynchronousResource(Action onDispose) : IDisposable
+    {
+        public void Dispose() => onDispose();
+    }
+
+    private sealed class AsynchronousResource(List<string> releases, Exception? failure) : IAsyncDisposable
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async ValueTask DisposeAsync()
+        {
+            releases.Add("asynchronous");
+            Entered.TrySetResult();
+            await Release.Task;
+            if (failure is not null) throw failure;
+        }
+    }
+
     private sealed class MultiListenerPeer(ControlledTransport first, ControlledTransport second)
         : LocalPeer(TestPeers.Identity(1), null, new ProtocolStackSettings())
     {

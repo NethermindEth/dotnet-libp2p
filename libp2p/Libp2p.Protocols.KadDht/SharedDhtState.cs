@@ -41,19 +41,50 @@ public class SharedDhtState
     /// <summary>
     /// Gets the distributed value store for the DHT.
     /// </summary>
-    public DhtValueStore ValueStore { get; }
+    [Obsolete("Use IValueStore or the peer-bound DhtClient asynchronous API.")]
+    public DhtValueStore ValueStore => ClaimValueStore();
+    private readonly Lock _valueStoreLock = new();
+    private DhtValueStore _legacyValues;
+    private bool _valueStoreBound;
+    internal DhtValueStore ClaimValueStore()
+    {
+        lock (_valueStoreLock)
+        {
+            _valueStoreBound = true;
+            return _legacyValues;
+        }
+    }
+
+    internal void UseValueStore(IValueStore values, TimeSpan ttl)
+    {
+        lock (_valueStoreLock)
+        {
+            bool matches = ReferenceEquals(values, _legacyValues.Store) && ttl == _legacyValues.DefaultTtl;
+            if (_valueStoreBound && !matches)
+                throw new InvalidOperationException("SharedDhtState is already bound to a different value store or record TTL. Use a separate state for each store and TTL.");
+            if (!matches) _legacyValues = new DhtValueStore(values, ttl);
+            _valueStoreBound = true;
+        }
+    }
 
     /// <summary>
     /// Creates shared DHT state with optional routing table reference.
     /// </summary>
     /// <param name="routingTable">Optional routing table for efficient peer lookups. If null, GetKNearestPeers returns empty array.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
-    /// <param name="maintenanceInterval">Optional cleanup interval for value store. Defaults to 1 hour.</param>
+    /// <param name="maintenanceInterval">Legacy cleanup interval retained for compatibility; maintenance follows the backing IValueStore lifecycle.</param>
     public SharedDhtState(IRoutingTable<DhtNode, ValueHash256>? routingTable = null, ILoggerFactory? loggerFactory = null, TimeSpan? maintenanceInterval = null)
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
         _routingTable = routingTable;
-        ValueStore = new DhtValueStore(loggerFactory, cleanupInterval: maintenanceInterval);
+        _legacyValues = new DhtValueStore(loggerFactory, cleanupInterval: maintenanceInterval);
+    }
+
+    internal SharedDhtState(IValueStore values, ILoggerFactory? loggerFactory, TimeSpan ttl)
+    {
+        _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
+        _legacyValues = new DhtValueStore(values, ttl);
+        _valueStoreBound = true;
     }
 
     /// <summary>
