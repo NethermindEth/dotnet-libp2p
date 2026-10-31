@@ -9,6 +9,8 @@ public class SessionContext(LocalPeer localPeer, LocalPeer.Session session, Prot
     ActivitySource? activitySource, Activity? parentActivity)
     : ContextBase(localPeer, session, protocol, isListener, upgradeOptions, activitySource, parentActivity), ISessionContext
 {
+    public CancellationToken Token => session.ConnectionToken;
+
     public UpgradeOptions? UpgradeOptions => upgradeOptions;
 
     public async Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol

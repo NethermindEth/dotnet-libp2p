@@ -18,18 +18,27 @@ namespace Libp2p.Protocols.KadDht.Network;
 /// Generic libp2p Kademlia message sender using the spec-compliant unified Message envelope.
 /// All operations use the single /ipfs/kad/1.0.0 protocol with Message.Type dispatch.
 /// </summary>
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMessageSender<TPublicKey, TNode>, IDisposable, IAsyncDisposable
     where TPublicKey : notnull
     where TNode : class, IComparable<TNode>
 {
     private readonly ILocalPeer _localPeer;
+    private readonly KadDhtOptions _options;
     private readonly ILogger<LibP2pKademliaMessageSender<TPublicKey, TNode>> _logger;
     private readonly ConcurrentDictionary<TNode, ISession> _activeSessions = new();
     private readonly SemaphoreSlim _connectionSemaphore;
     private bool _disposed;
 
     public LibP2pKademliaMessageSender(ILocalPeer localPeer, ILoggerFactory? loggerFactory = null)
+        : this(new KadDhtOptions(), localPeer, loggerFactory)
     {
+    }
+
+    public LibP2pKademliaMessageSender(KadDhtOptions options, ILocalPeer localPeer, ILoggerFactory? loggerFactory = null)
+    {
+        WirePeerPolicy.Validate(options);
+        _options = options;
         ArgumentNullException.ThrowIfNull(localPeer);
         _localPeer = localPeer;
 
@@ -61,10 +70,9 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 .ConfigureAwait(false);
 
             var neighbours = new List<TNode>();
-            foreach (var wirePeer in response.CloserPeers)
+            foreach (var peer in new WirePeerPolicy(_options).ReadResponse(response, includeProviders: false).Closer)
             {
-                if (ConvertWirePeerToNode(wirePeer) is { } node)
-                    neighbours.Add(node);
+                if (typeof(TNode) == typeof(DhtNode)) neighbours.Add((TNode)(object)peer);
             }
 
             _logger.LogInformation("FIND_NODE returned {Count} neighbours from {Node}", neighbours.Count, receiver);
@@ -96,7 +104,7 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 .ConfigureAwait(false);
 
             // Per spec, a successful PUT echoes back the record
-            success = response.Record != null;
+            success = response.Record is { } record && record.Key.Span.SequenceEqual(key) && record.Value.Span.SequenceEqual(value);
             if (success)
                 _logger.LogInformation("PUT_VALUE completed to {Node}", receiver);
             else
@@ -122,7 +130,7 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
                 .DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, token)
                 .ConfigureAwait(false);
 
-            if (response.Record != null && response.Record.Value != null && !response.Record.Value.IsEmpty)
+            if (response.Record != null && response.Record.Value != null && !response.Record.Value.IsEmpty && response.Record.Key.Span.SequenceEqual(key))
             {
                 _logger.LogInformation("GET_VALUE found value from {Node}", receiver);
                 long ts = 0;
@@ -174,8 +182,8 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
             if (session is not null)
             {
                 _logger.LogError(ex, "{Operation} to {Node} failed: {Error}", operation, receiver, ex.Message);
-                if (_activeSessions.TryRemove(receiver, out var failedSession))
-                    await SafeDisconnectAsync(failedSession).ConfigureAwait(false);
+                if (_activeSessions.TryRemove(new KeyValuePair<TNode, ISession>(receiver, session)))
+                    await SafeDisconnectAsync(session).ConfigureAwait(false);
             }
             throw;
         }
@@ -188,7 +196,11 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
     private async Task<ISession?> GetOrCreateSession(TNode node, CancellationToken token)
     {
         if (_activeSessions.TryGetValue(node, out var existing))
-            return existing;
+        {
+            if (!existing.Closed.IsCancellationRequested) return existing;
+            if (_activeSessions.TryRemove(new KeyValuePair<TNode, ISession>(node, existing)))
+                await SafeDisconnectAsync(existing).ConfigureAwait(false);
+        }
 
         var multiaddress = GetMultiaddressForNode(node);
         if (multiaddress is null)
@@ -205,8 +217,11 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
 
             if (_activeSessions.TryGetValue(node, out var cached))
             {
-                await SafeDisconnectAsync(session).ConfigureAwait(false);
-                return cached;
+                if (!ReferenceEquals(session, cached)) await SafeDisconnectAsync(session).ConfigureAwait(false);
+                if (!cached.Closed.IsCancellationRequested) return cached;
+                if (_activeSessions.TryRemove(new KeyValuePair<TNode, ISession>(node, cached)))
+                    await SafeDisconnectAsync(cached).ConfigureAwait(false);
+                return await GetOrCreateSession(node, token).ConfigureAwait(false);
             }
             return session;
         }
@@ -227,14 +242,6 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         ValueHash256 valueHash => valueHash.Bytes.ToArray(),
         _ => Encoding.UTF8.GetBytes(key.ToString() ?? string.Empty)
     };
-
-    private TNode? ConvertWirePeerToNode(Message.Types.Peer wirePeer)
-    {
-        if (typeof(TNode) != typeof(DhtNode)) return null;
-
-        var dhtNode = MessageHelper.FromWirePeer(wirePeer);
-        return dhtNode is not null ? (TNode)(object)dhtNode : default;
-    }
 
     private Multiaddress? GetMultiaddressForNode(TNode node)
     {

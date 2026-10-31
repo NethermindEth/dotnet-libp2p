@@ -10,7 +10,14 @@ namespace Nethermind.Libp2p.Core;
 public interface ITransportContext
 {
     ILocalPeer Peer { get; }
+    /// <summary>Scope shared by listeners whose inbound TCP connections share an allowance.</summary>
+    object ConnectionAdmissionScope => this;
+    PeerResourceLimits ResourceLimits => PeerResourceLimits.Default;
+    TimeProvider Clock => TimeProvider.System;
     void ListenerReady(Multiaddress addr);
+    /// <summary>Reports that the listener is unbound. Accepted connections remain owned by the transport until ListenAsync returns.</summary>
+    /// <remarks>Legacy transports may omit this notification; their listen task must finish before peer disposal completes.</remarks>
+    void ListenerStopped() { }
     INewConnectionContext CreateConnection();
     Activity? Activity { get; }
 }
@@ -23,6 +30,8 @@ public interface IContextState
 
 public interface IConnectionContext : ITransportContext, IChannelFactory, IContextState
 {
+    /// <summary>Lifetime of the connection. Legacy contexts may omit lifetime notifications.</summary>
+    CancellationToken Token => CancellationToken.None;
     UpgradeOptions? UpgradeOptions { get; }
     Task DisconnectAsync();
     INewSessionContext UpgradeToSession();
@@ -47,6 +56,11 @@ public interface INewConnectionContext : IDisposable, IChannelFactory, IContextS
 {
     ILocalPeer Peer { get; }
     CancellationToken Token { get; }
+    /// <summary>Completes after owned protocol upgrades stop, following disposal.</summary>
+    Task Completion => Task.CompletedTask;
+    /// <summary>Disconnects an established connection only if it has had no application operations for the given interval.</summary>
+    /// <remarks>Legacy contexts without idle tracking remain ineligible for eviction.</remarks>
+    bool TryDisconnectIfIdle(TimeSpan idleTimeout) => false;
     INewSessionContext UpgradeToSession();
     Activity? Activity { get; }
 }

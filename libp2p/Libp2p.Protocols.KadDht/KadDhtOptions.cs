@@ -1,4 +1,5 @@
 using System;
+using Libp2p.Protocols.KadDht.Storage;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -20,6 +21,18 @@ public class KadDhtOptions
     /// Default: 20
     /// </summary>
     public int KSize { get; set; } = 20;
+
+    /// <summary>Maximum encoded peer identity bytes. Default: 128.</summary>
+    public int MaxPeerIdBytes { get; set; } = 128;
+
+    /// <summary>Closer-peer address inspection slots per peer. Default: 16.</summary>
+    public int MaxAddressesPerPeer { get; set; } = 16;
+
+    /// <summary>Per-response peer limit for encoded and retained payload bytes, independently. Default: 8 KiB.</summary>
+    public int MaxPeerRecordBytes { get; set; } = 8 * 1024;
+
+    /// <summary>Combined closer/provider response budget for encoded and retained bytes, independently. Default: 64 KiB.</summary>
+    public int MaxPeerResponseBytes { get; set; } = 64 * 1024;
 
     /// <summary>
     /// Number of concurrent queries to run (α concurrency parameter)
@@ -56,6 +69,26 @@ public class KadDhtOptions
     /// Default: 20
     /// </summary>
     public int MaxProvidersPerKey { get; set; } = 20;
+
+    /// <summary>
+    /// Maximum number of keys retained by the default provider store. New keys are
+    /// rejected at capacity unless a fully expired key can be reclaimed. Default: 10,000.
+    /// </summary>
+    public int MaxProviderKeys { get; set; } = ProviderRecordLimits.DefaultMaxProviderKeys;
+
+    /// <summary>
+    /// Maximum number of address entries inspected per provider record. Default: 16.
+    /// Skipped or malformed entries still consume a slot.
+    /// </summary>
+    public int MaxAddressesPerProvider { get; set; } = ProviderRecordLimits.DefaultMaxAddressesPerProvider;
+
+    /// <summary>
+    /// Maximum retained variable-length payload bytes per provider record. Includes
+    /// the Base64 key and Base58 peer dictionary key (UTF-16), peer ID bytes, and
+    /// address strings (UTF-16). Oversized identities are rejected; whole addresses
+    /// that do not fit are omitted. Default: 1,024.
+    /// </summary>
+    public int MaxProviderRecordBytes { get; set; } = ProviderRecordLimits.DefaultMaxProviderRecordBytes;
 
     /// <summary>
     /// Interval for refreshing routing table buckets
@@ -98,6 +131,23 @@ public class KadDhtOptions
     /// Default: 30 seconds
     /// </summary>
     public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Deadline for each complete request or response read, independent of OperationTimeout.</summary>
+    public TimeSpan ReadTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Concurrent inbound exchanges across all peers sharing a registration.</summary>
+    public int MaxInboundStreams { get; set; } = 512;
+
+    /// <summary>Concurrent inbound exchanges per authenticated remote identity in a registration.</summary>
+    public int MaxInboundStreamsPerPeer { get; set; } = 64;
+
+    internal void ValidateStreamLimits()
+    {
+        if (ReadTimeout <= TimeSpan.Zero || ReadTimeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+            throw new ArgumentOutOfRangeException(nameof(ReadTimeout));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxInboundStreams);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxInboundStreamsPerPeer);
+    }
 
     /// <summary>
     /// Number of disjoint lookup paths to use for Sybil resistance.

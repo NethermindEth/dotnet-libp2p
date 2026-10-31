@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Core.Dto;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 public class TestNode
 {
     public PublicKey Id { get; init; } = default!;

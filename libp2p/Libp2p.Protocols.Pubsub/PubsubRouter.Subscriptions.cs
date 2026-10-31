@@ -82,11 +82,16 @@ public partial class PubsubRouter
             return false;
         }
 
-        // Each removal is constant-time and releases one admitted membership. The work is
-        // bounded by retained unwanted state, without repeatedly scanning protected topics.
+        // Bound attempts even if removal stops updating the correlated membership indexes.
+        // Reject admission when eviction cannot free capacity or the queue is inconsistent.
+        int remaining = _unwantedRemoteSubscriptions.Count;
         while (!HasRemoteSubscriptionCapacity(bytes))
         {
-            (PubsubPeer victim, string victimTopic) = _unwantedRemoteSubscriptionOrder.First!.Value;
+            if (remaining-- == 0 || _unwantedRemoteSubscriptionOrder.First is not { } first)
+            {
+                return false;
+            }
+            (PubsubPeer victim, string victimTopic) = first.Value;
             RemoveRemoteSubscription(victim, victimTopic);
         }
         return true;

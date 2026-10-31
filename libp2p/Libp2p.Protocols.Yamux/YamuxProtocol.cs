@@ -43,13 +43,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Maximum number of concurrently tracked streams per session. Bounds the
-    /// state a peer can force us to allocate: the libp2p spec asks peers to
-    /// keep the unacknowledged backlog at 256, and rust-yamux caps streams at
-    /// 512 by default. Locally initiated streams bypass the cap; only inbound
-    /// SYNs are rejected with RST once the table is full.
+    /// Maximum number of concurrently tracked inbound streams per connection.
+    /// Locally initiated streams have independent admission. This bounds peer-created
+    /// transport state, independently of the unacknowledged backlog and application limits.
     /// </summary>
     private const int MaxStreamCount = 512;
+
+    private enum AdmissionState { Open, Graceful, Closed }
 
     private const string NoSession = "pending";
     public YamuxProtocol(MultiplexerSettings? multiplexerSettings = null, ILoggerFactory? loggerFactory = null,
@@ -90,41 +90,88 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         ConcurrentDictionary<int, ChannelState> channels = [];
         INewSessionContext? session = null;
         Timer? timer = null;
+        using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.Token);
+        CancellationToken lifetimeToken = lifetime.Token;
+        object admissionLock = new();
+        AdmissionState admission = AdmissionState.Open;
+        int inboundStreamCount = 0;
+        TaskCompletionSource<INewSessionContext> sessionReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration abort = lifetimeToken.Register(() =>
+        {
+            if (!channel.GetAwaiter().IsCompleted) _ = channel.AbortAsync();
+        });
+        Task requestWorker = Task.CompletedTask;
+        HashSet<Task> streamWorkers = [];
+
+        void TrackWorker(Task worker)
+        {
+            lock (streamWorkers) streamWorkers.Add(worker);
+            _ = worker.ContinueWith(t =>
+            {
+                _ = t.Exception;
+                lock (streamWorkers) streamWorkers.Remove(t);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
 
         try
         {
             int streamIdCounter = isListener ? 2 : 1;
 
-            SemaphoreSlim waitForSession = new(0, 1);
             if (!isListener)
             {
                 session = context.UpgradeToSession();
                 _logger?.LogInformation("Ctx({ctx}): Session created by dialer for {peer}", session.Id, session.State.RemoteAddress);
-                waitForSession.Release();
+                sessionReady.TrySetResult(session);
             }
 
-            _ = Task.Run(async () =>
+            requestWorker = Task.Run(async () =>
             {
-                await waitForSession.WaitAsync();
-                if (session is null)
+                try
                 {
-                    throw new Libp2pException("Session was not initialized.");
+                    INewSessionContext readySession = await sessionReady.Task.WaitAsync(lifetimeToken);
+                    uint pingCounter = 0;
+                    lock (admissionLock)
+                    {
+                        if (admission == AdmissionState.Closed || lifetimeToken.IsCancellationRequested) return;
+                        timer = new((s) => TrackWorker(SendPingAsync()), null, PingDelay, PingDelay);
+                    }
+
+                    foreach (UpgradeOptions request in readySession.DialRequests)
+                    {
+                        int streamId = streamIdCounter;
+                        Interlocked.Add(ref streamIdCounter, 2);
+                        try
+                        {
+                            CreateUpchannel(readySession.Id, streamId, YamuxHeaderFlags.Syn, request);
+                        }
+                        catch (Exception ex)
+                        {
+                            request.CompletionSource?.TrySetException(ex);
+                            _logger?.LogDebug(ex, "Ctx({ctx}): Failed to open stream {stream id}", readySession.Id, streamId);
+                        }
+                    }
+
+                    async Task SendPingAsync()
+                    {
+                        try
+                        {
+                            await WriteHeaderAsync(readySession.Id, channel, new YamuxHeader
+                            {
+                                Type = YamuxHeaderType.Ping,
+                                Flags = YamuxHeaderFlags.Syn,
+                                Length = (int)(++pingCounter % int.MaxValue)
+                            }, token: lifetimeToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogDebug(ex, "Ctx({ctx}): Ping write failed", readySession.Id);
+                        }
+                    }
                 }
-
-                uint pingCounter = 0;
-
-                timer = new((s) =>
+                catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested || session?.Token.IsCancellationRequested == true) { }
+                catch (Exception ex)
                 {
-                    _ = WriteHeaderAsync(session.Id, channel, new YamuxHeader { Type = YamuxHeaderType.Ping, Flags = YamuxHeaderFlags.Syn, Length = (int)(++pingCounter % int.MaxValue) });
-                }, null, PingDelay, PingDelay);
-
-                foreach (UpgradeOptions request in session.DialRequests)
-                {
-                    int streamId = streamIdCounter;
-                    Interlocked.Add(ref streamIdCounter, 2);
-
-                    _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Dialing with protocol {proto}", session.Id, streamId, request.SelectedProtocol?.Id);
-                    CreateUpchannel(session.Id, streamId, YamuxHeaderFlags.Syn, request);
+                    _logger?.LogDebug(ex, "Ctx({ctx}): Dial worker stopped", context.Id);
                 }
             });
 
@@ -165,13 +212,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn)
                         {
-                            _ = WriteHeaderAsync(session?.Id ?? NoSession, channel,
+                            TrackWorker(WriteHeaderAsync(session?.Id ?? NoSession, channel,
                                 new YamuxHeader
                                 {
                                     Flags = YamuxHeaderFlags.Ack,
                                     Type = YamuxHeaderType.Ping,
                                     Length = header.Length,
-                                });
+                                }, token: lifetimeToken));
 
                             _logger?.LogDebug("Ctx({ctx}): Ping received and acknowledged", session?.Id ?? NoSession);
                         }
@@ -180,12 +227,50 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                     if (header.Type == YamuxHeaderType.GoAway)
                     {
-                        _logger?.LogDebug("Ctx({ctx}): Go away received with code {code}, aborting all streams", session?.Id ?? NoSession, header.Length);
+                        _logger?.LogDebug("Ctx({ctx}): Go away received with code {code}", session?.Id ?? NoSession, header.Length);
+                        if (header.Length == (int)SessionTerminationCode.Ok)
+                        {
+                            lock (admissionLock) admission = AdmissionState.Graceful;
+                            continue;
+                        }
                         AbortStreams();
                         break;
                     }
 
                     continue;
+                }
+
+                if ((header.Flags & YamuxHeaderFlags.Syn) != 0)
+                {
+                    if (channels.ContainsKey(header.StreamID))
+                    {
+                        // Reject before applying duplicate credit or waiting for a duplicate DATA body.
+                        await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.ProtocolError);
+                        return;
+                    }
+                    bool reject;
+                    lock (admissionLock)
+                        reject = admission != AdmissionState.Open || inboundStreamCount >= MaxStreamCount;
+                    if (reject)
+                    {
+                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
+                        try
+                        {
+                            await WriteHeaderAsync(session?.Id ?? NoSession, channel,
+                                new YamuxHeader
+                                {
+                                    Flags = YamuxHeaderFlags.Rst,
+                                    Type = YamuxHeaderType.WindowUpdate,
+                                    StreamID = header.StreamID
+                                }, token: resetTimeout.Token);
+                        }
+                        catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
+                        {
+                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reject write timed out", session?.Id ?? NoSession, header.StreamID);
+                        }
+                        await DiscardPayloadAsync(header);
+                        continue;
+                    }
                 }
 
                 if (isListener && session is null)
@@ -200,7 +285,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         return;
                     }
                     _logger?.LogInformation("Ctx({ctx}): Session created by listener for {peer}", session.Id, session.State.RemoteAddress);
-                    waitForSession.Release();
+                    sessionReady.TrySetResult(session);
                 }
 
                 if (session is null)
@@ -208,44 +293,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     throw new Libp2pException("Session was not initialized.");
                 }
 
-                if ((header.Flags & YamuxHeaderFlags.Syn) == YamuxHeaderFlags.Syn && !channels.ContainsKey(header.StreamID))
-                {
-                    if (channels.Count >= MaxStreamCount)
-                    {
-                        _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Rejected, stream table is full", session.Id, header.StreamID);
-                        using CancellationTokenSource resetTimeout = new(ControlTimeout, _timeProvider);
-                        try
-                        {
-                            await WriteHeaderAsync(session.Id, channel,
-                                new YamuxHeader
-                                {
-                                    Flags = YamuxHeaderFlags.Rst,
-                                    Type = YamuxHeaderType.WindowUpdate,
-                                    StreamID = header.StreamID
-                                }, token: resetTimeout.Token);
-                        }
-                        catch (ChannelClosedException) when (resetTimeout.IsCancellationRequested)
-                        {
-                            _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reject write timed out", session.Id, header.StreamID);
-                        }
-                        if (header.Type == YamuxHeaderType.Data && header.Length > 0)
-                        {
-                            // A peer that omits rejected DATA bytes cannot hold the
-                            // session's serial frame reader indefinitely.
-                            using CancellationTokenSource payloadTimeout = new(ControlTimeout, _timeProvider);
-                            await channel.ReadAsync(header.Length, token: payloadTimeout.Token).OrThrow();
-                        }
-                        continue;
-                    }
+                if ((header.Flags & YamuxHeaderFlags.Syn) != 0)
                     CreateUpchannel(session.Id, header.StreamID, YamuxHeaderFlags.Ack, new UpgradeOptions());
-                }
 
                 if (!channels.TryGetValue(header.StreamID, out ChannelState? stream))
                 {
-                    if (header.Type == YamuxHeaderType.Data && header.Length > 0)
-                    {
-                        await channel.ReadAsync(header.Length);
-                    }
+                    await DiscardPayloadAsync(header);
                     _logger?.LogDebug("Ctx({ctx}): Stream {stream id}: Ignored for closed stream", session.Id, header.StreamID);
                     continue;
                 }
@@ -265,8 +318,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     stream.AbortOutbound();
                     _ = stream.Channel?.AbortAsync();
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset", session.Id, header.StreamID);
-                    if (header.Type == YamuxHeaderType.Data && header.Length > 0)
-                        await channel.ReadAsync(header.Length).OrThrow();
+                    await DiscardPayloadAsync(header);
                     continue;
                 }
 
@@ -287,7 +339,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                                header.StreamID, available, stream.LocalWindow.Available);
 
                     int dataLength = (int)data.Length;
-                    _ = stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
+                    TrackWorker(stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
                     {
                         if (!t.IsCompletedSuccessfully)
                         {
@@ -297,7 +349,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         }
 
                         ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    });
+                    }));
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -314,31 +366,65 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 if ((header.Flags & YamuxHeaderFlags.Fin) == YamuxHeaderFlags.Fin)
                 {
                     stream.FinReceived = true;
-                    _ = stream.Channel?.WriteEofAsync();
+                    if (stream.Channel is { } streamChannel) TrackWorker(streamChannel.WriteEofAsync().AsTask());
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Finish receiving", session.Id, header.StreamID);
                 }
             }
 
             await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
+            async Task DiscardPayloadAsync(YamuxHeader discarded)
+            {
+                if (discarded.Type != YamuxHeaderType.Data || discarded.Length == 0) return;
+                using CancellationTokenSource payloadTimeout = new(ControlTimeout, _timeProvider);
+                await channel.ReadAsync(discarded.Length, token: payloadTimeout.Token).OrThrow();
+            }
+
             void CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
             {
+                bool inbound = initiationFlag == YamuxHeaderFlags.Ack;
+                lock (admissionLock)
+                {
+                    if (admission != AdmissionState.Open)
+                    {
+                        upgradeOptions.CompletionSource?.TrySetException(new ChannelClosedException(IOResult.Ended));
+                        return;
+                    }
+                    if (inbound) inboundStreamCount++;
+                }
+
                 bool isListenerChannel = isListener ^ (streamId % 2 == 0);
-
-                IChannel upChannel;
-
-                if (isListenerChannel)
+                IChannel? upChannel = null;
+                ChannelState state;
+                try
                 {
-                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Listen });
+                    upChannel = session!.Upgrade(upgradeOptions with
+                    {
+                        ModeOverride = isListenerChannel ? UpgradeModeOverride.Listen : UpgradeModeOverride.Dial
+                    });
+                    state = new(upChannel, _windowSettings, inbound);
                 }
-                else
+                catch
                 {
-                    upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                    if (inbound) { lock (admissionLock) inboundStreamCount--; }
+                    _ = upChannel?.AbortAsync();
+                    throw;
                 }
 
-                ChannelState state = new(upChannel, _windowSettings);
-                // A peer may reply to SYN before the outbound pump finishes its first write.
-                channels[streamId] = state;
+                lock (admissionLock)
+                {
+                    // An admitted upgrade may finish after transport teardown swept the table.
+                    if (admission == AdmissionState.Closed)
+                    {
+                        if (inbound) inboundStreamCount--;
+                        AbortStream(state);
+                        state.Dispose();
+                        upgradeOptions.CompletionSource?.TrySetException(new ChannelClosedException(IOResult.Ended));
+                        return;
+                    }
+                    // Publish before SYN/ACK: a peer can reply before the first write completes.
+                    channels[streamId] = state;
+                }
 
                 TaskCompletionSource channelClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 upChannel.GetAwaiter().OnCompleted(() => channelClosed.TrySetResult());
@@ -373,6 +459,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                             for (int i = 0; i < upData.Length;)
                             {
+                                if (state.RemoteWindow.Available == 0)
+                                    _logger?.LogTrace("Ctx({ctx}), stream {stream id}: Waiting for remote window credit", contextId, streamId);
                                 int sendingSize = await state.RemoteWindow.SpendOrWait(
                                     Math.Min(maxDataFrameLength, (int)upData.Length - i), state.OutboundCancellation);
 
@@ -410,7 +498,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         context.Activity?.AddEvent(new ActivityEvent($"exception {e.Message}"));
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed due to transport disconnection", contextId, streamId);
-                        // The stream may have been registered after the session already swept its table.
+                        // The transport may fail before the receive loop detects the disconnection.
                         AbortStream(state);
                     }
                     catch (Exception e)
@@ -430,8 +518,11 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                         {
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Reset write timed out", contextId, streamId);
                         }
-                        _ = upChannel.AbortAsync();
-                        channels.TryRemove(streamId, out ChannelState? _);
+                        finally
+                        {
+                            _ = upChannel.AbortAsync();
+                            RemoveStream(streamId, state);
+                        }
 
                         if (e is ChannelAbortedException)
                         {
@@ -444,7 +535,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                 });
 
-                _ = CleanUpClosedStreamAsync();
+                TrackWorker(CleanUpClosedStreamAsync());
 
                 async Task ResetAbortedHalfClosedStreamAsync()
                 {
@@ -520,7 +611,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     }
                     finally
                     {
-                        channels.TryRemove(streamId, out ChannelState? _);
+                        RemoveStream(streamId, state);
                         state.Dispose();
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Closed", contextId, streamId);
                     }
@@ -541,10 +632,47 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
         finally
         {
-            timer?.Dispose();
+            Timer? stoppedTimer;
+            lock (admissionLock)
+            {
+                admission = AdmissionState.Closed;
+                stoppedTimer = timer;
+            }
+            await channel.CloseAsync();
+            lifetime.Cancel();
             AbortStreams();
             session?.Dispose();
-            _ = channel.CloseAsync();
+            if (context.Token.CanBeCanceled || session is null || requestWorker.IsCompleted)
+                await requestWorker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            else
+            {
+                // Legacy contexts may supply an application enumerable without cancellation support. Keep its
+                // exceptions observed; built-in contexts always expose a cancellable lifetime.
+                _ = requestWorker.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            }
+            if (stoppedTimer is not null) await stoppedTimer.DisposeAsync();
+            if (context.Token.CanBeCanceled)
+            {
+                while (true)
+                {
+                    Task[] pending;
+                    lock (streamWorkers) pending = [.. streamWorkers];
+                    if (pending.Length == 0) break;
+                    await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                    lock (streamWorkers) streamWorkers.ExceptWith(pending);
+                }
+            }
+            // Without a lifetime token, legacy contexts can retain FIN payloads until the
+            // application reads them. Their tracked workers still observe every exception.
+        }
+
+        void RemoveStream(int streamId, ChannelState state)
+        {
+            lock (admissionLock)
+            {
+                if (channels.TryRemove(new KeyValuePair<int, ChannelState>(streamId, state)) && state.IsInbound)
+                    inboundStreamCount--;
+            }
         }
 
         void AbortStreams()
@@ -575,13 +703,13 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     int extendedBy = channelState.LocalWindow.ExtendIfNeeded();
                     if (extendedBy is not 0)
                     {
-                        _ = WriteHeaderAsync(sessionId, channel,
+                        TrackWorker(WriteHeaderAsync(sessionId, channel,
                             new YamuxHeader
                             {
                                 Type = YamuxHeaderType.WindowUpdate,
                                 Length = extendedBy,
                                 StreamID = streamId
-                            });
+                            }, token: lifetimeToken));
                     }
                 }
             }
