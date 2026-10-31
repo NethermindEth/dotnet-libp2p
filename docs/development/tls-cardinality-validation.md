@@ -599,3 +599,68 @@ That review applies to `19d9aa1`; it does not approve a later head. The host mus
 complete the normal same-session independent re-review and final verification
 on the final head, including these documentation changes, before publication.
 Platform result reuse remains conditional on matching source/build/CI inputs.
+
+## PR feedback: preserve pre-upgrade I/O fault categories
+
+The review correction on top of `5feb0bbd5ff0df83b1216e651e66b8e19b0d01b4`
+narrows the pre-upgrade authentication catch. An arbitrary `IOException`,
+including an adapter invariant failure, now propagates as the original instance
+after transport cleanup. TLS exceptions and EOF/truncation failures retain their
+authentication category, except that a local `TlsFatalAlert` with the typed
+`internal_error` alert remains an internal failure. Cancellation classification
+and the existing cryptographic/identity rejection categories are unchanged.
+
+This distinction follows the pinned Bouncy Castle 2.6.2 types:
+[`TlsFatalAlert`](https://github.com/bcgit/bc-csharp/blob/release-2.6.2/crypto/src/tls/TlsFatalAlert.cs)
+and [`TlsFatalAlertReceived`](https://github.com/bcgit/bc-csharp/blob/release-2.6.2/crypto/src/tls/TlsFatalAlertReceived.cs)
+are separate `TlsException` subclasses. Excluding a local internal alert does
+not exclude alerts received from the peer. No exception-message matching is used.
+
+Four new regression cases inject ordinary I/O and local TLS internal faults
+through the production protocol in both roles. They require the same exception
+instance, no identity publication or upgrade, and transport abort. Before the
+production change, all four failed with `AuthenticationException`; the four
+existing closure/internal-fault cases passed. After the repair, the 13-case
+selection below passes, including real truncated-record, invalid-record and
+incompatible-ALPN authentication rejection controls. The full TLS suite passes
+86/86 without skips on Linux, SDK 10.0.402, Release, with compilation warnings
+as errors. Both CI TLS discovery minima are raised to 86; deadlines and
+exclusions are unchanged.
+
+The registered production certificate-list selection also passes 31/31 without
+skips, preserving the exact authentication-failure assertions for invalid wire
+lists and the existing identity/publication checks. The ten-archive integrity
+check passes and reports historical source drift; it does not reuse those old
+results for the changed adapter.
+
+Commands run from the repository root, using the session's configured `TMPDIR`:
+
+```sh
+# Red checkpoint: four failures, four passes on the unchanged production source.
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/tls-review/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsHandshakeClosureTests' --minimum-expected-tests 8 --timeout 90s
+
+# Green: 13/13, no skips.
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/tls-review/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsHandshakeClosureTests|FullyQualifiedName~TruncatedRecordsFailAuthentication|FullyQualifiedName~InvalidRecordLengthIsRejectedBeforeReadingItsBody|FullyQualifiedName~IncompatibleAlpnFailsBeforeIdentityPublication' --minimum-expected-tests 13 --timeout 90s
+
+# Green: 86/86, no skips, using the preceding warnings-as-errors build.
+dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build --artifacts-path "$TMPDIR/tls-review/artifacts" -- --minimum-expected-tests 86 --timeout 180s
+
+# Green: 31/31, no skips, warnings as errors.
+dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/tls-review/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~TlsCertificateListTests' --minimum-expected-tests 31 --timeout 180s
+
+# Ten historical archives checked; current input drift is reported.
+python3 .github/scripts/check_tls_evidence.py --output "$TMPDIR/tls-review/evidence.json"
+```
+
+The corrected production/test/CI inputs have these SHA256 hashes:
+
+| Path | SHA256 |
+| --- | --- |
+| `libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs` | `91570b6926552faf2841f155c81922f0d90550587ed0c44eb7a85587f396d5bf` |
+| `libp2p/Libp2p.Protocols.Tls.Tests/TlsHandshakeClosureTests.cs` | `e3a41b316435bd8abe0c8ffac43457a8b137b7d8d4d0a15d01e90e63365ca199` |
+| `.github/workflows/test.yml` | `d35842261a5fb3c701e5824ef9b64aa42623d7d98f212337b885012333bbc8ea` |
+
+Hosted Linux and Windows TLS 82/82 results belong to the unmodified supplied
+head, not this correction. Windows, pinned Go interoperability and benchmarks
+have not been rerun for the correction. Explicit maintainer backend-policy
+acceptance remains pending; this repair does not establish it.

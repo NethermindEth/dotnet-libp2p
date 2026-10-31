@@ -12,6 +12,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Multiformats.Address;
 using Multiformats.Address.Protocols;
+using Org.BouncyCastle.Tls;
 
 namespace Nethermind.Libp2p.Protocols.Tls;
 
@@ -72,7 +73,9 @@ public class TlsProtocol : IConnectionProtocol
             throw new OperationCanceledException("TLS connection was cancelled.", ex,
                 cancellation.IsCancellationRequested ? cancellation : connectionToken);
         }
-        catch (Exception ex) when (!authenticated && (ex is IOException or CryptographicException or Libp2pException))
+        catch (Exception ex) when (!authenticated
+            && (ex is TlsException or EndOfStreamException or CryptographicException or Libp2pException)
+            && ex is not TlsFatalAlert { AlertDescription: AlertDescription.internal_error })
         {
             await downChannel.AbortAsync();
             _logger?.LogDebug(ex, "TLS authentication failed");
@@ -80,7 +83,8 @@ public class TlsProtocol : IConnectionProtocol
         }
         catch (Exception) when (!authenticated)
         {
-            // Setup/implementation faults still release the transport, but are
+            // Setup, transport and implementation faults (including local TLS
+            // internal_error alerts) still release the transport, but are
             // not evidence of a peer authentication failure.
             await downChannel.AbortAsync();
             throw;

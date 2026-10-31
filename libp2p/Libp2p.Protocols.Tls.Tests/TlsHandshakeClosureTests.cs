@@ -10,6 +10,7 @@ using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Quic;
 using Nethermind.Libp2p.Protocols.Tls;
 using NSubstitute;
+using Org.BouncyCastle.Tls;
 using BcProtocol = Org.BouncyCastle.Tls.TlsProtocol;
 using TlsProtocol = Nethermind.Libp2p.Protocols.Tls.TlsProtocol;
 
@@ -101,10 +102,23 @@ public class TlsHandshakeClosureTests
     [TestCase(false)]
     [TestCase(true)]
     public async Task InternalFaultBeforeUpgradeRetainsItsCategory(bool server)
+        => await AssertPreUpgradeFailureIsPreserved(server, new InvalidOperationException("Injected channel implementation fault"));
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task IoFaultBeforeUpgradeRetainsItsCategory(bool server)
+        => await AssertPreUpgradeFailureIsPreserved(server, new IOException("Injected channel I/O fault"));
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task LocalTlsInternalErrorBeforeUpgradeRetainsItsCategory(bool server)
+        => await AssertPreUpgradeFailureIsPreserved(server,
+            new TlsFatalAlert(AlertDescription.internal_error, new InvalidOperationException("Injected TLS implementation fault")));
+
+    private static async Task AssertPreUpgradeFailureIsPreserved(bool server, Exception expected)
     {
         IChannel failed = Substitute.For<IChannel>();
         failed.CancellationToken.Returns(CancellationToken.None);
-        InvalidOperationException expected = new("Injected channel implementation fault");
         failed.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromException<ReadResult>(expected));
         failed.WriteAsync(Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns(IOResult.Ok);
@@ -116,6 +130,7 @@ public class TlsHandshakeClosureTests
         Assert.That(failure, Is.SameAs(expected));
         Assert.That(context.State.RemotePublicKey, Is.Null);
         _ = context.DidNotReceive().Upgrade(Arg.Any<UpgradeOptions>());
+        await failed.Received().AbortAsync();
     }
 
     private static byte[] Drain(BcProtocol engine)
