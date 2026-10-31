@@ -15,6 +15,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 {
     public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
     {
+        ProtocolLimits = serviceProvider?.GetService<BuiltInProtocolLimits>() ?? new();
         if (serviceProvider?.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>() is null)
             Services.AddSingleton<Nethermind.Libp2p.Core.Discovery.PeerStore>();
         if (serviceProvider?.GetService<IdentifyNotifier>() is null)
@@ -34,6 +35,9 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
 #endif
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebRtcDirectProtocol))]
     private static void PreserveTransportProtocolMetadata() { }
+
+    /// <summary>Replace these settings before Build to configure or disable built-in protocol limits.</summary>
+    public BuiltInProtocolLimits ProtocolLimits { get; set; }
 
     private bool enforcePlaintext;
     private bool addPubsub;
@@ -97,13 +101,13 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     }
 
     /// <summary>The default Identify protocol, or null to omit it.</summary>
-    protected virtual ProtocolRef? Identify() => Get<IdentifyProtocol>();
+    protected virtual ProtocolRef? Identify() => Get<IdentifyProtocol>(ProtocolLimits.Identify);
 
     /// <summary>The default Identify Push protocol, or null to omit it.</summary>
-    protected virtual ProtocolRef? IdentifyPush() => Get<IdentifyPushProtocol>();
+    protected virtual ProtocolRef? IdentifyPush() => Get<IdentifyPushProtocol>(ProtocolLimits.IdentifyPush);
 
     /// <summary>The default Ping protocol, or null to omit it.</summary>
-    protected virtual ProtocolRef? Ping() => Get<PingProtocol>();
+    protected virtual ProtocolRef? Ping() => Get<PingProtocol>(ProtocolLimits.Ping);
 
     /// <summary>Stream transports wired through encryption and multiplexing.</summary>
     protected virtual ProtocolRef[] StreamTransports()
@@ -132,15 +136,15 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     protected virtual ProtocolRef[] Muxers() => [Get<YamuxProtocol>()];
 
     /// <summary>Relay protocols wired to the other application protocols.</summary>
-    protected virtual ProtocolRef[] Relay() => addRelay ? [Get<RelayStopProtocol>(), Get<RelayHopProtocol>()] : [];
+    protected virtual ProtocolRef[] Relay() => addRelay ? [Get<RelayStopProtocol>(ProtocolLimits.RelayStop), Get<RelayHopProtocol>(ProtocolLimits.RelayHop)] : [];
 
     /// <summary>Pubsub application protocols, in negotiation order.</summary>
     protected virtual ProtocolRef[] Pubsub() => addPubsub ? [
-        Get<GossipsubProtocolV13>(),
-        Get<GossipsubProtocolV12>(),
-        Get<GossipsubProtocolV11>(),
-        Get<GossipsubProtocol>(),
-        Get<FloodsubProtocol>()
+        Get<GossipsubProtocolV13>(ProtocolLimits.Pubsub),
+        Get<GossipsubProtocolV12>(ProtocolLimits.Pubsub),
+        Get<GossipsubProtocolV11>(ProtocolLimits.Pubsub),
+        Get<GossipsubProtocol>(ProtocolLimits.Pubsub),
+        Get<FloodsubProtocol>(ProtocolLimits.Pubsub)
         ] : [];
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)

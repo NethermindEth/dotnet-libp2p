@@ -135,7 +135,7 @@ public class YamuxWireConformanceTests
         TransportClosedInsideFrame,
         TransportClosedAfterFin,
         TransportClosedAfterFinWithUnreadData,
-        GoAwayOk,
+        GoAwayOkThenTransportClosed,
         GoAwayProtocolError,
     }
 
@@ -144,7 +144,7 @@ public class YamuxWireConformanceTests
     [TestCase(SessionLoss.TransportClosedInsideFrame)]
     [TestCase(SessionLoss.TransportClosedAfterFin)]
     [TestCase(SessionLoss.TransportClosedAfterFinWithUnreadData)]
-    [TestCase(SessionLoss.GoAwayOk)]
+    [TestCase(SessionLoss.GoAwayOkThenTransportClosed)]
     [TestCase(SessionLoss.GoAwayProtocolError)]
     public async Task SessionLossAbortsStreamsWithoutFin(SessionLoss loss)
     {
@@ -203,13 +203,20 @@ public class YamuxWireConformanceTests
                     Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.EqualTo(IOResult.Ok));
                     Assert.That((await application.ReadAsync(payload.Length, token: timeout.Token).OrThrow()).ToArray(), Is.EqualTo(payload));
                     read = application.ReadAsync(1, token: timeout.Token).AsTask();
-                    if (loss is SessionLoss.GoAwayOk or SessionLoss.GoAwayProtocolError)
+                    if (loss is SessionLoss.GoAwayOkThenTransportClosed or SessionLoss.GoAwayProtocolError)
                     {
                         await WriteHeaderAsync(remote, new YamuxHeader
                         {
                             Type = YamuxHeaderType.GoAway,
-                            Length = (int)(loss == SessionLoss.GoAwayOk ? SessionTerminationCode.Ok : SessionTerminationCode.ProtocolError)
+                            Length = (int)(loss == SessionLoss.GoAwayOkThenTransportClosed ? SessionTerminationCode.Ok : SessionTerminationCode.ProtocolError)
                         }, timeout.Token);
+                        if (loss == SessionLoss.GoAwayOkThenTransportClosed)
+                        {
+                            await WriteHeaderAsync(remote, FuzzPingSyn(6), timeout.Token);
+                            Assert.That((await ReadOutboundHeaderAsync(remote, timeout.Token)).Type, Is.EqualTo(YamuxHeaderType.Ping));
+                            await transport.CloseAsync();
+                            await yamux.WaitAsync(timeout.Token);
+                        }
                     }
                     else
                     {
@@ -228,7 +235,7 @@ public class YamuxWireConformanceTests
             }
             Assert.That(result.Result, Is.EqualTo(finReceived ? IOResult.Ended : IOResult.Aborted),
                 "Only the peer's FIN ends a stream cleanly.");
-            // On the GoAway-received path streams are settled before the farewell GoAway goes out, so no frame needs to be read first.
+            // Fatal GoAway settles streams before the farewell frame, so no frame needs to be read first.
             Assert.That(await application.WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token), Is.Not.EqualTo(IOResult.Ok),
                 "The outbound half cannot accept data once the session is gone.");
         }
@@ -483,17 +490,16 @@ public class YamuxWireConformanceTests
     }
 
     [Test]
-    public async Task AStreamDialedAfterTheSessionDiedIsAborted()
+    public async Task AStreamDialedAfterTheSessionDiedIsRejectedBeforeUpgrade()
     {
-        // A dial request can be taken after the session already swept its stream table, so the
-        // new stream's first write meets a dead transport with its own cancellation still live.
-        // It must be aborted like any other stream without the peer's FIN, not left open.
+        // A queued request taken after terminal cleanup must complete without creating a stream.
+        TaskCompletionSource<object?> lateCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using ManualResetEventSlim releaseLateDial = new(false);
         IEnumerable<UpgradeOptions> Requests()
         {
             yield return new UpgradeOptions { SelectedProtocol = Mocks.TestProtocol() };
             releaseLateDial.Wait(TimeSpan.FromSeconds(30));
-            yield return new UpgradeOptions { SelectedProtocol = Mocks.TestProtocol() };
+            yield return new UpgradeOptions { SelectedProtocol = Mocks.TestProtocol(), CompletionSource = lateCompletion };
         }
 
         (IConnectionContext ctx, INewSessionContext session) = Mocks.Dialer(Requests());
@@ -510,10 +516,8 @@ public class YamuxWireConformanceTests
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
 
             releaseLateDial.Set();
-            Channel late = await WaitForUpchannelAsync(ups, timeout.Token, index: 1);
-            ReadResult read = await late.Reverse.ReadAsync(1, token: timeout.Token).AsTask()
-                .WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.That(read.Result, Is.EqualTo(IOResult.Aborted));
+            Assert.ThrowsAsync<Core.Exceptions.ChannelClosedException>(async () => await lateCompletion.Task.WaitAsync(timeout.Token));
+            Assert.That(ups, Has.Count.EqualTo(1));
         }
         finally
         {

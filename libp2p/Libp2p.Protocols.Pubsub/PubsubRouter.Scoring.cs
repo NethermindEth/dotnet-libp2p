@@ -16,6 +16,32 @@ public partial class PubsubRouter
     private DateTime _lastScoreDecay = DateTime.UtcNow;
     private readonly ConcurrentDictionary<MessageId, (PeerId FirstDeliverer, DateTime FirstDeliveryTime)> _firstDeliveryTracker = new();
 
+    // Scores of disconnected peers, kept for RetainScore so that reconnecting does not clear a penalty.
+    // Only used under the router lock.
+    private readonly Dictionary<PeerId, RetainedScore> _retainedScores = [];
+
+    private sealed class RetainedScore(PeerScore score, double value, DateTime expires)
+    {
+        public PeerScore Score { get; } = score;
+
+        /// <summary>The score when kept; kept scores do not decay, so it stays exact.</summary>
+        public double Value { get; } = value;
+
+        public DateTime Expires { get; } = expires;
+    }
+
+    /// <summary>Scores currently kept for disconnected peers.</summary>
+    internal int RetainedScoreCount
+    {
+        get
+        {
+            lock (this)
+            {
+                return _retainedScores.Count;
+            }
+        }
+    }
+
     private static readonly Dictionary<string, int> NoIpColocationCounts = [];
 
     private Dictionary<string, int> CountIpColocation()
@@ -43,10 +69,89 @@ public partial class PubsubRouter
             return 0;
         }
 
+        return ScoreOf(peer);
+    }
+
+    private double ScoreOf(PubsubPeer peer)
+    {
         // Only this peer's own address can contribute to P6, so the colocation counts are worth
         // building only when it has one. This runs for every scored peer on the receive and
         // publish paths, where counting every peer and allocating per call would dominate it.
         return peer.Score.GetScore(peer.Score.IPAddress is null ? NoIpColocationCounts : CountIpColocation());
+    }
+
+    /// <summary>
+    /// Keeps a disconnecting peer's score for <see cref="PubsubSettings.RetainScore"/>, so that
+    /// it cannot clear a penalty by reconnecting.
+    /// </summary>
+    /// <remarks>
+    /// As in go-libp2p and rust-libp2p, only a positive score is dropped, so a well-behaved peer
+    /// starts again from zero. A score of exactly zero is kept: first-delivery credit can balance
+    /// penalties, and <see cref="PeerScore.Disconnect"/> drops that credit. Nothing is kept once
+    /// the router stops. Called under the router lock, like every other use of the kept scores.
+    /// </remarks>
+    private void KeepDisconnectedScore(PeerId peerId, PeerScore score, double currentScore)
+    {
+        if (currentScore > 0 || _settings.MaxRetainedScores <= 0 || _stopped.IsCancellationRequested)
+        {
+            return;
+        }
+
+        score.Disconnect();
+        double kept = score.GetScore(NoIpColocationCounts);
+        DateTime now = DateTime.UtcNow;
+        if (_retainedScores.Count >= _settings.MaxRetainedScores)
+        {
+            // Full: an expired score goes first, otherwise the least negative one, whether
+            // already kept or this one.
+            KeyValuePair<PeerId, RetainedScore> dropped = _retainedScores.MaxBy(r => r.Value.Expires <= now ? double.PositiveInfinity : r.Value.Value);
+            if (dropped.Value.Expires > now && kept >= dropped.Value.Value)
+            {
+                return;
+            }
+
+            _retainedScores.Remove(dropped.Key);
+        }
+
+        _retainedScores[peerId] = new RetainedScore(score, kept, now.AddMilliseconds(_settings.RetainScore));
+    }
+
+    /// <summary>
+    /// Gives a peer that is connecting the score it disconnected with, unless that expired.
+    /// </summary>
+    /// <remarks>
+    /// Called from the <see cref="peerState"/> factory under the router lock, which the caller holds
+    /// until the peer is listed. No reader sees the reconnected peer without its score, and no connection
+    /// to the same peer can keep a score in between that this lookup missed. The kept entry stays until
+    /// the caller calls <see cref="ForgetRetainedScore"/>: an inbound connection can still drop the peer
+    /// it just listed, and the score must not be lost then.
+    /// </remarks>
+    private PubsubPeer WithRetainedScore(PubsubPeer peer, out RetainedScore? restored)
+    {
+        restored = _retainedScores.TryGetValue(peer.PeerId, out RetainedScore? retained) && retained.Expires > DateTime.UtcNow
+            ? retained
+            : null;
+        if (restored is not null)
+        {
+            // Colocation is about the address this connection uses, not the last one.
+            restored.Score.IPAddress = peer.Score.IPAddress;
+            peer.Score = restored.Score;
+        }
+
+        return peer;
+    }
+
+    /// <summary>Drops the kept score that a peer just added to the router was given.</summary>
+    private void ForgetRetainedScore(PeerId peerId, RetainedScore restored)
+    {
+        lock (this)
+        {
+            // If the peer has disconnected again since, its score is kept anew and stays.
+            if (_retainedScores.TryGetValue(peerId, out RetainedScore? current) && ReferenceEquals(current, restored))
+            {
+                _retainedScores.Remove(peerId);
+            }
+        }
     }
 
     /// <summary>
@@ -67,6 +172,20 @@ public partial class PubsubRouter
             peer.Score.Decay();
         }
 
+        // Retained scores are not decayed while their peer is away, as in go-libp2p and rust-libp2p:
+        // decay lets recent behavior outweigh old, and an absent peer shows none. They are only
+        // dropped once expired.
+        lock (this)
+        {
+            foreach ((PeerId peerId, RetainedScore retained) in _retainedScores)
+            {
+                if (retained.Expires <= now)
+                {
+                    _retainedScores.Remove(peerId);
+                }
+            }
+        }
+
         // Clean up old first delivery tracking
         var cutoff = now.AddMilliseconds(-_settings.MessageCacheTtl);
         var toRemove = _firstDeliveryTracker.Where(kvp => kvp.Value.FirstDeliveryTime < cutoff)
@@ -82,7 +201,7 @@ public partial class PubsubRouter
     /// </summary>
     private void RecordMessageDelivery(PeerId peerId, MessageId messageId, string topic, bool isValid)
     {
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        if (!IsLocallySubscribed(topic) || !peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }

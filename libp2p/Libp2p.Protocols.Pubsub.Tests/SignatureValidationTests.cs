@@ -25,7 +25,7 @@ public class SignatureValidationTests
     {
         var shortKey = new Identity().PublicKey.Clone();
         shortKey.Data = ByteString.CopyFrom(new byte[31]);
-        AssertBatchContinuesAfterMalformedMessage(message => message.From = ByteString.CopyFrom(new PeerId(shortKey).Bytes));
+        AssertBatchContinuesAfterMalformedMessage(message => message.From = ByteString.CopyFrom(new PeerId(Multiformats.Hash.Multihash.Encode(shortKey.ToByteArray(), Multiformats.Hash.HashType.ID)).Bytes));
     }
 
     private static void AssertBatchContinuesAfterMalformedMessage(Action<Message> makeMalformed)

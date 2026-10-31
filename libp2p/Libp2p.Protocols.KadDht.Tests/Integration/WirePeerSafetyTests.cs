@@ -9,6 +9,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -112,9 +113,11 @@ internal sealed class KadWireHarness : IDisposable
     private readonly ServiceProvider _services;
     internal RequestResponseProtocol<Message, Message> Protocol { get; }
     internal ISessionContext Context { get; }
+    internal SharedDhtState? RoutingState { get; }
 
     internal KadWireHarness(string path, KadDhtOptions options, IValueStore? values = null,
-        IProviderStore? providers = null, Func<PublicKey, IEnumerable<DhtNode>>? nearest = null, ILocalPeer? local = null)
+        IProviderStore? providers = null, Func<PublicKey, IEnumerable<DhtNode>>? nearest = null, ILocalPeer? local = null,
+        ILoggerFactory? loggerFactory = null, SharedDhtState? sharedState = null)
     {
         var services = new ServiceCollection();
         if (path == "services") services.AddKadDht(o => CopyOptions(options, o));
@@ -122,6 +125,8 @@ internal sealed class KadWireHarness : IDisposable
         if (values is not null) services.AddSingleton(values);
         if (providers is not null) services.AddSingleton(providers);
         if (local is not null) services.AddSingleton(local);
+        if (loggerFactory is not null) services.AddSingleton(loggerFactory);
+        if (sharedState is not null) services.AddSingleton(sharedState);
         _services = services.BuildServiceProvider();
         var builder = Substitute.For<ILibp2pPeerFactoryBuilder>();
         builder.Services.Returns(services);
@@ -138,6 +143,9 @@ internal sealed class KadWireHarness : IDisposable
             case "direct": builder.AddKadDhtProtocols(nearest ?? (_ => []), options: options, valueStore: values, providerStore: providers); break;
             default: throw new ArgumentException("Unknown registration path", nameof(path));
         }
+        RoutingState = path == "integration"
+            ? services.Last(service => service.ServiceType == typeof(SharedDhtState)).ImplementationInstance as SharedDhtState
+            : _services.GetService<SharedDhtState>();
         Protocol = protocol!;
         Context = Substitute.For<ISessionContext>();
         Context.State.Returns(new State());

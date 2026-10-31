@@ -28,6 +28,7 @@ internal sealed class DhtRuntime : IDisposable, IAsyncDisposable
         var providers = sp.GetRequiredService<IProviderStore>();
         var validator = sp.GetRequiredService<IRecordValidator>();
         state ??= new SharedDhtState(values, loggerFactory, options.RecordTtl);
+        state.UseValueStore(values, options.RecordTtl);
         state.LocalPeerKey = new PublicKey(peer.Identity.PeerId.Bytes);
         state.KValue = options.KSize;
         sender ??= new LibP2pKademliaMessageSender(options, peer, loggerFactory,
@@ -43,7 +44,7 @@ internal sealed class DhtRuntime : IDisposable, IAsyncDisposable
             Protocol = protocol,
             Client = new DhtClient(state, sender, values, validator, options, loggerFactory),
             Handler = new(options, values, providers, validator,
-                key => ServiceCollectionExtensions.EnrichPeerAddresses(state.GetKNearestPeers(key), peerStore),
+                (key, excludedPeer) => ServiceCollectionExtensions.EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), peerStore),
                 node =>
                 {
                     protocol.AddNode(ServiceCollectionExtensions.EnrichNodeFromPeerStore(node, peerStore));

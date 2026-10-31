@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Libp2p.Protocols.KadDht;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Integration;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 using System.Threading;
 using Nethermind.Libp2p.Core.TestsBase;
@@ -27,6 +29,39 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 [TestFixture]
 public class ServiceCollectionExtensionsTests
 {
+    [Test]
+    public async Task DiscoveredPeer_CanFillAndRefreshAddressesAfterAnEmptyPeerRecord()
+    {
+        Identity remote = TestPeers.Identity(81);
+        PeerStore store = new();
+        ByteString record = SigningHelper.CreateSignedEnvelope(remote, [], 5);
+        store.Discover(record);
+        _services.AddSingleton(store);
+        _services.AddKadDht();
+        using var provider = _services.BuildServiceProvider();
+        var sender = provider.GetRequiredService<KademliaMessageSender>();
+        string first = $"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}";
+        string second = $"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}";
+        var node = remote.PeerId.ToDhtNode([first]);
+        var session = Substitute.For<ISession>();
+        _mockLocalPeer.DialAsync(remote.PeerId, Arg.Any<CancellationToken>()).Returns(session);
+        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(_ => MessageHelper.CreateFindNodeResponse([node]));
+        await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
+        node = remote.PeerId.ToDhtNode([second]);
+        await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { second }));
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(5UL));
+
+        ByteString signedAddresses = SigningHelper.CreateSignedEnvelope(remote, [first], 6);
+        store.Discover(signedAddresses);
+        await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
+        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
+        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(signedAddresses));
+    }
+
     [Test]
     public async Task MissingPeerMetadataDoesNotEvictKnownPeer()
     {

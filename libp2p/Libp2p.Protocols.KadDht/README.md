@@ -89,13 +89,24 @@ Wire peer responses have separate positive limits: `MaxPeerIdBytes` (128 bytes),
 per peer), and `MaxPeerResponseBytes` (64 KiB across both peer lists). The first
 `KSize` closer entries and `MaxProvidersPerKey` provider entries are inspected;
 provider addresses use `MaxAddressesPerProvider`. Invalid, duplicate, and skipped
-entries consume slots. Closer peers take priority over providers in the combined
-budget. Encoded bytes (including protobuf peer-field framing) and retained payload
+entries consume slots. GET_PROVIDERS gives provider records priority when building
+and reading a response; closer peers use the remaining combined budget. Provider
+records can still be truncated when they exhaust that budget themselves. Encoded
+bytes (including protobuf peer-field framing) and retained payload
 are bounded independently. Retained payload charges both identity copies and UTF-16
 address strings, including destination IDs appended during normalization. Admitted
 address parsing consumes budget even on failure; oversized whole addresses are
 skipped. These response limits also apply to custom stores and nearest-peer callbacks
 and do not replace the provider store's retention limits above.
+
+When serving FIND_NODE, the requester is excluded before the wire policy applies
+the `KSize` output limit. A separate inspection budget bounds the callback iterator
+to at most `KSize + 1` candidates. The registered routing
+callbacks exclude the requester during the table lookup, before its own K limit,
+so a requester among the nearest peers does not leave the response short. Custom
+callbacks should supply up to `KSize + 1` candidates when available. Repeated
+requester, invalid, or duplicate entries never extend the bounded prefix, so a
+response can still be shorter than `KSize`.
 
 Wire identities must be complete multihashes with minimal unsigned varint headers of at
 most nine bytes and an exact digest length; unknown hash codes remain structurally
@@ -104,6 +115,11 @@ closer peers without usable addresses are excluded from lookup and discovery;
 provider records may still have no addresses. Protobuf parsing is separately bounded
 by `MaxMessageSize`; response budgets bound subsequent conversion and retention.
 These limits bound one response, rather than cumulative discovery over many requests.
+
+The public `MessageHelper.ToWirePeer` and `CreateAddProviderRequest` helpers throw
+`ArgumentException` for malformed peer IDs or IDs exceeding the default 128-byte
+limit. Response builders omit invalid entries instead. Callers using the public
+helpers should validate their inputs or handle that exception.
 
 PUT_VALUE echoes a record only when the store reports that its bytes were stored.
 The envelope and record keys must match. Channel closure cancels cancellation-aware
@@ -144,6 +160,10 @@ Late service or protocol changes throw `InvalidOperationException`. Dispose the 
 (or the containing DI provider) after its peers; it disposes its own services and
 implicitly created protocols while leaving explicit instances and supplied services owned
 by their original registration. A failed build can be corrected and retried.
+Factories for different registrations may run concurrently. Factory calls and supplied
+provider resolution run outside the container cache lock. Disposal rejects new resolutions
+and waits for active resolutions before disposing owned services; concurrent disposal
+calls await the same cleanup.
 
 `AddKadDht`, `AddKadDht` on `IServiceCollection`, and `WithKadDht` share the same
 request handler. The standard builder creates routing state and runtime identity lazily
@@ -205,3 +225,17 @@ The internal test transport helper lives in the test assembly.
 construction remains supported; reads filter expiration, and explicit store cleanup
 reclaims expired entries. The facade does not own or dispose its backing store. Production
 operations use the asynchronous store directly. There is no wire ID or protobuf change.
+The `DhtClient` constructor accepting an `IValueStore` binds the supplied state's
+compatibility facade to that store and the configured record TTL once, atomically.
+Subsequent clients must supply the same store instance and TTL or construction throws
+`InvalidOperationException`; concurrent clients cannot replace each other's facade.
+Reading `ValueStore` or constructing a legacy client also fixes the existing binding,
+so a facade already handed to a caller cannot become detached. Legacy clients inherit
+that binding's record TTL. Same-store clients retain
+the same facade instance. Use separate state objects for different stores or TTLs.
+Production registration binds the store when creating each peer-bound state.
+
+If protocol activation fails, builder rollback attempts both directly activated and
+container-owned cleanup and restores the configuration for retry. Cleanup exceptions do
+not replace the original build exception; they are retained as an `AggregateException`
+in its `Data["RollbackFailures"]` entry.

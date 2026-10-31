@@ -82,7 +82,8 @@ public class ConnectionSnapshotTests
             await disconnection!;
             var expected = anotherSessionLives ? Message.Types.ConnectionType.Connected : Message.Types.ConnectionType.NotConnected;
             Assert.That(response.CloserPeers.Select(peer => peer.Connection), Is.EqualTo(new[] { Message.Types.ConnectionType.Connected, expected }));
-            Assert.That(response.ProviderPeers.Single().Connection, Is.EqualTo(expected));
+            Assert.That(response.ProviderPeers.Single().Connection, Is.EqualTo(Message.Types.ConnectionType.Connected),
+                "Providers are serialized before the closer-peer callback closes this session.");
             // A later response must observe new sessions, rather than retaining a previous snapshot.
             if (!anotherSessionLives) AddConnectedSession(local, 2);
             response = await harness.SendAsync(MessageHelper.CreateGetProvidersRequest([1]));

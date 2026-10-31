@@ -21,6 +21,7 @@ public sealed record DhtValue
 public sealed class DhtValueStore
 {
     internal IValueStore Store { get; }
+    internal TimeSpan DefaultTtl => _defaultTtl;
     private readonly TimeSpan _defaultTtl;
 
     public DhtValueStore(ILoggerFactory? loggerFactory = null, TimeSpan? defaultTtl = null, TimeSpan? cleanupInterval = null)

@@ -31,6 +31,18 @@ public class PubsubSettings
 
     public int MaxConnections { get; set; }
 
+    /// <summary>Maximum distinct remote topic memberships retained for one peer. Configure before constructing the router.</summary>
+    public int MaxRemoteSubscriptionsPerPeer { get; set; } = 1_024;
+
+    /// <summary>Maximum topic-name bytes retained per peer, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytesPerPeer { get; set; } = 1 * 1024 * 1024;
+
+    /// <summary>Maximum remote peer/topic memberships retained across the router.</summary>
+    public int MaxRemoteSubscriptions { get; set; } = 65_536;
+
+    /// <summary>Maximum topic-name bytes across all remote memberships, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytes { get; set; } = 64 * 1024 * 1024;
+
     /// <summary>
     /// Peers with reciprocal explicit peering agreements. Each address must
     /// contain a peer ID and is configured before the router starts.
@@ -165,7 +177,20 @@ public class PubsubSettings
     // Score Decay
     public int DecayInterval { get; set; } = 1000; // 1 second
     public double DecayToZero { get; set; } = 0.01;
+
+    /// <summary>
+    /// Milliseconds a score that is not positive is kept after its peer disconnects, so that
+    /// reconnecting does not clear a penalty. The kept score does not decay while the peer is away,
+    /// as in go-libp2p and rust-libp2p, and is restored if the peer reconnects in time.
+    /// </summary>
     public int RetainScore { get; set; } = 10 * 60 * 1000; // 10 minutes
+
+    /// <summary>
+    /// Maximum number of scores kept for disconnected peers; zero keeps none. When full, an expired
+    /// score is dropped first, otherwise the least negative one, including the one arriving. A tie
+    /// keeps the score already there, so pushing out a penalized peer needs worse scores.
+    /// </summary>
+    public int MaxRetainedScores { get; set; } = 10_000;
 
     // Mesh Management
     public int DScore { get; set; } = 5;

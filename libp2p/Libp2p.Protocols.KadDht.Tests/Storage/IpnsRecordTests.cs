@@ -67,6 +67,17 @@ public class IpnsRecordTests
         Assert.That(validator.Validate(key, value), Is.True);
     }
 
+    [TestCase(KeyType.Ed25519)]
+    [TestCase(KeyType.Secp256K1)]
+    public void Validator_Validate_AcceptsInlineKeysWithoutRecordKey(KeyType type)
+    {
+        Identity identity = new(keyType: type);
+        IpnsEntry entry = IpnsEntry.Parser.ParseFrom(IpnsRecordHelper.CreateSignedRecord(
+            identity, "/ipfs/QmTest123", 1, DateTimeOffset.UtcNow.AddHours(1)));
+        entry.ClearPubKey();
+        Assert.That(IpnsRecordValidator.Instance.Validate(IpnsRecordHelper.BuildIpnsKey(identity.PeerId), entry.ToByteArray()), Is.True);
+    }
+
     [Test]
     public void Validator_Validate_AcceptsRecordWithCustomTtl()
     {
@@ -124,7 +135,7 @@ public class IpnsRecordTests
             eol: DateTimeOffset.UtcNow.AddHours(1)));
         entry.PubKey = padded.ToByteString();
 
-        Assert.That(IpnsRecordValidator.Instance.Validate(IpnsRecordHelper.BuildIpnsKey(new PeerId(padded)), entry.ToByteArray()), Is.False);
+        Assert.That(IpnsRecordValidator.Instance.Validate(IpnsRecordHelper.BuildIpnsKey(new PeerId(Multiformats.Hash.Multihash.Encode(padded.ToByteArray(), Multiformats.Hash.HashType.ID))), entry.ToByteArray()), Is.False);
     }
 
     /// <remarks>
@@ -206,7 +217,7 @@ public class IpnsRecordTests
             Type = (Nethermind.Libp2p.Core.Dto.KeyType)7,
             Data = ByteString.CopyFrom([1, 2, 3]),
         };
-        byte[] key = IpnsRecordHelper.BuildIpnsKey(new PeerId(unusableKey));
+        byte[] key = IpnsRecordHelper.BuildIpnsKey(new PeerId(Multiformats.Hash.Multihash.Encode(unusableKey.ToByteArray(), Multiformats.Hash.HashType.ID)));
         var entry = IpnsEntry.Parser.ParseFrom(IpnsRecordHelper.CreateSignedRecord(
             _identity,
             "/ipfs/QmTest",

@@ -6,6 +6,8 @@ using Nethermind.Libp2p.Core;
 
 internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
 {
+    private const int MaxMessageLength = 1024 * 1024;
+
     internal Action<string>? OnServerMessage;
     internal Func<string, Task<IOResult>>? OnClientMessage;
     internal TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -22,7 +24,7 @@ internal class ChatProtocol : SymmetricSessionProtocol, ISessionProtocol
         {
             for (; ; )
             {
-                string read = await channel.ReadLineAsync();
+                string read = await channel.ReadLineAsync(MaxMessageLength);
                 OnServerMessage?.Invoke(read);
             }
         }

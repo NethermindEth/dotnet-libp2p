@@ -20,21 +20,156 @@ namespace Libp2p.E2eTests;
 
 public class KadBuilderTests
 {
-    [Test]
-    public async Task BuilderCreatesPeerBoundDhtWithoutLocalPeerRegistration()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task BuilderCreatesPeerBoundDhtWithoutLocalPeerRegistration(bool configureResources)
     {
-        await using var provider = new ServiceCollection()
+        var limits = new PeerResourceLimits(maxConcurrentInitializations: 2);
+        var protocolLimits = new BuiltInProtocolLimits { Ping = new InboundStreamLimit(2, 1) };
+        var clock = new ConfiguredClock();
+        var services = new ServiceCollection();
+        if (configureResources) services.AddSingleton(limits).AddSingleton(protocolLimits).AddSingleton<TimeProvider>(clock);
+        await using var provider = services
             .AddLibp2p(builder => builder.AddKadDht())
             .BuildServiceProvider();
         var factory = provider.GetRequiredService<IPeerFactory>();
+        var builder = (Libp2pPeerFactoryBuilder)provider.GetRequiredService<ILibp2pPeerFactoryBuilder>();
+        if (configureResources) Assert.That(builder.ProtocolLimits, Is.SameAs(protocolLimits));
+        var ping = provider.GetRequiredService<IProtocolStackSettings>().Protocols!.Keys.Single(p => p.Protocol is PingProtocol);
+        Assert.That(ping.InboundLimit, Is.SameAs(builder.ProtocolLimits.Ping));
         await using var first = factory.Create();
         await using var second = factory.Create();
+        foreach (var peer in new[] { first, second })
+        {
+            Assert.That(peer, Is.AssignableTo<IPeerServices>());
+            Assert.That(((LocalPeer)peer).ResourceLimits, Is.SameAs(configureResources ? limits : PeerResourceLimits.Default));
+            Assert.That(((LocalPeer)peer).Clock, Is.SameAs(configureResources ? clock : TimeProvider.System));
+        }
         var concurrent = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(first.GetKadDht)));
         Assert.That(concurrent.All(runtime => ReferenceEquals(runtime, concurrent[0])), Is.True);
         Assert.That(first.GetKadDht(), Is.Not.Null);
         Assert.That(((LocalPeer)first).GetProtocol<KadDhtProtocol>(KadDhtOptions.DefaultProtocolId), Is.SameAs(first.GetKadDht()));
+        Assert.That(((LocalPeer)first).GetProtocol<KadDhtProtocol>("/unregistered/kad/1.0.0"), Is.Null);
         Assert.That(second.GetKadDht(), Is.Not.SameAs(first.GetKadDht()));
         Assert.That(first.GetKadDht()!.GetStatistics()["LocalPeerId"], Is.EqualTo(first.Identity.PeerId.ToString()));
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task SuppliedDhtAliasDoesNotHoldBuilderLockWhileWaitingForPeer(bool enumerable, bool nestedFactory)
+    {
+        using var aliasEntered = new ManualResetEventSlim();
+        using var releaseAlias = new ManualResetEventSlim();
+        int aliasFactoryCalls = 0;
+        var services = new ServiceCollection().AddKadDht();
+        var registration = services.Single(d => d.ServiceType == typeof(SharedDhtState));
+        services.Remove(registration);
+        services.AddSingleton(sp =>
+        {
+            aliasEntered.Set();
+            if (!releaseAlias.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Alias factory was not released.");
+            return (SharedDhtState)registration.ImplementationFactory!(sp);
+        });
+        services.AddLibp2p(builder =>
+        {
+            builder.AddKadDht();
+            builder.Services.AddSingleton(sp =>
+            {
+                Interlocked.Increment(ref aliasFactoryCalls);
+                return new StateAlias(sp.GetRequiredService<SharedDhtState>());
+            });
+            builder.Services.AddSingleton(sp => new StateConsumer(ResolveState(sp)));
+            return builder;
+        });
+        services.AddSingleton<ILocalPeer>(sp => sp.GetRequiredService<IPeerFactory>().Create());
+        await using var provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<ILocalPeer>();
+        var resolver = provider.GetRequiredService<ILibp2pPeerFactoryBuilder>().ServiceProvider;
+        var options = resolver.GetRequiredService<KadDhtOptions>();
+        var aliasResult = new TaskCompletionSource<SharedDhtState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var optionsResult = new TaskCompletionSource<KadDhtOptions>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Thread aliasThread = Worker(() => nestedFactory ? resolver.GetRequiredService<StateConsumer>().State : ResolveState(resolver), aliasResult);
+        Thread optionsThread = Worker(resolver.GetRequiredService<KadDhtOptions>, optionsResult);
+        bool aliasStarted = false;
+        bool optionsStarted = false;
+        bool optionsProgressed = false;
+        try
+        {
+            aliasThread.Start();
+            aliasStarted = true;
+            Assert.That(aliasEntered.Wait(TimeSpan.FromSeconds(5)), Is.True);
+            Assert.That(Volatile.Read(ref aliasFactoryCalls), Is.EqualTo(1), "Both direct and nested paths must enter the builder-owned factory.");
+            // The supplied alias must reach the factory barrier before testing the other resolver.
+            Assert.That(SpinWait.SpinUntil(() => Waiting(aliasThread), TimeSpan.FromSeconds(5)), Is.True);
+            optionsThread.Start();
+            optionsStarted = true;
+            Assert.That(SpinWait.SpinUntil(() => optionsResult.Task.IsCompleted || Waiting(optionsThread), TimeSpan.FromSeconds(5)), Is.True);
+            optionsProgressed = optionsResult.Task.IsCompleted;
+        }
+        finally
+        {
+            // Release the factory before joining, including when the old container blocks both threads.
+            releaseAlias.Set();
+            if (aliasStarted) Assert.That(aliasThread.Join(TimeSpan.FromSeconds(10)), Is.True);
+            if (optionsStarted) Assert.That(optionsThread.Join(TimeSpan.FromSeconds(10)), Is.True);
+        }
+
+        Assert.That(optionsProgressed, Is.True, "A peer alias must not block unrelated builder dependencies while waiting for peer initialization.");
+        Assert.That(await optionsResult.Task, Is.SameAs(options));
+        Assert.That(await aliasResult.Task, Is.SameAs(provider.GetRequiredService<SharedDhtState>()));
+
+        // Both direct and nested cases execute a builder-owned factory that calls the supplied alias.
+        SharedDhtState ResolveState(IServiceProvider sp) => (enumerable ? sp.GetServices<StateAlias>().Single() : sp.GetRequiredService<StateAlias>()).State;
+        static bool Waiting(Thread thread) => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0;
+        static Thread Worker<T>(Func<T> resolve, TaskCompletionSource<T> result) => new(() =>
+        {
+            try { result.TrySetResult(resolve()); }
+            catch (Exception ex) { result.TrySetException(ex); }
+        })
+        { IsBackground = true };
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task PeerBoundFindNodeReplacesRequesterBeforeRoutingLimit(bool serviceRegistration)
+    {
+        var services = new ServiceCollection();
+        if (serviceRegistration) services.AddKadDht(options => options.KSize = 3);
+        services.AddLibp2p(builder => serviceRegistration
+            ? builder.WithKadDht()
+            : builder.AddKadDht(options => options.KSize = 3));
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IPeerFactory>();
+        await using var server = factory.Create();
+        var routing = server.GetKadDht()!.RoutingTable!;
+        var identities = Enumerable.Range(1, 64)
+            .Select(i => new Identity(Enumerable.Repeat((byte)i, 32).ToArray()))
+            // Keep both root buckets below K so this fixture does not launch eviction probes.
+            .GroupBy(identity => PublicKey.ComputeHash(identity.PeerId.Bytes).Bytes[0] & 0x80)
+            .SelectMany(group => group.Take(2)).ToArray();
+        Assert.That(identities, Has.Length.EqualTo(4));
+        for (int i = 0; i < identities.Length; i++)
+            server.GetKadDht()!.AddNode(identities[i].PeerId.ToDhtNode([$"/ip4/127.0.0.1/tcp/{4001 + i}"]));
+        var target = new PublicKey([1]);
+        var requester = routing.GetKNearestNeighbour(target.Hash, true)[0];
+        var expected = routing.GetKNearestNeighbourExcluding(target.Hash, requester.PublicKey.Hash, true);
+        Assert.That(expected, Has.Length.EqualTo(3));
+        await using var client = factory.Create(identities.Single(identity => identity.PeerId.Equals(requester.PeerId)));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await server.StartListenAsync([Multiaddress.Decode("/ip4/127.0.0.1/tcp/0")], deadline.Token);
+        var session = await client.DialAsync(server.ListenAddresses.ToArray(), deadline.Token);
+
+        var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
+            MessageHelper.CreateFindNodeRequest([1]), deadline.Token);
+
+        Assert.That(response.CloserPeers, Has.Count.EqualTo(3));
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())), Does.Not.Contain(requester.PeerId));
+        Assert.That(response.CloserPeers.Select(peer => new PeerId(peer.Id.ToByteArray())),
+            Is.EqualTo(expected.Select(node => node.PeerId)));
+        Assert.That(response.CloserPeers.Select(peer => Multiaddress.Decode(peer.Addrs.Single().ToByteArray()).ToString()),
+            Is.EqualTo(expected.Select(node => node.Multiaddrs.Single())));
     }
 
     [TestCase(false, false)]
@@ -266,6 +401,66 @@ public class KadBuilderTests
         Assert.Throws<InvalidOperationException>(() => builder.WithPubsub());
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailedBuildDiscardsWiredStackAndDisposedProtocolsBeforeRetry(bool disposalThrows)
+    {
+        await using var builder = new FailingStackBuilder();
+        var constructed = new List<RetryProtocol>();
+        var tracker = new ActivationTracker { DisposalFailure = disposalThrows ? new InvalidOperationException("Activated disposal failed.") : null };
+        var providerFailure = disposalThrows ? new InvalidOperationException("Provider disposal failed.") : null;
+        builder.Services.AddSingleton(tracker);
+        builder.Services.AddTransient(_ =>
+        {
+            var protocol = new RetryProtocol(constructed.Count == 0 ? providerFailure : null);
+            constructed.Add(protocol);
+            return protocol;
+        });
+        builder.AddProtocol<RetryProtocol>();
+        // No service registration: this protocol is owned by the builder's activated list.
+        builder.AddProtocol<ActivatedRetryProtocol>();
+
+        var failure = Assert.Throws<InvalidOperationException>(() => builder.Build());
+        Assert.That(failure, Is.SameAs(builder.Failure));
+        if (disposalThrows)
+        {
+            var cleanup = failure!.Data["RollbackFailures"] as AggregateException;
+            Assert.That(cleanup, Is.Not.Null);
+            Assert.That(cleanup!.Flatten().InnerExceptions, Is.EquivalentTo(new[] { tracker.DisposalFailure, providerFailure }));
+        }
+        Assert.That(builder.StackBuilds, Is.EqualTo(1));
+        Assert.That(constructed, Has.Count.EqualTo(1));
+        var failedProtocol = constructed.Single();
+        Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(tracker.Protocols, Has.Count.EqualTo(1));
+        var failedActivated = tracker.Protocols.Single();
+        Assert.That(failedActivated.Disposals, Is.EqualTo(1));
+
+        builder.Services.AddSingleton<Dependency>();
+        Assert.That(builder.Build(), Is.Not.Null);
+        Assert.That(builder.StackBuilds, Is.EqualTo(2));
+        Assert.That(constructed, Has.Count.EqualTo(2));
+        var retryProtocol = constructed[1];
+        Assert.That(retryProtocol, Is.Not.SameAs(failedProtocol));
+        Assert.That(retryProtocol.Disposals, Is.Zero);
+        var stack = builder.ServiceProvider.GetRequiredService<IProtocolStackSettings>();
+        Assert.That(stack.Protocols!.Keys.Count(p => p.Protocol is RetryProtocol), Is.EqualTo(1));
+        Assert.That(stack.Protocols.Keys.Single(p => p.Protocol is RetryProtocol).Protocol, Is.SameAs(retryProtocol));
+        Assert.That(stack.Protocols.Keys.Select(p => p.Protocol), Does.Not.Contain(failedProtocol));
+        Assert.That(tracker.Protocols, Has.Count.EqualTo(2));
+        var retryActivated = tracker.Protocols[1];
+        Assert.That(retryActivated, Is.Not.SameAs(failedActivated));
+        Assert.That(retryActivated.Disposals, Is.Zero);
+        Assert.That(stack.Protocols.Keys.Single(p => p.Protocol is ActivatedRetryProtocol).Protocol, Is.SameAs(retryActivated));
+        Assert.That(stack.Protocols.Keys.Select(p => p.Protocol), Does.Not.Contain(failedActivated));
+
+        await builder.DisposeAsync();
+        Assert.That(failedProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(retryProtocol.Disposals, Is.EqualTo(1));
+        Assert.That(failedActivated.Disposals, Is.EqualTo(1));
+        Assert.That(retryActivated.Disposals, Is.EqualTo(1));
+    }
+
     [Test]
     public async Task PeerServiceAliasesHaveOneReleaseOwner()
     {
@@ -305,6 +500,52 @@ public class KadBuilderTests
     public sealed class GenericDependency<T>(Dependency dependency) { public Dependency Dependency => dependency; }
     public sealed class ScopedDependency;
     public sealed class TransientDependency;
+    public sealed class StateConsumer(SharedDhtState state) { public SharedDhtState State => state; }
+    public sealed class StateAlias(SharedDhtState state) { public SharedDhtState State => state; }
+    private sealed class ConfiguredClock : TimeProvider { }
+    private sealed class FailingStackBuilder : Libp2pPeerFactoryBuilder
+    {
+        public InvalidOperationException Failure { get; } = new("Simulated failure after wiring the protocol stack.");
+        public int StackBuilds { get; private set; }
+
+        protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
+        {
+            var stack = base.BuildStack(additionalProtocols);
+            if (++StackBuilds == 1) throw Failure;
+            return stack;
+        }
+    }
+    public sealed class RetryProtocol(Exception? disposalFailure = null) : IProtocol, IDisposable
+    {
+        public string Id => "/retry";
+        public int Disposals { get; private set; }
+        public void Dispose()
+        {
+            Disposals++;
+            if (disposalFailure is not null) throw disposalFailure;
+        }
+    }
+    public sealed class ActivationTracker
+    {
+        public List<ActivatedRetryProtocol> Protocols { get; } = [];
+        public Exception? DisposalFailure { get; init; }
+    }
+    public sealed class ActivatedRetryProtocol : IProtocol, IDisposable
+    {
+        private readonly Exception? _disposalFailure;
+        public ActivatedRetryProtocol(ActivationTracker tracker)
+        {
+            _disposalFailure = tracker.Protocols.Count == 0 ? tracker.DisposalFailure : null;
+            tracker.Protocols.Add(this);
+        }
+        public string Id => "/activated-retry";
+        public int Disposals { get; private set; }
+        public void Dispose()
+        {
+            Disposals++;
+            if (_disposalFailure is not null) throw _disposalFailure;
+        }
+    }
     public sealed class DependentProtocol(FactoryDependent dependency) : IProtocol
     {
         public string Id => dependency.Value.Dependency is not null ? "/dependent" : throw new InvalidOperationException();

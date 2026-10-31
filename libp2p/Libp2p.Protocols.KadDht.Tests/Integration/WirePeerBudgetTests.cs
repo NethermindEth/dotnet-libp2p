@@ -92,19 +92,21 @@ public class WirePeerBudgetTests
 
     [TestCase(0, 1)]
     [TestCase(-1, 0)]
-    public async Task CombinedBudgetIsShared_CloserPeersHavePriority(int delta, int expectedProviders)
+    public async Task CombinedBudgetIsShared_ProvidersHavePriority(int delta, int expectedCloser)
     {
         string normalized = $"/ip4/1.1.1.1/p2p/{Id(1)}";
+        string providerAddress = $"/ip4/2.2.2.2/p2p/{Id(2)}";
         int closerBytes = 2 * Id(1).Bytes.Length + 2 * normalized.Length;
+        int providerBytes = 2 * Id(2).Bytes.Length + 2 * providerAddress.Length;
         var response = new Message();
         response.CloserPeers.Add(WirePeer(1, "/ip4/1.1.1.1"));
-        response.ProviderPeers.Add(WirePeer(2));
-        response.ProviderPeers.Add(WirePeer(3));
-        using var fixture = new SenderFixture(new KadDhtOptions { MaxPeerResponseBytes = closerBytes + 2 * Id(2).Bytes.Length + delta }, response);
+        response.ProviderPeers.Add(WirePeer(2, "/ip4/2.2.2.2"));
+        using var fixture = new SenderFixture(new KadDhtOptions { MaxPeerResponseBytes = closerBytes + providerBytes + delta }, response);
         var result = await fixture.Sender.GetProvidersAsync(Id(-1).ToDhtNode(), [1]);
-        Assert.That(result.CloserPeers.Single().Multiaddrs, Is.EqualTo(new[] { normalized }));
-        Assert.That(result.Providers, Has.Length.EqualTo(expectedProviders));
-        if (expectedProviders == 1) Assert.That(result.Providers[0].PeerId, Is.EqualTo(Id(2)));
+        Assert.That(result.Providers.Single().PeerId, Is.EqualTo(Id(2)));
+        Assert.That(result.Providers.Single().Multiaddrs, Is.EqualTo(new[] { providerAddress }));
+        Assert.That(result.CloserPeers, Has.Length.EqualTo(expectedCloser));
+        if (expectedCloser == 1) Assert.That(result.CloserPeers[0].Multiaddrs, Is.EqualTo(new[] { normalized }));
     }
 
     [Test]
@@ -201,19 +203,22 @@ public class WirePeerBudgetTests
 
     [TestCase(0, 1)]
     [TestCase(-1, 0)]
-    public async Task RegisteredRepliesShareRetainedBudgetAcrossBothLists(int delta, int expectedProviders)
+    public async Task RegisteredRepliesShareRetainedBudgetAcrossBothLists(int delta, int expectedCloserAddresses)
     {
         var store = Substitute.For<IProviderStore>();
         store.GetProvidersAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new ProviderRecord[] { new() { PeerId = Id(2) }, new() { PeerId = Id(3) } });
-        int budget = 4 * Id(1).Bytes.Length + 2 * "/ip4/1.1.1.1".Length;
+            .Returns(new ProviderRecord[] { new() { PeerId = Id(2), Multiaddrs = ["/ip4/2.2.2.2"] } });
+        int budget = 2 * Id(1).Bytes.Length + 2 * Id(2).Bytes.Length +
+            2 * "/ip4/1.1.1.1".Length + 2 * "/ip4/2.2.2.2".Length;
         using var harness = new KadWireHarness("direct", new KadDhtOptions { MaxPeerResponseBytes = budget + delta },
             providers: store, nearest: _ => [Id(1).ToDhtNode(["/ip4/1.1.1.1"])]);
         var response = await harness.SendAsync(MessageHelper.CreateGetProvidersRequest([1]));
         Assert.That(response.CloserPeers.Single().Id, Is.EqualTo(ByteString.CopyFrom(Id(1).Bytes)));
-        Assert.That(Multiaddress.Decode(response.CloserPeers[0].Addrs.Single().ToByteArray()).ToString(), Is.EqualTo("/ip4/1.1.1.1"));
-        Assert.That(response.ProviderPeers, Has.Count.EqualTo(expectedProviders));
-        if (expectedProviders == 1) Assert.That(response.ProviderPeers[0].Id, Is.EqualTo(ByteString.CopyFrom(Id(2).Bytes)));
+        Assert.That(response.CloserPeers[0].Addrs, Has.Count.EqualTo(expectedCloserAddresses));
+        if (expectedCloserAddresses == 1)
+            Assert.That(Multiaddress.Decode(response.CloserPeers[0].Addrs.Single().ToByteArray()).ToString(), Is.EqualTo("/ip4/1.1.1.1"));
+        Assert.That(response.ProviderPeers.Single().Id, Is.EqualTo(ByteString.CopyFrom(Id(2).Bytes)));
+        Assert.That(Multiaddress.Decode(response.ProviderPeers[0].Addrs.Single().ToByteArray()).ToString(), Is.EqualTo("/ip4/2.2.2.2"));
     }
 
     [TestCase(0)]

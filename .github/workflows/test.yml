@@ -23,6 +23,15 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
 
+      - name: List test projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ../.github/scripts -p 'test_*.py'
+          python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
+          cat "$RUNNER_TEMP/test-projects.txt"
+
       - name: List CI projects
         working-directory: ${{ env.WORKING_DIR }}
         run: |
@@ -46,30 +55,29 @@ jobs:
           done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
+        timeout-minutes: 30
         working-directory: ${{ env.WORKING_DIR }}
-        env:
-          TEST_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -- --minimum-expected-tests 1
+        shell: bash
         run: |
-          dotnet test Libp2p.Core.Tests/Libp2p.Core.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Ping.Tests/Libp2p.Protocols.Ping.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Plaintext.Tests/Libp2p.Protocols.Plaintext.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj ${{ env.TEST_OPTS }}
-          dotnet test Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj ${{ env.TEST_OPTS }}
+          set -euo pipefail
+          bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ${{ runner.temp }}/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Require WebRTC fingerprint enforcement controls
+        working-directory: ${{ env.WORKING_DIR }}
+        run: >-
+          dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj
+          -c ${{ env.BUILD_CONFIG }} --no-build --
+          --filter "FullyQualifiedName~WebRtcDirectFingerprintEnforcementTests"
+          --minimum-expected-tests 6
 
   windows-quic-tls:
     name: Windows QUIC and TLS
@@ -92,8 +100,33 @@ jobs:
       - name: Build TLS tests
         run: dotnet build Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
 
+      - name: Record Windows runtime and certificate probe output
+        run: |
+          dotnet --info
+          "<RunSettings><NUnit><TestOutputXml>$env:RUNNER_TEMP/secure-transport-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:RUNNER_TEMP/secure-transports.xml"
+
       - name: Test QUIC
-        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 18
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32
+
+      - name: Test Windows process-key creation and recovery
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --filter "FullyQualifiedName~WindowsProcessKeyRecoveryTests&FullyQualifiedName!~ChildProcess" --minimum-expected-tests 20 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test TLS
-        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 25
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+
+      - name: Build registered transport tests
+        run: dotnet build Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
+
+      - name: Test registered transport lifetime and parent identity guarantees
+        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 5
+
+      - name: Test registered Windows crash recovery with a live peer
+        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredWindowsKeyRecoveryTests&FullyQualifiedName!~ChildListener" --minimum-expected-tests 2 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+
+      - name: Upload certificate probe observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-secure-transport-results
+          path: ${{ runner.temp }}/secure-transport-results
+          if-no-files-found: warn

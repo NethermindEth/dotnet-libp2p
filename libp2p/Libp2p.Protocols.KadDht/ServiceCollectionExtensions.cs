@@ -141,7 +141,8 @@ public static class ServiceCollectionExtensions
             if (bootstrapNodes is not null)
                 builder.Services.AddSingleton<DhtRuntime>(provider => DhtRuntime.Create(provider.GetRequiredService<ILocalPeer>(), provider, bootstrapNodes, state));
             var handler = new KadDhtProtocolExtensions.DhtHandlerServices(options, values, providers, validator,
-                key => EnrichPeerAddresses(state.GetKNearestPeers(key), sp.GetService<PeerStore>()), node => state.AddNodeCallback?.Invoke(node));
+                (key, excludedPeer) => EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), sp.GetService<PeerStore>()),
+                node => state.AddNodeCallback?.Invoke(node));
             builder.AddProtocol(KadDhtProtocolExtensions.CreateProtocol(options, _ =>
             {
                 // Handler-only builders have no local runtime to initialize. A configured runtime must initialize successfully.
@@ -198,9 +199,6 @@ public static class ServiceCollectionExtensions
         if (peerStore == null) return;
         try
         {
-            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? existingInfo) && existingInfo?.SignedPeerRecord is not null && existingInfo.Addrs is { Count: > 0 })
-                return;
-
             var addresses = new List<Multiaddress>(node.Multiaddrs.Count);
             foreach (string address in node.Multiaddrs)
             {
@@ -211,6 +209,8 @@ public static class ServiceCollectionExtensions
                     addresses.Add(normalized);
             }
 
+            // Let PeerStore protect configured and signed addresses while allowing
+            // records without usable addresses to receive discovery updates.
             if (addresses.Count > 0)
                 peerStore.Discover(addresses.ToArray(), isTrusted: false);
         }

@@ -9,6 +9,7 @@ using Nethermind.Libp2p.Core.Metrics;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
+[assembly: InternalsVisibleTo("Libp2p.E2eTests")]
 
 namespace Nethermind.Libp2p.Core;
 
@@ -349,7 +350,7 @@ public class Channel : IChannel
 
                 if (_eow)
                 {
-                    return IOResult.Ended;
+                    return ClosedIoResult;
                 }
 
                 if (_bytes.Length != 0)
@@ -365,7 +366,7 @@ public class Channel : IChannel
                 if ((Interlocked.Or(ref _state, PendingWrite) & Closed) != 0)
                 {
                     Interlocked.And(ref _state, ~PendingWrite);
-                    return IOResult.Ended;
+                    return ClosedIoResult;
                 }
                 _bytes = bytes;
                 _canRead.Release();
@@ -418,7 +419,7 @@ public class Channel : IChannel
             }
             catch (OperationCanceledException)
             {
-                return _closed.IsCancellationRequested ? IOResult.Ended : IOResult.Cancelled;
+                return _closed.IsCancellationRequested ? ClosedIoResult : IOResult.Cancelled;
             }
             finally
             {

@@ -143,8 +143,11 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
 
     protected ProtocolRef Get<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>() where TProtocol : IProtocol
     {
-        return new ProtocolRef(CreateProtocolInstance<TProtocol>(ServiceProvider));
+        return Get<TProtocol>(null);
     }
+
+    protected ProtocolRef Get<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProtocol>(InboundStreamLimit? inboundLimit) where TProtocol : IProtocol
+        => new(CreateProtocolInstance<TProtocol>(ServiceProvider), inboundLimit: inboundLimit);
 
     public IPeerFactory Build()
     {
@@ -163,17 +166,25 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
             _services.MakeReadOnly();
             return _factory = result;
         }
-        catch
+        catch (Exception failure)
         {
-            try { DisposeActivatedAsync().AsTask().GetAwaiter().GetResult(); }
+            List<Exception> rollbackFailures = [];
+            try
+            {
+                try { DisposeActivatedAsync().AsTask().GetAwaiter().GetResult(); }
+                catch (Exception ex) { rollbackFailures.Add(ex); }
+                try { _builtProvider.Dispose(); }
+                catch (Exception ex) { rollbackFailures.Add(ex); }
+            }
             finally
             {
-                _builtProvider.Dispose();
                 _builtProvider = null;
                 ServiceProvider = configurationProvider;
                 protocolInstances.Clear();
                 protocols.Clear();
             }
+            // Keep the activation failure and its stack; retain cleanup diagnostics separately.
+            if (rollbackFailures.Count > 0) failure.Data["RollbackFailures"] = new AggregateException(rollbackFailures);
             throw;
         }
     }

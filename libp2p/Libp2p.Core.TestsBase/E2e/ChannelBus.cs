@@ -3,6 +3,8 @@
 
 using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Core.TestsBase.E2e;
 
@@ -16,9 +18,9 @@ public class ChannelBus(TestContextLoggerFactory? fac = null)
         public required IChannel Channel { get; set; }
     }
 
-    Dictionary<PeerId, Channel<ClientChannel>> channels = [];
+    ConcurrentDictionary<PeerId, Channel<ClientChannel>> channels = [];
 
-    public async IAsyncEnumerable<IChannel> GetIncomingRequests(PeerId serverId)
+    public async IAsyncEnumerable<IChannel> GetIncomingRequests(PeerId serverId, [EnumeratorCancellation] CancellationToken token = default)
     {
         Channel<ClientChannel> col = System.Threading.Channels.Channel.CreateUnbounded<ClientChannel>();
 
@@ -29,12 +31,20 @@ public class ChannelBus(TestContextLoggerFactory? fac = null)
 
         logger?.LogDebug($"Listen {serverId}");
 
-        await foreach (ClientChannel item in col.Reader.ReadAllAsync())
+        try
         {
-            logger?.LogDebug($"New request from {item.Client} to {serverId}");
-            yield return item.Channel;
+            await foreach (ClientChannel item in col.Reader.ReadAllAsync(token))
+            {
+                logger?.LogDebug($"New request from {item.Client} to {serverId}");
+                yield return item.Channel;
+            }
         }
-        logger?.LogDebug($"Listen end {serverId}");
+        finally
+        {
+            channels.TryRemove(serverId, out _);
+            col.Writer.TryComplete();
+            logger?.LogDebug($"Listen end {serverId}");
+        }
     }
 
     public IChannel Dial(PeerId self, PeerId serverId)

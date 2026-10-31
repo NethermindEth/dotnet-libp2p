@@ -16,11 +16,15 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
     private readonly IServiceProvider? _fallback;
     private readonly BuilderServiceProvider _root;
     private readonly IServiceScope? _fallbackScope;
-    private readonly Dictionary<(ServiceDescriptor, Type), object?> _instances = [];
+    private readonly Dictionary<(ServiceDescriptor, Type), Lazy<object?>> _instances = [];
     private readonly List<object> _owned = [];
     private readonly HashSet<object> _borrowed = new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<(ServiceDescriptor, Type)> _activating = [];
+    [ThreadStatic]
+    private static HashSet<(BuilderServiceProvider, ServiceDescriptor, Type)>? _activating;
+    private int _activeResolutions;
+    private TaskCompletionSource? _idle;
     private bool _disposed;
+    private Task? _disposal;
 
     public BuilderServiceProvider(IEnumerable<ServiceDescriptor> descriptors, IServiceProvider? fallback)
     {
@@ -41,9 +45,9 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
 
     public object? GetService(Type serviceType)
     {
-        lock (_root._instances)
+        BeginResolution();
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed || _root._disposed, this);
             if (serviceType == typeof(IServiceProvider) || serviceType == typeof(IServiceProviderIsService)) return this;
             if (serviceType == typeof(IServiceScopeFactory)) return _root;
             var descriptors = _descriptors.Where(d => Matches(d, serviceType)).ToArray();
@@ -56,7 +60,8 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
                     foreach (var value in supplied)
                     {
                         values.Add(value);
-                        if (value is not null) _borrowed.Add(value);
+                        if (value is not null)
+                            lock (_root._instances) _borrowed.Add(value);
                     }
                 foreach (var descriptor in _descriptors.Where(d => Matches(d, elementType)))
                     values.Add(Resolve(descriptor, elementType));
@@ -66,12 +71,14 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
             }
             return Borrow(serviceType);
         }
+        finally { EndResolution(); }
     }
 
     private object? Borrow(Type type)
     {
         var value = _fallback?.GetService(type);
-        if (value is not null) _borrowed.Add(value);
+        if (value is not null)
+            lock (_root._instances) _borrowed.Add(value);
         return value;
     }
 
@@ -82,28 +89,53 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
     {
         if (descriptor.ImplementationInstance is { } instance)
         {
-            _borrowed.Add(instance);
+            lock (_root._instances) _borrowed.Add(instance);
             return instance;
         }
         var owner = descriptor.Lifetime == ServiceLifetime.Singleton ? _root : this;
-        if (descriptor.Lifetime != ServiceLifetime.Transient && owner._instances.TryGetValue((descriptor, type), out var cached)) return cached;
-        if (!owner._activating.Add((descriptor, type))) throw new InvalidOperationException($"Circular dependency resolving {type}.");
+        if (descriptor.Lifetime == ServiceLifetime.Transient) return owner.Create(descriptor, type);
+        Lazy<object?> cached;
+        lock (_root._instances)
+        {
+            if (!owner._instances.TryGetValue((descriptor, type), out cached!))
+            {
+                cached = new(() => owner.Create(descriptor, type), LazyThreadSafetyMode.ExecutionAndPublication);
+                owner._instances.Add((descriptor, type), cached);
+            }
+        }
+        // A factory can call a peer that resolves other services. Never hold the container
+        // lock across that callback; serialize creation only for this registration.
+        try { return cached.Value; }
+        catch
+        {
+            lock (_root._instances)
+                if (owner._instances.TryGetValue((descriptor, type), out var current) && ReferenceEquals(current, cached))
+                    owner._instances.Remove((descriptor, type));
+            throw;
+        }
+    }
+
+    private object? Create(ServiceDescriptor descriptor, Type type)
+    {
+        var activating = _activating ??= [];
+        if (!activating.Add((this, descriptor, type))) throw new InvalidOperationException($"Circular dependency resolving {type}.");
         try
         {
             object? value;
-            if (descriptor.ImplementationFactory is { } factory) value = factory(owner);
+            if (descriptor.ImplementationFactory is { } factory) value = factory(this);
             else
             {
                 Type implementation = descriptor.ImplementationType!;
                 if (implementation.IsGenericTypeDefinition) implementation = implementation.MakeGenericType(type.GenericTypeArguments);
-                value = owner.Activate(implementation);
+                value = Activate(implementation);
             }
-            if (descriptor.Lifetime != ServiceLifetime.Transient) owner._instances.Add((descriptor, type), value);
-            if (value is IDisposable or IAsyncDisposable && !owner._borrowed.Contains(value) && !owner._owned.Contains(value, ReferenceEqualityComparer.Instance))
-                owner._owned.Add(value);
+            if (value is IDisposable or IAsyncDisposable)
+                lock (_root._instances)
+                    if (!_borrowed.Contains(value) && !_owned.Contains(value, ReferenceEqualityComparer.Instance))
+                        _owned.Add(value);
             return value;
         }
-        finally { owner._activating.Remove((descriptor, type)); }
+        finally { activating.Remove((this, descriptor, type)); }
     }
 
     private object Activate([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type type) =>
@@ -117,24 +149,67 @@ internal sealed class BuilderServiceProvider : IServiceProvider, IServiceProvide
 
     public IServiceScope CreateScope()
     {
+        BeginResolution();
+        try
+        {
+            return new BuilderServiceProvider(_root, _root._fallback?.GetService<IServiceScopeFactory>()?.CreateScope());
+        }
+        finally { EndResolution(); }
+    }
+
+    private void BeginResolution()
+    {
         lock (_root._instances)
         {
-            ObjectDisposedException.ThrowIf(_root._disposed, this);
-            return new BuilderServiceProvider(_root, _root._fallback?.GetService<IServiceScopeFactory>()?.CreateScope());
+            ObjectDisposedException.ThrowIf(_disposed || _root._disposed, this);
+            _activeResolutions++;
+            if (_root != this) _root._activeResolutions++;
+        }
+    }
+
+    private void EndResolution()
+    {
+        lock (_root._instances)
+        {
+            if (--_activeResolutions == 0) _idle?.TrySetResult();
+            if (_root != this && --_root._activeResolutions == 0) _root._idle?.TrySetResult();
         }
     }
 
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        object[] owned;
+        Task idle;
+        TaskCompletionSource completion;
         lock (_root._instances)
         {
-            if (_disposed) return;
+            if (_disposal is not null) return new(_disposal);
             _disposed = true;
-            owned = _owned.AsEnumerable().Reverse().ToArray();
+            idle = _activeResolutions == 0 ? Task.CompletedTask :
+                (_idle ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposal = completion.Task;
         }
+        _ = DisposeOwnedAsync(idle, completion);
+        return new(completion.Task);
+    }
+
+    private async Task DisposeOwnedAsync(Task idle, TaskCompletionSource completion)
+    {
+        try
+        {
+            await idle.ConfigureAwait(false);
+            object[] owned;
+            lock (_root._instances) owned = _owned.AsEnumerable().Reverse().ToArray();
+            await DisposeValuesAsync(owned).ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception ex) { completion.TrySetException(ex); }
+    }
+
+    private async Task DisposeValuesAsync(object[] owned)
+    {
         List<Exception> failures = [];
         foreach (object value in owned)
         {
