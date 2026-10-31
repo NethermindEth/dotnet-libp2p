@@ -851,7 +851,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 logger?.LogWarning("Rejecting GRAFT from direct peer {peerId} for topic {topic}", peerId, graft.TopicID);
                 peerMessages.GetOrAdd(peerId, _ => new Rpc())
                     .Ensure(r => r.Control.Prune)
-                    .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)Math.Max(1, _settings.PruneBackoff / 1_000) });
+                    .Add(CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff));
                 continue;
             }
 
@@ -865,28 +865,45 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             // Check if peer is in backoff period
             if (peerState.TryGetValue(peerId, out PubsubPeer? state))
             {
-                if (state.Backoff.TryGetValue(graft.TopicID, out DateTime backoffUntil) && backoffUntil > DateTime.Now)
+                if (state.Backoff.TryGetValue(graft.TopicID, out DateTime backoffUntil) && backoffUntil > _timeProvider.GetUtcNow().UtcDateTime)
                 {
                     // Peer grafting during backoff - apply behavioral penalty and auto-prune
                     logger?.LogDebug("Peer {peerId} attempted GRAFT during backoff for topic {topic}", peerId, graft.TopicID);
                     ApplyBehaviorPenalty(peerId, 1.0);
                     penalized = true;
+                    if (topicMesh.Remove(peerId))
+                    {
+                        RecordPeerLeaveMesh(peerId, graft.TopicID);
+                    }
+                    RefreshBackoff(peerId, graft.TopicID, LocalBackoff(_settings.PruneBackoff));
 
                     peerMessages.GetOrAdd(peerId, _ => new Rpc())
                         .Ensure(r => r.Control.Prune)
-                        .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) });
+                        .Add(CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff));
                     continue;
                 }
             }
 
+            if (GetPeerScore(peerId) < 0)
+            {
+                if (topicMesh.Remove(peerId))
+                {
+                    RecordPeerLeaveMesh(peerId, graft.TopicID);
+                }
+                RefreshBackoff(peerId, graft.TopicID, LocalBackoff(_settings.PruneBackoff));
+                peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                    .Ensure(r => r.Control.Prune)
+                    .Add(CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff));
+                continue;
+            }
+
             if (topicMesh.Count >= _settings.HighestDegree)
             {
-                ControlPrune prune = new() { TopicID = graft.TopicID, Backoff = (ulong)(_settings.PruneBackoff / 1000) };
+                ControlPrune prune = CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff);
+                RefreshBackoff(peerId, graft.TopicID, LocalBackoff(_settings.PruneBackoff));
 
                 if (peerState.TryGetValue(peerId, out PubsubPeer? peerData) && peerData.SupportsPeerExchange)
                 {
-                    peerData.Backoff[prune.TopicID] = DateTime.Now.AddMilliseconds(_settings.PruneBackoff);
-
                     // Only provide PX if peer score is above threshold
                     if (GetPeerScore(peerId) >= _settings.AcceptPXThreshold)
                     {
@@ -915,7 +932,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                             .Ensure(r => r.Control.Prune)
-                            .Add(new ControlPrune { TopicID = graft.TopicID, Backoff = (ulong)Math.Max(1, _settings.PruneBackoff / 1_000) });
+                            .Add(CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff));
                         continue;
                     }
 
@@ -937,13 +954,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 mesh.TryGetValue(prune.TopicID, out HashSet<PeerId>? topicMesh) &&
                 topicMesh.Contains(peerId))
             {
-                if (peerState.TryGetValue(peerId, out PubsubPeer? state))
-                {
-                    ulong backoffSeconds = prune.Backoff == 0 ? (ulong)(_settings.PruneBackoff / 1000) : prune.Backoff;
-                    state.Backoff[prune.TopicID] = DateTime.Now.AddSeconds(backoffSeconds);
-                }
                 topicMesh.Remove(peerId);
                 RecordPeerLeaveMesh(peerId, prune.TopicID);  // Track for scoring (P1 and P3b)
+                RefreshBackoff(peerId, prune.TopicID, ReceivedBackoff(prune.Backoff));
 
                 // Handle PX (Peer Exchange) only if peer score is above threshold
                 if (prune.Peers.Count > 0 && GetPeerScore(peerId) >= _settings.AcceptPXThreshold)
