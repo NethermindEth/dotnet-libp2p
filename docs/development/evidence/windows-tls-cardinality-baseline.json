@@ -1,0 +1,132 @@
+{
+  "kind": "Historical Windows native baseline; not candidate validation",
+  "production_revision": "f94d0d071518dd43085303f6f24b5de7b2660e82",
+  "test_checkpoint": "2515bb8df7976a1497baa3718b397c8aa3b9988c",
+  "environment": {
+    "os": "Windows 10.0.26200",
+    "sdk": "10.0.401",
+    "runtime": "10.0.12",
+    "architecture": "x64"
+  },
+  "test_inputs_sha256": {
+    "libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj": "4776e7e15c9fdf8c9cda5fdafc7e2c43a559836f84d3f1b57283a3fdeee8ad9b",
+    "libp2p/Libp2p.E2eTests/TlsCertificateListTests.cs": "e01a1abb3029941328c3bb409a670c6cd658b2d733cf318e3f8391acbe41f22e",
+    "libp2p/Libp2p.Protocols.Tls.Tests/NativeCertificateSizeTests.cs": "48a5268773feafa7aea31597f96a9513057bd2ebb548744f23764222407c6ba5"
+  },
+  "reports": [
+    {
+      "file": "Nethermind.Libp2p.Protocols.Tls.Tests.xml",
+      "sha256": "b0d6acc6e2f2b3cbe91c30846ebf6699997ada80b632b73dfb911657f9ca7589",
+      "exit_code": 0,
+      "summary": {
+        "total": "4",
+        "passed": "4",
+        "failed": "0",
+        "skipped": "0",
+        "start-time": "2026-10-23 22:51:43Z",
+        "end-time": "2026-10-23 22:51:46Z"
+      },
+      "cases": [
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(False,False)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; allowTlsResume=False; sampleAcceptedDer=32759; sampleRejectedDer=32760; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=32768; handshakeMessageAtSample=32772"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(False,True)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; allowTlsResume=True; sampleAcceptedDer=32759; sampleRejectedDer=32760; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=32768; handshakeMessageAtSample=32772"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(True,False)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; allowTlsResume=False; sampleAcceptedDer=32759; sampleRejectedDer=32760; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=32768; handshakeMessageAtSample=32772"
+          ]
+        },
+        {
+          "name": "Nethermind.Libp2p.Protocols.TLS.Tests.NativeCertificateSizeTests.ReportsNativeSingleCertificateSizeBoundary(True,True)",
+          "result": "Passed",
+          "observations": [
+            "NATIVE_CERTIFICATE_BOUNDARY OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; allowTlsResume=True; sampleAcceptedDer=32759; sampleRejectedDer=32760; acceptedRetest=True; rejectedRetest=False; certificateBodyAtSample=32768; handshakeMessageAtSample=32772"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "Libp2p.E2eTests.xml",
+      "sha256": "883900d8c05f4baaa6180dc88c9a2364ef1f2e7f3e57f6b64b9b5cf7a275dbf8",
+      "exit_code": 2,
+      "summary": {
+        "total": "8",
+        "passed": "4",
+        "failed": "4",
+        "skipped": "0",
+        "start-time": "2026-10-23 22:52:01Z",
+        "end-time": "2026-10-23 22:52:02Z"
+      },
+      "cases": [
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,0)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; shape=0; wireCount=0; upgraded=False; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,1)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; shape=1; wireCount=1; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,2)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; shape=2; wireCount=2; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(False,3)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=client; shape=3; wireCount=2; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,0)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; shape=0; wireCount=0; upgraded=False; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,1)",
+          "result": "Passed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; shape=1; wireCount=1; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,2)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; shape=2; wireCount=2; upgraded=True; publishedSessions=0"
+          ]
+        },
+        {
+          "name": "Libp2p.E2eTests.TlsCertificateListTests.RegisteredTlsRequiresExactlyOneReceivedCertificate(True,3)",
+          "result": "Failed",
+          "observations": [
+            "PRODUCTION_CERTIFICATE_LIST OS=Microsoft Windows NT 10.0.26200.0; runtime=10.0.12; receiver=server; shape=3; wireCount=2; upgraded=True; publishedSessions=0"
+          ]
+        }
+      ]
+    }
+  ]
+}

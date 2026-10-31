@@ -1,3 +1,4 @@
+# cspell:words GOCACHE GOMODCACHE
 name: Test
 
 on:
@@ -71,6 +72,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Require TLS certificate-list and lifecycle controls
+        working-directory: ${{ env.WORKING_DIR }}
+        run: >-
+          dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj
+          -c ${{ env.BUILD_CONFIG }} --no-build --
+          --minimum-expected-tests 94
+
       - name: Require WebRTC fingerprint enforcement controls
         working-directory: ${{ env.WORKING_DIR }}
         run: >-
@@ -78,6 +86,67 @@ jobs:
           -c ${{ env.BUILD_CONFIG }} --no-build --
           --filter "FullyQualifiedName~WebRtcDirectFingerprintEnforcementTests"
           --minimum-expected-tests 6
+
+  tls-evidence-and-interop:
+    name: TLS evidence and pinned Go interoperability
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Check historical evidence integrity and report source drift
+        run: >-
+          python3 .github/scripts/check_tls_evidence.py
+          --output "$RUNNER_TEMP/tls-interop/evidence.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.12'
+          cache: false
+
+      - name: Install interoperability service
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+
+      - name: Build pinned Go peer and run reference tests
+        working-directory: tests/tls-interop
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build
+          GOMODCACHE: ${{ runner.temp }}/go-mod
+        run: |
+          set -euo pipefail
+          go build -mod=readonly -o "$RUNNER_TEMP/tls-go-peer" .
+          go test -mod=readonly github.com/libp2p/go-libp2p/p2p/security/tls -run 'TestNewIdentityCertificates|TestVectors' -count=1 -v > "$RUNNER_TEMP/tls-interop/go-reference.log" 2>&1
+          cat "$RUNNER_TEMP/tls-interop/go-reference.log"
+          grep -q '^--- PASS: TestNewIdentityCertificates' "$RUNNER_TEMP/tls-interop/go-reference.log"
+          grep -q '^--- PASS: TestVectors' "$RUNNER_TEMP/tls-interop/go-reference.log"
+
+      - name: Build production transport interoperability sample
+        run: dotnet build samples/transport-interop/TransportInterop.csproj -c Release --artifacts-path "$RUNNER_TEMP/a" -p:TreatWarningsAsErrors=true
+
+      - name: Run Go and .NET TLS and Yamux in both roles
+        run: >-
+          python3 tests/tls-interop/run.py
+          --dotnet-dll "$RUNNER_TEMP/a/bin/TransportInterop/release/TransportInterop.dll"
+          --go-peer "$RUNNER_TEMP/tls-go-peer"
+          --output "$RUNNER_TEMP/tls-interop/peers"
+
+      - name: Upload evidence drift and interoperability results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-evidence-and-interop
+          path: ${{ runner.temp }}/tls-interop
+          if-no-files-found: error
 
   windows-quic-tls:
     name: Windows QUIC and TLS
@@ -106,19 +175,19 @@ jobs:
           "<RunSettings><NUnit><TestOutputXml>$env:RUNNER_TEMP/secure-transport-results</TestOutputXml></NUnit></RunSettings>" | Set-Content "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test QUIC
-        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32
+        run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test Windows process-key creation and recovery
         run: dotnet test Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --no-build -- --filter "FullyQualifiedName~WindowsProcessKeyRecoveryTests&FullyQualifiedName!~ChildProcess" --minimum-expected-tests 20 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test TLS
-        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 32 --settings "$env:RUNNER_TEMP/secure-transports.xml"
+        run: dotnet test Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --no-build -- --minimum-expected-tests 94 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Build registered transport tests
         run: dotnet build Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release -p:SaveDiskSpace=true -p:TreatWarningsAsErrors=true
 
       - name: Test registered transport lifetime and parent identity guarantees
-        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId" --minimum-expected-tests 5
+        run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~TlsCertificateListTests" --minimum-expected-tests 36 --settings "$env:RUNNER_TEMP/secure-transports.xml"
 
       - name: Test registered Windows crash recovery with a live peer
         run: dotnet test Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --no-build -- --filter "FullyQualifiedName~RegisteredWindowsKeyRecoveryTests&FullyQualifiedName!~ChildListener" --minimum-expected-tests 2 --settings "$env:RUNNER_TEMP/secure-transports.xml"

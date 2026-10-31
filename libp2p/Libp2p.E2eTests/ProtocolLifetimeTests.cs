@@ -39,10 +39,32 @@ public class ProtocolLifetimeTests
             Task send = dialerUp.Reverse.WriteVarintAsync(42).AsTask();
             Assert.That(await listenerUp.Reverse.ReadVarintAsync(lifetime.Token), Is.EqualTo(42));
             await send;
-            if (ending == 0) await dialerUp.Reverse.WriteEofAsync(lifetime.Token);
+            if (ending == 0)
+            {
+                await dialerUp.Reverse.WriteEofAsync(lifetime.Token);
+                if (tls)
+                {
+                    // TLS close_notify ends one direction. Keep the other
+                    // direction available until its application also sends EOF.
+                    Assert.That((await listenerUp.Reverse.ReadAsync(1, token: lifetime.Token)).Result, Is.EqualTo(IOResult.Ended));
+                    Task reply = listenerUp.Reverse.WriteVarintAsync(43).AsTask();
+                    Assert.That(await dialerUp.Reverse.ReadVarintAsync(lifetime.Token), Is.EqualTo(43));
+                    await reply;
+                    await listenerUp.Reverse.WriteEofAsync(lifetime.Token);
+                }
+            }
             else if (ending == 1) lifetime.Cancel();
             else await transport.AbortAsync();
-            await Task.WhenAll(listen, dial).WaitAsync(TimeSpan.FromSeconds(5));
+            if (tls && ending != 0)
+            {
+                foreach (Task forwarder in new[] { listen, dial })
+                {
+                    Exception? failure = Assert.CatchAsync(async () => await forwarder.WaitAsync(TimeSpan.FromSeconds(5)));
+                    if (ending == 1) Assert.That(failure, Is.InstanceOf<OperationCanceledException>());
+                    else Assert.That(failure, Is.InstanceOf<IOException>());
+                }
+            }
+            else await Task.WhenAll(listen, dial).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.That((await listenerUp.Reverse.ReadAsync(1)).Result, Is.EqualTo(ending == 0 ? IOResult.Ended : IOResult.Aborted));
         }
         finally

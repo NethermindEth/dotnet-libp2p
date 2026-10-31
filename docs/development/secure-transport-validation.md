@@ -2,6 +2,11 @@
 
 # Secure transport validation
 
+This is the historical PR #416 record for its native TLS backend, not validation
+of the combined PR #424 tree. The [PR #424 record](tls-cardinality-validation.md)
+describes the managed backend that supersedes the certificate-list limitation
+recorded here. All results below retain their original revision scope.
+
 PR #416 now targets `main` and incorporates PR #411 through merge
 `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053`. This record was refreshed on
 2026-10-30 against candidate `53a2456b94551eccf74a1fdbef231e38b7ddf96d`,

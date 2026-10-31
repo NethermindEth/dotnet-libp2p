@@ -1,11 +1,11 @@
 # TLS Protocol
 
-This implementation supports the libp2p TLS handshake protocol described in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md), with the received certificate-list limitation described below.
+This implementation supports the libp2p TLS handshake protocol described in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md), using the Bouncy Castle 2.6.2 TLS backend.
 
 ## Features
 
 ### Protocol Compliance
-- **TLS 1.3 Enforcement**: Only TLS 1.3 (and higher) is supported per libp2p spec
+- **TLS 1.3 Enforcement**: Only TLS 1.3 is enabled
 - **Protocol ID**: `/tls/1.0.0` as defined in the specification
 - **ALPN**: Uses "libp2p" application protocol for negotiation
 - **Peer Authentication**: Mutual TLS with libp2p public key extension
@@ -58,13 +58,59 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: Linux transport tests pass. Recorded validation of revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on Windows 10.0.26200 / .NET 10.0.12 passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 without skips. The [validation record](../../docs/development/secure-transport-validation.md) links a portable results snapshot, replay commands, and the CI artifact configuration; all CI gates remain.
-- **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
+- **Platform Validation**: Windows desktop candidates passed TLS 58/58, QUIC 32/32 and registered controls 36/36. After two Windows Server native-interoperability timeouts, the retry repair at `b295980` passed Server TLS 62/62, QUIC 32/32 and registered 36/36. Later shutdown changes and the successful-handshake fixture correction passed Linux TLS 68/68, including 40 loaded full-suite runs, and registered paths 76/76. The subsequent PR feedback repair passes Linux TLS 79/79 and registered paths 76/76, with direct tests for all three cardinality guards and a peer closing before final-write acknowledgement. After preserving incoming main updates at `cec21f66`, Linux TLS 79/79 and registered paths 76/76 pass, and fresh pinned Go TLS/Yamux interoperability passes in both roles. Windows has not been rerun for this merge candidate. The [#373 validation record](../../docs/development/tls-cardinality-validation.md) distinguishes exact-source platform results, retained failures and replay commands. Earlier results are not transferred across later source changes. Final independent re-review and verification remain required.
+- **Parent Validation**: The earlier native backend at revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 on Windows without skips. The historical [parent validation record](../../docs/development/secure-transport-validation.md), replay commands, and CI gates are retained.
+- **Windows Keys**: The shared certificate helper retains the named CNG key needed by native QUIC. TLS uses the certificate's actual key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
 - **Crash Lifetime**: Fresh Windows key initialization attempts recovery of exactly marked process keys after proving their owning process incarnation has terminated. Live owners, unknown liveness and unmarked legacy keys are retained. Contention, access restrictions and deletion failure defer recovery to another initialization. See the [recovery contract and validation status](../../docs/development/windows-process-key-recovery.md).
 
-### Received certificate lists
+### Received certificate lists and backend
 
-The specification requires rejecting more than one transmitted certificate. The current validation verifies the leaf's self-signature and identity but does not enforce the transmitted list's cardinality. `SslStream` exposes a platform-built `X509Chain`, which can have one element even when the peer sent an unrelated certificate or a duplicate leaf. `ChainElements.Count == 1` therefore cannot enforce this requirement. On the tested Windows runtime, a duplicate leaf is also absent from `ExtraStore` in both roles: the callback exposes only the presented leaf, one chain element, and an empty `ExtraStore`, as in the valid single-certificate control. #373 remains unresolved. See the [probe and platform evidence](../../docs/development/secure-transport-validation.md).
+Negotiated `/tls/1.0.0` uses Bouncy Castle 2.6.2 on Windows and Linux. Both roles
+require exactly one received Certificate entry, including when the extra entry
+is a duplicate of the leaf. Structural checks run through supported TLS receive
+hooks before certificate-list allocation; the backend parser and authentication
+callbacks also enforce the single-entry rule. A built `X509Chain` is not used to
+count transmitted entries.
+
+The existing certificate helper validates the self-signature, validity, libp2p
+identity extension and expected PeerId. Identity is published only after
+CertificateVerify and Finished verification and after final handshake output has
+drained. Client certificates are required. PSK, resumption and early application
+data are disabled. `libp2p` ALPN is selected when offered; the existing absent
+ALPN compatibility and post-TLS multistream muxer negotiation remain.
+
+There is no additional application certificate-size cap, following the approved
+24 October 2026 decision. TLS still bounds a handshake body to 16,777,215 bytes
+(its 24-bit length field), and the Certificate context/list/entry/extension
+lengths must fit that body. With empty context and entry extensions, a single
+DER certificate can occupy at most 16,777,206 bytes. Record lengths are validated
+by the backend before body allocation. Reassembly is bounded by the TLS message
+limit; pending application data is bounded to one record per direction. Channel
+writes receive immutable owned arrays, and connection shutdown observes its I/O
+before disposing credentials.
+
+The managed backend uses Bouncy Castle's TLS 1.3 cipher and cryptographic
+implementation rather than Schannel/OpenSSL cipher configuration. Deployments
+that relied on OS cipher or crypto-policy enforcement must account for this
+backend change. The public protocol API and certificate lease/key ownership
+contracts remain. QUIC stays on MsQuic and has a separate certificate callback
+representation; this change does not establish QUIC list cardinality.
+Explicit maintainer sign-off for the backend's operational policy change remains
+pending; implementation authorization and approvals of individual fixes do not
+establish that decision.
+
+The `tls-evidence-and-interop` CI job checks historical evidence integrity,
+reports source drift, runs pinned Go reference tests and executes the retained
+Go/.NET TLS/Yamux driver in both roles. Its fresh results are separate from the
+archived platform observations above. See the
+[CI helper documentation](../../.github/scripts/README.md#tls-evidence-and-interoperability)
+for the archive contract and replay commands.
+
+See the [#373 validation record](../../docs/development/tls-cardinality-validation.md)
+for Windows/Linux enforcement results, historical failed checkpoints, native
+and Go interoperability results, limits, replay commands, and the remaining
+final-review and verification gates. The six original native visibility probes
+and parent validation evidence are retained.
 
 ## Testing
 

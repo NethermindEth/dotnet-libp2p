@@ -38,3 +38,39 @@ Run helper and workflow regression checks with:
 ```sh
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 ```
+
+## TLS evidence and interoperability
+
+The `tls-evidence-and-interop` job in `test.yml` checks all ten historical JSON
+records in `docs/development/evidence/` against the archive catalog in
+`check_tls_evidence.py`. It rejects unlisted, missing or modified archives and
+invalid recorded input manifests. Intentional additions or corrections require
+a reviewed catalog update. The check verifies integrity, not whether a recorded
+test outcome was correct.
+
+Each run compares the recorded input hashes with the checkout. The job summary
+shows matching, changed and missing input counts; the uploaded `evidence.json`
+lists their paths. Historical drift is reported rather than rejected. These
+archives include native baselines and failed checkpoints, so they must not be
+rewritten to match later source. Matching recorded inputs alone cannot establish
+reuse: manifests may omit new files, and execution environments can differ. The
+old parent record without a manifest is explicitly marked as such.
+
+The same job builds `tests/tls-interop/main.go` with Go 1.23.12 and the checked-in
+module versions, runs the pinned go-libp2p certificate/reference tests with
+nonzero discovery checks, and invokes `tests/tls-interop/run.py`. The driver runs
+the real .NET transport sample against Go over TCP with TLS and Yamux in both
+roles, checking authenticated identities and traffic. It owns and stops its
+Redis and peer processes. Any build, reference-test or interoperability failure
+fails the job. Logs, the drift report and the interoperability summary are
+uploaded even when a later step fails. This Linux job does not replace the
+separate Windows QUIC/TLS controls.
+
+Replay the archive check from the repository root:
+
+```sh
+python3 .github/scripts/check_tls_evidence.py --output "$TMPDIR/tls-evidence.json"
+```
+
+The exact build and interoperability commands are in `test.yml`; use the
+session's `TMPDIR` in place of `RUNNER_TEMP` for local output.
