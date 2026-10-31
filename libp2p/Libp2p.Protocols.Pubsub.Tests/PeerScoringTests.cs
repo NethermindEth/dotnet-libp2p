@@ -419,6 +419,7 @@ public class PeerScoringTests
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         // Verify peer has negative score (exact behavior depends on implementation)
         Assert.Pass("Low score peer graylist test completed");
@@ -463,6 +464,7 @@ public class PeerScoringTests
             }
 
             await router.Heartbeat();
+            await router.FlushOutboundAsync();
             Assert.Multiple(() =>
             {
                 Assert.That(state.GossipsubPeers[TestTopic], Is.EquivalentTo(peerIds));
@@ -474,6 +476,7 @@ public class PeerScoringTests
             router.SetAppSpecificScore(lowScoringPeer, -10);
             Assert.That(router.GetPeerScore(lowScoringPeer), Is.LessThan(0));
             await router.Heartbeat();
+            await router.FlushOutboundAsync();
 
             Assert.Multiple(() =>
             {

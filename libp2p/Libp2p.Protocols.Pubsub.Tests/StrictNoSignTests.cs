@@ -179,6 +179,7 @@ public class StrictNoSignTests
         foreach (byte[] payload in payloads)
         {
             sender.Publish(topicName, payload);
+            await sender.FlushOutboundAsync();
         }
 
         Rpc[] published = sent.Where(rpc => rpc.Publish.Count > 0)

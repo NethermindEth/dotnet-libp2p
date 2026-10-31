@@ -66,14 +66,14 @@ public class PartialMessagesTests
     [Test]
     public async Task PartialMessages_ExtensionsAreAttachedToTheFirstConcurrentRpc()
     {
-        PubsubRouter.PubsubPeer peer = new(
-            TestPeers.PeerId(1),
-            PubsubRouter.GossipsubProtocolVersionV13,
-            logger: null,
-            settings: new PubsubSettings { EnablePartialMessages = true },
-            reconnectionPolicy: new PubsubRouter.ReconnectionPolicy());
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings { EnablePartialMessages = true });
         ConcurrentQueue<Rpc> sentRpcs = [];
-        peer.SendRpc = sentRpcs.Enqueue;
+        PubsubRouter.PubsubPeer peer = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV13,
+            new TaskCompletionSource().Task, (bytes, _) =>
+            {
+                sentRpcs.Enqueue(RouterTestExtensions.Decode(bytes));
+                return ValueTask.FromResult(IOResult.Ok);
+            }, () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
 
         using ManualResetEventSlim start = new(initialState: false);
         Task[] sends = Enumerable.Range(0, 16)
@@ -85,6 +85,7 @@ public class PartialMessagesTests
             .ToArray();
         start.Set();
         await Task.WhenAll(sends);
+        await router.FlushOutboundAsync();
 
         Assert.That(sentRpcs.TryPeek(out Rpc? first), Is.True);
         Assert.That(first!.Control?.Extensions?.PartialMessages, Is.True);
@@ -130,9 +131,11 @@ public class PartialMessagesTests
         metadataOnlyPeerRpcs.Clear();
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         requestedPeerRpcs.Clear();
         metadataOnlyPeerRpcs.Clear();
         topic.PublishPartial([1, 2], partialMessage: [3], partsMetadata: [4]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         PartialMessagesExtension requestedPartial = requestedPeerRpcs.Single().Partial;
         PartialMessagesExtension metadataOnlyPartial = metadataOnlyPeerRpcs.Single().Partial;
@@ -249,6 +252,7 @@ public class PartialMessagesTests
         sentRpcs.Clear();
 
         topic.SendPartial(peer, [1], partialMessage: [2], partsMetadata: [3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         int deliveries = 0;
         topic.OnPartialMessage += (_, _) => deliveries++;
         router.OnRpc(peer, new Rpc
@@ -292,6 +296,7 @@ public class PartialMessagesTests
         sentRpcs.Clear();
 
         topic.SendPartial(remotePeerId, [1], partialMessage: [2], partsMetadata: [3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         PartialMessagesExtension sentPartial = sentRpcs.Single().Partial;
         Assert.Multiple(() =>
@@ -380,6 +385,7 @@ public class PartialMessagesTests
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Multiaddress plainPeerAddress = TestPeers.Multiaddr(4);
         PeerId plainPeer = plainPeerAddress.GetPeerId()!;
         List<Rpc> plainPeerRpcs = [];
@@ -392,13 +398,16 @@ public class PartialMessagesTests
         }
 
         topic.PublishPartial([7, 8], partialMessage: [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         topic.Publish([9]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         foreach (List<Rpc> peerRpcs in sentRpcs.Values)
         {
             peerRpcs.Clear();
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(partialGossipRecipients, Is.Not.Null.And.Not.Empty);
         Assert.That(partialGossipGroupId, Is.EqualTo(new byte[] { 7, 8 }));
@@ -410,6 +419,7 @@ public class PartialMessagesTests
         Assert.That(plainPeerRpcs.SelectMany(rpc => rpc.Control?.Ihave ?? []), Is.Not.Empty);
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(notifications, Is.EqualTo(2), "A failed handler must not interrupt this or subsequent heartbeats.");
 
         cancellation.Cancel();
@@ -451,12 +461,14 @@ public class PartialMessagesTests
         }
 
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         foreach (List<Rpc> peerRpcs in sentRpcs.Values)
         {
             peerRpcs.Clear();
         }
 
         topic.Publish([1]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.Multiple(() =>
         {
@@ -507,9 +519,11 @@ public class PartialMessagesTests
         router.OnRpc(peer, metadata);
         Assert.That(deliveries, Is.EqualTo(1));
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(peer, metadata);
         Assert.That(deliveries, Is.EqualTo(1));
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(peer, metadata);
         Assert.That(deliveries, Is.EqualTo(2));
         router.GetPartialMessagesTopic("topic", new PartialMessagesTopicOptions());
@@ -541,6 +555,7 @@ public class PartialMessagesTests
         router.OnRpc(peer, CreateSubscriptionRpc("topic", true, true));
         IRoutingStateContainer state = router;
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         int deliveries = 0;
         router.OnPartialMessage += (_, _, _) => deliveries++;
         router.OnRpc(peer, new Rpc
@@ -557,6 +572,7 @@ public class PartialMessagesTests
         // A behavior penalty makes the peer ineligible for grafting.
         router.GetTopic("topic");
         await router.Heartbeat();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Assert.That(state.Mesh["topic"], Does.Not.Contain(peer));
         connection.SetResult();
     }
@@ -577,6 +593,7 @@ public class PartialMessagesTests
         int deliveries = 0;
         topic.OnPartialMessage += (_, _) => deliveries++;
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         double scoreBefore = (double)typeof(PubsubRouter)
             .GetMethod("GetPeerScore", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(router, [peer])!;
@@ -645,6 +662,7 @@ public class PartialMessagesTests
         });
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(peer, partial, isFirstRpc: false);
         Assert.Multiple(() =>
         {
@@ -656,6 +674,7 @@ public class PartialMessagesTests
             SupportsSendingPartialMessages = true,
         }, subscribe: false);
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         router.OnRpc(peer, partial, isFirstRpc: false);
         Assert.Multiple(() =>
         {
@@ -675,6 +694,7 @@ public class PartialMessagesTests
             RequestPartialMessages = true,
             SupportsSendingPartialMessages = true,
         });
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Rpc.Types.SubOpts upgradedSubscription = sentRpcs.SelectMany(rpc => rpc.Subscriptions).Last();
         Assert.Multiple(() =>
         {
@@ -776,6 +796,7 @@ public class PartialMessagesTests
         sent.Clear();
 
         topic.PublishPartial([1], partialMessage: [2]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         IRoutingStateContainer state = router;
         Assert.Multiple(() =>
@@ -812,6 +833,7 @@ public class PartialMessagesTests
             for (int i = 0; i < 500; i++)
             {
                 topic.PublishPartial([1], partialMessage: [2]);
+                router.FlushOutboundAsync().GetAwaiter().GetResult();
             }
         });
         Task heartbeat = Task.Run(async () =>
@@ -822,6 +844,7 @@ public class PartialMessagesTests
                 router.OnRpc(peer, new Rpc().WithTopics([], ["topic"]));
                 router.OnRpc(peer, new Rpc().WithTopics(["topic"], []));
                 await router.Heartbeat();
+                router.FlushOutboundAsync().GetAwaiter().GetResult();
             }
         });
 

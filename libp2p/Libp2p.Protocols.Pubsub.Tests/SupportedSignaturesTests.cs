@@ -109,6 +109,8 @@ public class SupportedSignaturesTests
         sent.Clear();
 
         router.Publish("legacy", [1, 2, 3]);
+        // Outbound frames are written by the peer's asynchronous writer; drain it before reading what was sent.
+        await router.FlushOutboundAsync();
 
         Message published = sent.SelectMany(r => r.Publish).Single();
         Assert.That(published.Key, Is.EqualTo(canonical.ToByteString()));

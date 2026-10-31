@@ -29,6 +29,28 @@ public class PubsubSettings
     public int HighestDegree { get; set; } = 12; // Upper bound for outbound degree 	12
     public int LazyDegree { get; set; } = 6; // (Optional) the outbound degree for gossip emission D
 
+    /// <summary>Outbound queued plus in-flight frames per peer. Configure capacities before router construction.</summary>
+    public int MaxOutboundRpcEntriesPerPeer { get; set; } = 32;
+    /// <summary>Outbound encoded bytes per peer, including framing and in-flight writes.</summary>
+    public long MaxOutboundRpcBytesPerPeer { get; set; } = 4L * 1024 * 1024;
+    /// <summary>Outbound frames across all peers, including draining generations.</summary>
+    public int MaxOutboundRpcEntries { get; set; } = 4_096;
+    /// <summary>Outbound encoded bytes across all peers, including draining generations.</summary>
+    public long MaxOutboundRpcBytes { get; set; } = 64L * 1024 * 1024;
+    /// <summary>Maximum milliseconds from outbound admission through write completion, including waiting for a reply stream. Configure before router construction.</summary>
+    public int OutboundRpcTimeout { get; set; } = 30_000;
+    /// <summary>Incoming RPCs retained while awaiting or performing message-ID calculation and dispatch.</summary>
+    public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
+    /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs. Must be at least <see cref="MaxRpcBytes"/>.</summary>
+    public long MaxIncomingMessageIdRpcBytes { get; set; } = 16L * 1024 * 1024;
+    /// <summary>Share of <see cref="MaxIncomingMessageIdRpcEntries"/> one connected peer may hold, across all of its streams.</summary>
+    public int MaxIncomingMessageIdRpcEntriesPerPeer { get; set; } = 8;
+    /// <summary>
+    /// Share of <see cref="MaxIncomingMessageIdRpcBytes"/> that bounds one connected peer's additional concurrent RPCs,
+    /// across all of its streams. A peer holding nothing always gets one RPC up to <see cref="MaxRpcBytes"/>.
+    /// </summary>
+    public long MaxIncomingMessageIdRpcBytesPerPeer { get; set; } = 2L * 1024 * 1024;
+
     public int MaxConnections { get; set; }
 
     /// <summary>Maximum distinct remote topic memberships retained for one peer. Configure before constructing the router.</summary>

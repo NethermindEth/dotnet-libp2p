@@ -4,18 +4,34 @@
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 {
+    private readonly int _maxIncomingEntries;
+    private readonly long _maxIncomingBytes;
+    private readonly int _maxIncomingEntriesPerPeer;
+    private readonly long _maxIncomingBytesPerPeer;
+    private int _incomingEntries;
+    private long _incomingBytes;
+    private static readonly Counter<long> IncomingSkips = Libp2pMetrics.Meter.CreateCounter<long>("libp2p.pubsub.incoming.skipped");
+    internal (int Entries, long Bytes) IncomingUsage { get { lock (this) return (_incomingEntries, _incomingBytes); } }
+
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    internal void OnRpc(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true)
+    internal async Task OnRpcAsync(PeerId peerId, Rpc rpc, string? protocolId = null, bool isFirstRpc = true, CancellationToken token = default)
     {
+        long reservedBytes = 0;
+        bool reserved = false;
+        string? skipReason = null;
+        PubsubPeer? admittedPeer = null;
+        CancellationToken peerLifetime = default;
         List<PendingValidation> deferredMessages = [];
         try
         {
@@ -25,7 +41,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             // a short lock, calculate outside it, then take the lock again to update state. The
             // admission check keeps stopped routers, graylisted peers and unwanted topics away
             // from the calculation; authoritative checks run under the second lock.
-            PubsubPeer? admittedPeer = null;
             Message[] interestedMessages = [];
             if (rpc.Publish.Count != 0)
             {
@@ -38,10 +53,47 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
                     bool admitted = IsDirectPeer(peerId) || !ShouldGraylistPeer(peerId);
                     peerState.TryGetValue(peerId, out admittedPeer);
-                    if (admitted)
+                    peerLifetime = admittedPeer?.TokenSource.Token ?? default;
+                    if (admitted && admittedPeer?.Terminal != true && rpc.Publish.Any(message => IsLocallySubscribed(message.Topic)))
                     {
-                        interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                        long bytes = rpc.CalculateSize();
+                        // A connected peer's share is charged across all of its streams, so one peer
+                        // cannot hold the router-wide budget by opening many inbound streams. A peer
+                        // holding nothing always gets one RPC, up to MaxRpcBytes, so a share smaller than
+                        // a maximum-size RPC cannot block it; the share bounds its additional concurrent RPCs.
+                        if (_incomingEntries >= _maxIncomingEntries || bytes > _maxIncomingBytes - _incomingBytes)
+                        {
+                            skipReason = "capacity";
+                        }
+                        else if (admittedPeer is not null && admittedPeer.IncomingEntries != 0 &&
+                            (admittedPeer.IncomingEntries >= _maxIncomingEntriesPerPeer || bytes > _maxIncomingBytesPerPeer - admittedPeer.IncomingBytes))
+                        {
+                            skipReason = "peer-capacity";
+                        }
+                        else
+                        {
+                            _incomingEntries++;
+                            _incomingBytes += bytes;
+                            if (admittedPeer is not null)
+                            {
+                                admittedPeer.IncomingEntries++;
+                                admittedPeer.IncomingBytes += bytes;
+                            }
+                            reserved = true;
+                            reservedBytes = bytes;
+                            interestedMessages = rpc.Publish.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                        }
+                        if (skipReason is not null)
+                        {
+                            // The peer delivered publishes this router chose not to process. A local capacity
+                            // decision must not become a broken-promise penalty, as with MessageValidity.Throttled.
+                            _iwantPromises.Clear(peerId);
+                        }
                     }
+                }
+                if (skipReason is not null)
+                {
+                    IncomingSkips.Add(1, new KeyValuePair<string, object?>("reason", skipReason));
                 }
             }
 
@@ -50,9 +102,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 // The router lock used to serialize these calculations. Bound them explicitly now
                 // that it does not, so the transient memory does not scale with peer count.
-                _messageIdCalculations.Wait();
+                using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+                    token, _stopped.Token, peerLifetime);
+                await _messageIdCalculations.WaitAsync(admission.Token).ConfigureAwait(false);
                 try
                 {
+                    lock (this)
+                    {
+                        if (admission.IsCancellationRequested || admittedPeer?.Terminal == true ||
+                            (admittedPeer is not null && (!peerState.TryGetValue(peerId, out PubsubPeer? current) || !ReferenceEquals(current, admittedPeer)))) return;
+                        if (!IsDirectPeer(peerId) && ShouldGraylistPeer(peerId)) return;
+                        interestedMessages = interestedMessages.Where(message => IsLocallySubscribed(message.Topic)).ToArray();
+                    }
                     publishIds = ComputeMessageIds(interestedMessages);
                 }
                 finally
@@ -69,10 +130,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             {
                 lock (this)
                 {
-                    if (_stopped.IsCancellationRequested)
-                    {
-                        return;
-                    }
+                    if (_stopped.IsCancellationRequested || token.IsCancellationRequested || admittedPeer?.Terminal == true ||
+                        (admittedPeer is not null && (!peerState.TryGetValue(peerId, out PubsubPeer? current) || !ReferenceEquals(current, admittedPeer)))) return;
 
                     RemoveExpiredPendingValidations();
 
@@ -163,14 +222,35 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 }
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || _stopped.IsCancellationRequested ||
+            peerLifetime.IsCancellationRequested)
+        {
+        }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Exception while processing RPC");
+        }
+        finally
+        {
+            if (reserved)
+            {
+                lock (this)
+                {
+                    _incomingEntries--;
+                    _incomingBytes -= reservedBytes;
+                    if (admittedPeer is not null)
+                    {
+                        admittedPeer.IncomingEntries--;
+                        admittedPeer.IncomingBytes -= reservedBytes;
+                    }
+                }
+            }
         }
     }
 
     private bool ShouldIgnoreRpc(PeerId peerId, bool isDirectPeer)
     {
+        if (peerState.GetValueOrDefault(peerId)?.Terminal == true) return true;
         if (!isDirectPeer && ShouldGraylistPeer(peerId))
         {
             logger?.LogDebug("Ignoring RPC from graylisted peer {peerId}", peerId);
@@ -362,6 +442,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             peerState.GetValueOrDefault(recipient)?.Send(idontwant);
         }
 
+        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        {
+            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
+        }
+
         foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
         {
             foreach (Delegate handler in OnMessage?.GetInvocationList() ?? [])
@@ -390,11 +475,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     LogSubscriberError(ex, topic);
                 }
             }
-        }
-
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
         }
     }
 
@@ -706,7 +786,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (!meshPeer.Control.TrySendIdontwant(_settings.MaxIdontwantMessages))
+            if (!meshPeer.Control.TryReserveIdontwantAttempt(_settings.MaxIdontwantMessages))
             {
                 continue;
             }
@@ -970,7 +1050,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         peerMessages.GetOrAdd(peerId, _ => new Rpc())
             .Ensure(r => r.Control.Iwant)
             .Add(iwant);
-        _iwantPromises.Add(peerId, selected, DateTime.UtcNow.AddMilliseconds(_settings.IWantFollowupTime));
     }
 
     private void HandleIwant(PeerId peerId, IEnumerable<ControlIWant> iwants, ConcurrentDictionary<PeerId, Rpc> peerMessages)
@@ -1023,7 +1102,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (control.TryRecordIwantResponse(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
+            if (control.TryReserveIwantResponseAttempt(messageId, heartbeatTick, _settings.mcache_len, _settings.GossipRetransmission, _settings.MaxIwantLength))
             {
                 messages.Add(message);
                 responseBytes += serializedMessageSize;
