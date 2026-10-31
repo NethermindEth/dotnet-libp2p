@@ -21,6 +21,9 @@ public class TransportContext : ITransportContext
 
     public Identity Identity => _peer.Identity;
     public ILocalPeer Peer => _peer;
+    public object ConnectionAdmissionScope => _peer;
+    public PeerResourceLimits ResourceLimits => _peer.ResourceLimits;
+    public TimeProvider Clock => _peer.Clock;
     public bool IsListener { get; }
     public Activity? Activity { get; }
 
@@ -28,6 +31,8 @@ public class TransportContext : ITransportContext
     {
         _peer.ListenerReady(this, addr);
     }
+
+    public void ListenerStopped() => _peer.ListenerStopped(this);
 
     public virtual INewConnectionContext CreateConnection()
     {

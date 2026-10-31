@@ -131,6 +131,8 @@ router.UnsubscribeAll();
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
 It also removes pending validations for the topic and releases their capacity; their later `CompleteValidation` calls return `false`, even after resubscribing. Already accepted callbacks queued for dispatch may finish concurrently with unsubscribe. Application validation work is not cancelled.
 
+Outstanding IWANT promises survive local unsubscribe. Replies on the unwanted topic are ignored and do not fulfill those promises, so expiry can still incur a behavioral penalty for the peer that announced the message.
+
 ## Mesh admission and prune backoff
 
 GRAFT admission requires a nonnegative peer score. Rejected negative-score and premature
@@ -185,13 +187,21 @@ Configure these positive limits before constructing the router:
 | `MaxOutboundRpcBytes` | 64 MiB | Encoded bytes across the router, including draining connections |
 | `OutboundRpcTimeout` | 30,000 ms | Maximum outbound frame residence, from admission through write completion |
 | `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
-| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs |
+| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs; at least `MaxRpcBytes` |
+| `MaxIncomingMessageIdRpcEntriesPerPeer` | 8 | One connected peer's share of the incoming entries, across all of its streams |
+| `MaxIncomingMessageIdRpcBytesPerPeer` | 2 MiB | One connected peer's share of the incoming bytes for additional concurrent RPCs |
 
 Every outbound RPC uses the same budgets, including before a reply stream is attached. Admission
 never waits for space. Each peer has one asynchronous writer and owns immutable serialized frames;
 mutating an RPC after admission cannot change queued data. Reservations remain charged until the
 underlying write finishes, including a partly consumed write during shutdown. Byte limits measure
 encoded payloads, rather than total managed memory; entry limits also bound queue overhead.
+Required control queued behind a busy writer, or before a reply stream attaches, is coalesced: a
+subscribe, unsubscribe, GRAFT or PRUNE for a topic the pending frame does not yet mention merges into
+that frame, so subscribing to many topics in a burst costs one entry rather than one per topic. A
+repeated GRAFT is redundant and a repeated PRUNE is superseded; control for a topic already pending
+starts a new frame so receivers see the same per-topic order. Merging charges only the byte delta,
+keeps the frame's original admission time, and never reads the caller's RPC again.
 
 At capacity, payloads, partial messages, IHAVE, IDONTWANT and IWANT requests drop newest without a
 score penalty. Losing a subscribe, unsubscribe, GRAFT, PRUNE or first-frame extension advertisement
@@ -233,11 +243,26 @@ connection cannot arm a replacement connection's promise. Incoming request and r
 limits remain conservative abuse limits even when outbound work is dropped.
 
 Receive loops await message-ID admission before reading another frame. The incoming budgets bound
-both semaphore waiters and RPCs retained through dispatch. At capacity, publishes are skipped before
-hashing, validation, caching, delivery credit or penalties; subscriptions and controls still run.
-Control-only, unwanted-topic and graylisted traffic keep their early gates. Calculations share the
-existing concurrency limit with synchronous application publishing. Cancellation stops pending
-admission; already running host calculations and application callbacks cannot be forcibly cancelled.
+both semaphore waiters and RPCs retained through dispatch. An admitted RPC stays charged until its
+synchronous application callbacks return, so inbound publish concurrency is bounded by the entry
+budget divided by handler latency; slow handlers cost incoming capacity rather than forwarding
+latency. Each connected peer may hold at most its per-peer share, charged across every inbound
+stream it has opened, so one peer cannot take the router-wide budget by opening many streams. The
+share narrows that exposure rather than closing it: the router-wide check runs first and reserves
+nothing for peers holding nothing, so with the defaults sixteen peers each holding eight entries,
+or fewer peers holding large RPCs up to the byte budget, exhaust the router-wide budget and every
+other peer's publishes are skipped with `reason` `capacity` until entries release. A peer holding
+nothing always gets one RPC admitted, up to `MaxRpcBytes`, so a share smaller than a maximum-size
+RPC never blocks delivery; the share bounds that peer's additional concurrent RPCs.
+The router-wide byte budget must be at least `MaxRpcBytes`, which construction enforces. At
+either limit, publishes are skipped before hashing, validation, caching, delivery credit or
+penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so
+gossip can request them again. A skip also cancels the sender's pending IWANT promises, as a
+throttled validation does, so local overload never becomes a broken-promise penalty for a peer
+that did deliver. Control-only, unwanted-topic and graylisted traffic keep their early
+gates. Calculations share the existing concurrency limit with synchronous application publishing.
+Cancellation stops pending admission; already running host calculations and application callbacks
+cannot be forcibly cancelled.
 
 Forwarding and IDONTWANT admission happen before synchronous full-message and partial-message
 callbacks, including accepted deferred validations. Application events retain their signatures,
@@ -245,8 +270,9 @@ ordering and exception isolation and run outside the router lock. An admitted fr
 not an acknowledgement of delivery.
 
 The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
-`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`)
-and no peer or topic labels.
+`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`),
+and `libp2p.pubsub.incoming.skipped` with `reason` `capacity` (router-wide) or `peer-capacity`.
+None carry peer or topic labels.
 
 ## Stopping the router
 

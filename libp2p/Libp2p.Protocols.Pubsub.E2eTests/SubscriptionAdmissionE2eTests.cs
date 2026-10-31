@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Dto;
+using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using NUnit.Framework;
@@ -102,6 +104,16 @@ public class SubscriptionAdmissionE2eTests
             Rpc unwanted = new();
             for (int i = 0; i < 300; i++) unwanted.Publish.Add(Signed($"unwanted-{i % 4}", 0).Publish[0]);
             await channel.WriteSizeAndProtobufAsync(unwanted);
+            // A valid RSA signature with a non-interoperable exponent must also be dropped
+            // by the registered listener. The following marker proves this frame was processed.
+            Identity rsaSigner = new(keyType: KeyType.Rsa);
+            PublicKey expensiveKey = RsaKeyFixtures.EquivalentLargeExponent(rsaSigner);
+            Message expensive = Signed("wanted", 9).Publish[0];
+            expensive.From = ByteString.CopyFrom((byte[])Multiformats.Hash.Multihash.Sum(Multiformats.Hash.HashType.SHA2_256, expensiveKey.ToByteArray()));
+            expensive.ClearSignature();
+            expensive.Signature = ByteString.CopyFrom(rsaSigner.Sign([.. Encoding.UTF8.GetBytes("libp2p-pubsub:"), .. expensive.ToByteArray()]));
+            expensive.Key = expensiveKey.ToByteString();
+            await channel.WriteSizeAndProtobufAsync(new Rpc { Publish = { expensive } });
             await Marker(1);
             var state = (IRoutingStateContainer)router;
             var table = protocol == PubsubRouter.FloodsubProtocolVersion ? state.FloodsubPeers : state.GossipsubPeers;

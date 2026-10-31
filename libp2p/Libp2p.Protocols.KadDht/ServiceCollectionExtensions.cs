@@ -6,6 +6,8 @@ using Libp2p.Protocols.KadDht.Kademlia;
 using Libp2p.Protocols.KadDht.Storage;
 using Libp2p.Protocols.KadDht.Transport;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Nethermind.Libp2p.Protocols;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -22,142 +24,133 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddKadDht(this IServiceCollection services,
         Action<KadDhtOptions>? configureOptions = null)
     {
-        var options = new KadDhtOptions();
-        configureOptions?.Invoke(options);
-        services.AddSingleton(options);
-
-        services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
-
-        services.AddSingleton<IValueStore>(sp =>
-            new InMemoryValueStore(options.MaxStoredValues, sp.GetService<ILoggerFactory>()));
-        services.AddSingleton<IProviderStore>(sp =>
-            new InMemoryProviderStore(options.MaxProvidersPerKey, sp.GetService<ILoggerFactory>()));
-
-        services.AddSingleton<SharedDhtState>(sp =>
+        RegisterDefaults(services, configureOptions);
+        services.TryAddSingleton<SharedDhtState>(sp =>
         {
-            var state = new SharedDhtState(null, sp.GetService<ILoggerFactory>());
-            state.KValue = options.KSize;
-            return state;
+            var peer = sp.GetService<ILocalPeer>();
+            return (peer as IPeerServices)?.GetPeerService<DhtRuntime>()?.State ??
+                new SharedDhtState(sp.GetRequiredService<IValueStore>(), sp.GetService<ILoggerFactory>(), sp.GetRequiredService<KadDhtOptions>().RecordTtl)
+                { KValue = sp.GetRequiredService<KadDhtOptions>().KSize };
         });
-
-        services.AddSingleton<Integration.LibP2pKademliaMessageSender>(sp =>
+        services.TryAddSingleton<Integration.LibP2pKademliaMessageSender>(sp =>
         {
-            var localPeer = sp.GetRequiredService<ILocalPeer>();
-            var loggerFactory = sp.GetService<ILoggerFactory>();
+            var peer = sp.GetRequiredService<ILocalPeer>();
+            if ((peer as IPeerServices)?.GetPeerService<DhtRuntime>() is { } runtime) return runtime.Sender;
+            var state = sp.GetRequiredService<SharedDhtState>();
             var peerStore = sp.GetService<PeerStore>();
-            var sharedState = sp.GetRequiredService<SharedDhtState>();
-            return new Integration.LibP2pKademliaMessageSender(localPeer, loggerFactory,
-                onPeerDiscovered: peerStore is not null ? node => StorePeerAddresses(node, peerStore) : null,
-                onPingResponse: node => sharedState.AddNodeCallback?.Invoke(node));
+            return new Integration.LibP2pKademliaMessageSender(sp.GetRequiredService<KadDhtOptions>(), peer, sp.GetService<ILoggerFactory>(),
+                onPeerDiscovered: node => StorePeerAddresses(node, peerStore), onPingResponse: node => state.AddNodeCallback?.Invoke(node));
         });
-        services.AddSingleton<Integration.IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
-        services.AddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp =>
-            sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
-
-        services.AddSingleton<KadDhtProtocol>(sp =>
+        services.TryAddSingleton<DhtRuntime>(sp =>
         {
-            var localPeer = sp.GetRequiredService<ILocalPeer>();
-            var messageSender = sp.GetRequiredService<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>();
-            var dhtMessageSender = sp.GetRequiredService<Integration.IDhtMessageSender>();
-            var kadDhtOptions = sp.GetRequiredService<KadDhtOptions>();
-            var valueStore = sp.GetRequiredService<IValueStore>();
-            var providerStore = sp.GetRequiredService<IProviderStore>();
-            var validator = sp.GetRequiredService<IRecordValidator>();
-            var loggerFactory = sp.GetService<ILoggerFactory>();
-
-            var protocol = new KadDhtProtocol(localPeer, messageSender, dhtMessageSender, kadDhtOptions, valueStore, providerStore, loggerFactory, validator);
-
-            var sharedState = sp.GetService<SharedDhtState>();
-            if (protocol.RoutingTable != null && sharedState != null)
-                sharedState.SetRoutingTable(protocol.RoutingTable);
-            if (sharedState != null)
-                sharedState.AddNodeCallback = protocol.AddNode;
-
-            return protocol;
+            var peer = sp.GetRequiredService<ILocalPeer>();
+            return (peer as IPeerServices)?.GetPeerService<DhtRuntime>() ??
+                DhtRuntime.Create(peer, sp, state: sp.GetRequiredService<SharedDhtState>(), sender: sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
         });
-
+        services.TryAddSingleton<IDhtMessageSender>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
+        services.TryAddSingleton<Nethermind.Kademlia.IKademliaMessageSender<PublicKey, DhtNode>>(sp => sp.GetRequiredService<Integration.LibP2pKademliaMessageSender>());
+        services.TryAddSingleton<KadDhtProtocol>(sp => sp.GetRequiredService<DhtRuntime>().Protocol);
+        services.TryAddSingleton<DhtClient>(sp => sp.GetRequiredService<DhtRuntime>().Client);
         return services;
+    }
+
+    internal static void RegisterDefaults(IServiceCollection services, Action<KadDhtOptions>? configure = null,
+        IServiceProvider? fallback = null, IValueStore? valueStore = null, IProviderStore? providerStore = null)
+    {
+        var options = services.LastOrDefault(d => d.ServiceType == typeof(KadDhtOptions))?.ImplementationInstance as KadDhtOptions
+            ?? fallback?.GetService<KadDhtOptions>() ?? new KadDhtOptions();
+        configure?.Invoke(options);
+        WirePeerPolicy.Validate(options);
+        options.ValidateStreamLimits();
+        if (configure is not null) services.AddSingleton(options);
+        else services.TryAddSingleton(options);
+        if (!services.Any(d => d.ServiceType == typeof(IRecordValidator)))
+        {
+            var suppliedValidator = fallback?.GetService<IRecordValidator>();
+            if (suppliedValidator is not null) services.AddSingleton(suppliedValidator);
+            else services.AddSingleton<IRecordValidator>(_ => CompositeRecordValidator.CreateDefault());
+        }
+        if (valueStore is not null) services.AddSingleton(valueStore);
+        else if (!services.Any(d => d.ServiceType == typeof(IValueStore)))
+        {
+            var suppliedValues = fallback?.GetService<IValueStore>();
+            if (suppliedValues is not null) services.AddSingleton(suppliedValues);
+            else services.AddSingleton<IValueStore>(sp =>
+                new InMemoryValueStore(sp.GetRequiredService<KadDhtOptions>().MaxStoredValues, sp.GetService<ILoggerFactory>()));
+        }
+        if (providerStore is not null) services.AddSingleton(providerStore);
+        else if (!services.Any(d => d.ServiceType == typeof(IProviderStore)))
+        {
+            var suppliedProviders = fallback?.GetService<IProviderStore>();
+            if (suppliedProviders is not null) services.AddSingleton(suppliedProviders);
+            else services.AddSingleton<IProviderStore>(sp =>
+            {
+                var configured = sp.GetRequiredService<KadDhtOptions>();
+                return new InMemoryProviderStore(configured.MaxProvidersPerKey, configured.MaxProviderKeys,
+                    configured.MaxAddressesPerProvider, configured.MaxProviderRecordBytes, sp.GetService<ILoggerFactory>());
+            });
+        }
     }
 
     public static ILibp2pPeerFactoryBuilder WithKadDht(this ILibp2pPeerFactoryBuilder builder)
     {
-        var serviceProvider = builder.ServiceProvider;
-        var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
-        var options = serviceProvider.GetService<KadDhtOptions>() ?? new KadDhtOptions();
-        var sharedState = serviceProvider.GetService<SharedDhtState>();
-        if (sharedState != null)
-            sharedState.KValue = options.KSize;
-        var valueStore = serviceProvider.GetService<IValueStore>()
-            ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
-        var providerStore = serviceProvider.GetService<IProviderStore>()
-            ?? new InMemoryProviderStore(options.MaxProvidersPerKey, loggerFactory);
-        var validator = serviceProvider.GetService<IRecordValidator>()
-            ?? CompositeRecordValidator.CreateDefault();
-        var peerStore = serviceProvider.GetService<PeerStore>();
-
-        bool initialized = false;
-        KadDhtProtocol? kadDhtProtocol = null;
-
-        void EnsureInitialized()
-        {
-            if (initialized) return;
-            initialized = true;
-
-            try
-            {
-                kadDhtProtocol = serviceProvider.GetService<KadDhtProtocol>();
-            }
-            catch (InvalidOperationException) { }
-
-            if (sharedState != null)
-            {
-                if (sharedState.LocalPeerKey == null)
-                {
-                    try
-                    {
-                        var localPeer = serviceProvider.GetService<ILocalPeer>();
-                        if (localPeer != null)
-                            sharedState.LocalPeerKey = new PublicKey(localPeer.Identity.PeerId.Bytes.ToArray());
-                    }
-                    catch (InvalidOperationException) { }
-                }
-
-                if (kadDhtProtocol?.RoutingTable != null)
-                    sharedState.SetRoutingTable(kadDhtProtocol.RoutingTable);
-
-                if (kadDhtProtocol != null)
-                    sharedState.AddNodeCallback = kadDhtProtocol.AddNode;
-            }
-        }
-
-        // Delegate to AddKadDhtProtocols so all incoming message handling uses the same code path
-        builder.AddKadDhtProtocols(
-            findNearest: publicKey =>
-            {
-                EnsureInitialized();
-                var peers = sharedState?.GetKNearestPeers(publicKey) ?? Array.Empty<DhtNode>();
-                // Enrich addresses from PeerStore (which has correct listen addresses from Identify exchange)
-                // before sending in FindNode responses
-                return EnrichPeerAddresses(peers, peerStore);
-            },
-            onPeerSeen: node =>
-            {
-                EnsureInitialized();
-                // Enrich with addresses from PeerStore (populated by Identify's signed peer record)
-                // to avoid storing ephemeral source-port addresses in the routing table
-                var enrichedNode = EnrichNodeFromPeerStore(node, peerStore);
-                sharedState?.AddNodeCallback?.Invoke(enrichedNode);
-                StorePeerAddresses(node, peerStore);
-            },
-            loggerFactory: loggerFactory,
-            baseId: options.ProtocolId,
-            isExposed: options.Mode == KadDhtMode.Server,
-            options: options,
-            valueStore: valueStore,
-            providerStore: providerStore,
-            validator: validator);
-
+        ConfigureBuilder(builder);
         return builder;
+    }
+
+    internal static void ConfigureBuilder(ILibp2pPeerFactoryBuilder builder, Action<KadDhtOptions>? configure = null,
+        IEnumerable<DhtNode>? bootstrapNodes = null, IValueStore? valueStore = null, IProviderStore? providerStore = null)
+    {
+        RegisterDefaults(builder.Services, configure, builder.ServiceProvider, valueStore, providerStore);
+        if (builder is IPeerServiceBuilder peerServices && builder is IProtocolFactoryBuilder protocols)
+        {
+            peerServices.AddPeerService<DhtRuntime>((peer, sp) => DhtRuntime.Create(peer, sp, bootstrapNodes));
+            peerServices.AddPeerService<KadDhtProtocol>((peer, _) => ((IPeerServices)peer).GetPeerService<DhtRuntime>()!.Protocol, ownsInstance: false);
+            peerServices.AddPeerService<DhtClient>((peer, _) => ((IPeerServices)peer).GetPeerService<DhtRuntime>()!.Client, ownsInstance: false);
+            protocols.AddProtocolFactory(sp =>
+            {
+                var options = sp.GetRequiredService<KadDhtOptions>();
+                var handler = KadDhtProtocolExtensions.CreateProtocol(options, ctx =>
+                {
+                    if (ctx.Peer is not IPeerServices services)
+                        throw new InvalidOperationException("The local peer does not support peer services.");
+                    return services.GetPeerService<DhtRuntime>()!.Handler;
+                }, sp.GetService<ILoggerFactory>(), timeProvider: sp.GetService<TimeProvider>());
+                return new ProtocolRef(handler, options.Mode == KadDhtMode.Server,
+                    new InboundStreamLimit(options.MaxInboundStreams, options.MaxInboundStreamsPerPeer))
+                { AcceptInbound = options.Mode == KadDhtMode.Server };
+            });
+        }
+        else
+        {
+            // Custom builders may install request handlers without configuring a high-level local peer.
+            var sp = builder.ServiceProvider;
+            var options = sp.GetService<KadDhtOptions>() ?? builder.Services
+                .Where(d => d.ServiceType == typeof(KadDhtOptions)).Select(d => d.ImplementationInstance).OfType<KadDhtOptions>().Last();
+            var loggerFactory = sp.GetService<ILoggerFactory>();
+            var values = valueStore ?? sp.GetService<IValueStore>() ?? new InMemoryValueStore(options.MaxStoredValues, loggerFactory);
+            var providers = providerStore ?? sp.GetService<IProviderStore>() ?? new InMemoryProviderStore(options.MaxProvidersPerKey,
+                options.MaxProviderKeys, options.MaxAddressesPerProvider, options.MaxProviderRecordBytes, loggerFactory);
+            var validator = sp.GetService<IRecordValidator>() ?? CompositeRecordValidator.CreateDefault();
+            var state = sp.GetService<SharedDhtState>() ?? new SharedDhtState(values, loggerFactory, options.RecordTtl) { KValue = options.KSize };
+            builder.Services.AddSingleton<IValueStore>(values);
+            builder.Services.AddSingleton<IProviderStore>(providers);
+            builder.Services.AddSingleton<IRecordValidator>(validator);
+            builder.Services.AddSingleton(state);
+            builder.Services.AddKadDht();
+            if (bootstrapNodes is not null)
+                builder.Services.AddSingleton<DhtRuntime>(provider => DhtRuntime.Create(provider.GetRequiredService<ILocalPeer>(), provider, bootstrapNodes, state));
+            var handler = new KadDhtProtocolExtensions.DhtHandlerServices(options, values, providers, validator,
+                (key, excludedPeer) => EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), sp.GetService<PeerStore>()),
+                node => state.AddNodeCallback?.Invoke(node));
+            builder.AddProtocol(KadDhtProtocolExtensions.CreateProtocol(options, _ =>
+            {
+                // Handler-only builders have no local runtime to initialize. A configured runtime must initialize successfully.
+                if (sp.GetService<ILocalPeer>() is { Identity: not null }) sp.GetService<KadDhtProtocol>();
+                return handler;
+            }, loggerFactory, timeProvider: sp.GetService<TimeProvider>()), options.Mode == KadDhtMode.Server,
+                new InboundStreamLimit(options.MaxInboundStreams, options.MaxInboundStreamsPerPeer));
+        }
     }
 
     /// <summary>

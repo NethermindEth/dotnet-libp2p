@@ -338,6 +338,8 @@ public class ServiceCollectionExtensionsTests
         // Single unified protocol per spec — all message types dispatched via Message.Type
         Assert.That(registeredProtocolIds, Has.Length.EqualTo(1));
         Assert.That(registeredProtocolIds[0], Is.EqualTo("/ipfs/kad/1.0.0"));
+        Assert.That(builder.Limits.Single().MaxConcurrent, Is.EqualTo(512));
+        Assert.That(builder.Limits.Single().MaxPerPeer, Is.EqualTo(64));
     }
 
     [Test]
@@ -403,6 +405,15 @@ public class ServiceCollectionExtensionsTests
         }
 
         public IReadOnlyList<IProtocol> Protocols => _protocols;
+
+        public List<InboundStreamLimit> Limits { get; } = [];
+
+        public IPeerFactoryBuilder AddProtocol<TProtocol>(TProtocol? instance, bool isExposed, InboundStreamLimit? inboundLimit)
+            where TProtocol : IProtocol
+        {
+            if (inboundLimit is not null) Limits.Add(inboundLimit);
+            return AddProtocol(instance, isExposed);
+        }
 
         public IServiceProvider ServiceProvider { get; }
 

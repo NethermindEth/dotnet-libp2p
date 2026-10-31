@@ -378,6 +378,8 @@ public class OutboundWorkTests
         await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "topic" } } } });
         Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Is.EqualTo(new[] { meshPeer.PeerId }));
         await router.OnRpcAsync(meshPeer.PeerId, new Rpc { Publish = { new Message { Topic = "topic", Data = ByteString.CopyFrom([7]) } } });
+        // The mesh peer's hello must have released its entry before the requester's required hello needs it.
+        await meshPeer.Idle.Task.WaitAsync(Deadline);
         ConcurrentQueue<Rpc> sent = [];
         int disconnects = 0;
         PubsubRouter.PubsubPeer requester = router.OutboundConnection(TestPeers.Multiaddr(3), PubsubRouter.GossipsubProtocolVersionV10,
@@ -408,6 +410,93 @@ public class OutboundWorkTests
         Assert.That(router.OutboundUsage, Is.EqualTo(saturated ? (1, (long)FrameSize(Payload())) : (0, 0L)));
         stalledWriter.Result.TrySetResult(IOResult.Ok);
         await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public async Task SubscribeBurstCoalescesQueuedControlInsteadOfClosingHealthyPeers()
+    {
+        await using PubsubRouter router = new(new PeerStore(), Settings());
+        RecordingGate gate = new();
+        PubsubRouter.PubsubPeer busy = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, gate.Write, gate.Abort, gate.Disconnect)!;
+        int replyDisconnects = 0;
+        // The reply dial completes without attaching a writer, so nothing drains this peer until OutboundConnection runs.
+        router.InboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task,
+            () => Task.CompletedTask, () => { Interlocked.Increment(ref replyDisconnects); return Task.CompletedTask; });
+        var peers = (ConcurrentDictionary<PeerId, PubsubRouter.PubsubPeer>)typeof(PubsubRouter)
+            .GetField("peerState", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(router)!;
+        PubsubRouter.PubsubPeer unattached = peers[TestPeers.PeerId(2)];
+        int burst = 2 * Settings().MaxOutboundRpcEntriesPerPeer;
+        // The first announcement is being written before the burst, so the burst can only queue behind it.
+        router.Subscribe("topic-000");
+        await gate.Started.Task.WaitAsync(Deadline);
+        for (int i = 1; i < burst; i++) router.Subscribe($"topic-{i:D3}");
+        Assert.That(busy.Terminal, Is.False);
+        Assert.That(unattached.Terminal, Is.False);
+        Assert.That(busy.Entries, Is.EqualTo(2), "One frame is being written; every later subscription merged into one pending frame.");
+        Assert.That(unattached.Entries, Is.EqualTo(1), "Nothing drains before the reply stream attaches, so the whole burst is one frame.");
+        Assert.That(router.OutboundUsage.Entries, Is.EqualTo(3));
+        gate.First.SetResult(IOResult.Ok);
+        await busy.Idle.Task.WaitAsync(Deadline);
+        string[] expected = Enumerable.Range(0, burst).Select(i => $"topic-{i:D3}").ToArray();
+        Assert.That(gate.Frames, Has.Count.EqualTo(2));
+        Assert.That(gate.Frames[0].Subscriptions.Select(sub => sub.Topicid), Is.EqualTo(new[] { "topic-000" }));
+        Assert.That(gate.Frames.SelectMany(rpc => rpc.Subscriptions).Select(sub => sub.Topicid), Is.EqualTo(expected), "Order is preserved across the merge.");
+        Assert.That(gate.Frames.SelectMany(rpc => rpc.Subscriptions).All(sub => sub.Subscribe), Is.True);
+        List<Rpc> attached = [];
+        Assert.That(router.OutboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV11, new TaskCompletionSource().Task,
+            (frame, _) => { attached.Add(RouterTestExtensions.Decode(frame)); return ValueTask.FromResult(IOResult.Ok); },
+            () => ValueTask.CompletedTask, () => Task.CompletedTask), Is.SameAs(unattached));
+        await unattached.Idle.Task.WaitAsync(Deadline);
+        // Attaching the writer also sends the current subscription snapshot; same-topic control never merges.
+        Assert.That(attached, Has.Count.EqualTo(2));
+        Assert.That(attached[0].Subscriptions.Select(sub => sub.Topicid), Is.EqualTo(expected), "The whole burst left as one ordered frame.");
+        Assert.That(attached[1].Subscriptions.Select(sub => sub.Topicid), Is.EquivalentTo(expected), "The hello snapshot follows it.");
+        Assert.That(gate.Disconnects + replyDisconnects, Is.Zero);
+        Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public async Task CoalescingKeepsPerTopicOrderOwnsItsBytesAndChargesTheDelta()
+    {
+        await using PubsubRouter router = new(new PeerStore(), Settings());
+        RecordingGate gate = new();
+        PubsubRouter.PubsubPeer peer = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.GossipsubProtocolVersionV11,
+            new TaskCompletionSource().Task, gate.Write, gate.Abort, gate.Disconnect)!;
+        static Rpc Graft(string topic) => new() { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = topic } } } };
+        static Rpc Prune(string topic, ulong backoff) => new() { Control = new ControlMessage { Prune = { new ControlPrune { TopicID = topic, Backoff = backoff } } } };
+        Assert.That(peer.Send(new Rpc().WithTopics(["first"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        await gate.Started.Task.WaitAsync(Deadline);
+        Rpc caller = Graft("t");
+        Assert.That(peer.Send(caller), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        caller.Control.Graft[0].TopicID = "mutated-after-admission";
+        long afterGraft = router.OutboundUsage.Bytes;
+        Assert.That(peer.Send(Graft("t")), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(2), "A repeated GRAFT is redundant.");
+        Assert.That(router.OutboundUsage.Bytes, Is.EqualTo(afterGraft));
+        Assert.That(peer.Send(Prune("t", 1)), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(3), "PRUNE for a topic with a pending GRAFT keeps its own frame.");
+        Assert.That(peer.Send(Prune("t", 2)), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(3), "A repeated PRUNE is superseded.");
+        Assert.That(peer.Send(new Rpc().WithTopics(["t"], [])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(4), "A subscription for a topic with pending control keeps its own frame.");
+        Assert.That(peer.Send(new Rpc().WithTopics([], ["u"])), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(4));
+        Assert.That(peer.Send(Payload()), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Send(Graft("v")), Is.EqualTo(PubsubRouter.SendResult.Admitted));
+        Assert.That(peer.Entries, Is.EqualTo(6), "Control behind a queued payload starts a new frame to keep FIFO order.");
+        gate.First.SetResult(IOResult.Ok);
+        await peer.Idle.Task.WaitAsync(Deadline);
+        Assert.That(gate.Frames, Has.Count.EqualTo(6));
+        Assert.That(gate.Frames[1].Control.Graft.Select(g => g.TopicID), Is.EqualTo(new[] { "t" }), "The merged frame owns its content; the caller's later mutation is invisible.");
+        Assert.That(gate.Frames[2].Control.Prune.Select(p => (p.TopicID, p.Backoff)), Is.EqualTo(new[] { ("t", 2UL) }));
+        Assert.That(gate.Frames[3].Subscriptions.Select(s => (s.Topicid, s.Subscribe)), Is.EqualTo(new[] { ("t", true), ("u", false) }));
+        Assert.That(gate.Frames[4].Publish, Has.Count.EqualTo(1));
+        Assert.That(gate.Frames[5].Control.Graft.Select(g => g.TopicID), Is.EqualTo(new[] { "v" }));
+        Assert.That(gate.FrameBytes, Is.EqualTo(gate.Frames.Sum(FrameSize)), "Charged bytes matched the re-serialized frames.");
+        Assert.That(peer.Terminal, Is.False);
+        Assert.That(gate.Disconnects, Is.Zero);
         Assert.That(router.OutboundUsage, Is.EqualTo((0, 0L)));
     }
 
@@ -592,6 +681,8 @@ public class OutboundWorkTests
     [TestCase(nameof(PubsubSettings.OutboundRpcTimeout))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcEntries))]
     [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcBytes))]
+    [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcEntriesPerPeer))]
+    [TestCase(nameof(PubsubSettings.MaxIncomingMessageIdRpcBytesPerPeer))]
     public void CapacitiesArePositiveAtConstruction(string name)
     {
         PubsubSettings settings = Settings();
@@ -609,6 +700,30 @@ public class OutboundWorkTests
             writer.Write, writer.Abort, writer.Disconnect)!;
 
     internal static Rpc Iwant() => new() { Control = new ControlMessage { Iwant = { new ControlIWant { MessageIDs = { ByteString.CopyFrom([1]) } } } } };
+
+    internal sealed class RecordingGate
+    {
+        public readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource<IOResult> First = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly List<Rpc> Frames = [];
+        public long FrameBytes;
+        public int Disconnects;
+        public ValueTask<IOResult> Write(ReadOnlyMemory<byte> bytes, CancellationToken token)
+        {
+            bool first;
+            lock (Frames)
+            {
+                first = Frames.Count == 0;
+                Frames.Add(RouterTestExtensions.Decode(bytes));
+                FrameBytes += bytes.Length;
+            }
+            Started.TrySetResult();
+            return first ? new(First.Task) : ValueTask.FromResult(IOResult.Ok);
+        }
+        // Teardown aborts the stream; completing the gated write keeps a failing test from parking the writer forever.
+        public ValueTask Abort() { First.TrySetResult(IOResult.Aborted); return ValueTask.CompletedTask; }
+        public Task Disconnect() { Interlocked.Increment(ref Disconnects); return Task.CompletedTask; }
+    }
 
     internal sealed class PausedWriter
     {
