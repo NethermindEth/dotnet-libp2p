@@ -19,15 +19,25 @@ public static class RequestResponseExtensions
         int maxMessageSize = int.MaxValue)
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
-    {
-        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
-            protocolId,
-            handler,
-            builder.ServiceProvider.GetService<ILoggerFactory>(),
-            expectsResponse,
-            maxMessageSize);
+        => builder.AddRequestResponseProtocol(RequestResponseProtocol<TRequest, TResponse>.DefaultReadTimeout,
+            protocolId, handler, isExposed, expectsResponse, maxMessageSize);
 
-        return builder.AddProtocol(protocol, isExposed);
+    public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
+        this IPeerFactoryBuilder builder,
+        TimeSpan readTimeout,
+        string protocolId,
+        Func<TRequest, ISessionContext, Task<TResponse>> handler,
+        bool isExposed = true,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue,
+        TimeProvider? timeProvider = null)
+        where TRequest : class, IMessage<TRequest>, new()
+        where TResponse : class, IMessage<TResponse>, new()
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return builder.AddRequestResponseProtocol<TRequest, TResponse>(readTimeout,
+            (request, context, _) => handler(request, context), protocolId,
+            isExposed, expectsResponse, maxMessageSize, timeProvider);
     }
 
     public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
@@ -39,9 +49,34 @@ public static class RequestResponseExtensions
         int maxMessageSize = int.MaxValue)
         where TRequest : class, IMessage<TRequest>, new()
         where TResponse : class, IMessage<TResponse>, new()
+        => builder.AddRequestResponseProtocol(RequestResponseProtocol<TRequest, TResponse>.DefaultReadTimeout,
+            cancellationHandler, protocolId, isExposed, expectsResponse, maxMessageSize);
+
+    public static IPeerFactoryBuilder AddRequestResponseProtocol<TRequest, TResponse>(
+        this IPeerFactoryBuilder builder,
+        TimeSpan readTimeout,
+        Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> cancellationHandler,
+        string protocolId,
+        bool isExposed = true,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue,
+        TimeProvider? timeProvider = null)
+        where TRequest : class, IMessage<TRequest>, new()
+        where TResponse : class, IMessage<TResponse>, new()
     {
-        var protocol = new RequestResponseProtocol<TRequest, TResponse>(
-            cancellationHandler, protocolId, builder.ServiceProvider.GetService<ILoggerFactory>(), expectsResponse, maxMessageSize);
-        return builder.AddProtocol(protocol, isExposed);
+        RequestResponseProtocol<TRequest, TResponse>.ValidateReadOptions(readTimeout, maxMessageSize);
+        ArgumentNullException.ThrowIfNull(protocolId);
+        ArgumentNullException.ThrowIfNull(cancellationHandler);
+
+        RequestResponseProtocol<TRequest, TResponse> CreateProtocol(IServiceProvider services)
+            => new(readTimeout, cancellationHandler, protocolId, services.GetService<ILoggerFactory>(),
+                expectsResponse, maxMessageSize, timeProvider ?? services.GetService<TimeProvider>());
+
+        if (builder is IProtocolFactoryBuilder factories)
+        {
+            factories.AddProtocolFactory(services => new ProtocolRef(CreateProtocol(services), isExposed));
+            return builder;
+        }
+        return builder.AddProtocol(CreateProtocol(builder.ServiceProvider), isExposed);
     }
 }

@@ -182,7 +182,7 @@ public class ProviderRetentionIntegrationTests
             builder.Services.Returns(services);
             builder.ServiceProvider.Returns(_services);
             RequestResponseProtocol<Message, Message>? protocol = null;
-            builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>())
+            builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>(), Arg.Any<InboundStreamLimit>())
                 .Returns(call => { protocol = call.Arg<RequestResponseProtocol<Message, Message>>(); return builder; });
             builder.AddProtocol<KadDhtProtocol>().Returns(builder);
             try

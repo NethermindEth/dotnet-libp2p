@@ -254,7 +254,7 @@ internal sealed class SenderFixture : IDisposable
             var builder = Substitute.For<ILibp2pPeerFactoryBuilder>();
             builder.Services.Returns(services);
             builder.ServiceProvider.Returns(initial);
-            builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>()).Returns(builder);
+            builder.AddProtocol(Arg.Any<RequestResponseProtocol<Message, Message>>(), Arg.Any<bool>(), Arg.Any<InboundStreamLimit>()).Returns(builder);
             builder.AddProtocol<KadDhtProtocol>().Returns(builder);
             builder.AddKadDht(o => CopyOptions(options, o));
         }

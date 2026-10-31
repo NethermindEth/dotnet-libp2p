@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using Nethermind.Libp2p.Core.Metrics;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -17,6 +18,19 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
     private readonly Func<TRequest, bool>? _expectsResponse;
     private readonly ILogger<RequestResponseProtocol<TRequest, TResponse>>? _logger;
     private readonly int _maxMessageSize;
+    private readonly TimeProvider _timeProvider;
+
+    public static TimeSpan DefaultReadTimeout { get; } = TimeSpan.FromSeconds(30);
+
+    internal static void ValidateReadOptions(TimeSpan readTimeout, int maxMessageSize)
+    {
+        if (readTimeout <= TimeSpan.Zero || readTimeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+            throw new ArgumentOutOfRangeException(nameof(readTimeout));
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
+    }
+
+    /// <summary>Deadline for a complete length prefix and protobuf body.</summary>
+    public TimeSpan ReadTimeout { get; }
 
     private readonly MessageParser<TRequest> _requestParser;
     private readonly MessageParser<TResponse> _responseParser;
@@ -44,8 +58,35 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         ILoggerFactory? loggerFactory = null,
         Func<TRequest, bool>? expectsResponse = null,
         int maxMessageSize = int.MaxValue)
+        : this(DefaultReadTimeout, cancellationHandler, protocolId, loggerFactory, expectsResponse, maxMessageSize)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageSize);
+    }
+
+    public RequestResponseProtocol(
+        TimeSpan readTimeout,
+        string protocolId,
+        Func<TRequest, ISessionContext, Task<TResponse>> handler,
+        ILoggerFactory? loggerFactory = null,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue,
+        TimeProvider? timeProvider = null)
+        : this(readTimeout, AdaptHandler(handler), protocolId, loggerFactory, expectsResponse, maxMessageSize, timeProvider)
+    {
+    }
+
+    public RequestResponseProtocol(
+        TimeSpan readTimeout,
+        Func<TRequest, ISessionContext, CancellationToken, Task<TResponse>> cancellationHandler,
+        string protocolId,
+        ILoggerFactory? loggerFactory = null,
+        Func<TRequest, bool>? expectsResponse = null,
+        int maxMessageSize = int.MaxValue,
+        TimeProvider? timeProvider = null)
+    {
+        ValidateReadOptions(readTimeout, maxMessageSize);
+
+        ReadTimeout = readTimeout;
+        _timeProvider = timeProvider ?? TimeProvider.System;
 
         _protocolId = protocolId ?? throw new ArgumentNullException(nameof(protocolId));
         _handler = cancellationHandler ?? throw new ArgumentNullException(nameof(cancellationHandler));
@@ -61,12 +102,28 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
     public async Task ListenAsync(IChannel channel, ISessionContext context)
     {
         CancellationToken token = channel.CancellationToken;
+        CancellationToken readToken = default;
         try
         {
             _logger?.LogDebug("Starting ListenAsync for protocol {ProtocolId} from peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            TRequest request = await channel.ReadPrefixedProtobufAsync(_requestParser, _maxMessageSize, default);
+            TRequest request;
+            using (CancellationTokenSource deadline = new(ReadTimeout, _timeProvider))
+            using (CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token))
+            {
+                readToken = read.Token;
+                try
+                {
+                    request = await channel.ReadPrefixedProtobufAsync(_requestParser, _maxMessageSize, readToken);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException &&
+                    deadline.IsCancellationRequested && !token.IsCancellationRequested)
+                {
+                    RecordReadTimeout("inbound");
+                    throw;
+                }
+            }
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TRequest).Name);
 
             _logger?.LogDebug("Successfully deserialized the response");
@@ -95,13 +152,15 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error in ListenAsync for protocol {ProtocolId}: {ErrorMessage}", Id, ex.Message);
+            LogFailure(ex, "ListenAsync", token.IsCancellationRequested || readToken.IsCancellationRequested);
             throw;
         }
     }
 
     public async Task<TResponse> DialAsync(IChannel channel, ISessionContext context, TRequest request)
     {
+        CancellationToken token = channel.CancellationToken;
+        CancellationToken readToken = default;
         try
         {
             _logger?.LogDebug("Starting DialAsync for protocol {ProtocolId} to peer {RemotePeerId}",
@@ -115,7 +174,22 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
 
             _logger?.LogDebug("Request sent, waiting for response");
 
-            TResponse response = await channel.ReadPrefixedProtobufAsync(_responseParser, _maxMessageSize, default);
+            TResponse response;
+            using (CancellationTokenSource deadline = new(ReadTimeout, _timeProvider))
+            using (CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token))
+            {
+                readToken = read.Token;
+                try
+                {
+                    response = await channel.ReadPrefixedProtobufAsync(_responseParser, _maxMessageSize, readToken);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException &&
+                    deadline.IsCancellationRequested && !token.IsCancellationRequested)
+                {
+                    RecordReadTimeout("outbound");
+                    throw;
+                }
+            }
 
             _logger?.LogTrace("Received request of type {RequestType}", typeof(TResponse).Name);
             _logger?.LogDebug("Successfully deserialized the response");
@@ -124,10 +198,40 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error in DialAsync for protocol {ProtocolId}: {ErrorMessage}", Id, ex.Message);
+            LogFailure(ex, "DialAsync", token.IsCancellationRequested || readToken.IsCancellationRequested);
             throw;
         }
     }
+
+    private void RecordReadTimeout(string direction)
+    {
+        try
+        {
+            Libp2pMetrics.RequestResponseReadTimeouts.Add(1, new("protocol", Id), new("direction", direction));
+        }
+        catch (Exception telemetryFailure)
+        {
+            try
+            {
+                _logger?.LogDebug(telemetryFailure,
+                    "Failed to record read timeout for protocol {ProtocolId} ({Direction})", Id, direction);
+            }
+            catch (Exception)
+            {
+                // Neither a telemetry listener nor its diagnostic may replace the original read failure.
+            }
+        }
+    }
+
+    private void LogFailure(Exception failure, string direction, bool cancelled)
+        => _logger?.Log(IsRoutineFailure(failure, cancelled) ? LogLevel.Debug : LogLevel.Warning,
+            failure, "Stream failure in {Direction} for protocol {ProtocolId}", direction, Id);
+
+    private static bool IsRoutineFailure(Exception failure, bool cancelled)
+        => failure is ChannelClosedException or ChannelAbortedException or SessionExistsException ||
+           failure is OperationCanceledException && cancelled ||
+           failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0 &&
+           aggregate.InnerExceptions.All(inner => IsRoutineFailure(inner, cancelled));
 
     public override string ToString() => Id;
 }

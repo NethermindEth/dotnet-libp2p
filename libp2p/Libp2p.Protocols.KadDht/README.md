@@ -27,6 +27,9 @@ services.AddLibp2p(builder => builder.AddKadDht(options =>
     options.Mode = KadDhtMode.Server;
     options.KSize = 20;
     options.Alpha = 10;
+    options.ReadTimeout = TimeSpan.FromSeconds(30);
+    options.MaxInboundStreams = 512;
+    options.MaxInboundStreamsPerPeer = 64;
 }));
 ```
 
@@ -37,6 +40,30 @@ After the local peer is initialized, call `RunKadDhtAsync` to bootstrap the DHT 
 `KadDhtOptions` controls the routing-table size and query concurrency (`KSize` and `Alpha`), operating mode, record and provider retention, storage limits, message limits, maintenance intervals, operation timeout, and disjoint lookup paths. The default mode is `KadDhtMode.Server`.
 
 The default protocol ID is `/ipfs/kad/1.0.0`; `KadDhtOptions.ProtocolId` can select another network's protocol ID. A single protobuf `Message` envelope carries PING, FIND_NODE, GET_VALUE, PUT_VALUE, GET_PROVIDERS, and ADD_PROVIDER.
+
+Each request or response read has a configurable `ReadTimeout` (default 30 seconds),
+covering its complete length prefix and protobuf body. It is independent of
+`OperationTimeout`, starts after request transmission for outbound exchanges, and ends
+after deserialization. Handler execution and writes have no new deadline; outbound
+ADD_PROVIDER starts no response timer. Timeouts must be positive and finite, no larger
+than `TimeSpan.FromMilliseconds(uint.MaxValue - 1)`. An optional DI `TimeProvider`
+controls read deadlines.
+
+Each Kademlia registration admits at most `MaxInboundStreams` (512) concurrent inbound
+exchanges in total and `MaxInboundStreamsPerPeer` (64) per authenticated remote identity.
+Both limits must be positive. Local peers created from the same registration share its
+allowance, including across sessions for the same remote identity. Refused streams are
+reset before handler dispatch; completed, cancelled, or failed streams release their
+allowance. An admitted exchange consumes its allowance through handler execution and
+response writing. These local policies apply through `AddKadDht`, services plus
+`WithKadDht`, and `AddKadDhtProtocols`; they do not change wire framing or client-mode
+admission. Custom builders must support the limit-bearing `AddProtocol` overload;
+unsupported builders throw `NotSupportedException`.
+
+Read deadline failures remain at Debug and increment
+`libp2p.request_response.read_timeouts` on the `dotnet-libp2p` meter, tagged with the
+protocol ID and `inbound` or `outbound` direction. Admission refusals retain their
+separate `libp2p.streams.inbound.refused` counter.
 
 FIND_NODE sends raw target-key bytes; the receiver hashes those bytes with SHA-256 once for distance calculations. The sender and local routing table use the same rule. Relayed multiaddresses retain the destination peer ID after `/p2p-circuit` rather than treating the relay as the destination.
 
@@ -147,7 +174,16 @@ refusing inbound DHT negotiation and omitting DHT from Identify. The additive
 `ProtocolRef.AcceptInbound` flag controls listener negotiation separately from
 `IsExposed`; other protocol registrations keep their previous defaults. Custom builders can implement the additive
 `IPeerServiceBuilder` and `IProtocolFactoryBuilder` capabilities. Existing builder
-interfaces have no new mandatory members. Handler-only custom builders remain supported.
+interfaces have no new mandatory members. Handler-only custom builders remain supported
+when they enforce the inbound stream allowance.
+
+Kademlia registrations now always attach an
+`InboundStreamLimit`, including with default options. A custom builder implementing
+only the two-argument `AddProtocol(instance, isExposed)` now throws
+`NotSupportedException` when registering Kademlia. Implement the three-argument
+overload and enforce its allowance, or provide `IProtocolFactoryBuilder` support that
+honors `ProtocolRef.InboundLimit`. Zero limits are invalid; there is no configuration
+switch to silently restore unlimited inbound streams.
 
 Retrieve a client's peer-bound service with
 `((IPeerServices)peer).GetPeerService<DhtClient>()`. The existing singleton-peer DI

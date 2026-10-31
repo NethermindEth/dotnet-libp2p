@@ -71,6 +71,10 @@ public static class Libp2pMetrics
     public static readonly UpDownCounter<long> InboundStreamsActive =
         Meter.CreateUpDownCounter<long>("libp2p.streams.inbound.active", description: "Inbound streams holding an admission allowance");
 
+    public static readonly Counter<long> RequestResponseReadTimeouts =
+        Meter.CreateCounter<long>("libp2p.request_response.read_timeouts",
+            description: "Request-response reads failed after their read deadline expired without channel cancellation");
+
     // --- Error metrics ---
     public static readonly Counter<long> Errors =
         Meter.CreateCounter<long>("libp2p.errors", description: "Total errors encountered");
