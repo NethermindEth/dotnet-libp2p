@@ -39,8 +39,8 @@ public class ReceiveBufferTests
             ILogger logger = Substitute.For<ILogger>();
             using ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
             loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
-            ReceiveTestChannel channel = new();
-            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(loggerFactory, pool), channel, token))
+            ReceiveTestChannel channel = new() { ReceivePool = pool };
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(loggerFactory), channel, token))
             {
                 await rentAttempted.Task.WaitAsync(token);
                 await pump.Completion.WaitAsync(TimeSpan.FromSeconds(3), token);
@@ -87,10 +87,11 @@ public class ReceiveBufferTests
             TrackingReceivePool pool = new();
             ReceiveTestChannel channel = new()
             {
+                ReceivePool = pool,
                 Rejection = ending == "rejection" ? IOResult.Ended : null,
                 WriteFailure = ending == "failure" ? new InvalidOperationException("Injected write failure") : null,
             };
-            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, false, new QuicProtocol(null, pool), channel, token))
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, false, new QuicProtocol(), channel, token))
             {
                 TrackingReceivePool.Rental rental = await pool.WaitForRentAsync(token);
                 Assert.That(rental.Capacity, Is.EqualTo(1024));
@@ -116,9 +117,9 @@ public class ReceiveBufferTests
         await WithConnectionsAsync(async (local, remote, token) =>
         {
             TrackingReceivePool pool = new();
-            QuicProtocol protocol = new(null, pool);
-            ReceiveTestChannel firstChannel = new();
-            ReceiveTestChannel secondChannel = new();
+            QuicProtocol protocol = new();
+            ReceiveTestChannel firstChannel = new() { ReceivePool = pool };
+            ReceiveTestChannel secondChannel = new() { ReceivePool = pool };
             int[] lengths = [1, 17, 2 * 1024 + 31, 3];
             byte[] firstExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
             byte[] secondExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 29);

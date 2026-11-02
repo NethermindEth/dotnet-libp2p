@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -99,7 +100,7 @@ public class AdmissionAndLifetimeTests
             else remote.Client.Shutdown(SocketShutdown.Send);
             remote.Dispose();
             await connection.Disposed.Task.WaitAsync(lifetime.Token);
-            Assert.That((await connection.Channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(reset ? IOResult.Aborted : IOResult.Ended));
+            Assert.That((await connection.Channel.Upper.ReadAsync(1)).Result, Is.EqualTo(reset ? IOResult.Aborted : IOResult.Ended));
         }
         finally
         {
@@ -223,10 +224,10 @@ public class AdmissionAndLifetimeTests
     {
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(10));
         object scope = new();
-        Listener first = new(scope, new PeerResourceLimits(1, 1));
-        Listener second = new(scope, new PeerResourceLimits(1, 1));
         TrackingReceivePool pool = new();
-        IpTcpProtocol protocol = new(null, pool);
+        Listener first = new(scope, new PeerResourceLimits(1, 1)) { ReceivePool = pool };
+        Listener second = new(scope, new PeerResourceLimits(1, 1)) { ReceivePool = pool };
+        IpTcpProtocol protocol = new();
         Task firstTask = protocol.ListenAsync(first, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
         Task secondTask = protocol.ListenAsync(second, "/ip4/127.0.0.1/tcp/0", lifetime.Token);
         using TcpClient admitted = new();
@@ -306,6 +307,7 @@ public class AdmissionAndLifetimeTests
 
     private sealed class Listener(object scope, PeerResourceLimits limits, Task? teardown = null, bool disposalFails = false) : ITransportContext
     {
+        public ArrayPool<byte> ReceivePool { get; init; } = ArrayPool<byte>.Shared;
         public object ConnectionAdmissionScope => scope;
         public PeerResourceLimits ResourceLimits => limits;
         public ILocalPeer Peer { get; } = Substitute.For<ILocalPeer>();
@@ -315,16 +317,16 @@ public class AdmissionAndLifetimeTests
         public void ListenerReady(Multiaddress address) => Ready.TrySetResult(address.ToEndPoint());
         public INewConnectionContext CreateConnection()
         {
-            Connection connection = new(teardown, disposalFails);
+            Connection connection = new(ReceivePool, teardown, disposalFails);
             Connections.Writer.TryWrite(connection);
             return connection;
         }
     }
 
-    private sealed class Connection(Task? teardown = null, bool disposalFails = false) : INewConnectionContext
+    private sealed class Connection(ArrayPool<byte> receivePool, Task? teardown = null, bool disposalFails = false) : INewConnectionContext
     {
         public Task Completion => teardown ?? Task.CompletedTask;
-        public Channel Channel { get; } = new();
+        public ReceiveTestChannel Channel { get; } = new() { ReceivePool = receivePool };
         private readonly CancellationTokenSource _closed = new();
         public CancellationToken Token => _closed.Token;
         public string Id => "test";

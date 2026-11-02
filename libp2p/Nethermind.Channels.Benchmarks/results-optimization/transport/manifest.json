@@ -1,0 +1,26 @@
+{
+  "baselineRevision": "f10bf73bfbbbb06f41d6cecee5f0432becde87d9",
+  "candidateBaseRevision": "f10bf73bfbbbb06f41d6cecee5f0432becde87d9",
+  "candidateChanges": "Pooled async builders on native/Core channel reads and writes; task conversion for synchronous Stream operations",
+  "harness": "Identical Program.cs copied into the baseline worktree; all other baseline implementation sources unchanged",
+  "samplesPerProcess": 100,
+  "warmupStreams": 5,
+  "processReplicas": 3,
+  "order": "For each replica, stack, and direction: before-after on odd replicas; after-before on even replicas",
+  "tieredCompilation": "0",
+  "serverGC": "0",
+  "sourceSha256": {
+    "before": {
+      "src/channels/Nethermind.Channels/Channel.cs": "AB00CBA310FFE4401773DC54F1C5077EBDD32A57DE1FA8E079FE96009E90B7EC",
+      "libp2p/Libp2p.Core/Channel.cs": "683D988B9ECF14708565DB765032BF593F50F459E926288572CFC9351513EE2F",
+      "libp2p/Libp2p.Core/Stream.cs": "73B01AF2BF23E43BD01B053C210671FB23BDA6A5D0A3874789C0B16801CED7A4",
+      "libp2p/Libp2p.Transport.Benchmarks/Program.cs": "A96740351EB1959B7774F45E3A0AD0DB02220DE04E7F82DB7B7C31A22D28D35B"
+    },
+    "after": {
+      "src/channels/Nethermind.Channels/Channel.cs": "9AAAF563C1D78E58F978B944496D0F53328BF8A815345E5E432B8DB1246868F7",
+      "libp2p/Libp2p.Core/Channel.cs": "F0421374A3DFB0E70551472EA9A05969466A586C328D13DC58EEA2A253210FCC",
+      "libp2p/Libp2p.Core/Stream.cs": "DF58538CE266100813A7788D0599D950F452F1CE3D4746A062857A7703E1AAD3",
+      "libp2p/Libp2p.Transport.Benchmarks/Program.cs": "A96740351EB1959B7774F45E3A0AD0DB02220DE04E7F82DB7B7C31A22D28D35B"
+    }
+  }
+}

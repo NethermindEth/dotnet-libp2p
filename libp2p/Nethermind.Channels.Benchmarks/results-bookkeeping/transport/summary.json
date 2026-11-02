@@ -1,0 +1,110 @@
+[
+  {
+    "stack": "tcp-noise-yamux",
+    "direction": "upload",
+    "unit": "MiB/s",
+    "beforeMedian": 393.95088417351565,
+    "afterMedian": 408.51759178879644,
+    "changePercent": 3.697594852678354,
+    "beforeProcessMedians": [
+      377.0845706420808,
+      393.95088417351565,
+      414.6065901717508
+    ],
+    "afterProcessMedians": [
+      399.07414797669406,
+      408.51759178879644,
+      415.3837366882493
+    ]
+  },
+  {
+    "stack": "tcp-noise-yamux",
+    "direction": "download",
+    "unit": "MiB/s",
+    "beforeMedian": 390.8864816796392,
+    "afterMedian": 413.21673734394614,
+    "changePercent": 5.712721393780074,
+    "beforeProcessMedians": [
+      386.1991725682728,
+      390.8864816796392,
+      401.32034393153475
+    ],
+    "afterProcessMedians": [
+      404.35081476689174,
+      413.21673734394614,
+      416.7708593815121
+    ]
+  },
+  {
+    "stack": "tcp-tls-yamux",
+    "direction": "upload",
+    "unit": "MiB/s",
+    "beforeMedian": 12.331849452165295,
+    "afterMedian": 12.883300327928307,
+    "changePercent": 4.471761335573099,
+    "beforeProcessMedians": [
+      12.327478859529457,
+      12.331849452165295,
+      12.486596419156312
+    ],
+    "afterProcessMedians": [
+      12.816910118533988,
+      12.883300327928307,
+      12.933264355923436
+    ]
+  },
+  {
+    "stack": "tcp-tls-yamux",
+    "direction": "download",
+    "unit": "MiB/s",
+    "beforeMedian": 12.3920535956318,
+    "afterMedian": 12.692092842024536,
+    "changePercent": 2.42122295612488,
+    "beforeProcessMedians": [
+      12.326346811320455,
+      12.3920535956318,
+      12.559962043794703
+    ],
+    "afterProcessMedians": [
+      12.680008571685795,
+      12.692092842024536,
+      12.739411359573866
+    ]
+  },
+  {
+    "stack": "quic-v1",
+    "direction": "upload",
+    "unit": "MiB/s",
+    "beforeMedian": 23.06374126172503,
+    "afterMedian": 35.111773943376996,
+    "changePercent": 52.237980581433405,
+    "beforeProcessMedians": [
+      22.90479136741318,
+      23.06374126172503,
+      26.108731771617787
+    ],
+    "afterProcessMedians": [
+      33.832918668623904,
+      35.111773943376996,
+      37.60112352157083
+    ]
+  },
+  {
+    "stack": "quic-v1",
+    "direction": "download",
+    "unit": "MiB/s",
+    "beforeMedian": 24.72019061738985,
+    "afterMedian": 33.12751484423236,
+    "changePercent": 34.009949020895604,
+    "beforeProcessMedians": [
+      22.87516848991291,
+      24.72019061738985,
+      26.538292101673505
+    ],
+    "afterProcessMedians": [
+      33.059750126143605,
+      33.12751484423236,
+      34.018306100970584
+    ]
+  }
+]

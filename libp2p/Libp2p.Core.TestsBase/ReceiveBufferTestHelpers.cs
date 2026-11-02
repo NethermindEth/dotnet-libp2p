@@ -65,6 +65,20 @@ public sealed class ReceiveTestChannel : IChannel
     public IOResult? Rejection { get; init; }
     public Exception? WriteFailure { get; init; }
 
+    public ArrayPool<byte> ReceivePool { get; init; } = ArrayPool<byte>.Shared;
+
+    public async ValueTask<IOResult> WriteFromAsync(
+        Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
+        int bufferSize, CancellationToken token = default)
+    {
+        return (IOResult)await Channels.WriterExtensions.WriteFromAsync(
+            WriteReceivedAsync, readAsync, bufferSize, ReceivePool, token);
+
+        async ValueTask<Channels.IOResult> WriteReceivedAsync(
+            Channels.PooledBuffer buffer, int length, int offset, CancellationToken cancellation)
+            => (Channels.IOResult)await ((IWriter)this).WriteAsync(buffer, length, offset, cancellation);
+    }
+
     public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
     {
         foreach (ReadOnlyMemory<byte> memory in bytes) _published.Add(memory);

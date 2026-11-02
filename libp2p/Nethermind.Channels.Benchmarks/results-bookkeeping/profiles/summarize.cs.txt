@@ -1,0 +1,51 @@
+using System.Globalization;
+using System.Text.Json;
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Etlx;
+using Microsoft.Diagnostics.Tracing.Parsers.Clr;
+
+double minimumMilliseconds = args.Length > 1 ? double.Parse(args[1], CultureInfo.InvariantCulture) : 1500;
+using TraceLog log = new(TraceLog.CreateFromEventPipeDataFile(args[0]));
+Dictionary<string, AllocationSummary> types = [];
+long total = 0;
+long ticks = 0;
+foreach (TraceEvent item in log.Events)
+{
+    if (item is not GCAllocationTickTraceData allocation || item.TimeStampRelativeMSec < minimumMilliseconds) continue;
+    long weight = allocation.AllocationAmount64 > 0 ? allocation.AllocationAmount64 : allocation.AllocationAmount;
+    string type = allocation.TypeName;
+    if (!types.TryGetValue(type, out AllocationSummary? summary)) types[type] = summary = new();
+    summary.WeightedBytes += weight;
+    summary.Ticks++;
+    List<string> frames = [];
+    for (TraceCallStack? stack = item.CallStack(); stack is not null && frames.Count < 20; stack = stack.Caller)
+        frames.Add(stack.CodeAddress.FullMethodName);
+    string callStack = string.Join("\n", frames);
+    summary.Stacks.TryGetValue(callStack, out long stackWeight);
+    summary.Stacks[callStack] = stackWeight + weight;
+    total += weight;
+    ticks++;
+}
+Console.WriteLine(JsonSerializer.Serialize(new
+{
+    Trace = Path.GetFileName(args[0]),
+    MinimumMilliseconds = minimumMilliseconds,
+    SampleTicks = ticks,
+    WeightedBytes = total,
+    Types = types.OrderByDescending(pair => pair.Value.WeightedBytes).Select(pair => new
+    {
+        Type = pair.Key,
+        pair.Value.Ticks,
+        pair.Value.WeightedBytes,
+        Percentage = 100.0 * pair.Value.WeightedBytes / total,
+        Stacks = pair.Value.Stacks.OrderByDescending(stack => stack.Value).Take(4)
+            .Select(stack => new { WeightedBytes = stack.Value, Frames = stack.Key.Split('\n') })
+    })
+}, new JsonSerializerOptions { WriteIndented = true }));
+
+sealed class AllocationSummary
+{
+    public long Ticks;
+    public long WeightedBytes;
+    public Dictionary<string, long> Stacks { get; } = [];
+}

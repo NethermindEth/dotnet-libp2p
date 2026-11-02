@@ -1,0 +1,2146 @@
+{
+  "baselineRevision": "70988269b54c3da4eec47a11a6fd3c78ab46c4fc",
+  "candidateRevision": "70988269b54c3da4eec47a11a6fd3c78ab46c4fc-dirty",
+  "payloadBytes": 8388608,
+  "samples": 15,
+  "replicas": 3,
+  "runnerSha256": "3AFD59E2CAB8EDB010EA342E23D95A326C9C0730C071FF4C4CC379CDB6153A11",
+  "sources": {
+    "after": [
+      {
+        "path": "Directory.Build.props",
+        "sha256": "2AEB8208FDD199560B8D32A393A9F97A24CC4660941D6E3E57F4382C63B4214C"
+      },
+      {
+        "path": "global.json",
+        "sha256": "6E01E7EC8212B6C05FA2CE399F6208B07634F199BBAC2AAF761D7200505675F2"
+      },
+      {
+        "path": "libp2p/Directory.Build.props",
+        "sha256": "421D5CBCF3832EF2228A655D15E8564323887E23A30A5943C13B0869DA9E6746"
+      },
+      {
+        "path": "libp2p/Directory.Packages.props",
+        "sha256": "D4A79B5D19B506F1076F7A9D51E5FF091E4FD87096C4F7BAEC0C7F8EF0E7F41C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ArraySegment.cs",
+        "sha256": "ADB4015BB9474C946D502ABE0AA642C311FF0A8FC39717B505069840A28AAF31"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Channel.cs",
+        "sha256": "F0421374A3DFB0E70551472EA9A05969466A586C328D13DC58EEA2A253210FCC"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/ConnectionContext.cs",
+        "sha256": "E2512FAAFE0B2D829EF2A6566E5D8114479E4F3F3DF2E783B0BB5374B98D5CE9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/ContextBase.cs",
+        "sha256": "D260DF6C334B4623398B14E2785AD53BB256CE38AD0202E167C55BF36987AF09"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/NewConnectionContext.cs",
+        "sha256": "2829F2A71D7B1FBB4D0444A9C56C62FED2A027894B1764114BBA867F61C25BC9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/NewSessionContext.cs",
+        "sha256": "3866768AB4334B9EA318E8385F308DF70233560845822CD91857E04C685ABA51"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/SessionContext.cs",
+        "sha256": "EC04AA3C8B11D45C03AA8B85CE2A188BCC22D40C9208DAC4B0CA695A303016D9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/IContentRouter.cs",
+        "sha256": "2822D3751914680C391D56199ED83429C3C6B4CC17085B2D64B137A1FEBA7611"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/IDiscoveryProtocol.cs",
+        "sha256": "508B7893D6416BEF3107CE911C9F9667ACCE07ADF9CE49B73C250C081D43472A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/PeerStore.cs",
+        "sha256": "A2FEE85F2EC2471F39CB6426D3BE7739ACA4A408DCE3A9C53E747D16D8A2D5E7"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/DnsClientLookup.cs",
+        "sha256": "F4049BABFB7626A45D825AF65900C2736DEAB75B3CB7F86538C699D43B9B06D3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/KeyPair.cs",
+        "sha256": "E865A1D2120C77BC08926A2EA7843C49021CD5E2CEB5BE03EDC2512D90AB00C9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/KeyPair.proto",
+        "sha256": "D02DA220CD20D00989526C8BB6627D96396E3775F5CE6BEE303E1A482FE9BCE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PeerRecord.cs",
+        "sha256": "A030C7CE0C8154B70EE440502416AC26E5431935EB5400CAB50E8CF3F182EF95"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PeerRecord.proto",
+        "sha256": "55E565F246917EC1779A478B6CCAE7E0D8FF9D83E6A9F40B94D9AAF67CD4E269"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PublicKeyDecoder.cs",
+        "sha256": "C60F0476A59A6578FA22CD5B6C5BFCBD7944343AFE75029EB542AC7E4FCF2F9D"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SignedEnvelope.cs",
+        "sha256": "2AF0DBCCE84E1BAD2D79C24FC8CC3ED08E90CFF8F4B9B895EF4D655D40348F75"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SignedEnvelope.proto",
+        "sha256": "50E6A58DD44E7D96855F80850646B86B02E8E88D4D05C65458FA784DA94E9516"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SigningHelper.cs",
+        "sha256": "4B063FE29E60CDB2B9B01BBC614F575FAA26B453BA4799EC94D0CFE98673025C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Cid.cs",
+        "sha256": "D098511A8F2762E0EF83190F7B64DED317848BF552097D9AEE682B214B6C5C80"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Encryption.cs",
+        "sha256": "070961315F08E265CB68706A523AF3FDF27C1294853F6FE962DA5C8F57F3CB85"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Filecoin.cs",
+        "sha256": "014D88FD1058574618AA891CA8409BF4C14AC989FDE66B6AE75D068DD5721CBB"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Hash.cs",
+        "sha256": "4D8B85DECB05E1F0D18853E5B18B3D8CB5DF9EDC5052DBB341343E33AFE5EA23"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Holochain.cs",
+        "sha256": "5A1086FA83C9841EA1CC30AA386C1117074B29282ABB86C377EE3790CC58021A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Ipld.cs",
+        "sha256": "0056F45195A5096D9F57992F87984A016C3D1B77ECAF994600E3DFF0A9C87DEA"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Key.cs",
+        "sha256": "BCAD007F2CCD70B0111F9838E3884D1F76FB391585EECB41FEBA52DFCE5482AD"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Libp2p.cs",
+        "sha256": "337D8A885FF3834372A15DF6A156AD0F9820E2D7107FE35BBD1446BF04191E92"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multiaddr.cs",
+        "sha256": "431E5A4A528749CC78618514B54ED45675294A40E01589159E9D5B056C828B98"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multiformat.cs",
+        "sha256": "F95B7DA09F0A61BF9398CB24A2B66AE84DE69C677A537B97672A099E075EFAF0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multihash.cs",
+        "sha256": "77E4D10638EE6864C3E326A082A201E20F75DC0C8F79E2F587FF27A285129790"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Namespace.cs",
+        "sha256": "0B006A631B060F6AE80F1D783B7ED95456E3D517AFF2D0C35D68E9130F0730D5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Serialization.cs",
+        "sha256": "C10A49E134319015DE8C31A50B2E41127464983DD061F7BEBE17053C93CA1A70"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Softhash.cs",
+        "sha256": "9C5B698386CA601A5B9B38CE81EAE1F3D598AA0EB014E39F7D5BEADA4ABBC803"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Transport.cs",
+        "sha256": "1BC36732F63094399BD7939B3545FECEAC9C370F243E41539CD8D91784541958"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Varsig.cs",
+        "sha256": "9F780F45B2F26D1A973ECB4B990ED925D8134E27B6A8607E9D3FEBAE814A4232"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Zeroxcert.cs",
+        "sha256": "65F77F2A01E91077E76F9E84109E5630CC59B6DB1EA77FD2B4FFBD1A2CE44A85"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Exceptions/Libp2pException.cs",
+        "sha256": "6D62C7E07217C20A47B73EAB509CE7F54C31247E29D94B7B50B8E30BFDC0A52F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/EnumerableExtensions.cs",
+        "sha256": "4D53E045E33D5EF1EA215C7B4B5C9E0CC728AF49D617023C73FBBD47696596FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/ExceptionExtensions.cs",
+        "sha256": "AE148A72AB6D2D6F25F1EF7CE0E4B9465EF7EC7D9B21697E5B6653CD223EDF66"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/IChannelExtensions.cs",
+        "sha256": "9906FDD131A71561A5D33AA084D954CBA3EECF2758C390F2AE338E30086AF939"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IChannel.cs",
+        "sha256": "1418C3171E82C181D8927C3D74EC9C6A887E8FA0B11119ED299DC03C1B238FC9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IChannelFactory.cs",
+        "sha256": "B08BBD19378D4EDD537C6B35CA7B6A48836E7BD2F182FE4BC72755523D492D3A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Identity.cs",
+        "sha256": "72B986CEACD253DAD6FBCC3C14D44D18753659F0F20C1CE805C61B1626172BE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IDnsLookup.cs",
+        "sha256": "CA9110AEC766A9F00E5BDC47ADFB81743F797ED784FF55F439CC2051DECCAA5B"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILibp2pBuilderContext.cs",
+        "sha256": "8781C0F921C95DBE123EEF78D2432EAD12159485E1A52CE015BDB5B7F214CECC"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILibp2pPeerFactoryBuilder.cs",
+        "sha256": "5F25DEEB6E5A133DDB9B264E2FC83EA3A7E410F2E8E2AA85BC45462BDD1EB9A8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILocalPeer.cs",
+        "sha256": "CA298D96A5CB3D05D1660930BAC7222B00716959B0CE37CE6CCACDD36819027F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/InboundStreamLimit.cs",
+        "sha256": "C526DA88EE89D065DDC6AB8903945DA3CBC359654622192E987997948554507D"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IOResult.cs",
+        "sha256": "3BB9726D21E425254A62CE7574CB1ED9AC1D5AC5A4A8FA25331EA5380A4BCE45"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerContext.cs",
+        "sha256": "99069BEACD4DDA6E423FBEE60BD54DB7ADB3FEC2068551217EA6E1BD389178B0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerFactory.cs",
+        "sha256": "B406899AB3F02E66460B2BC71AFAC5F04012F0E80E2AC5CC4A6DA52A18F082FE"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerFactoryBuilder.cs",
+        "sha256": "A1DAF68A0D0EBE2B7A022264E46E9CEC8D1C5131D5CB92A2D631BAF8639A9B74"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IProtocol.cs",
+        "sha256": "0C27DCF72646D8E86FE43C09F830538AFA64D5A7B7C10E8192E6C7BCCADC568F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IReader.cs",
+        "sha256": "6695A00C3B2AFF295792EA017F474833DEE9854A84199DC71018ED797C5558B0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ISession.cs",
+        "sha256": "9F2478263EC39B8EDDEC8E8379C0D1E4021975F4ADBB114091034B117E018AD3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IsExternalInit.cs",
+        "sha256": "A39DF0CC38530F916273FC9C48AD30E25BB718FF48387CEF62645F75F5D589BF"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IWriter.cs",
+        "sha256": "AB20F336E038EAE9EAFD818E68555FA83051CF7BD9C66657B1FEC141230C97C9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Libp2p.Core.csproj",
+        "sha256": "DA1285A423B1D8623381084192FA16078087A32472B4793FC3DEFBFE4854C82B"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/LocalPeer.Session.cs",
+        "sha256": "BBE71A43061D1BE9E6CAFE8BAD3B6C6577D2B886844FE4DFFF006C085A1254D7"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/LogMessages.cs",
+        "sha256": "D89906F2B08B9C8911DF605387FECDE1F1F1901DF4FD826AFA74E674B79C6791"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MessageId.cs",
+        "sha256": "BA56C51CD895E63720A76957DD2B404BBB1F978650B7CB8BBA09AB7AC881A37E"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Metrics/Libp2pMetrics.cs",
+        "sha256": "0D5A195FFDB403A52C4BAC8EEF4D2EC92B5639991B004880B20B80D589122675"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiaddressExtensions.cs",
+        "sha256": "DCEA516F4C1AE5C4B003709946511708FD7AA0F54332EDB7567F9424D5E81683"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiaddrResolver.cs",
+        "sha256": "F518229E0CAF6B541E6F20C44BAE7E99BFB8121192D7FA4B75554C050BB8B7B4"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiplexerSettings.cs",
+        "sha256": "EBAC0B1A783B034C8ACC5F26C577D65B28A2BDE5F75D6C0ACCBA2B00C3447A10"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Peer.cs",
+        "sha256": "B76A75357B5E0403CD9D21BDFE69D10F5D756ADFB5705DA6929E912947816631"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerFactory.cs",
+        "sha256": "656202E83E1A4E926468CC90AB58769245C49BE1AFB1CC5CF332A1D5A4614F8F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerFactoryBuilderBase.cs",
+        "sha256": "FCE8F135E14C5790C1247C33E9ECA2270E3CCCED4F92202D2B4030817BAF03A5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerId.cs",
+        "sha256": "3B20B6F22861B81C1276F83F74B31986D24B530CBFB17F61A645DACFC39F7902"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ProtocolResult.cs",
+        "sha256": "11D786E0C6041836A186D61E6F096980205F066D777277FF43CC53BE8BC54F3F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ProtocolStackSettings.cs",
+        "sha256": "6562A8148484C0159F59060AFBE2B88FAFAF561453BBBFEBB317E5C68110E92C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadBlockingMode.cs",
+        "sha256": "904A8A357968D130FD3E9A4A47B2219D3F058C3359695A5E1BECD9DA7360EAB4"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadOnlySequenceExtensions.cs",
+        "sha256": "60A6C69E8E0F99CC4EE6E8AF7BEB13C1128164B06E70F75EB954D35AD9DC1394"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadResult.cs",
+        "sha256": "ED6F4AB3C85A70BA49568A32A0AA4652FD8D2882BF24637BF660BF8A506D7C2C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Stream.cs",
+        "sha256": "DF58538CE266100813A7788D0599D950F452F1CE3D4746A062857A7703E1AAD3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/SymetricProtocol.cs",
+        "sha256": "2D27647F517E6ABB42B3AA69DB542740EB21192A55DB5EF4ECD6ACD0EF011479"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/TransportContext.cs",
+        "sha256": "DCF2C6C21290060D6D646E47F544F7DE28F1B74254B19A25DE892DB4EFDAB1F6"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/UnwarpResultExtensions.cs",
+        "sha256": "06A3D7F8CDB0B265931044069C2264C64D480895E20E4CA31A7E516FE41D5553"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Utils/IpHelper.cs",
+        "sha256": "82495D772ADE568594AD4B7E564516F4019087D9357A4641DA31A96FB36167F5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/VarInt.cs",
+        "sha256": "DA24B28F7EE55F235E80E715C89BB87CE985955ECFCF4669679B4F1EC6003CF7"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/EnumsGenerator.cs",
+        "sha256": "6D4DAAB31BB55F05F490023E15C5934FD9C862005014011436CFFF6A56147150"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/IsExternalInit.cs",
+        "sha256": "A39DF0CC38530F916273FC9C48AD30E25BB718FF48387CEF62645F75F5D589BF"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/Libp2p.Generators.Enums.csproj",
+        "sha256": "3CAFDAD69CAD83EF7FFE288946BD4E421B77AFDFBEB450D6F63CA94E3D0D0DAC"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj",
+        "sha256": "0642BDF1C85C7EB4D0B9F69201CEB9ADC01DDEFAB27928A32ED91ACA1E5DEEAD"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/Properties/launchSettings.json",
+        "sha256": "1462BC5157F705A1EE34DEDC040DE6318DD2D406AC5CC5C95EF50C1E4FA045FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/ProtobufGenerator.cs",
+        "sha256": "FCAFBA22053215B5E0AA393B9191C69CB6CE66CA49D1550117D105D652473789"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/ProtocLocationAttribute.cs",
+        "sha256": "19B4A9E262A787009F2120C21783BCEAED0476611C9666F0162B9E5A84852E32"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsDomain.cs",
+        "sha256": "33F997D3123D655CB4A0161F754ACB6842D27C612B196C27B979D1508A34AA8E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsException.cs",
+        "sha256": "54414DA2F15F4BF62F84D3E35505F6AF05185D96C805BA34B5B4C13FDD449576"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsOptions.cs",
+        "sha256": "71074AA13DF89BD57CEE3F3F224B24A3DB43973B8C872B20EAE818B393DDF92A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsServiceCollectionExtensions.cs",
+        "sha256": "4DEA0E519C52ACAAFAEC3824302A221500E668DB12AE79D30AA8BFE5758A1C1A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/AcmeFlow.cs",
+        "sha256": "63BC75B07B57E8961276DB28EBFF54511161EF07F8435EB6B4D8FC7C16CC22CD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/AutoTlsCertificateManager.cs",
+        "sha256": "309FAC46BC1AA6F39ACC5AB78ADF92C68CC39449EE6FA9ED9721B2835436BE2E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/FileCertificateStore.cs",
+        "sha256": "ABA24AA0AF72B555671A5B0DD7F749ABB14B376D92A06FC2A347AF1976F7DF95"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/P2pForgeClient.cs",
+        "sha256": "E2D87A73E83E13FB9BEB9430FCDF84DB2716C35B1197F67B116611B1EC06A652"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/PeerIdAuth.cs",
+        "sha256": "05FF3E87C9F19F1950F7C65EFBFDBAA470D8DAF8B1F126B2E1CD01E67A404A17"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/PeerIdEncoding.cs",
+        "sha256": "078FC7FAE924A324067FD72437104F4A4AACAFA52796A7040AA8AB02294CE224"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/ITlsCertificateProvider.cs",
+        "sha256": "13415F953D1C87E3D04F4BC60DCCAD9B33D20F6877AE9120E0B1D3131E3C4519"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Libp2p.Protocols.AutoTls.csproj",
+        "sha256": "4D7943358A3931082705418E00A3F56417F879BBEC0D74FF9136782F05D8C922"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Properties/AssemblyInfo.cs",
+        "sha256": "84DD77BCB2DDFEA2DAA256A5713FC75B052FFD6E8F3F0382AB2D8620C459FE38"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Dto/Identify.cs",
+        "sha256": "67CC7EC37C0FB50F0544CF9814A495102A304F81A09294CF54859962DD5D0AA5"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Dto/Identify.proto",
+        "sha256": "4B577A11CB4D2F0293B400E7C5D8A94A01EF4C3EB5D9B62D8D41E2A869861375"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyNotifier.cs",
+        "sha256": "9E7A0F64D43713E7B55FDA285DF450D2DC89E2F553809857492CF3629BC5060E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocol.cs",
+        "sha256": "4D39F4AB9D20DF659C7E151D4CD2EE950181B83125D42795078145C7F79B0923"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocolBase.cs",
+        "sha256": "F9B0508F6A240F77ED06949A99990F01EAD708D69AFA40478BF03EE90C175562"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocolSettings.cs",
+        "sha256": "442BB9F6E7C5D28006C2016D4BB989ACCCB2BA38803E5B753764A3D72BDF098D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyPushProtocol.cs",
+        "sha256": "B662738E2CF6BE9A3362EA274A965EB031F9CE4DD971BC665A9646AE75537800"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyResult.cs",
+        "sha256": "86414EABC9281584BFE7279CC0C400B287746C9650421C2920DA678011AC8A82"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IPAddressExtensions.cs",
+        "sha256": "B103E5131BD9DA2F7A59B50AE6C3B47FCE63DC68E6D5F4BDC338867E64011E0E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj",
+        "sha256": "9DDCEDF8837895BA91F70E04AE8E9928C9CA4F21F5C293105EF2F62F1649F7E1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.IpTcp/IpTcpProtocol.cs",
+        "sha256": "AC4C99ED124CD0D61DE090B94588CD5ABD6B4C452A9C5DBB71FED96AFE8D35C8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj",
+        "sha256": "A11B33D0E69F84AD6923B7AEBA3D95ED137580FA2017566DE222ECD3DA7703CA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/DhtClient.cs",
+        "sha256": "0F7B46E1F8B8E425FF15A881521DD4F73F2DB3AE961DD8835317B62F6A7546B1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/IpnsEntry.cs",
+        "sha256": "C929146B7ADB994BB8C669D6868432D4F5C3AB4B65D03A7C318FDC429BCF9B14"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/IpnsEntry.proto",
+        "sha256": "BF199A03DC0B8B8A46E5C638112499A31E040A25BEFF9BF92C4AA1D90C655A72"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/Kademlia.cs",
+        "sha256": "A46B27BEC0C61E0360CFA9E1A1FBB4FB09BEB16342FA0501D347ED31244AF15A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/Kademlia.proto",
+        "sha256": "C8F8C2E9302F869CC51363288F3C671B0222569DB666FF42FD93DD61D424ED9A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/MessageHelper.cs",
+        "sha256": "CDF762202C2B6334C7203209DCED278C65264FB4F0806EEE53668279D6A71D2F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtKeyOperator.cs",
+        "sha256": "AA01B2AC4A5A376EF08E2075D5106914E1871BDEBCE4EAB492D7CE72F75AD5DB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtNode.cs",
+        "sha256": "2E884975B841A69C333F4AF6DF2EFE3A743B3C3AF7BBC7250E547A385E87ECF3"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtNodeHashProvider.cs",
+        "sha256": "9E66C7E142292A562FF939AE0B96F11629357AC579B47C8D78B455130FE3771D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/IDhtMessageSender.cs",
+        "sha256": "1F3443879000670B1E7D9B633FA776FACA52DE0B653ACCE8475F7047CCBF04FE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/KadDhtIntegrationExtensions.cs",
+        "sha256": "B5621FB7205DE80698B9949D712F8A0745AA7EA50716CD4399D455E2BB06FE30"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/LibP2pKademliaMessageSender.cs",
+        "sha256": "1B24EA43B839A9F2ECF7B24C5862B1852D313CFBE323B75B28561D47F62D47BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/TypeAdapters.cs",
+        "sha256": "6CD387CC3E3CE5386455C655632920AC850F1A24AFAB3772CC478813D6FB72DC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/KadDhtOptions.cs",
+        "sha256": "3BBF9EC6181048CDC5FEDDFA472FB567CE129DF2053285B0A1E32DBCAA4D5063"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/KadDhtProtocol.cs",
+        "sha256": "0B5BA75E7B55E3D54D1C17F27490DD6D6B9FE6064CA3787BF16349EBF5FFA193"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/DisjointPathLookup.cs",
+        "sha256": "9EA4C1E9EC979046F40CBF764A7984C208EB71D1738DD8D95733406331201AF2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/PublicKey.cs",
+        "sha256": "B6999B96A57AA8BDE147A82A89F9175D3662A77B33B31D639F9F45ECFEB653DD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/PublicKeyKeyOperator.cs",
+        "sha256": "BA04D5B547F66FB43EBF3EB26C0439431AE6B95F01A30BF8B7FD2E32BE4B298F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/TestNode.cs",
+        "sha256": "CEEBFE63FEB681BE057C97EF8AC5E557E37E390C65B1338BAD810CF9786E312C"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/ValueHash256.cs",
+        "sha256": "5A628DCA6628C6144D7BB5BB132292867D8C969E2152BC0FB94855D81186AA73"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/ValueHash256Distance.cs",
+        "sha256": "8190C1C84B8FD0E3042B50F0A8C605992D4756E5ABC695C5423546894E89E507"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj",
+        "sha256": "79D46E13DB355859E7755E52F79F0AFEF0E75F0219BE8C1EC5E085B107A3625D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Network/LibP2pKademliaMessageSender.cs",
+        "sha256": "408159CAB236E583F0979EF5E4A3DA6810D4FE62E8E4DB36F9E95D2AB005860F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/ServiceCollectionExtensions.cs",
+        "sha256": "0E50CEDDDE50D77F5D05C4D5F81B8F29020577584C1A48CB948B7F45A83FD3E8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/IKademliaNodeAdapter.cs",
+        "sha256": "12535760DFDF7ADA5362CDC1534889BED165E1456807142A1A7713B92AA0C15E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/ISessionManager.cs",
+        "sha256": "AAA1C9EB062A7492201B9C2B95F99A78C5D7C494823AF65AEFE8AF38693C0113"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/KademliaSessionManager.cs",
+        "sha256": "CE334E17A50C0CABA3EA3DCF44B49BAED535B96FA817B6CAA581C46E4EBEA009"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/SessionOptions.cs",
+        "sha256": "EC9E35056254EB28F7B0289456831F28205D709067862174663389678F4AD037"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/SharedDhtState.cs",
+        "sha256": "CA4010B04889657FBA030F1ACBBC3EA379DE198A26811D14E4B0801318635EF4"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/CompositeRecordValidator.cs",
+        "sha256": "F6680B5C71A95406CBDAEF5075E2C6FF7532CB059E42F242455BD7F58898A1D9"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/DhtValueStore.cs",
+        "sha256": "4F79C4CF03E261EE9515A7BA5A788D6DBA3A53F8AD54C4EB5AB55FE76AD885BC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/InMemoryProviderStore.cs",
+        "sha256": "BAA7010B5BEBBCBA4BBF817582B8DA9916BC00CFC78F9FD165965E16E8A52B2B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/InMemoryValueStore.cs",
+        "sha256": "479619F2BCD612A3E08CAE8722FCE2E2A88679EE6C03A6CE08F195CD2E57FEC1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IpnsRecordHelper.cs",
+        "sha256": "5A355D30CFE154CB507A68C111DE1F1972E667B131AC5A0AE0EC84998516467D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IpnsRecordValidator.cs",
+        "sha256": "028DAFFC722FF4B089F06ECA7141472ED4418E6D47AED79506825614FDFB04B1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IProviderStore.cs",
+        "sha256": "DC61ECF9A21FCBADFBC557507E3F35A46BD9AB9EF33D5B5E354D751C510B898D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IRecordValidator.cs",
+        "sha256": "32A2113B8B21804036D0B59CBD624AF0B78C5ABE45DF772BD74F878B28667876"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IValueStore.cs",
+        "sha256": "6C95E16891CEDD443C653A1800D93E33B27986259A4E3E7A7D1A563949D8C644"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/PublicKeyRecordValidator.cs",
+        "sha256": "2B943B8D5B21DC391C2DCD93942AEFF6BD2DCCD4B1E15B3216CA4D568C807C4B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/IKademliaMessageSender.cs",
+        "sha256": "5E6A092D40EB1E7B9B73ADC104E1EE604B4849778BB90C9EB055C233392F8138"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/KadDhtProtocolExtensions.cs",
+        "sha256": "18D46BFEC8596F6DDD833C8D83CC2C065FCFC356DC30ECB681380F9C36F512F1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/KademliaMessageSender.cs",
+        "sha256": "02F05011AFD9B93C6B986181CD7E0FC4864463A37AFC4F971E60F21FF3A06315"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/LivenessProbe.cs",
+        "sha256": "3280F1B0FA8224932D6A778FCA56423009D76975A86B3629FC6985DE457CB524"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/MessageSenderAdapter.cs",
+        "sha256": "25440DE28EBA5461710DAD20F1B3C3D742B59CBED1BFEA1CE0712E964FC04CCD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/TestNodeAddressBook.cs",
+        "sha256": "9B786BE53830C6D3C0544EE670CA609BE608B0564F85F248FFB4DBD4D82E3C3E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj",
+        "sha256": "9DEC798A253EB87CB17A0EC2B963D8C1C52A46A315B36BD3EDCCACE1722C69F0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.MDns/MDnsDiscoveryProtocol.cs",
+        "sha256": "CD9446846B60FECFAEB69FF80D1CBDBDA032277A3801073FFE4AD5886830B2EE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj",
+        "sha256": "67D4D4B805A931F06F0F489A5630280932C8FADA2820724023415F6A5307E8CB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Multistream/MultistreamProtocol.cs",
+        "sha256": "CF5E73F6AF035673A106EE809CE6015CEC9CC0DCDC6DE035C1FDF1862B6F4AC6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Dto/Exchange.cs",
+        "sha256": "F8A2D9376E70DD554C8B6DF6AA6A77A1B2253C2C5E917270D8133D308030D83F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Dto/Exchange.proto",
+        "sha256": "84221D3C7ECE0CB39D27DD52E7E009C6599A2A9760EA2086E5381161C0B0E974"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj",
+        "sha256": "4026572281648135674DAC7EBB4031EFB5BBD8CF0875DC450142C796353AE286"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/NoiseProtocol.cs",
+        "sha256": "3BD98F3F9E42B1C54F251334E12CEC3CB767E100B797DF84EB85D14EE77E0485"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj",
+        "sha256": "C5C7331209BF0C79987A312C5E9FAA6670893ACB3CDB3D0D179C8D7FFBA8D9D6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/LogMessages.cs",
+        "sha256": "AEDF84B391A2CD67887B4D0D87CDDFE876A5B56B15E9C3152C87D754B0DF7597"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/PingProtocol.cs",
+        "sha256": "0E2BF6E6E9026E054CFE814826A75B90651292BE6338362F8D80F148C602F12A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Dto/Exchange.cs",
+        "sha256": "C9C6089FB121A3AA9DB38F3F16BCC0B77694EE0DB2905DF1575843C748E41836"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Dto/Exchange.proto",
+        "sha256": "025920F6923DCF7A2B605CA308971625CAEBB5B2385F0D439262C66DD54ABC64"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Libp2p.Protocols.Plaintext.csproj",
+        "sha256": "69AFE23837D12125B57DE72506F2E58D5F733498C36DC577590E5E55698761B6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/PlainTextProtocol.cs",
+        "sha256": "B55343A69B9A55A878505B4D7AAC137C037D1255691CA992196754749778D7FF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/Rpc.cs",
+        "sha256": "F9681BDBB4FC3434F84EC18F3124B06716AA843FA3D0C79C1D900C9EE71F80A5"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/Rpc.proto",
+        "sha256": "EFA837BCE883FD28E1BC8F4E628A7BF3D523DEBA004A153CB9D6549B5209D566"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/TopicDescriptor.cs",
+        "sha256": "85DAB014E52038E278271D49D9636DC113AA7C2E76F0A1248D08768331FBF545"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/TopicDescriptor.proto",
+        "sha256": "EEAF7489D9925E3F5E4F0F88C45F0A07C89A9BE2C82CBAF57509CBEECF0956AA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IPartialMessagesTopic.cs",
+        "sha256": "EEAB9F5A10E4595E49C327CC9C093E5778CD54FAA39C48D03CA38FEF43EA16CF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IRoutingStateContainer.cs",
+        "sha256": "88F0041E15401A5D76EBBEDD87946C942981EC54DE8CEA6F35C54C6AF522CE47"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/ITopic.cs",
+        "sha256": "F5FCEAC01B35976A96BCD4E38D992E9B619557AFFDB9C30418E8087672C25B49"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IwantPromiseTracker.cs",
+        "sha256": "DEF7D7D659450F0E8047D71C55C21647743251DDD858FA861E4F420D6AA4D8BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Libp2p.Protocols.Pubsub.csproj",
+        "sha256": "F884D0870914613FF95FF306B4319CFECB6F9C781EBD0BEFFFC7BC824567DF84"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/MessageCache.cs",
+        "sha256": "2F906524EBC867F5730F2B0FFAFA84B266FC38B1CF790C39649F3EE2BFE80EDD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/MessageValidity.cs",
+        "sha256": "17B9C2B2F946A6834E435EE19D34D402EEF0DAAFA4DDAE99C57BB020856B70F6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PartialMessage.cs",
+        "sha256": "653CDB6526DA5D83E16F2A18403E1B3A86E767FEBDADD9706D1940EE2FF27BBD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PartialMessageGossipCache.cs",
+        "sha256": "CF1C5F46E48DAF86878C560818CFC5EDA298C29402B49C558DF1C98B217623FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PeerControlState.cs",
+        "sha256": "A79C3B627DDA714FED994A962E2314D7D0695EF5905B4A52C94F20B52D4225F8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PeerScore.cs",
+        "sha256": "50B888440475DDDA94005544081D14B37B96140426E81264FCF4843B9CB3A6F1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubProtocol.cs",
+        "sha256": "786CBC60FEA256F2D0E901EED51130A15EE47E0F044F46F8554CF3B9D1906A06"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.cs",
+        "sha256": "BBE5E0E96297808DAA0EC8F4CD64E37710922AAB88C3FF4DF59986DB174FE3AD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Rpc.cs",
+        "sha256": "3B3FAED430C9BFC244066C2104725ECEAE76FF5FE84B9B199F8F9EB9F9C17E4E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Scoring.cs",
+        "sha256": "B6BF55727CA3ECB8F0486508929F134FF1B71B6C601A749BEC708E747F8FFDFC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Topics.cs",
+        "sha256": "D8EFC4E1BC888EEF91A3871BD0B59D9133713D3182A508CCC31C767613728F03"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubSubSettings.cs",
+        "sha256": "F844E775000B50DF0EE979D11500BBD6139D052D1974919706E17C6E5292CB90"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/RpcExtensions.cs",
+        "sha256": "D626983A70DF9D313B62FC84447917B0BA2E57FABE365BD345C346E85F7D12BB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Topic.cs",
+        "sha256": "ABA99EA8F44504BCEF4274C005E5DD5778B26EFF64AF00197A6457188A0C5E71"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/TtlCache.cs",
+        "sha256": "62886B07EDA6CF13BB9782D93E85C3CC503407388C32600CE1189D25E0527A0D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Usings.cs",
+        "sha256": "A875AD928075B911AE70C7E584AFC0984015257234D1CA03F828D6F562C20F60"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Dto/Peer.cs",
+        "sha256": "6850AC9EC12EF15F7168DC6343D97E5FA0D8945A10C480CC77AE62939D2D66E0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Dto/Peer.proto",
+        "sha256": "9318A5ABB292CD37F77A75E6AC0A650254F6619B8BD65DC21B9252EE20764752"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Libp2p.Protocols.PubsubPeerDiscovery.csproj",
+        "sha256": "9955BA9B856E4AD1A9805981B2955391DD3E4ABE93C1AEED7D808E5A660AF558"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/PubsubPeerDiscoveryProtocol.cs",
+        "sha256": "5919DF5437A28C84F6939F101842AEF3A364A78820AB8968700B4D97AC118566"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/PubsubPeerDiscoverySettings.cs",
+        "sha256": "621414E657679269216839E969C5E892DCB5256A18F67DC8B7168B474B2D495D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Usings.cs",
+        "sha256": "D8F7F90AE017B43109F1B541AE1B158FD24416FE3D27680E264201ED07BE9847"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/CertificateHelper.cs",
+        "sha256": "A09DDD5418E23B26F71B34A4BB44B310CBBAEC0211F89EF10F94D0739D737926"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/Libp2p.Protocols.Quic.csproj",
+        "sha256": "7678B4C80E0C8A30B431773A06125DD4605199DFEE71F9B5C2E7CC66E9DED81A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/LogMessages.cs",
+        "sha256": "DCE425F7460B7CCA4A93C09FA59785C6F9237A4A8E8CEDAD8D79A86EA7EFF1BC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/QuicProtocol.cs",
+        "sha256": "8B4E73161BED56B3CA6E5CE35203B6694B1D25E58F9D0592871936C3C6E1A24D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Dto/CircuitRelay.cs",
+        "sha256": "C02176B0AA4B0D70D153A4DBB40DCD639D0BA1D82059DACA2ED97A2C54495FB9"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Dto/CircuitRelay.proto",
+        "sha256": "27B1E04644C646D3E2EF4A9CD85DA33E2A53526792372E2CF470B7805D4CBF97"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/IRelayReservationStore.cs",
+        "sha256": "67B1ECB8744C57A785529881293082177F34C4280F31FDB9677FDB2455C547F7"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Libp2p.Protocols.Relay.csproj",
+        "sha256": "918EBFD9C1D7E838E7A34A5D87D75747CC1DCB9EEADC30F8D856E05566D074AA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayHopProtocol.cs",
+        "sha256": "DF12E5F0679D0BC787058395DBE29AB1F31DBF9D716109B7C7D77B88BC3A214D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayReservationStore.cs",
+        "sha256": "2333774AB9016AF76482F398E32902A089B26B2CE241DD3BE95E05DC4F7EC8F3"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayStopProtocol.cs",
+        "sha256": "6A324D9B154ECFE683AB944F113BCD1ADC1FBD02C51721A5C0BB1B3AEA2191D2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/Extension.cs",
+        "sha256": "F4E4F85C9D49BEA48325F68AFDFC88CCBE6CD07783CC81E85750589218AE8900"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/Libp2p.Protocols.RequestResponse.csproj",
+        "sha256": "B6DAD19AA0B87AAA02B013AB7CECA25697B22E1620E94CDACB765992214F9EC0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/RequestResponseProtocol.cs",
+        "sha256": "09D696790BA93265300F65297270C14382468E6F21A6C0C5002DC733687C6DC1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj",
+        "sha256": "49BD1B1CB84655ED28CAAB244F1A5ED94EDD0BADED256A61D5752EB678C6EB46"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs",
+        "sha256": "AE4D8B46786FFBCC9B722D50E3B14095ECFFC24FF924D7B35C15DA293DA6AA6E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/DtlsFingerprint.cs",
+        "sha256": "C9DA3E8C5732E8F76F75EB0DEAECB9B73D8E1D73A90E70D059B738C48DBEF31B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Extensions/ServiceCollectionExtensions.cs",
+        "sha256": "CA51451BA7446DD5A0EBC596617819499484809EA458CB56B07A65DB346C197F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/CertificateHelper.cs",
+        "sha256": "1ABD1C287F66D1B0275E702626437DE3806D967E4119A5D0B37ECB99CF7F5434"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/DataChannelOverIChannel.cs",
+        "sha256": "12C72AAB9AF36AFC268906B851FD5CEDCB3CCF91317A876AA4E2C65E6AA50848"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/NoiseEncryptedChannel.cs",
+        "sha256": "1900D47D68C50CA58D53830079AD5E4D1E56BCE544D43AE16016664999B1D572"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectMultiaddr.cs",
+        "sha256": "412C4AAD24EEE55DF9F8B3E8FD5F39090D9FD7AB56F059E96A7B55DD8FD4CDBC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectNoiseHandshake.cs",
+        "sha256": "CB80C6CD3033B94967BAEF9FB0A1F1B19BEAFB00BE7972AE4AD7D4F3D24C0CCE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectRateLimiter.cs",
+        "sha256": "9E7D552CAD2445D21085592D25E3357F2C45458E62D83E8F0647085AFCBAB0BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectSdp.cs",
+        "sha256": "04D11F97B01AEC5B7F0501B361713B5B73416C25601825540A00C350166AFDF0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectSignaling.cs",
+        "sha256": "17A56997B5EA353077A6DE73B7FB242E6E93844237A8A1667B05B6F3556B5A94"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcNoisePrologue.cs",
+        "sha256": "82CED6A50588EC5ED7A7CF82A0E0241619A114460E9F6C5A217C9352D1CA8191"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Libp2p.Protocols.WebRtc.csproj",
+        "sha256": "65BA7F415AAF468CA9F3F045EA28F0E2BBF1000FF67691636250D0FF84F43EE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/WebRtcDirectProtocol.cs",
+        "sha256": "D37022B072C3F8A318F3890C4918FAF8D1D3AD084700EF2EFB51D24C91445BAF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebSockets/Libp2p.Protocols.WebSockets.csproj",
+        "sha256": "861F0137ADCE46F20365331830658110B264692C143D4A48E16D0EF533E86357"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebSockets/WebSocketProtocol.cs",
+        "sha256": "7184F6C9200CB94E35FB583DFC726E3F792E28C4A73613073FC1FE382B253EEE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/ChannelState.cs",
+        "sha256": "C34318464ED8A4ABA976E487FA26FDEB49EA3079B22D8380148ECE7455ED5558"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/Globals.cs",
+        "sha256": "93151EC6A1D621B3CA12350675E785C5E77288897154CD8B26B2A48F3668DCC2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj",
+        "sha256": "3AABE5BA2B361B5F38A0ABD2EF67529ED2071ABD4A9E0D82FF3F9383DCF51017"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/LocalDataWindow.cs",
+        "sha256": "DBF6E8C6F62C21B7751C0DCFD1CE364F71CADEF0D13749FFCDA411BD6B721BEC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/RemoteDataWindow.cs",
+        "sha256": "7C0D7BD4FC83CA56C2C782D3F4F5178023BB6C17210AF59A0DDBFCECD82B3946"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/SessionTerminationCode.cs",
+        "sha256": "4DD9938455DB3C7D2A121DECD730CCB9A9A6E707AD98EA36BE9FB1510520EC4D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeader.cs",
+        "sha256": "354A5839F82F4CC8F9015A37F898690BCDFF37342AC2DB16D865C47836E4D79A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeaderFlags.cs",
+        "sha256": "FFCF85E01336FD685B5781AE0068C36E8367F8B4A4CE74EF5D89C00E04EB68F8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeaderType.cs",
+        "sha256": "6D16F07A840C932AE3BB0B5AB7EB98C516C6B998E7962BEB7A6441773E736030"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxProtocol.cs",
+        "sha256": "90BECEAF982FF5553674ED876281410A9E322E86375A709FA7A3599C23D2685A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxWindowSettings.cs",
+        "sha256": "4B8FC9CA602E7532807DA48E687FC7C794BE78360CB832B5A55EEA7441D1FC7F"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/BenchmarkPeerFactoryBuilder.cs",
+        "sha256": "C478E274A69A2417B5A05D84CF5D919A06069BE6EAA9A72476B55A40892FDC62"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/BenchmarkProtocol.cs",
+        "sha256": "92954D6078EE279D80F236926B23D2F9D6766069DCC5A2E54F731BC8CE78D0F4"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj",
+        "sha256": "5951F64708AE3DAD356DF4E356CCC1612A3139A1268230F0829F759780AF97DE"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/Program.cs",
+        "sha256": "FE52D384F8DBFAE3694D97BAF2912356356DF83E92293E1750F91B299016B051"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2p.csproj",
+        "sha256": "ABB5DAE6D5B4659765888BB0CDD04C31C9D970D7E82523EA9E124BD77209D521"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2pPeerFactory.cs",
+        "sha256": "906D0FADFF08F6BC11A467DF044083297DC75597D7F9F203A2CAE0DF41DF2D04"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2pPeerFactoryBuilder.cs",
+        "sha256": "E57517B4BE33130F5EECFC725DF91A6963495A141E8B892F8EE40DEF2A1E6603"
+      },
+      {
+        "path": "libp2p/Libp2p/LogMessages.cs",
+        "sha256": "CEC2E0ECD4DD51A2A55D89A5951F716ECA089D2CE540F801DADDE61FE1766A56"
+      },
+      {
+        "path": "libp2p/Libp2p/ServiceProviderExtensions.cs",
+        "sha256": "CC167DAAFA37C2CAFF34C038829768FC6EB1372F57E7756C5F24D956C79F7331"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/AsyncSemaphore.cs",
+        "sha256": "2280C9B8B30FBEB16A5D3677B7DEE6BCA1F77F782E8F288A9FB51F051322F91D"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Buffer.cs",
+        "sha256": "2D713BB5E6887AE0E3F0B4915267130C6D5A222E58AB065E1FD7270E9D552868"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Channel.cs",
+        "sha256": "53C39F6943B91D8E0DE91BA4E5D1074537C2E541D8B3286A219E0E66668BD9CA"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Exceptions.cs",
+        "sha256": "B31C0109FAFB6716CED93263748538855B5A083B3A96BF972D26BDB718014F62"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/IChannel.cs",
+        "sha256": "AE5EC1996A57505191A5939F11625D3AAD4ABF3CF937B1C793297B062103CE45"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Nethermind.Channels.csproj",
+        "sha256": "EAA63AB46676E07CC3DC094FCFB7ABCAB16D3DDD4C02F3C411D8125FA8CCF09D"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/ReadResult.cs",
+        "sha256": "5B7F55ABA11C66054909A72622A61874F42D093CC71E671D0DFB3515E7D71427"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/UnwrapResultExtensions.cs",
+        "sha256": "24C84EE342ADDEE2FF11A85B08D20687E39DC44A601F8CF18BA86A8AE5DC3A2E"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/WriterExtensions.cs",
+        "sha256": "24886DBB16765FA10E2C72319FCE62B7B2C8197817B3BC10021C558C021987FD"
+      }
+    ],
+    "before": [
+      {
+        "path": "Directory.Build.props",
+        "sha256": "2AEB8208FDD199560B8D32A393A9F97A24CC4660941D6E3E57F4382C63B4214C"
+      },
+      {
+        "path": "global.json",
+        "sha256": "6E01E7EC8212B6C05FA2CE399F6208B07634F199BBAC2AAF761D7200505675F2"
+      },
+      {
+        "path": "libp2p/Directory.Build.props",
+        "sha256": "421D5CBCF3832EF2228A655D15E8564323887E23A30A5943C13B0869DA9E6746"
+      },
+      {
+        "path": "libp2p/Directory.Packages.props",
+        "sha256": "D4A79B5D19B506F1076F7A9D51E5FF091E4FD87096C4F7BAEC0C7F8EF0E7F41C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ArraySegment.cs",
+        "sha256": "ADB4015BB9474C946D502ABE0AA642C311FF0A8FC39717B505069840A28AAF31"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Channel.cs",
+        "sha256": "F0421374A3DFB0E70551472EA9A05969466A586C328D13DC58EEA2A253210FCC"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/ConnectionContext.cs",
+        "sha256": "E2512FAAFE0B2D829EF2A6566E5D8114479E4F3F3DF2E783B0BB5374B98D5CE9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/ContextBase.cs",
+        "sha256": "D260DF6C334B4623398B14E2785AD53BB256CE38AD0202E167C55BF36987AF09"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/NewConnectionContext.cs",
+        "sha256": "2829F2A71D7B1FBB4D0444A9C56C62FED2A027894B1764114BBA867F61C25BC9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/NewSessionContext.cs",
+        "sha256": "3866768AB4334B9EA318E8385F308DF70233560845822CD91857E04C685ABA51"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Context/SessionContext.cs",
+        "sha256": "EC04AA3C8B11D45C03AA8B85CE2A188BCC22D40C9208DAC4B0CA695A303016D9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/IContentRouter.cs",
+        "sha256": "2822D3751914680C391D56199ED83429C3C6B4CC17085B2D64B137A1FEBA7611"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/IDiscoveryProtocol.cs",
+        "sha256": "508B7893D6416BEF3107CE911C9F9667ACCE07ADF9CE49B73C250C081D43472A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Discovery/PeerStore.cs",
+        "sha256": "A2FEE85F2EC2471F39CB6426D3BE7739ACA4A408DCE3A9C53E747D16D8A2D5E7"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/DnsClientLookup.cs",
+        "sha256": "F4049BABFB7626A45D825AF65900C2736DEAB75B3CB7F86538C699D43B9B06D3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/KeyPair.cs",
+        "sha256": "E865A1D2120C77BC08926A2EA7843C49021CD5E2CEB5BE03EDC2512D90AB00C9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/KeyPair.proto",
+        "sha256": "D02DA220CD20D00989526C8BB6627D96396E3775F5CE6BEE303E1A482FE9BCE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PeerRecord.cs",
+        "sha256": "A030C7CE0C8154B70EE440502416AC26E5431935EB5400CAB50E8CF3F182EF95"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PeerRecord.proto",
+        "sha256": "55E565F246917EC1779A478B6CCAE7E0D8FF9D83E6A9F40B94D9AAF67CD4E269"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/PublicKeyDecoder.cs",
+        "sha256": "C60F0476A59A6578FA22CD5B6C5BFCBD7944343AFE75029EB542AC7E4FCF2F9D"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SignedEnvelope.cs",
+        "sha256": "2AF0DBCCE84E1BAD2D79C24FC8CC3ED08E90CFF8F4B9B895EF4D655D40348F75"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SignedEnvelope.proto",
+        "sha256": "50E6A58DD44E7D96855F80850646B86B02E8E88D4D05C65458FA784DA94E9516"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Dto/SigningHelper.cs",
+        "sha256": "4B063FE29E60CDB2B9B01BBC614F575FAA26B453BA4799EC94D0CFE98673025C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Cid.cs",
+        "sha256": "D098511A8F2762E0EF83190F7B64DED317848BF552097D9AEE682B214B6C5C80"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Encryption.cs",
+        "sha256": "070961315F08E265CB68706A523AF3FDF27C1294853F6FE962DA5C8F57F3CB85"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Filecoin.cs",
+        "sha256": "014D88FD1058574618AA891CA8409BF4C14AC989FDE66B6AE75D068DD5721CBB"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Hash.cs",
+        "sha256": "4D8B85DECB05E1F0D18853E5B18B3D8CB5DF9EDC5052DBB341343E33AFE5EA23"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Holochain.cs",
+        "sha256": "5A1086FA83C9841EA1CC30AA386C1117074B29282ABB86C377EE3790CC58021A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Ipld.cs",
+        "sha256": "0056F45195A5096D9F57992F87984A016C3D1B77ECAF994600E3DFF0A9C87DEA"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Key.cs",
+        "sha256": "BCAD007F2CCD70B0111F9838E3884D1F76FB391585EECB41FEBA52DFCE5482AD"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Libp2p.cs",
+        "sha256": "337D8A885FF3834372A15DF6A156AD0F9820E2D7107FE35BBD1446BF04191E92"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multiaddr.cs",
+        "sha256": "431E5A4A528749CC78618514B54ED45675294A40E01589159E9D5B056C828B98"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multiformat.cs",
+        "sha256": "F95B7DA09F0A61BF9398CB24A2B66AE84DE69C677A537B97672A099E075EFAF0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Multihash.cs",
+        "sha256": "77E4D10638EE6864C3E326A082A201E20F75DC0C8F79E2F587FF27A285129790"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Namespace.cs",
+        "sha256": "0B006A631B060F6AE80F1D783B7ED95456E3D517AFF2D0C35D68E9130F0730D5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Serialization.cs",
+        "sha256": "C10A49E134319015DE8C31A50B2E41127464983DD061F7BEBE17053C93CA1A70"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Softhash.cs",
+        "sha256": "9C5B698386CA601A5B9B38CE81EAE1F3D598AA0EB014E39F7D5BEADA4ABBC803"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Transport.cs",
+        "sha256": "1BC36732F63094399BD7939B3545FECEAC9C370F243E41539CD8D91784541958"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Varsig.cs",
+        "sha256": "9F780F45B2F26D1A973ECB4B990ED925D8134E27B6A8607E9D3FEBAE814A4232"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Enums/Zeroxcert.cs",
+        "sha256": "65F77F2A01E91077E76F9E84109E5630CC59B6DB1EA77FD2B4FFBD1A2CE44A85"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Exceptions/Libp2pException.cs",
+        "sha256": "6D62C7E07217C20A47B73EAB509CE7F54C31247E29D94B7B50B8E30BFDC0A52F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/EnumerableExtensions.cs",
+        "sha256": "4D53E045E33D5EF1EA215C7B4B5C9E0CC728AF49D617023C73FBBD47696596FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/ExceptionExtensions.cs",
+        "sha256": "AE148A72AB6D2D6F25F1EF7CE0E4B9465EF7EC7D9B21697E5B6653CD223EDF66"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Extensions/IChannelExtensions.cs",
+        "sha256": "9906FDD131A71561A5D33AA084D954CBA3EECF2758C390F2AE338E30086AF939"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IChannel.cs",
+        "sha256": "1418C3171E82C181D8927C3D74EC9C6A887E8FA0B11119ED299DC03C1B238FC9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IChannelFactory.cs",
+        "sha256": "B08BBD19378D4EDD537C6B35CA7B6A48836E7BD2F182FE4BC72755523D492D3A"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Identity.cs",
+        "sha256": "72B986CEACD253DAD6FBCC3C14D44D18753659F0F20C1CE805C61B1626172BE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IDnsLookup.cs",
+        "sha256": "CA9110AEC766A9F00E5BDC47ADFB81743F797ED784FF55F439CC2051DECCAA5B"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILibp2pBuilderContext.cs",
+        "sha256": "8781C0F921C95DBE123EEF78D2432EAD12159485E1A52CE015BDB5B7F214CECC"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILibp2pPeerFactoryBuilder.cs",
+        "sha256": "5F25DEEB6E5A133DDB9B264E2FC83EA3A7E410F2E8E2AA85BC45462BDD1EB9A8"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ILocalPeer.cs",
+        "sha256": "CA298D96A5CB3D05D1660930BAC7222B00716959B0CE37CE6CCACDD36819027F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/InboundStreamLimit.cs",
+        "sha256": "C526DA88EE89D065DDC6AB8903945DA3CBC359654622192E987997948554507D"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IOResult.cs",
+        "sha256": "3BB9726D21E425254A62CE7574CB1ED9AC1D5AC5A4A8FA25331EA5380A4BCE45"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerContext.cs",
+        "sha256": "99069BEACD4DDA6E423FBEE60BD54DB7ADB3FEC2068551217EA6E1BD389178B0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerFactory.cs",
+        "sha256": "B406899AB3F02E66460B2BC71AFAC5F04012F0E80E2AC5CC4A6DA52A18F082FE"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IPeerFactoryBuilder.cs",
+        "sha256": "A1DAF68A0D0EBE2B7A022264E46E9CEC8D1C5131D5CB92A2D631BAF8639A9B74"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IProtocol.cs",
+        "sha256": "0C27DCF72646D8E86FE43C09F830538AFA64D5A7B7C10E8192E6C7BCCADC568F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IReader.cs",
+        "sha256": "6695A00C3B2AFF295792EA017F474833DEE9854A84199DC71018ED797C5558B0"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ISession.cs",
+        "sha256": "9F2478263EC39B8EDDEC8E8379C0D1E4021975F4ADBB114091034B117E018AD3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IsExternalInit.cs",
+        "sha256": "A39DF0CC38530F916273FC9C48AD30E25BB718FF48387CEF62645F75F5D589BF"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/IWriter.cs",
+        "sha256": "AB20F336E038EAE9EAFD818E68555FA83051CF7BD9C66657B1FEC141230C97C9"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Libp2p.Core.csproj",
+        "sha256": "DA1285A423B1D8623381084192FA16078087A32472B4793FC3DEFBFE4854C82B"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/LocalPeer.Session.cs",
+        "sha256": "BBE71A43061D1BE9E6CAFE8BAD3B6C6577D2B886844FE4DFFF006C085A1254D7"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/LogMessages.cs",
+        "sha256": "D89906F2B08B9C8911DF605387FECDE1F1F1901DF4FD826AFA74E674B79C6791"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MessageId.cs",
+        "sha256": "BA56C51CD895E63720A76957DD2B404BBB1F978650B7CB8BBA09AB7AC881A37E"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Metrics/Libp2pMetrics.cs",
+        "sha256": "0D5A195FFDB403A52C4BAC8EEF4D2EC92B5639991B004880B20B80D589122675"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiaddressExtensions.cs",
+        "sha256": "DCEA516F4C1AE5C4B003709946511708FD7AA0F54332EDB7567F9424D5E81683"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiaddrResolver.cs",
+        "sha256": "F518229E0CAF6B541E6F20C44BAE7E99BFB8121192D7FA4B75554C050BB8B7B4"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/MultiplexerSettings.cs",
+        "sha256": "EBAC0B1A783B034C8ACC5F26C577D65B28A2BDE5F75D6C0ACCBA2B00C3447A10"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Peer.cs",
+        "sha256": "B76A75357B5E0403CD9D21BDFE69D10F5D756ADFB5705DA6929E912947816631"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerFactory.cs",
+        "sha256": "656202E83E1A4E926468CC90AB58769245C49BE1AFB1CC5CF332A1D5A4614F8F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerFactoryBuilderBase.cs",
+        "sha256": "FCE8F135E14C5790C1247C33E9ECA2270E3CCCED4F92202D2B4030817BAF03A5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/PeerId.cs",
+        "sha256": "3B20B6F22861B81C1276F83F74B31986D24B530CBFB17F61A645DACFC39F7902"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ProtocolResult.cs",
+        "sha256": "11D786E0C6041836A186D61E6F096980205F066D777277FF43CC53BE8BC54F3F"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ProtocolStackSettings.cs",
+        "sha256": "6562A8148484C0159F59060AFBE2B88FAFAF561453BBBFEBB317E5C68110E92C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadBlockingMode.cs",
+        "sha256": "904A8A357968D130FD3E9A4A47B2219D3F058C3359695A5E1BECD9DA7360EAB4"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadOnlySequenceExtensions.cs",
+        "sha256": "60A6C69E8E0F99CC4EE6E8AF7BEB13C1128164B06E70F75EB954D35AD9DC1394"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/ReadResult.cs",
+        "sha256": "ED6F4AB3C85A70BA49568A32A0AA4652FD8D2882BF24637BF660BF8A506D7C2C"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Stream.cs",
+        "sha256": "DF58538CE266100813A7788D0599D950F452F1CE3D4746A062857A7703E1AAD3"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/SymetricProtocol.cs",
+        "sha256": "2D27647F517E6ABB42B3AA69DB542740EB21192A55DB5EF4ECD6ACD0EF011479"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/TransportContext.cs",
+        "sha256": "DCF2C6C21290060D6D646E47F544F7DE28F1B74254B19A25DE892DB4EFDAB1F6"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/UnwarpResultExtensions.cs",
+        "sha256": "06A3D7F8CDB0B265931044069C2264C64D480895E20E4CA31A7E516FE41D5553"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/Utils/IpHelper.cs",
+        "sha256": "82495D772ADE568594AD4B7E564516F4019087D9357A4641DA31A96FB36167F5"
+      },
+      {
+        "path": "libp2p/Libp2p.Core/VarInt.cs",
+        "sha256": "DA24B28F7EE55F235E80E715C89BB87CE985955ECFCF4669679B4F1EC6003CF7"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/EnumsGenerator.cs",
+        "sha256": "6D4DAAB31BB55F05F490023E15C5934FD9C862005014011436CFFF6A56147150"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/IsExternalInit.cs",
+        "sha256": "A39DF0CC38530F916273FC9C48AD30E25BB718FF48387CEF62645F75F5D589BF"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Enums/Libp2p.Generators.Enums.csproj",
+        "sha256": "3CAFDAD69CAD83EF7FFE288946BD4E421B77AFDFBEB450D6F63CA94E3D0D0DAC"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj",
+        "sha256": "0642BDF1C85C7EB4D0B9F69201CEB9ADC01DDEFAB27928A32ED91ACA1E5DEEAD"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/Properties/launchSettings.json",
+        "sha256": "1462BC5157F705A1EE34DEDC040DE6318DD2D406AC5CC5C95EF50C1E4FA045FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/ProtobufGenerator.cs",
+        "sha256": "FCAFBA22053215B5E0AA393B9191C69CB6CE66CA49D1550117D105D652473789"
+      },
+      {
+        "path": "libp2p/Libp2p.Generators.Protobuf/ProtocLocationAttribute.cs",
+        "sha256": "19B4A9E262A787009F2120C21783BCEAED0476611C9666F0162B9E5A84852E32"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsDomain.cs",
+        "sha256": "33F997D3123D655CB4A0161F754ACB6842D27C612B196C27B979D1508A34AA8E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsException.cs",
+        "sha256": "54414DA2F15F4BF62F84D3E35505F6AF05185D96C805BA34B5B4C13FDD449576"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsOptions.cs",
+        "sha256": "71074AA13DF89BD57CEE3F3F224B24A3DB43973B8C872B20EAE818B393DDF92A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/AutoTlsServiceCollectionExtensions.cs",
+        "sha256": "4DEA0E519C52ACAAFAEC3824302A221500E668DB12AE79D30AA8BFE5758A1C1A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/AcmeFlow.cs",
+        "sha256": "63BC75B07B57E8961276DB28EBFF54511161EF07F8435EB6B4D8FC7C16CC22CD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/AutoTlsCertificateManager.cs",
+        "sha256": "309FAC46BC1AA6F39ACC5AB78ADF92C68CC39449EE6FA9ED9721B2835436BE2E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/FileCertificateStore.cs",
+        "sha256": "ABA24AA0AF72B555671A5B0DD7F749ABB14B376D92A06FC2A347AF1976F7DF95"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/P2pForgeClient.cs",
+        "sha256": "E2D87A73E83E13FB9BEB9430FCDF84DB2716C35B1197F67B116611B1EC06A652"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/PeerIdAuth.cs",
+        "sha256": "05FF3E87C9F19F1950F7C65EFBFDBAA470D8DAF8B1F126B2E1CD01E67A404A17"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Internal/PeerIdEncoding.cs",
+        "sha256": "078FC7FAE924A324067FD72437104F4A4AACAFA52796A7040AA8AB02294CE224"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/ITlsCertificateProvider.cs",
+        "sha256": "13415F953D1C87E3D04F4BC60DCCAD9B33D20F6877AE9120E0B1D3131E3C4519"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Libp2p.Protocols.AutoTls.csproj",
+        "sha256": "4D7943358A3931082705418E00A3F56417F879BBEC0D74FF9136782F05D8C922"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.AutoTls/Properties/AssemblyInfo.cs",
+        "sha256": "84DD77BCB2DDFEA2DAA256A5713FC75B052FFD6E8F3F0382AB2D8620C459FE38"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Dto/Identify.cs",
+        "sha256": "67CC7EC37C0FB50F0544CF9814A495102A304F81A09294CF54859962DD5D0AA5"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Dto/Identify.proto",
+        "sha256": "4B577A11CB4D2F0293B400E7C5D8A94A01EF4C3EB5D9B62D8D41E2A869861375"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyNotifier.cs",
+        "sha256": "9E7A0F64D43713E7B55FDA285DF450D2DC89E2F553809857492CF3629BC5060E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocol.cs",
+        "sha256": "4D39F4AB9D20DF659C7E151D4CD2EE950181B83125D42795078145C7F79B0923"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocolBase.cs",
+        "sha256": "F9B0508F6A240F77ED06949A99990F01EAD708D69AFA40478BF03EE90C175562"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyProtocolSettings.cs",
+        "sha256": "442BB9F6E7C5D28006C2016D4BB989ACCCB2BA38803E5B753764A3D72BDF098D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyPushProtocol.cs",
+        "sha256": "B662738E2CF6BE9A3362EA274A965EB031F9CE4DD971BC665A9646AE75537800"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IdentifyResult.cs",
+        "sha256": "86414EABC9281584BFE7279CC0C400B287746C9650421C2920DA678011AC8A82"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/IPAddressExtensions.cs",
+        "sha256": "B103E5131BD9DA2F7A59B50AE6C3B47FCE63DC68E6D5F4BDC338867E64011E0E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj",
+        "sha256": "9DDCEDF8837895BA91F70E04AE8E9928C9CA4F21F5C293105EF2F62F1649F7E1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.IpTcp/IpTcpProtocol.cs",
+        "sha256": "AC4C99ED124CD0D61DE090B94588CD5ABD6B4C452A9C5DBB71FED96AFE8D35C8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj",
+        "sha256": "A11B33D0E69F84AD6923B7AEBA3D95ED137580FA2017566DE222ECD3DA7703CA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/DhtClient.cs",
+        "sha256": "0F7B46E1F8B8E425FF15A881521DD4F73F2DB3AE961DD8835317B62F6A7546B1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/IpnsEntry.cs",
+        "sha256": "C929146B7ADB994BB8C669D6868432D4F5C3AB4B65D03A7C318FDC429BCF9B14"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/IpnsEntry.proto",
+        "sha256": "BF199A03DC0B8B8A46E5C638112499A31E040A25BEFF9BF92C4AA1D90C655A72"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/Kademlia.cs",
+        "sha256": "A46B27BEC0C61E0360CFA9E1A1FBB4FB09BEB16342FA0501D347ED31244AF15A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/Kademlia.proto",
+        "sha256": "C8F8C2E9302F869CC51363288F3C671B0222569DB666FF42FD93DD61D424ED9A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Dto/MessageHelper.cs",
+        "sha256": "CDF762202C2B6334C7203209DCED278C65264FB4F0806EEE53668279D6A71D2F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtKeyOperator.cs",
+        "sha256": "AA01B2AC4A5A376EF08E2075D5106914E1871BDEBCE4EAB492D7CE72F75AD5DB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtNode.cs",
+        "sha256": "2E884975B841A69C333F4AF6DF2EFE3A743B3C3AF7BBC7250E547A385E87ECF3"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/DhtNodeHashProvider.cs",
+        "sha256": "9E66C7E142292A562FF939AE0B96F11629357AC579B47C8D78B455130FE3771D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/IDhtMessageSender.cs",
+        "sha256": "1F3443879000670B1E7D9B633FA776FACA52DE0B653ACCE8475F7047CCBF04FE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/KadDhtIntegrationExtensions.cs",
+        "sha256": "B5621FB7205DE80698B9949D712F8A0745AA7EA50716CD4399D455E2BB06FE30"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/LibP2pKademliaMessageSender.cs",
+        "sha256": "1B24EA43B839A9F2ECF7B24C5862B1852D313CFBE323B75B28561D47F62D47BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Integration/TypeAdapters.cs",
+        "sha256": "6CD387CC3E3CE5386455C655632920AC850F1A24AFAB3772CC478813D6FB72DC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/KadDhtOptions.cs",
+        "sha256": "3BBF9EC6181048CDC5FEDDFA472FB567CE129DF2053285B0A1E32DBCAA4D5063"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/KadDhtProtocol.cs",
+        "sha256": "0B5BA75E7B55E3D54D1C17F27490DD6D6B9FE6064CA3787BF16349EBF5FFA193"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/DisjointPathLookup.cs",
+        "sha256": "9EA4C1E9EC979046F40CBF764A7984C208EB71D1738DD8D95733406331201AF2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/PublicKey.cs",
+        "sha256": "B6999B96A57AA8BDE147A82A89F9175D3662A77B33B31D639F9F45ECFEB653DD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/PublicKeyKeyOperator.cs",
+        "sha256": "BA04D5B547F66FB43EBF3EB26C0439431AE6B95F01A30BF8B7FD2E32BE4B298F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/TestNode.cs",
+        "sha256": "CEEBFE63FEB681BE057C97EF8AC5E557E37E390C65B1338BAD810CF9786E312C"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/ValueHash256.cs",
+        "sha256": "5A628DCA6628C6144D7BB5BB132292867D8C969E2152BC0FB94855D81186AA73"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Kademlia/ValueHash256Distance.cs",
+        "sha256": "8190C1C84B8FD0E3042B50F0A8C605992D4756E5ABC695C5423546894E89E507"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj",
+        "sha256": "79D46E13DB355859E7755E52F79F0AFEF0E75F0219BE8C1EC5E085B107A3625D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Network/LibP2pKademliaMessageSender.cs",
+        "sha256": "408159CAB236E583F0979EF5E4A3DA6810D4FE62E8E4DB36F9E95D2AB005860F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/ServiceCollectionExtensions.cs",
+        "sha256": "0E50CEDDDE50D77F5D05C4D5F81B8F29020577584C1A48CB948B7F45A83FD3E8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/IKademliaNodeAdapter.cs",
+        "sha256": "12535760DFDF7ADA5362CDC1534889BED165E1456807142A1A7713B92AA0C15E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/ISessionManager.cs",
+        "sha256": "AAA1C9EB062A7492201B9C2B95F99A78C5D7C494823AF65AEFE8AF38693C0113"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/KademliaSessionManager.cs",
+        "sha256": "CE334E17A50C0CABA3EA3DCF44B49BAED535B96FA817B6CAA581C46E4EBEA009"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Session/SessionOptions.cs",
+        "sha256": "EC9E35056254EB28F7B0289456831F28205D709067862174663389678F4AD037"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/SharedDhtState.cs",
+        "sha256": "CA4010B04889657FBA030F1ACBBC3EA379DE198A26811D14E4B0801318635EF4"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/CompositeRecordValidator.cs",
+        "sha256": "F6680B5C71A95406CBDAEF5075E2C6FF7532CB059E42F242455BD7F58898A1D9"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/DhtValueStore.cs",
+        "sha256": "4F79C4CF03E261EE9515A7BA5A788D6DBA3A53F8AD54C4EB5AB55FE76AD885BC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/InMemoryProviderStore.cs",
+        "sha256": "BAA7010B5BEBBCBA4BBF817582B8DA9916BC00CFC78F9FD165965E16E8A52B2B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/InMemoryValueStore.cs",
+        "sha256": "479619F2BCD612A3E08CAE8722FCE2E2A88679EE6C03A6CE08F195CD2E57FEC1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IpnsRecordHelper.cs",
+        "sha256": "5A355D30CFE154CB507A68C111DE1F1972E667B131AC5A0AE0EC84998516467D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IpnsRecordValidator.cs",
+        "sha256": "028DAFFC722FF4B089F06ECA7141472ED4418E6D47AED79506825614FDFB04B1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IProviderStore.cs",
+        "sha256": "DC61ECF9A21FCBADFBC557507E3F35A46BD9AB9EF33D5B5E354D751C510B898D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IRecordValidator.cs",
+        "sha256": "32A2113B8B21804036D0B59CBD624AF0B78C5ABE45DF772BD74F878B28667876"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/IValueStore.cs",
+        "sha256": "6C95E16891CEDD443C653A1800D93E33B27986259A4E3E7A7D1A563949D8C644"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Storage/PublicKeyRecordValidator.cs",
+        "sha256": "2B943B8D5B21DC391C2DCD93942AEFF6BD2DCCD4B1E15B3216CA4D568C807C4B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/IKademliaMessageSender.cs",
+        "sha256": "5E6A092D40EB1E7B9B73ADC104E1EE604B4849778BB90C9EB055C233392F8138"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/KadDhtProtocolExtensions.cs",
+        "sha256": "18D46BFEC8596F6DDD833C8D83CC2C065FCFC356DC30ECB681380F9C36F512F1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/KademliaMessageSender.cs",
+        "sha256": "02F05011AFD9B93C6B986181CD7E0FC4864463A37AFC4F971E60F21FF3A06315"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/LivenessProbe.cs",
+        "sha256": "3280F1B0FA8224932D6A778FCA56423009D76975A86B3629FC6985DE457CB524"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/MessageSenderAdapter.cs",
+        "sha256": "25440DE28EBA5461710DAD20F1B3C3D742B59CBED1BFEA1CE0712E964FC04CCD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.KadDht/Transport/TestNodeAddressBook.cs",
+        "sha256": "9B786BE53830C6D3C0544EE670CA609BE608B0564F85F248FFB4DBD4D82E3C3E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj",
+        "sha256": "9DEC798A253EB87CB17A0EC2B963D8C1C52A46A315B36BD3EDCCACE1722C69F0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.MDns/MDnsDiscoveryProtocol.cs",
+        "sha256": "CD9446846B60FECFAEB69FF80D1CBDBDA032277A3801073FFE4AD5886830B2EE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj",
+        "sha256": "67D4D4B805A931F06F0F489A5630280932C8FADA2820724023415F6A5307E8CB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Multistream/MultistreamProtocol.cs",
+        "sha256": "CF5E73F6AF035673A106EE809CE6015CEC9CC0DCDC6DE035C1FDF1862B6F4AC6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Dto/Exchange.cs",
+        "sha256": "F8A2D9376E70DD554C8B6DF6AA6A77A1B2253C2C5E917270D8133D308030D83F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Dto/Exchange.proto",
+        "sha256": "84221D3C7ECE0CB39D27DD52E7E009C6599A2A9760EA2086E5381161C0B0E974"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj",
+        "sha256": "4026572281648135674DAC7EBB4031EFB5BBD8CF0875DC450142C796353AE286"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Noise/NoiseProtocol.cs",
+        "sha256": "3BD98F3F9E42B1C54F251334E12CEC3CB767E100B797DF84EB85D14EE77E0485"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj",
+        "sha256": "C5C7331209BF0C79987A312C5E9FAA6670893ACB3CDB3D0D179C8D7FFBA8D9D6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/LogMessages.cs",
+        "sha256": "AEDF84B391A2CD67887B4D0D87CDDFE876A5B56B15E9C3152C87D754B0DF7597"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Ping/PingProtocol.cs",
+        "sha256": "0E2BF6E6E9026E054CFE814826A75B90651292BE6338362F8D80F148C602F12A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Dto/Exchange.cs",
+        "sha256": "C9C6089FB121A3AA9DB38F3F16BCC0B77694EE0DB2905DF1575843C748E41836"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Dto/Exchange.proto",
+        "sha256": "025920F6923DCF7A2B605CA308971625CAEBB5B2385F0D439262C66DD54ABC64"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/Libp2p.Protocols.Plaintext.csproj",
+        "sha256": "69AFE23837D12125B57DE72506F2E58D5F733498C36DC577590E5E55698761B6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Plaintext/PlainTextProtocol.cs",
+        "sha256": "B55343A69B9A55A878505B4D7AAC137C037D1255691CA992196754749778D7FF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/Rpc.cs",
+        "sha256": "F9681BDBB4FC3434F84EC18F3124B06716AA843FA3D0C79C1D900C9EE71F80A5"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/Rpc.proto",
+        "sha256": "EFA837BCE883FD28E1BC8F4E628A7BF3D523DEBA004A153CB9D6549B5209D566"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/TopicDescriptor.cs",
+        "sha256": "85DAB014E52038E278271D49D9636DC113AA7C2E76F0A1248D08768331FBF545"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Dto/TopicDescriptor.proto",
+        "sha256": "EEAF7489D9925E3F5E4F0F88C45F0A07C89A9BE2C82CBAF57509CBEECF0956AA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IPartialMessagesTopic.cs",
+        "sha256": "EEAB9F5A10E4595E49C327CC9C093E5778CD54FAA39C48D03CA38FEF43EA16CF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IRoutingStateContainer.cs",
+        "sha256": "88F0041E15401A5D76EBBEDD87946C942981EC54DE8CEA6F35C54C6AF522CE47"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/ITopic.cs",
+        "sha256": "F5FCEAC01B35976A96BCD4E38D992E9B619557AFFDB9C30418E8087672C25B49"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/IwantPromiseTracker.cs",
+        "sha256": "DEF7D7D659450F0E8047D71C55C21647743251DDD858FA861E4F420D6AA4D8BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Libp2p.Protocols.Pubsub.csproj",
+        "sha256": "F884D0870914613FF95FF306B4319CFECB6F9C781EBD0BEFFFC7BC824567DF84"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/MessageCache.cs",
+        "sha256": "2F906524EBC867F5730F2B0FFAFA84B266FC38B1CF790C39649F3EE2BFE80EDD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/MessageValidity.cs",
+        "sha256": "17B9C2B2F946A6834E435EE19D34D402EEF0DAAFA4DDAE99C57BB020856B70F6"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PartialMessage.cs",
+        "sha256": "653CDB6526DA5D83E16F2A18403E1B3A86E767FEBDADD9706D1940EE2FF27BBD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PartialMessageGossipCache.cs",
+        "sha256": "CF1C5F46E48DAF86878C560818CFC5EDA298C29402B49C558DF1C98B217623FB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PeerControlState.cs",
+        "sha256": "A79C3B627DDA714FED994A962E2314D7D0695EF5905B4A52C94F20B52D4225F8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PeerScore.cs",
+        "sha256": "50B888440475DDDA94005544081D14B37B96140426E81264FCF4843B9CB3A6F1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubProtocol.cs",
+        "sha256": "786CBC60FEA256F2D0E901EED51130A15EE47E0F044F46F8554CF3B9D1906A06"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.cs",
+        "sha256": "BBE5E0E96297808DAA0EC8F4CD64E37710922AAB88C3FF4DF59986DB174FE3AD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Rpc.cs",
+        "sha256": "3B3FAED430C9BFC244066C2104725ECEAE76FF5FE84B9B199F8F9EB9F9C17E4E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Scoring.cs",
+        "sha256": "B6BF55727CA3ECB8F0486508929F134FF1B71B6C601A749BEC708E747F8FFDFC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubsubRouter.Topics.cs",
+        "sha256": "D8EFC4E1BC888EEF91A3871BD0B59D9133713D3182A508CCC31C767613728F03"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/PubSubSettings.cs",
+        "sha256": "F844E775000B50DF0EE979D11500BBD6139D052D1974919706E17C6E5292CB90"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/RpcExtensions.cs",
+        "sha256": "D626983A70DF9D313B62FC84447917B0BA2E57FABE365BD345C346E85F7D12BB"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Topic.cs",
+        "sha256": "ABA99EA8F44504BCEF4274C005E5DD5778B26EFF64AF00197A6457188A0C5E71"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/TtlCache.cs",
+        "sha256": "62886B07EDA6CF13BB9782D93E85C3CC503407388C32600CE1189D25E0527A0D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Pubsub/Usings.cs",
+        "sha256": "A875AD928075B911AE70C7E584AFC0984015257234D1CA03F828D6F562C20F60"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Dto/Peer.cs",
+        "sha256": "6850AC9EC12EF15F7168DC6343D97E5FA0D8945A10C480CC77AE62939D2D66E0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Dto/Peer.proto",
+        "sha256": "9318A5ABB292CD37F77A75E6AC0A650254F6619B8BD65DC21B9252EE20764752"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Libp2p.Protocols.PubsubPeerDiscovery.csproj",
+        "sha256": "9955BA9B856E4AD1A9805981B2955391DD3E4ABE93C1AEED7D808E5A660AF558"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/PubsubPeerDiscoveryProtocol.cs",
+        "sha256": "5919DF5437A28C84F6939F101842AEF3A364A78820AB8968700B4D97AC118566"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/PubsubPeerDiscoverySettings.cs",
+        "sha256": "621414E657679269216839E969C5E892DCB5256A18F67DC8B7168B474B2D495D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Usings.cs",
+        "sha256": "D8F7F90AE017B43109F1B541AE1B158FD24416FE3D27680E264201ED07BE9847"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/CertificateHelper.cs",
+        "sha256": "A09DDD5418E23B26F71B34A4BB44B310CBBAEC0211F89EF10F94D0739D737926"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/Libp2p.Protocols.Quic.csproj",
+        "sha256": "7678B4C80E0C8A30B431773A06125DD4605199DFEE71F9B5C2E7CC66E9DED81A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/LogMessages.cs",
+        "sha256": "DCE425F7460B7CCA4A93C09FA59785C6F9237A4A8E8CEDAD8D79A86EA7EFF1BC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Quic/QuicProtocol.cs",
+        "sha256": "8B4E73161BED56B3CA6E5CE35203B6694B1D25E58F9D0592871936C3C6E1A24D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Dto/CircuitRelay.cs",
+        "sha256": "C02176B0AA4B0D70D153A4DBB40DCD639D0BA1D82059DACA2ED97A2C54495FB9"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Dto/CircuitRelay.proto",
+        "sha256": "27B1E04644C646D3E2EF4A9CD85DA33E2A53526792372E2CF470B7805D4CBF97"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/IRelayReservationStore.cs",
+        "sha256": "67B1ECB8744C57A785529881293082177F34C4280F31FDB9677FDB2455C547F7"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/Libp2p.Protocols.Relay.csproj",
+        "sha256": "918EBFD9C1D7E838E7A34A5D87D75747CC1DCB9EEADC30F8D856E05566D074AA"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayHopProtocol.cs",
+        "sha256": "DF12E5F0679D0BC787058395DBE29AB1F31DBF9D716109B7C7D77B88BC3A214D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayReservationStore.cs",
+        "sha256": "2333774AB9016AF76482F398E32902A089B26B2CE241DD3BE95E05DC4F7EC8F3"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Relay/RelayStopProtocol.cs",
+        "sha256": "6A324D9B154ECFE683AB944F113BCD1ADC1FBD02C51721A5C0BB1B3AEA2191D2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/Extension.cs",
+        "sha256": "F4E4F85C9D49BEA48325F68AFDFC88CCBE6CD07783CC81E85750589218AE8900"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/Libp2p.Protocols.RequestResponse.csproj",
+        "sha256": "B6DAD19AA0B87AAA02B013AB7CECA25697B22E1620E94CDACB765992214F9EC0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.RequestResponse/RequestResponseProtocol.cs",
+        "sha256": "09D696790BA93265300F65297270C14382468E6F21A6C0C5002DC733687C6DC1"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj",
+        "sha256": "49BD1B1CB84655ED28CAAB244F1A5ED94EDD0BADED256A61D5752EB678C6EB46"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Tls/TlsProtocol.cs",
+        "sha256": "AE4D8B46786FFBCC9B722D50E3B14095ECFFC24FF924D7B35C15DA293DA6AA6E"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/DtlsFingerprint.cs",
+        "sha256": "C9DA3E8C5732E8F76F75EB0DEAECB9B73D8E1D73A90E70D059B738C48DBEF31B"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Extensions/ServiceCollectionExtensions.cs",
+        "sha256": "CA51451BA7446DD5A0EBC596617819499484809EA458CB56B07A65DB346C197F"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/CertificateHelper.cs",
+        "sha256": "1ABD1C287F66D1B0275E702626437DE3806D967E4119A5D0B37ECB99CF7F5434"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/DataChannelOverIChannel.cs",
+        "sha256": "12C72AAB9AF36AFC268906B851FD5CEDCB3CCF91317A876AA4E2C65E6AA50848"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/NoiseEncryptedChannel.cs",
+        "sha256": "1900D47D68C50CA58D53830079AD5E4D1E56BCE544D43AE16016664999B1D572"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectMultiaddr.cs",
+        "sha256": "412C4AAD24EEE55DF9F8B3E8FD5F39090D9FD7AB56F059E96A7B55DD8FD4CDBC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectNoiseHandshake.cs",
+        "sha256": "CB80C6CD3033B94967BAEF9FB0A1F1B19BEAFB00BE7972AE4AD7D4F3D24C0CCE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectRateLimiter.cs",
+        "sha256": "9E7D552CAD2445D21085592D25E3357F2C45458E62D83E8F0647085AFCBAB0BD"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectSdp.cs",
+        "sha256": "04D11F97B01AEC5B7F0501B361713B5B73416C25601825540A00C350166AFDF0"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcDirectSignaling.cs",
+        "sha256": "17A56997B5EA353077A6DE73B7FB242E6E93844237A8A1667B05B6F3556B5A94"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Internals/WebRtcNoisePrologue.cs",
+        "sha256": "82CED6A50588EC5ED7A7CF82A0E0241619A114460E9F6C5A217C9352D1CA8191"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/Libp2p.Protocols.WebRtc.csproj",
+        "sha256": "65BA7F415AAF468CA9F3F045EA28F0E2BBF1000FF67691636250D0FF84F43EE8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebRtc/WebRtcDirectProtocol.cs",
+        "sha256": "D37022B072C3F8A318F3890C4918FAF8D1D3AD084700EF2EFB51D24C91445BAF"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebSockets/Libp2p.Protocols.WebSockets.csproj",
+        "sha256": "861F0137ADCE46F20365331830658110B264692C143D4A48E16D0EF533E86357"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.WebSockets/WebSocketProtocol.cs",
+        "sha256": "7184F6C9200CB94E35FB583DFC726E3F792E28C4A73613073FC1FE382B253EEE"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/ChannelState.cs",
+        "sha256": "C34318464ED8A4ABA976E487FA26FDEB49EA3079B22D8380148ECE7455ED5558"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/Globals.cs",
+        "sha256": "93151EC6A1D621B3CA12350675E785C5E77288897154CD8B26B2A48F3668DCC2"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj",
+        "sha256": "3AABE5BA2B361B5F38A0ABD2EF67529ED2071ABD4A9E0D82FF3F9383DCF51017"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/LocalDataWindow.cs",
+        "sha256": "DBF6E8C6F62C21B7751C0DCFD1CE364F71CADEF0D13749FFCDA411BD6B721BEC"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/RemoteDataWindow.cs",
+        "sha256": "7C0D7BD4FC83CA56C2C782D3F4F5178023BB6C17210AF59A0DDBFCECD82B3946"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/SessionTerminationCode.cs",
+        "sha256": "4DD9938455DB3C7D2A121DECD730CCB9A9A6E707AD98EA36BE9FB1510520EC4D"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeader.cs",
+        "sha256": "354A5839F82F4CC8F9015A37F898690BCDFF37342AC2DB16D865C47836E4D79A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeaderFlags.cs",
+        "sha256": "FFCF85E01336FD685B5781AE0068C36E8367F8B4A4CE74EF5D89C00E04EB68F8"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxHeaderType.cs",
+        "sha256": "6D16F07A840C932AE3BB0B5AB7EB98C516C6B998E7962BEB7A6441773E736030"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxProtocol.cs",
+        "sha256": "90BECEAF982FF5553674ED876281410A9E322E86375A709FA7A3599C23D2685A"
+      },
+      {
+        "path": "libp2p/Libp2p.Protocols.Yamux/YamuxWindowSettings.cs",
+        "sha256": "4B8FC9CA602E7532807DA48E687FC7C794BE78360CB832B5A55EEA7441D1FC7F"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/BenchmarkPeerFactoryBuilder.cs",
+        "sha256": "C478E274A69A2417B5A05D84CF5D919A06069BE6EAA9A72476B55A40892FDC62"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/BenchmarkProtocol.cs",
+        "sha256": "92954D6078EE279D80F236926B23D2F9D6766069DCC5A2E54F731BC8CE78D0F4"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj",
+        "sha256": "5951F64708AE3DAD356DF4E356CCC1612A3139A1268230F0829F759780AF97DE"
+      },
+      {
+        "path": "libp2p/Libp2p.Transport.Benchmarks/Program.cs",
+        "sha256": "FE52D384F8DBFAE3694D97BAF2912356356DF83E92293E1750F91B299016B051"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2p.csproj",
+        "sha256": "ABB5DAE6D5B4659765888BB0CDD04C31C9D970D7E82523EA9E124BD77209D521"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2pPeerFactory.cs",
+        "sha256": "906D0FADFF08F6BC11A467DF044083297DC75597D7F9F203A2CAE0DF41DF2D04"
+      },
+      {
+        "path": "libp2p/Libp2p/Libp2pPeerFactoryBuilder.cs",
+        "sha256": "E57517B4BE33130F5EECFC725DF91A6963495A141E8B892F8EE40DEF2A1E6603"
+      },
+      {
+        "path": "libp2p/Libp2p/LogMessages.cs",
+        "sha256": "CEC2E0ECD4DD51A2A55D89A5951F716ECA089D2CE540F801DADDE61FE1766A56"
+      },
+      {
+        "path": "libp2p/Libp2p/ServiceProviderExtensions.cs",
+        "sha256": "CC167DAAFA37C2CAFF34C038829768FC6EB1372F57E7756C5F24D956C79F7331"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Buffer.cs",
+        "sha256": "2D713BB5E6887AE0E3F0B4915267130C6D5A222E58AB065E1FD7270E9D552868"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Channel.cs",
+        "sha256": "9AAAF563C1D78E58F978B944496D0F53328BF8A815345E5E432B8DB1246868F7"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Exceptions.cs",
+        "sha256": "B31C0109FAFB6716CED93263748538855B5A083B3A96BF972D26BDB718014F62"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/IChannel.cs",
+        "sha256": "AE5EC1996A57505191A5939F11625D3AAD4ABF3CF937B1C793297B062103CE45"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/Nethermind.Channels.csproj",
+        "sha256": "EAA63AB46676E07CC3DC094FCFB7ABCAB16D3DDD4C02F3C411D8125FA8CCF09D"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/ReadResult.cs",
+        "sha256": "5B7F55ABA11C66054909A72622A61874F42D093CC71E671D0DFB3515E7D71427"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/UnwrapResultExtensions.cs",
+        "sha256": "24C84EE342ADDEE2FF11A85B08D20687E39DC44A601F8CF18BA86A8AE5DC3A2E"
+      },
+      {
+        "path": "libp2p/Nethermind.Channels/WriterExtensions.cs",
+        "sha256": "24886DBB16765FA10E2C72319FCE62B7B2C8197817B3BC10021C558C021987FD"
+      }
+    ]
+  }
+}

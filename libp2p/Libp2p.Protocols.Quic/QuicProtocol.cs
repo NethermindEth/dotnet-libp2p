@@ -25,20 +25,9 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
-public class QuicProtocol : ITransportProtocol
+public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
-    private readonly ILogger<QuicProtocol>? _logger;
-    private readonly ArrayPool<byte> _receiveBufferPool;
-
-    public QuicProtocol(ILoggerFactory? loggerFactory = null) : this(loggerFactory, ArrayPool<byte>.Shared)
-    {
-    }
-
-    internal QuicProtocol(ILoggerFactory? loggerFactory, ArrayPool<byte> receiveBufferPool)
-    {
-        _logger = loggerFactory?.CreateLogger<QuicProtocol>();
-        _receiveBufferPool = receiveBufferPool;
-    }
+    private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
 
     private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
@@ -381,9 +370,10 @@ public class QuicProtocol : ITransportProtocol
         {
             try
             {
-                await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(pumpCancellation.Token))
+                await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(pumpCancellation.Token))
                 {
-                    await stream.WriteAsync(data.ToArray(), pumpCancellation.Token);
+                    ReadOnlySequence<byte> data = read.Data;
+                    await stream.WriteAsync(data.IsSingleSegment ? data.First : data.ToArray(), pumpCancellation.Token);
                 }
                 stream.CompleteWrites();
             }
@@ -406,24 +396,9 @@ public class QuicProtocol : ITransportProtocol
 
         Task incoming = Task.Run(async () =>
         {
-            byte[]? buf = null;
             try
             {
-                const int receiveCapacity = 1024;
-                buf = _receiveBufferPool.Rent(receiveCapacity);
-                while (stream.CanRead)
-                {
-                    int len = await stream.ReadAtLeastAsync(buf.AsMemory(0, receiveCapacity), 1, false, pumpCancellation.Token);
-                    if (len == 0)
-                    {
-                        break;
-                    }
-                    // WaitAll readers can retain fragments after WriteAsync completes.
-                    if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, len).ToArray()), pumpCancellation.Token) != IOResult.Ok)
-                    {
-                        break;
-                    }
-                }
+                await upChannel.WriteFromAsync(stream.ReadAsync, 1024, pumpCancellation.Token);
                 await upChannel.WriteEofAsync();
             }
             catch (Exception) when (pumpCancellation.IsCancellationRequested)
@@ -435,13 +410,6 @@ public class QuicProtocol : ITransportProtocol
                 _logger?.LogDebug(ex, "QUIC stream {streamId} incoming data failed", stream.Id);
                 pumpCancellation.Cancel();
                 await upChannel.CloseAsync();
-            }
-            finally
-            {
-                if (buf is not null)
-                {
-                    _receiveBufferPool.Return(buf);
-                }
             }
         });
 
