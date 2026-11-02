@@ -21,7 +21,7 @@ class DiscoveryTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
         self.solution = self.repo / "Libp2p.slnx"
-        self.solution.parent.mkdir()
+        self.solution.parent.mkdir(exist_ok=True)
 
     def project(self, name="Future.Tests", declaration="<EnableNUnitRunner>true</EnableNUnitRunner>"):
         path = self.solution.parent / name / (name + ".csproj")
@@ -152,7 +152,7 @@ class WorkflowTests(unittest.TestCase):
             env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release",
                        EXIT_CODES=",".join(map(str, exits)), GITHUB_STEP_SUMMARY=str(root / "summary"),
                        PATH=directory + os.pathsep + os.environ["PATH"])
-            result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+            result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                     capture_output=True, text=True)
             trace = (root / "trace").read_text().splitlines()
             logs = {p.relative_to(root).as_posix(): p.read_text() for p in root.rglob("*.log")}
@@ -236,7 +236,7 @@ class WorkflowTests(unittest.TestCase):
                     script = workflow_step(workflow, "Test")[1] + '\necho publish >> "$RUNNER_TEMP/trace"\n'
                     env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release", FAIL_PROJECT=fail,
                                PATH=directory + os.pathsep + os.environ["PATH"])
-                    result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+                    result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                             capture_output=True, text=True)
                     self.assertEqual(23 if fail else 0, result.returncode, result.stderr)
                     expected = ["first suite.Tests.csproj"] if fail else ["first suite.Tests.csproj", "second.Tests.csproj", "publish"]
