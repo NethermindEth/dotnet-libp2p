@@ -52,11 +52,10 @@ exercise the unsigned reads, not this separate capacity property.
 
 ### Separate transport-record follow-up
 
-The post-handshake receive loop has a separate short-record allocation and
-exception-propagation defect. The [follow-up and reproduction](noise-transport-follow-up.md)
-record the verified behavior, now tracked in
-[issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
-PR #416 does not fix or close that separate issue.
+The post-handshake short-record allocation and exception-propagation defect from
+[issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431) is resolved
+in this change; the [follow-up and reproduction](noise-transport-follow-up.md)
+records the historical behavior and the separate runtime correction after PR #416.
 
 ## Received TLS certificate lists (#373, unresolved)
 
@@ -429,5 +428,5 @@ complete corrected description is returned through the host's disposition
 protocol, with validation pinned to its actual revisions and no moving-head
 claim. The host owns publication and the fresh audit afterward. Prepared
 publication text is kept outside the source checkout; this validation record
-is not a draft PR description. The separate Noise issue #431 remains open and
-outside this PR's runtime changes.
+is not a draft PR description. Noise issue #431 was outside PR #416's runtime
+changes and is resolved by the separate correction described above.
