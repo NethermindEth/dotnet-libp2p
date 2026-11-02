@@ -1,8 +1,8 @@
 # CI test discovery
 
-From `libp2p/`, run `python3 ../.github/scripts/discover_test_projects.py`.
+From the repository root, run `python3 .github/scripts/discover_test_projects.py`.
 Both Linux workflows use this list before restore/build, then invoke
-`bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"`.
+`bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"`.
 Test steps have a 30-minute deadline, including any retry.
 
 An E2E suite (`.E2eTests.csproj`) that reports test failures (MTP exit 2) is retried

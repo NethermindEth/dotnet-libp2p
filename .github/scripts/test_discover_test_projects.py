@@ -20,8 +20,7 @@ class DiscoveryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
-        self.solution = self.repo / "libp2p/Libp2p.slnx"
-        self.solution.parent.mkdir()
+        self.solution = self.repo / "Libp2p.slnx"
 
     def project(self, name="Future.Tests", declaration="<EnableNUnitRunner>true</EnableNUnitRunner>"):
         path = self.solution.parent / name / (name + ".csproj")
@@ -33,7 +32,7 @@ class DiscoveryTests(unittest.TestCase):
         self.solution.write_text("<Solution>" + "".join(f'<Project Path="{p}" />' for p in projects) + "</Solution>")
 
     def test_current_inventory_and_support_library_exclusion(self):
-        paths = discover(REPO, REPO / "libp2p/Libp2p.slnx")
+        paths = discover(REPO, REPO / "Libp2p.slnx")
         self.assertEqual(sorted(set(paths)), paths)
         self.assertFalse(any("TestsBase" in p for p in paths))
         # Pin today's twenty-one suites while allowing additional suites to be discovered automatically.
@@ -42,7 +41,7 @@ class DiscoveryTests(unittest.TestCase):
             "AutoTls", "IpTcp", "KadDht", "Mplex", "Multistream", "Noise", "Ping", "Plaintext",
             "Pubsub", "Quic", "RequestResponse", "Tls", "WebRtc", "WebSockets", "Yamux")]
         names += ["Protocols.Pubsub.E2eTests", "Protocols.PubsubPeerDiscovery.E2eTests"]
-        expected = {f"Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
+        expected = {f"libp2p/Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
         self.assertEqual(21, len(expected))
         self.assertTrue(expected.issubset(paths), expected - set(paths))
 
@@ -152,7 +151,7 @@ class WorkflowTests(unittest.TestCase):
             env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release",
                        EXIT_CODES=",".join(map(str, exits)), GITHUB_STEP_SUMMARY=str(root / "summary"),
                        PATH=directory + os.pathsep + os.environ["PATH"])
-            result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+            result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                     capture_output=True, text=True)
             trace = (root / "trace").read_text().splitlines()
             logs = {p.relative_to(root).as_posix(): p.read_text() for p in root.rglob("*.log")}
@@ -204,10 +203,10 @@ class WorkflowTests(unittest.TestCase):
         for workflow in ("test.yml", "publish.yml"):
             with self.subTest(workflow=workflow):
                 content = (REPO / ".github/workflows" / workflow).read_text()
-                self.assertIn('python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"', content)
+                self.assertIn('python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"', content)
                 step, script = workflow_step(workflow, "Test")
                 self.assertIn("timeout-minutes: 30", step)
-                self.assertIn('bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"', script)
+                self.assertIn('bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"', script)
                 runner = (REPO / ".github/scripts/run_test_projects.sh").read_text()
                 self.assertIn("--minimum-expected-tests 1", runner)
                 self.assertIn("Zero tests already fail with exit 8", runner)
@@ -236,7 +235,7 @@ class WorkflowTests(unittest.TestCase):
                     script = workflow_step(workflow, "Test")[1] + '\necho publish >> "$RUNNER_TEMP/trace"\n'
                     env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release", FAIL_PROJECT=fail,
                                PATH=directory + os.pathsep + os.environ["PATH"])
-                    result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+                    result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                             capture_output=True, text=True)
                     self.assertEqual(23 if fail else 0, result.returncode, result.stderr)
                     expected = ["first suite.Tests.csproj"] if fail else ["first suite.Tests.csproj", "second.Tests.csproj", "publish"]

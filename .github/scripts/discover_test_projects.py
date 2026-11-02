@@ -105,7 +105,7 @@ def discover(repo, solution):
 def main():
     repo = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("solution", nargs="?", type=Path, default=repo / "libp2p/Libp2p.slnx")
+    parser.add_argument("solution", nargs="?", type=Path, default=repo / "Libp2p.slnx")
     args = parser.parse_args()
     try:
         projects = discover(repo, args.solution)
