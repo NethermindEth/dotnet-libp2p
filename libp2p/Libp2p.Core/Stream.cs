@@ -71,7 +71,9 @@ public class ChannelStream : Stream
         if (buffer.IsEmpty) return 0;
         if (!_canRead) return 0;
 
-        ReadResult result = _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny).ConfigureAwait(false).GetAwaiter().GetResult();
+        ValueTask<ReadResult> read = _chan.ReadOwnedAsync(buffer.Length, ReadBlockingMode.WaitAny);
+        // A pending ValueTask source does not block in GetResult; convert it once to a Task.
+        using ReadResult result = read.IsCompleted ? read.GetAwaiter().GetResult() : read.AsTask().GetAwaiter().GetResult();
         if (result.Result != IOResult.Ok)
         {
             _canRead = false;
@@ -94,7 +96,8 @@ public class ChannelStream : Stream
         ThrowIfDisposed();
         if (source.IsEmpty) return;
 
-        IOResult result = _chan.WriteAsync(new ReadOnlySequence<byte>(source.ToArray())).ConfigureAwait(false).GetAwaiter().GetResult();
+        ValueTask<IOResult> write = _chan.WriteAsync(new ReadOnlySequence<byte>(source.ToArray()));
+        IOResult result = write.IsCompleted ? write.GetAwaiter().GetResult() : write.AsTask().GetAwaiter().GetResult();
         if (result != IOResult.Ok)
         {
             _canWrite = false;
@@ -186,7 +189,7 @@ public class ChannelStream : Stream
     {
         if (!_canRead) return 0;
 
-        ReadResult result = await _chan.ReadAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
+        using ReadResult result = await _chan.ReadOwnedAsync(buffer.Length, ReadBlockingMode.WaitAny, cancellationToken).ConfigureAwait(false);
         if (result.Result == IOResult.Cancelled)
         {
             throw CreateOperationCanceledException(cancellationToken);

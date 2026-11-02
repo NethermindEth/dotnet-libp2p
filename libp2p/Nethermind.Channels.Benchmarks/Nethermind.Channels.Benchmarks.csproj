@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <DefineConstants Condition="'$(BaselineOnly)' == 'true'">$(DefineConstants);HISTORICAL</DefineConstants>
+    <SourceRoot Condition="'$(SourceRoot)' == ''">$(MSBuildThisFileDirectory)../..</SourceRoot>
+    <BaselineRoot Condition="'$(BaselineOnly)' == 'true' and '$(BaselineRoot)' == ''">$(MSBuildThisFileDirectory)../../.worktrees/allocations-pr428</BaselineRoot>
+    <ChannelsRoot>$(SourceRoot)/libp2p/Nethermind.Channels</ChannelsRoot>
+    <ChannelsRoot Condition="!Exists('$(ChannelsRoot)/Nethermind.Channels.csproj')">$(SourceRoot)/src/channels/Nethermind.Channels</ChannelsRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(BaselineRoot)/libp2p/Libp2p.Core/Libp2p.Core.csproj" Aliases="Baseline" Condition="'$(BaselineOnly)' == 'true'" />
+    <ProjectReference Include="$(ChannelsRoot)/Nethermind.Channels.csproj" Condition="'$(BaselineOnly)' != 'true'" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/channels/">
+    <Project Path="Nethermind.Channels.Benchmarks/Nethermind.Channels.Benchmarks.csproj" />
+    <Project Path="Nethermind.Channels/Nethermind.Channels.csproj" />
+    <Project Path="Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj" />
+  </Folder>
   <Folder Name="/protocols/">
     <Project Path="Libp2p.Protocols.AutoTls/Libp2p.Protocols.AutoTls.csproj" />
     <Project Path="Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj" />
