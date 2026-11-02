@@ -12,6 +12,8 @@ public partial class PubsubRouter
 {
     private readonly ConcurrentDictionary<string, Topic> topicState = new();
 
+    private bool IsLocallySubscribed(string topic) => topicState.TryGetValue(topic, out Topic? state) && state.IsSubscribed;
+
     public ITopic GetTopic(string topicId, bool subscribe = true)
     {
         Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
@@ -105,9 +107,7 @@ public partial class PubsubRouter
             }
 
             topic.IsSubscribed = true;
-
-            fPeers.TryAdd(topicId, []);
-            gPeers.TryAdd(topicId, []);
+            UpdateRemoteSubscriptionPriority(topicId);
 
             HashSet<PeerId> meshPeers = mesh.GetOrAdd(topicId, []);
             HashSet<PeerId> promotedPeers = [];
@@ -117,10 +117,10 @@ public partial class PubsubRouter
                 foreach (PeerId peerId in fanoutPeers)
                 {
                     if (!IsDirectPeer(peerId) &&
-                        gPeers[topicId].Contains(peerId) &&
+                        gPeers.TryGetValue(topicId, out HashSet<PeerId>? remotePeers) && remotePeers.Contains(peerId) &&
                         peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
                         GetPeerScore(peerId) >= 0 &&
-                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= DateTime.Now) &&
+                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= _timeProvider.GetUtcNow().UtcDateTime) &&
                         meshPeers.Add(peerId))
                     {
                         RecordPeerJoinMesh(peerId, topicId);
@@ -164,20 +164,18 @@ public partial class PubsubRouter
             }
 
             topic.IsSubscribed = false;
+            UpdateRemoteSubscriptionPriority(topicId);
+            foreach (PendingValidation pending in _pendingValidations.Values.Where(p => p.Snapshot.Topic == topicId).ToArray())
+            {
+                RemovePendingValidation(pending);
+            }
 
             if (mesh.TryRemove(topicId, out HashSet<PeerId>? removedMesh))
             {
                 foreach (PeerId peerId in removedMesh)
                 {
                     RecordPeerLeaveMesh(peerId, topicId);
-                    if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
-                    {
-                        DateTime backoffUntil = DateTime.Now.AddMilliseconds(_settings.UnsubscribeBackoff);
-                        if (!peer.Backoff.TryGetValue(topicId, out DateTime existingBackoff) || existingBackoff < backoffUntil)
-                        {
-                            peer.Backoff[topicId] = backoffUntil;
-                        }
-                    }
+                    RefreshBackoff(peerId, topicId, LocalBackoff(_settings.UnsubscribeBackoff));
                 }
             }
 
@@ -192,11 +190,7 @@ public partial class PubsubRouter
                 msg.WithTopics([], [topicId]);
                 if (removedMesh?.Contains(peerId) is true)
                 {
-                    msg.Ensure(r => r.Control.Prune).Add(new ControlPrune
-                    {
-                        TopicID = topicId,
-                        Backoff = (ulong)Math.Ceiling(_settings.UnsubscribeBackoff / 1000.0),
-                    });
+                    msg.Ensure(r => r.Control.Prune).Add(CreatePrune(peerId, topicId, _settings.UnsubscribeBackoff));
                 }
             }
         }

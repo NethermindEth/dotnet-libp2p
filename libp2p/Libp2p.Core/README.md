@@ -1,5 +1,13 @@
 # Core routines and API
 
+`IReader.ReadLineAsync()` limits the declared payload to 1,024 bytes, including
+any trailing newline and excluding the varint length prefix. Callers that need
+larger lines must use `ReadLineAsync(maxLength, token)`. Oversized declarations
+throw `InvalidDataException` before reading the payload; integer length prefixes
+above `int.MaxValue` or longer than five bytes throw `FormatException`.
+The `/chat/1.0.0` samples select a larger application limit of 1 MiB explicitly
+for incoming messages, including the newline, to accommodate long prompts and replies.
+
 `PeerStore` retains at most 10,000 entries by default; its constructor accepts a
 different capacity. Active sessions retain their entries until disconnect,
 including failed initialization. A new session cannot be admitted when all slots

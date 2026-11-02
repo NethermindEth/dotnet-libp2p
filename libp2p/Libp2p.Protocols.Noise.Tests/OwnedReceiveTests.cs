@@ -127,7 +127,7 @@ public class OwnedReceiveTests
     private static Task ExchangeData(Transport transport, IChannel down, IChannel up)
     {
         MethodInfo method = typeof(NoiseProtocol).GetMethod("ExchangeData", BindingFlags.NonPublic | BindingFlags.Static)!;
-        return (Task)method.Invoke(null, [transport, down, up, null])!;
+        return (Task)method.Invoke(null, [transport, down, up, null, CancellationToken.None])!;
     }
 
     private static (Transport Local, Transport Remote) CreateTransports()

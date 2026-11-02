@@ -8,8 +8,10 @@ using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Protocols.Quic.Tests;
 
@@ -22,42 +24,90 @@ public class ReceiveBufferTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public async Task FragmentedWaitAllPacksStorageAndSurvivesLaterReads(bool locallyOpened)
+    public async Task ReceiveSetupFailureClosesTheChannelWithoutReturningAnUnrentedBuffer(bool locallyOpened)
+    {
+        await WithConnectionsAsync(async (local, remote, token) =>
+        {
+            OutOfMemoryException failure = new("Injected receive-buffer allocation failure");
+            TaskCompletionSource rentAttempted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            ArrayPool<byte> pool = Substitute.For<ArrayPool<byte>>();
+            pool.Rent(Arg.Any<int>()).Returns(_ =>
+            {
+                rentAttempted.TrySetResult();
+                throw failure;
+            });
+            ILogger logger = Substitute.For<ILogger>();
+            using ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
+            loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
+            ReceiveTestChannel channel = new() { ReceivePool = pool };
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(loggerFactory), channel, token))
+            {
+                await rentAttempted.Task.WaitAsync(token);
+                await pump.Completion.WaitAsync(TimeSpan.FromSeconds(3), token);
+                Assert.That((await channel.Upper.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Ended));
+                Assert.That(pump.Lifetime.IsCancellationRequested, Is.False);
+                pool.Received(1).Rent(Arg.Any<int>());
+                pool.DidNotReceive().Return(Arg.Any<byte[]>(), Arg.Any<bool>());
+                Assert.That(logger.ReceivedCalls().Where(call => call.GetMethodInfo().Name == nameof(ILogger.Log))
+                    .Select(call => call.GetArguments()[3]), Does.Contain(failure));
+            }
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FragmentedWaitAllRetainsOnlyReceivedBytes(bool locallyOpened)
     {
         await WithConnectionsAsync(async (local, remote, token) =>
         {
             ReceiveTestChannel channel = new();
             byte[] expected = ReceiveTestChannel.Payload(513);
-            byte[] later = ReceiveTestChannel.Payload(2051, 29);
-            ReadResult direct = default;
-            ReadResult retained = default;
-            ReadResult laterRead = default;
-            try
+            ReadOnlySequence<byte> received;
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(), channel, token))
             {
-                await using (QuicPump pump = await QuicPump.StartAsync(local, remote, locallyOpened, new QuicProtocol(), channel, token))
+                received = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), expected,
+                    Enumerable.Repeat(1, 512).ToArray(), token);
+                pump.Remote.CompleteWrites();
+                await channel.Upper.WriteEofAsync(token);
+                await pump.Completion.WaitAsync(token);
+            }
+            channel.AssertCompactAndStable(expected);
+            Assert.That(received.ToArray(), Is.EqualTo(expected));
+        });
+    }
+
+    [TestCase("eof")]
+    [TestCase("rejection")]
+    [TestCase("cancellation")]
+    [TestCase("failure")]
+    public async Task ScratchBufferIsReturnedExactlyOnce(string ending)
+    {
+        await WithConnectionsAsync(async (local, remote, token) =>
+        {
+            TrackingReceivePool pool = new();
+            ReceiveTestChannel channel = new()
+            {
+                ReceivePool = pool,
+                Rejection = ending == "rejection" ? IOResult.Ended : null,
+                WriteFailure = ending == "failure" ? new InvalidOperationException("Injected write failure") : null,
+            };
+            await using (QuicPump pump = await QuicPump.StartAsync(local, remote, false, new QuicProtocol(), channel, token))
+            {
+                TrackingReceivePool.Rental rental = await pool.WaitForRentAsync(token);
+                Assert.That(rental.Capacity, Is.EqualTo(1024));
+                switch (ending)
                 {
-                    direct = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), [0x5a], [], token);
-                    retained = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), expected,
-                        Enumerable.Repeat(1, 512).ToArray(), token);
-                    channel.AssertReceiveBuffersReused();
-                    laterRead = await channel.ReadFragmentsAsync(data => pump.SendAsync(data, token), later,
-                        [1, 17, later.Length - 19], token);
-                    ReceiveTestChannel.AssertCompactAndStable(retained, expected);
-                    pump.Remote.CompleteWrites();
-                    await channel.Upper.WriteEofAsync(token);
-                    await pump.Completion.WaitAsync(token);
+                    case "eof": pump.Remote.CompleteWrites(); break;
+                    case "cancellation": pump.Lifetime.Cancel(); break;
+                    default:
+                        await pump.SendAsync(new byte[] { 42 }, token);
+                        await channel.WriteStarted.Task.WaitAsync(token);
+                        break;
                 }
-                channel.AssertReceiveBuffersReused();
-                ReceiveTestChannel.AssertCompactAndStable(retained, expected);
-                ReceiveTestChannel.AssertCompactAndStable(laterRead, later);
-                Assert.That(direct.Data.ToArray(), Is.EqualTo(new byte[] { 0x5a }));
+                await pool.WaitForReturnAsync(token);
             }
-            finally
-            {
-                direct.Dispose();
-                retained.Dispose();
-                laterRead.Dispose();
-            }
+            pool.AssertReturned(1);
+            channel.AssertCompactAndStable(ending is "rejection" or "failure" ? [42] : [], pool);
         });
     }
 
@@ -66,53 +116,37 @@ public class ReceiveBufferTests
     {
         await WithConnectionsAsync(async (local, remote, token) =>
         {
+            TrackingReceivePool pool = new();
             QuicProtocol protocol = new();
-            ReceiveTestChannel firstChannel = new();
-            ReceiveTestChannel secondChannel = new();
+            ReceiveTestChannel firstChannel = new() { ReceivePool = pool };
+            ReceiveTestChannel secondChannel = new() { ReceivePool = pool };
             int[] lengths = [1, 17, 2 * 1024 + 31, 3];
             byte[] firstExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
             byte[] secondExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 29);
-            ReadResult[] retained = [];
-            Task<ReadResult>[] reading = [];
-            try
+            await using (QuicPump first = await QuicPump.StartAsync(local, remote, false, protocol, firstChannel, token))
+            await using (QuicPump second = await QuicPump.StartAsync(local, remote, true, protocol, secondChannel, token))
             {
-                await using (QuicPump first = await QuicPump.StartAsync(local, remote, false, protocol, firstChannel, token))
-                await using (QuicPump second = await QuicPump.StartAsync(local, remote, true, protocol, secondChannel, token))
-                {
-                    reading =
-                    [
-                        firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, token), firstExpected, lengths, token),
-                        secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, token), secondExpected, lengths, token)
-                    ];
-                    retained = await Task.WhenAll(reading);
-                    first.Remote.CompleteWrites();
-                    second.Remote.CompleteWrites();
-                    await firstChannel.Upper.WriteEofAsync(token);
-                    await secondChannel.Upper.WriteEofAsync(token);
-                    await Task.WhenAll(first.Completion, second.Completion).WaitAsync(token);
-                }
-                firstChannel.AssertReceiveBuffersReused();
-                secondChannel.AssertReceiveBuffersReused();
-                ReceiveTestChannel.AssertCompactAndStable(retained[0], firstExpected);
-                ReceiveTestChannel.AssertCompactAndStable(retained[1], secondExpected);
+                await Task.WhenAll(
+                    firstChannel.ReadFragmentsAsync(data => first.SendAsync(data, token), firstExpected, lengths, token),
+                    secondChannel.ReadFragmentsAsync(data => second.SendAsync(data, token), secondExpected, lengths, token));
+                first.Remote.CompleteWrites();
+                second.Remote.CompleteWrites();
+                await firstChannel.Upper.WriteEofAsync(token);
+                await secondChannel.Upper.WriteEofAsync(token);
+                await Task.WhenAll(first.Completion, second.Completion).WaitAsync(token);
+                await pool.WaitForReturnAsync(token);
+                await pool.WaitForReturnAsync(token);
             }
-            finally
-            {
-                foreach (Task<ReadResult> task in reading)
-                {
-                    if (task.IsCompletedSuccessfully) task.Result.Dispose();
-                }
-            }
+            pool.AssertReturned(2);
+            Assert.That(pool.Rentals[0].Buffer, Is.Not.SameAs(pool.Rentals[1].Buffer));
+            firstChannel.AssertCompactAndStable(firstExpected, pool);
+            secondChannel.AssertCompactAndStable(secondExpected, pool);
         });
     }
 
     private static async Task WithConnectionsAsync(Func<QuicConnection, QuicConnection, CancellationToken, Task> test)
     {
-        if (!QuicListener.IsSupported)
-        {
-            if (OperatingSystem.IsWindows()) Assert.Fail("The Windows QUIC test runner must support QUIC.");
-            Assert.Inconclusive("QUIC is not supported in this environment.");
-        }
+        if (!QuicListener.IsSupported) Assert.Inconclusive("QUIC is not supported in this environment.");
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(20));
         using ECDsa serverKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using ECDsa clientKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);

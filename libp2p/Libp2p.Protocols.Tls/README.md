@@ -1,6 +1,6 @@
 # TLS Protocol
 
-This implementation provides full support for the libp2p TLS handshake protocol as specified in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md).
+This implementation supports the libp2p TLS handshake protocol described in the [libp2p TLS specification](https://github.com/libp2p/specs/blob/master/tls/tls.md), with the received certificate-list limitation described below.
 
 ## Features
 
@@ -12,15 +12,14 @@ This implementation provides full support for the libp2p TLS handshake protocol 
 
 ### Certificate Features
 - **libp2p Extension**: Custom X.509 extension (OID: `1.3.6.1.4.1.53594.1.1`) for peer identity
-- **Self-Signed Certificates**: Uses ephemeral keys for certificate signing, not host keys
+- **Self-Signed Certificates**: Uses session keys for certificate signing, separate from host identity keys
 - **Key Type Support**: Ed25519, Secp256k1, ECDSA, and RSA key types
-- **Windows Compatibility**: Special handling for Windows CNG key requirements
+- **Session Keys**: Certificates use the supplied session key outside Windows and a shared process-owned P-256 key on Windows. Each certificate owns its private-key handle.
 
 ### Security Features
 - **Certificate Validation**: Comprehensive validation per libp2p spec:
   - Certificate validity period checking
   - Self-signed certificate requirement
-  - Single certificate (no chains allowed)
   - libp2p extension presence verification
   - Peer ID matching
   - Cryptographic signature verification
@@ -43,7 +42,7 @@ The TLS protocol is automatically integrated into the libp2p connection stack. I
 X.509 Certificate:
 ├── Subject: SERIALNUMBER=<random-hex>
 ├── Issuer: Same as Subject (self-signed)
-├── Public Key: Ephemeral ECDSA key
+├── Public Key: Session ECDSA key
 ├── Extensions:
 │   └── libp2p Public Key Extension (1.3.6.1.4.1.53594.1.1):
 │       └── SignedKey (ASN.1):
@@ -59,9 +58,13 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Cross-platform**: Works on Linux, macOS, and Windows
-- **Windows CNG**: Special handling for Windows named CNG keys for SslStream compatibility
-- **Key Generation**: Creates persistent named keys on Windows, ephemeral keys elsewhere
+- **Platform Validation**: Linux transport tests pass. Recorded validation of revision `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` on Windows 10.0.26200 / .NET 10.0.12 passed QUIC 32/32, TLS 32/32, and registered transport/alias controls 5/5 without skips. The [validation record](../../docs/development/secure-transport-validation.md) links a portable results snapshot, replay commands, and the CI artifact configuration; all CI gates remain.
+- **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
+- **Crash Lifetime**: Fresh Windows key initialization attempts recovery of exactly marked process keys after proving their owning process incarnation has terminated. Live owners, unknown liveness and unmarked legacy keys are retained. Contention, access restrictions and deletion failure defer recovery to another initialization. See the [recovery contract and validation status](../../docs/development/windows-process-key-recovery.md).
+
+### Received certificate lists
+
+The specification requires rejecting more than one transmitted certificate. The current validation verifies the leaf's self-signature and identity but does not enforce the transmitted list's cardinality. `SslStream` exposes a platform-built `X509Chain`, which can have one element even when the peer sent an unrelated certificate or a duplicate leaf. `ChainElements.Count == 1` therefore cannot enforce this requirement. On the tested Windows runtime, a duplicate leaf is also absent from `ExtraStore` in both roles: the callback exposes only the presented leaf, one chain element, and an empty `ExtraStore`, as in the valid single-certificate control. #373 remains unresolved. See the [probe and platform evidence](../../docs/development/secure-transport-validation.md).
 
 ## Testing
 

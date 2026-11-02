@@ -15,6 +15,22 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 [TestFixture]
 public class YamuxProtocolTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task IdleTransportEofStaysOrderlyWhileCancellationAborts(bool cancel)
+    {
+        using CancellationTokenSource lifetime = new();
+        IConnectionContext context = Substitute.For<IConnectionContext>();
+        context.Token.Returns(lifetime.Token);
+        context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
+        Channel channel = new();
+        Task yamux = new YamuxProtocol().ListenAsync(channel, context);
+        if (cancel) lifetime.Cancel();
+        else await channel.Reverse.WriteEofAsync();
+        await yamux.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That((await channel.Reverse.ReadAsync(1)).Result, Is.EqualTo(cancel ? IOResult.Aborted : IOResult.Ended));
+    }
+
     [Test]
     public async Task ReceivedFramesReuseTheChannelLifetimeToken()
     {

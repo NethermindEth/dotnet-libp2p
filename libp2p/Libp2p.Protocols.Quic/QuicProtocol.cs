@@ -28,6 +28,7 @@ namespace Nethermind.Libp2p.Protocols;
 public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
     private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
+
     private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
@@ -282,7 +283,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                     QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, session.Token);
                     try
                     {
-                        IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                        IChannel upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                         TrackExchange(stream, upChannel);
                     }
                     catch
@@ -315,7 +316,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 QuicStream inboundStream = await completedAccept;
                 try
                 {
-                    IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                    IChannel upChannel = session.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
                     TrackExchange(inboundStream, upChannel);
                 }
                 catch

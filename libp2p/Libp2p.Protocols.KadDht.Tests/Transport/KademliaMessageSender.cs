@@ -12,14 +12,23 @@ using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
 namespace Libp2p.Protocols.KadDht;
 
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, TestNode>
 {
     private readonly ILocalPeer _localPeer;
+    private readonly KadDhtOptions _options;
     private readonly ILogger<KademliaMessageSender>? _logger;
     private readonly TestNodeAddressBook _addressBook;
 
     public KademliaMessageSender(ILocalPeer localPeer, TestNodeAddressBook addressBook, ILoggerFactory? loggerFactory = null)
+        : this(new KadDhtOptions(), localPeer, addressBook, loggerFactory)
     {
+    }
+
+    public KademliaMessageSender(KadDhtOptions options, ILocalPeer localPeer, TestNodeAddressBook addressBook, ILoggerFactory? loggerFactory = null)
+    {
+        WirePeerPolicy.Validate(options);
+        _options = options;
         _localPeer = localPeer;
         _addressBook = addressBook;
         _logger = loggerFactory?.CreateLogger<KademliaMessageSender>();
@@ -31,9 +40,7 @@ internal sealed class KademliaMessageSender : IKademliaMessageSender<PublicKey, 
         var request = MessageHelper.CreateFindNodeRequest(target.Bytes.ToArray());
         var response = await session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(request, token);
 
-        return response.CloserPeers
-            .Select(MessageHelper.FromWirePeer)
-            .OfType<DhtNode>()
+        return new WirePeerPolicy(_options).ReadResponse(response, includeProviders: false).Closer
             .Select(node => new TestNode(node.PeerId)
             {
                 Addresses = node.Multiaddrs.Select(Multiaddress.Decode).ToArray()

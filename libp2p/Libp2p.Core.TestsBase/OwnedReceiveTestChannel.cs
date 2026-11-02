@@ -10,7 +10,7 @@ using NUnit.Framework;
 namespace Nethermind.Libp2p.Core.TestsBase;
 
 /// <summary>Observes transport publications using the real channel's write acknowledgements.</summary>
-public sealed class ReceiveTestChannel : IChannel
+public sealed class OwnedReceiveTestChannel : IChannel
 {
     private readonly Channel _channel = new();
     private readonly System.Threading.Channels.Channel<int> _acknowledged = System.Threading.Channels.Channel.CreateUnbounded<int>();

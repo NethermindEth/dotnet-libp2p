@@ -25,7 +25,6 @@ var peerFactory = new PeerFactoryBuilder()
     .AddRequestResponseProtocol<ExampleRequest, ExampleResponse>(
         protocolId: "/example/1.0.0",
         handler: HandleExampleRequest,
-        loggerFactory: loggerFactory,
         isExposed: true)
     .Build();
 
@@ -44,6 +43,42 @@ private static async Task<ExampleResponse> HandleExampleRequest(
     };
 }
 ```
+
+### Read deadlines
+
+Existing constructors and builder overloads use a 30-second read timeout. To configure it,
+use an overload with `TimeSpan readTimeout` before the protocol ID (or before the
+cancellation-aware handler):
+
+```csharp
+builder.AddRequestResponseProtocol<ExampleRequest, ExampleResponse>(
+    TimeSpan.FromSeconds(15), "/example/1.0.0", HandleExampleRequest);
+```
+
+The timeout covers the entire length prefix and protobuf body, including fragmented
+reads. The dialer starts it after transmitting the request. The timer is disposed after
+deserialization; handlers and response writes have no new deadline. One-way dialing
+starts no response timer. Channel closure also cancels reads, and cancellation-aware
+handlers retain the channel lifetime token.
+
+Timeouts must be positive, finite, and at most
+`TimeSpan.FromMilliseconds(uint.MaxValue - 1)`. Both handler forms accept an optional
+`TimeProvider` in the new overloads; builder extensions also resolve it from DI.
+Builders supporting `IProtocolFactoryBuilder` resolve the clock from the final
+services at `Build()`, including services added after protocol registration. An
+explicit `TimeProvider` takes precedence over DI. Builders without protocol factories
+resolve the clock from their current service provider during registration.
+Routine channel closure, aborts, duplicate sessions, and expected read cancellations
+are logged at Debug. Other stream failures are logged at Warning with the exception
+attached. Exceptions continue to propagate to the stream owner.
+
+The `dotnet-libp2p` meter exposes `libp2p.request_response.read_timeouts`, a counter
+of failed reads whose deadline expired while channel cancellation was not requested.
+It has `protocol` (the registered protocol ID) and `direction` (`inbound` for request
+reads, `outbound` for response reads) tags. Ordinary hangups, channel cancellation,
+size/parse failures, successful reads, and one-way dialing do not increment it.
+Deadline failures remain at Debug; this counter makes them observable without enabling
+Debug logging. The existing OpenTelemetry `AddMetrics` integration exports this meter.
 
 ### Using the Protocol
 
@@ -95,6 +130,23 @@ The core protocol class provides:
   - `DialAsync()`: Sends requests to remote peers and waits for responses
 
 When `expectsResponse` returns `false`, `DialAsync()` completes after a successful write and returns an empty `TResponse`; this is not a remote acknowledgement. `ListenAsync()` still invokes the handler but does not send its response.
+
+### Handler cancellation and graceful admission shutdown
+
+The cancellation-aware handler overload receives the application channel's lifetime
+token. Closing or resetting that channel cancels the token; a request-side FIN
+alone leaves the reply direction open. Before sending a response, the protocol
+checks that token again, including when a handler ignores cancellation and returns
+normally. Cancellation of that token propagates without an ordinary error log or
+a response acknowledging the operation.
+
+This is also the contract when integrating Yamux's graceful GoAway behavior from
+PR #419: GoAway/OK stops admission of new streams while existing channels and
+their handlers continue. It must not be treated as cancellation of every handler.
+Actual stream termination, fatal connection shutdown, or transport loss still
+cancels affected channel tokens. RequestResponse keeps
+the channel token and cancellation propagation; it does not substitute a token
+for stream admission or suppress cancellation after a channel has closed.
 
 ### RequestResponseExtensions
 

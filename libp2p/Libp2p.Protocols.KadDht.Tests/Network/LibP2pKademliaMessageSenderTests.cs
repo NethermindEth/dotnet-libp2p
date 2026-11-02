@@ -20,6 +20,7 @@ using NUnit.Framework;
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Network;
 
 [TestFixture]
+[Obsolete("Exercises the retained legacy sender API.")]
 public class LibP2pKademliaMessageSenderTests
 {
     private ILocalPeer _mockLocalPeer;
@@ -434,4 +435,72 @@ public class LibP2pKademliaMessageSenderTests
             Multiaddrs = multiaddress != null ? new[] { multiaddress } : Array.Empty<string>()
         };
     }
+    [Test]
+    public async Task ClosedCachedSessionIsRedialed()
+    {
+        var node = new Identity().PeerId.ToDhtNode(["/ip4/127.0.0.1/tcp/4001"]);
+        var first = Substitute.For<ISession>();
+        var replacement = Substitute.For<ISession>();
+        using var closed = new CancellationTokenSource();
+        first.Closed.Returns(closed.Token);
+        _mockLocalPeer.DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>()).Returns(first, replacement);
+        await _messageSender.Ping(node, CancellationToken.None);
+        closed.Cancel();
+        await _messageSender.Ping(node, CancellationToken.None);
+        await _mockLocalPeer.Received(2).DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>());
+        await replacement.Received(1).DialAsync<PingProtocol>(Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task FailureOfOldSessionDoesNotEvictConcurrentReplacement()
+    {
+        var semaphore = (SemaphoreSlim)typeof(LibP2pKademliaMessageSender<PublicKey, DhtNode>)
+            .GetField("_connectionSemaphore", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(_messageSender)!;
+        if (semaphore.CurrentCount < 2) semaphore.Release();
+        var node = new Identity().PeerId.ToDhtNode(["/ip4/127.0.0.1/tcp/4001"]);
+        var first = Substitute.For<ISession>();
+        var replacement = Substitute.For<ISession>();
+        using var closed = new CancellationTokenSource();
+        first.Closed.Returns(closed.Token);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        first.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        });
+        _mockLocalPeer.DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>()).Returns(first, replacement);
+        Task oldRequest = _messageSender.Ping(node, CancellationToken.None);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            closed.Cancel();
+            await _messageSender.Ping(node, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally { release.TrySetException(new InvalidOperationException("old request failed")); }
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await oldRequest);
+        await _messageSender.Ping(node, CancellationToken.None);
+        await _mockLocalPeer.Received(2).DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>());
+        await replacement.DidNotReceive().DisconnectAsync();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task GetValueRejectsRecordForAnotherKey(bool generic)
+    {
+        var node = new Identity().PeerId.ToDhtNode(["/ip4/127.0.0.1/tcp/4001"]);
+        var session = Substitute.For<ISession>();
+        _mockLocalPeer.DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>()).Returns(session);
+        _mockLocalPeer.DialAsync(node.PeerId, Arg.Any<CancellationToken>()).Returns(session);
+        session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(MessageHelper.CreateGetValueResponse(MessageHelper.CreatePutValueRequest([2], [3]).Record));
+        if (generic)
+            Assert.That((await _messageSender.GetValue(node, [1])).found, Is.False);
+        else
+        {
+            var sender = new global::Libp2p.Protocols.KadDht.Integration.LibP2pKademliaMessageSender(_mockLocalPeer);
+            Assert.That((await sender.GetValueAsync(node, [1])).HasValue, Is.False);
+        }
+    }
+
 }

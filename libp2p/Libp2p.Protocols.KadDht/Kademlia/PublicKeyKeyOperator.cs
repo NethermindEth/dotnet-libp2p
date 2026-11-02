@@ -7,6 +7,7 @@ using Nethermind.Kademlia;
 
 namespace Libp2p.Protocols.KadDht.Kademlia;
 
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 public class PublicKeyKeyOperator : IKeyOperator<PublicKey, global::Libp2p.Protocols.KadDht.TestNode, ValueHash256>
 {
     public PublicKey GetKey(global::Libp2p.Protocols.KadDht.TestNode node)

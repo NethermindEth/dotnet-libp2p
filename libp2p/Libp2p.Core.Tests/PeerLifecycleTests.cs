@@ -443,9 +443,9 @@ internal class PeerLifecycleTests
         };
         await using ControlledPeer peer = new(TestPeers.Identity(1), transport);
 
-        AggregateException? failure = Assert.ThrowsAsync<AggregateException>(async () => await peer.DialAsync(roots, CancellationToken.None));
+        SessionExistsException? failure = Assert.ThrowsAsync<SessionExistsException>(async () => await peer.DialAsync(roots, CancellationToken.None));
 
-        Assert.That(failure!.InnerException, Is.SameAs(duplicate));
+        Assert.That(failure, Is.SameAs(duplicate));
         Assert.That(transport.DialCount, Is.EqualTo(16));
         await transport.Canceled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(peer.Sessions, Is.Empty);

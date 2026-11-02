@@ -1,0 +1,171 @@
+{
+  "revision": "84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52",
+  "date": "2026-10-23",
+  "environment": {
+    "os": "Windows 10.0.26200",
+    "architecture": "x64",
+    "sdk": "10.0.401",
+    "runtime": "10.0.12"
+  },
+  "provenance": "Summary extracted from the supplied Windows NUnit XML reports. Raw logs are not included; machine and user names and absolute paths are omitted.",
+  "suites": [
+    {
+      "name": "quic",
+      "report": "Nethermind.Libp2p.Protocols.Quic.Tests.xml",
+      "report_sha256": "64806be6b138f0818099fb4d821a5ad2fa84023620967fbc11c838e89776d3f7",
+      "exit_code": 0,
+      "executed": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "inconclusive": 0,
+      "cases": [
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.AcceptsPssSelfSignatureWithEmptyIssuer",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.CertificateIdentityUsesCanonicalKeyAndRejectsAliasExpectedId",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.CertificateOwnsUsablePrivateKeyAfterSessionKeyDisposal",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.DisposingCertificateLeasePreservesTheBorrowedSessionKey",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsInvalidSelfSignatureWithEmptyIssuer",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsPaddedEd25519KeyInLibp2pExtension",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsSignedEmptyIssuerCertificateWithInvalidVersion(0)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsSignedEmptyIssuerCertificateWithInvalidVersion(3)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsUnusableRsaIdentityInLibp2pExtension(\"weak-rsa\")",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.RejectsUnusableRsaIdentityInLibp2pExtension(\"trailing-rsa\")",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Valid ED25519",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Valid ECDSA",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Valid secp256k1",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Valid ED25519 certificate key",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Valid ED25519 certificate key with distinct issuer",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Invalid",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Invalid certificate self-signature",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Roundtrip valid Rsa key",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Roundtrip valid Ed25519 key",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Roundtrip valid Secp256K1 key",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.CertificateTests.Roundtrip valid Ecdsa key",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.KnownCriticalCertificateExtensionsAccepted",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.QuicTransport_ConnectsAuthenticatedPeersAndExchangesData(Ed25519)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.QuicTransport_ConnectsAuthenticatedPeersAndExchangesData(Secp256K1)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.QuicTransport_ConnectsAuthenticatedPeersAndExchangesData(Rsa)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.QuicTransport_ConnectsAuthenticatedPeersAndExchangesData(Ecdsa)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.Test_CriticalLibp2pCertificateExtensionAccepted",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.UnknownCriticalCertificateExtensionRejected",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.ProtocolTests.UnsupportedIdentityKeyTypeRejectedWithoutThrowing",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.WindowsCertificateKeyTests.CertificateDisposalPreservesTheProcessKeyAndOtherCertificates(False)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.WindowsCertificateKeyTests.CertificateDisposalPreservesTheProcessKeyAndOtherCertificates(True)",
+        "Nethermind.Libp2p.Protocols.Quic.Tests.WindowsCertificateKeyTests.NormalProcessExitDeletesOnlyItsOwnKey"
+      ]
+    },
+    {
+      "name": "tls",
+      "report": "Nethermind.Libp2p.Protocols.Tls.Tests.xml",
+      "report_sha256": "829e9bb7c5b1a423def394b105047de47a691e1b0eeff1abdab76458cacbf37e",
+      "exit_code": 0,
+      "executed": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "inconclusive": 0,
+      "cases": [
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateFromIdentity_CreatesSelfSignedCertificate",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateFromIdentity_HasCorrectValidityPeriod",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsExpiredCertificate",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsNotYetValidCertificate",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_AcceptsValidLibp2pCertificate",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_SignaturePrefix_MatchesLibp2pSpec",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsPeerIdMismatch",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_CertificateValidation_RejectsCertificateWithoutLibp2pExtension",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ApplicationProtocols_ContainsLibp2pProtocol",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ProtocolId_MatchesLibp2pSpec",
+        "Nethermind.Libp2p.Protocols.Tls.Tests.Libp2pSpecComplianceTests.Test_ExtractPublicKey_RejectsMultipleLibp2pExtensions",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,1)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,2)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(False,3)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,1)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,2)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.CertificateListProbeTests.ReportsWireCertificateListAndCallbackContents(True,3)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateFromIdentity_CreatesValidCertificate",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateValidation_FailsForWrongPeerId",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_CertificateValidation_Succeeds",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsProtocol_HasCorrectId",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateUsesP256SessionKey",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsHandshake_BidirectionalData",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsHandshake_OverNetworkStream",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateRejectsUnexpectedDialedPeer(True)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsCertificateRejectsUnexpectedDialedPeer(False)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_TlsIdentityConflictIsRejected",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(False,True)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(False,False)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.TlsProtocolTests.Test_ConnectionEstablished_AfterHandshake(True,False)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.IpTcpPeerIdentityTests.Test_DialPassesExpectedPeerIdToSecurityProtocol(False)",
+        "Nethermind.Libp2p.Protocols.TLS.Tests.IpTcpPeerIdentityTests.Test_DialPassesExpectedPeerIdToSecurityProtocol(True)"
+      ]
+    },
+    {
+      "name": "registered",
+      "report": "Libp2p.E2eTests.xml",
+      "report_sha256": "57cc2c3ff1935a6f8206eb1d25cb8208a1ae05d96f5a3811127ad0da0f55fc2e",
+      "exit_code": 0,
+      "executed": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "inconclusive": 0,
+      "cases": [
+        "Libp2p.E2eTests.RegisteredIdentityTests.RegisteredSecurityRejectsAnAliasExpectedPeerId(False)",
+        "Libp2p.E2eTests.RegisteredIdentityTests.RegisteredSecurityRejectsAnAliasExpectedPeerId(True)",
+        "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"noise\")",
+        "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"tls\")",
+        "Libp2p.E2eTests.RegisteredSecureTransportTests.RepeatedMutualAuthenticationSurvivesFailedDialAndKeyCollection(\"quic\")"
+      ]
+    }
+  ],
+  "certificate_list_probes": [
+    {
+      "receiver": "client",
+      "transmitted": "leaf",
+      "wire": 1,
+      "chain_elements": 1,
+      "extra_store": 0,
+      "leaf_copies_in_extra_store": 0
+    },
+    {
+      "receiver": "client",
+      "transmitted": "leaf and unrelated certificate",
+      "wire": 2,
+      "chain_elements": 1,
+      "extra_store": 1,
+      "leaf_copies_in_extra_store": 0
+    },
+    {
+      "receiver": "client",
+      "transmitted": "leaf and duplicate leaf",
+      "wire": 2,
+      "chain_elements": 1,
+      "extra_store": 0,
+      "leaf_copies_in_extra_store": 0
+    },
+    {
+      "receiver": "server",
+      "transmitted": "leaf",
+      "wire": 1,
+      "chain_elements": 1,
+      "extra_store": 0,
+      "leaf_copies_in_extra_store": 0
+    },
+    {
+      "receiver": "server",
+      "transmitted": "leaf and unrelated certificate",
+      "wire": 2,
+      "chain_elements": 1,
+      "extra_store": 1,
+      "leaf_copies_in_extra_store": 0
+    },
+    {
+      "receiver": "server",
+      "transmitted": "leaf and duplicate leaf",
+      "wire": 2,
+      "chain_elements": 1,
+      "extra_store": 0,
+      "leaf_copies_in_extra_store": 0
+    }
+  ]
+}

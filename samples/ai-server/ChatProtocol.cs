@@ -7,6 +7,8 @@ using System.Text.Json;
 
 internal class ChatProtocol(CancellationToken shutdownToken = default) : SymmetricSessionProtocol, ISessionProtocol
 {
+    private const int MaxMessageLength = 1024 * 1024;
+
     public string Id => "/chat/1.0.0";
 
     protected override async Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener)
@@ -22,7 +24,7 @@ internal class ChatProtocol(CancellationToken shutdownToken = default) : Symmetr
 
         while (!token.IsCancellationRequested)
         {
-            string msg = await channel.ReadLineAsync();
+            string msg = await channel.ReadLineAsync(MaxMessageLength);
 
             var request = new
             {

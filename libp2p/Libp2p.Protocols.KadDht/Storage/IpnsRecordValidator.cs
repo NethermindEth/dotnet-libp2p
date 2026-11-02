@@ -20,7 +20,7 @@ namespace Libp2p.Protocols.KadDht.Storage;
 /// <para>
 /// The public key is either embedded in the record (<c>pubKey</c> field) or extracted
 /// from the PeerId in the DHT key when the PeerId uses an identity multihash
-/// (keys &lt;= 42 bytes, typically ed25519).
+/// (serialized keys &lt;= 42 bytes: Ed25519 and secp256k1).
 /// </para>
 /// <para>
 /// Selection picks the record with the highest sequence number (newest wins).
@@ -145,13 +145,13 @@ public sealed class IpnsRecordValidator : IRecordValidator
     /// <summary>
     /// Extract the public key from either the IPNS record or the PeerId multihash.
     /// <para>
-    /// For ed25519 keys (identity multihash in PeerId), the key is extracted directly.
+    /// For inline Ed25519 and secp256k1 keys, the key is extracted directly.
     /// For other key types, the record must contain the pubKey field.
     /// </para>
     /// </summary>
     private static PublicKey? ExtractPublicKey(ReadOnlySpan<byte> peerIdBytes, IpnsEntry entry)
     {
-        // Try extracting from the PeerId (works for ed25519 identity multihash keys)
+        // Try extracting from the PeerId (works for canonical inline identity multihash keys)
         PublicKey? fromPeerId = PeerId.ExtractPublicKey(peerIdBytes.ToArray());
 
         if (entry.HasPubKey && !entry.PubKey.IsEmpty)

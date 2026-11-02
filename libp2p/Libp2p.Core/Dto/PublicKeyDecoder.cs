@@ -6,6 +6,7 @@ using Nethermind.Libp2p.Core.Exceptions;
 using Org.BouncyCastle.Asn1.X9;
 using Org.BouncyCastle.Crypto.EC;
 using Org.BouncyCastle.Math.EC.Rfc8032;
+using System.Formats.Asn1;
 using System.Security.Cryptography;
 using ECPoint = Org.BouncyCastle.Math.EC.ECPoint;
 
@@ -44,6 +45,69 @@ public static class PublicKeyDecoder
             throw new Libp2pException("Public key is not valid protobuf.", e);
         }
 
+        if (publicKey.HasType && publicKey.Type == KeyType.Rsa)
+        {
+            CheckRemoteRsaLimits(publicKey.Data);
+        }
+        PublicKey canonical = Normalize(publicKey, out int rsaKeyBits);
+        if (canonical.Type == KeyType.Rsa && rsaKeyBits < 2048)
+        {
+            throw new Libp2pException($"RSA public key must be at least 2048 bits, got {rsaKeyBits}.");
+        }
+        return canonical;
+    }
+
+    private static void CheckRemoteRsaLimits(ByteString data)
+    {
+        // Inspect DER views before native import: a peer must not select unbounded
+        // modulus or exponent sizes for any later import or signature verification.
+        try
+        {
+            AsnReader outer = new(data.Memory, AsnEncodingRules.DER);
+            AsnReader subjectPublicKeyInfo = outer.ReadSequence();
+            subjectPublicKeyInfo.ReadSequence(); // The native importer validates the algorithm identifier.
+            if (!subjectPublicKeyInfo.TryReadPrimitiveBitString(out int unusedBits, out ReadOnlyMemory<byte> encodedKey) || unusedBits != 0)
+            {
+                throw new Libp2pException("RSA public key has invalid bit-string encoding.");
+            }
+            subjectPublicKeyInfo.ThrowIfNotEmpty();
+            outer.ThrowIfNotEmpty();
+            AsnReader keyReader = new(encodedKey, AsnEncodingRules.DER);
+            AsnReader key = keyReader.ReadSequence();
+            ReadOnlySpan<byte> modulus = key.ReadIntegerBytes().Span;
+            if ((modulus[0] & 0x80) != 0)
+            {
+                throw new Libp2pException("RSA public modulus must be positive.");
+            }
+            if (modulus[0] == 0) modulus = modulus[1..];
+            if (modulus.Length > 8192 / 8)
+            {
+                throw new Libp2pException("RSA public modulus must be at most 8192 bits.");
+            }
+            if (!key.TryReadInt32(out int exponent) || exponent < 2)
+            {
+                throw new Libp2pException("RSA public exponent must be between 2 and 2147483647.");
+            }
+            key.ThrowIfNotEmpty();
+            keyReader.ThrowIfNotEmpty();
+        }
+        catch (AsnContentException e)
+        {
+            throw new Libp2pException("RSA public key is not valid DER.", e);
+        }
+    }
+
+    /// <summary>Returns a canonical copy of a local public key without applying remote admission policy.</summary>
+    /// <remarks>
+    /// Use <see cref="Decode"/> for remote key material. Local serialization preserves
+    /// imported RSA identities below the remote size floor and does not change the caller's key.
+    /// </remarks>
+    /// <exception cref="Libp2pException">The key does not carry usable material in a supported format.</exception>
+    public static PublicKey Normalize(PublicKey publicKey) => Normalize(publicKey, out _);
+
+    internal static PublicKey Normalize(PublicKey publicKey, out int rsaKeyBits)
+    {
+        rsaKeyBits = 0;
         // Protobuf does not enforce proto2 required fields, so a key with no
         // type, or a type outside the enum, parses successfully.
         if (!publicKey.HasType || !Enum.IsDefined(publicKey.Type))
@@ -51,6 +115,7 @@ public static class PublicKeyDecoder
             throw new Libp2pException("Public key does not declare a known key type.");
         }
 
+        ByteString data = publicKey.Data;
         try
         {
             switch (publicKey.Type)
@@ -66,15 +131,16 @@ public static class PublicKeyDecoder
                     }
                     break;
                 case KeyType.Secp256K1:
-                    publicKey.Data = CompressSecp256k1(publicKey.Data);
+                    data = CompressSecp256k1(data);
                     break;
                 case KeyType.Rsa:
-                    // No key size bounds: identities generated here use 1024-bit
-                    // keys, which go-libp2p's 2048 floor would reject.
                     using (RSA rsa = RSA.Create())
                     {
                         rsa.ImportSubjectPublicKeyInfo(publicKey.Data.Span, out int rsaBytesRead);
                         RejectTrailingBytes(publicKey, rsaBytesRead);
+                        rsaKeyBits = checked((int)new System.Numerics.BigInteger(
+                            rsa.ExportParameters(false).Modulus!, isUnsigned: true, isBigEndian: true).GetBitLength());
+                        data = ByteString.CopyFrom(rsa.ExportSubjectPublicKeyInfo());
                     }
                     break;
                 case KeyType.Ecdsa:
@@ -82,6 +148,12 @@ public static class PublicKeyDecoder
                     {
                         ecdsa.ImportSubjectPublicKeyInfo(publicKey.Data.Span, out int ecdsaBytesRead);
                         RejectTrailingBytes(publicKey, ecdsaBytesRead);
+                        // Re-export preserves explicit parameters, allowing another ID for the same key.
+                        if (!ecdsa.ExportParameters(false).Curve.IsNamed)
+                        {
+                            throw new Libp2pException("ECDSA public key must use a named curve.");
+                        }
+                        data = ByteString.CopyFrom(ecdsa.ExportSubjectPublicKeyInfo());
                     }
                     break;
             }
@@ -91,7 +163,8 @@ public static class PublicKeyDecoder
             throw new Libp2pException($"Public key does not hold usable {publicKey.Type} material.", e);
         }
 
-        return publicKey;
+        // Libp2p key serialization contains exactly Type and Data, in tag order.
+        return new PublicKey { Type = publicKey.Type, Data = data };
     }
 
     /// <summary>

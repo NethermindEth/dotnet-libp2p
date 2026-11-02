@@ -201,7 +201,7 @@ public partial class PubsubRouter
     /// </summary>
     private void RecordMessageDelivery(PeerId peerId, MessageId messageId, string topic, bool isValid)
     {
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        if (!IsLocallySubscribed(topic) || !peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }
