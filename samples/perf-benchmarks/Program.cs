@@ -12,21 +12,40 @@ using StackExchange.Redis;
 
 class Program
 {
-    static async Task Main(string[] args)
+        static async Task Main(string[] args)
     {
+        bool cliMode = PerfArgs.IsCliMode(args);
+
         var services = new ServiceCollection()
             .AddLibp2p<PerfPeerFactoryBuilder>(builder => builder.AddProtocol<PerfProtocol>())
             .AddLogging(builder => builder
-                .SetMinimumLevel(LogLevel.Information) // Show information and above
+                .SetMinimumLevel(LogLevel.Information)
                 .AddConsole(options =>
                 {
-                    options.LogToStandardErrorThreshold = LogLevel.Warning; // Only warnings/errors to stderr
+                    options.LogToStandardErrorThreshold = cliMode ? LogLevel.Trace : LogLevel.Warning;
                 }))
             .BuildServiceProvider();
 
         var peerFactory = services.GetRequiredService<IPeerFactory>();
         var logger = services.GetRequiredService<ILogger<Program>>();
 
+        if (cliMode)
+        {
+            PerfArgs parsed;
+            try
+            {
+                parsed = PerfArgs.Parse(args);
+            }
+            catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException)
+            {
+                logger.LogError("{Message}", ex.Message);
+                Environment.Exit(2);
+                return;
+            }
+
+            Environment.Exit(await PerfCli.RunAsync(peerFactory, logger, parsed));
+            return;
+        }
         // Read configuration from environment variables (following WRITE_A_PERF_TEST.md)
         var isDialer = Environment.GetEnvironmentVariable("IS_DIALER") == "true";
         var redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "redis:6379";

@@ -15,5 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 
 WORKDIR /app
 COPY --from=build --chown=$APP_UID:$APP_UID /app/publish ./
+RUN printf '#!/bin/sh\nexec dotnet /app/PerfBenchmarks.dll "$@"\n' > /usr/local/bin/perf && chmod +x /usr/local/bin/perf
 USER $APP_UID
 ENTRYPOINT ["dotnet", "PerfBenchmarks.dll"]
