@@ -21,7 +21,6 @@ class DiscoveryTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
         self.solution = self.repo / "Libp2p.slnx"
-        self.solution.parent.mkdir(exist_ok=True)
 
     def project(self, name="Future.Tests", declaration="<EnableNUnitRunner>true</EnableNUnitRunner>"):
         path = self.solution.parent / name / (name + ".csproj")
