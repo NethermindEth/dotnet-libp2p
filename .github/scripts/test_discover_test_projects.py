@@ -42,7 +42,7 @@ class DiscoveryTests(unittest.TestCase):
             "AutoTls", "IpTcp", "KadDht", "Mplex", "Multistream", "Noise", "Ping", "Plaintext",
             "Pubsub", "Quic", "RequestResponse", "Tls", "WebRtc", "WebSockets", "Yamux")]
         names += ["Protocols.Pubsub.E2eTests", "Protocols.PubsubPeerDiscovery.E2eTests"]
-        expected = {f"Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
+        expected = {f"libp2p/Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
         self.assertEqual(21, len(expected))
         self.assertTrue(expected.issubset(paths), expected - set(paths))
 
