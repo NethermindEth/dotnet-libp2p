@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
@@ -120,6 +121,132 @@ public class HandshakeFramingTests
         }
     }
 
+    [TestCase(1, 0, false)]
+    [TestCase(1, 1, false)]
+    [TestCase(1, 15, false)]
+    [TestCase(2, 0, false)]
+    [TestCase(2, 1, false)]
+    [TestCase(2, 15, false)]
+    [TestCase(1, 1, true)]
+    [TestCase(1, 15, true)]
+    [TestCase(2, 1, true)]
+    [TestCase(2, 15, true)]
+    public async Task RejectsUndersizedTransportRecordBeforeReadingBody(int message, int length, bool truncated)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using HandshakePeer peer = new(message);
+        try
+        {
+            await peer.AuthenticateAsync(deadline.Token);
+            byte[] frame = new byte[2 + (truncated ? length - 1 : length)];
+            BinaryPrimitives.WriteUInt16BigEndian(frame, checked((ushort)length));
+            // Keep the connection open, even for truncated bodies. Rejection must
+            // follow the prefix rather than waiting for the declared body or EOF.
+            Task<IOResult> write = peer.Wire.WriteAsync(new ReadOnlySequence<byte>(frame), deadline.Token).AsTask();
+            Assert.ThrowsAsync<Libp2pException>(async () => await peer.Subject.WaitAsync(deadline.Token));
+            await write.WaitAsync(deadline.Token);
+            Assert.That((await peer.Up.Reverse.ReadAsync(1, token: deadline.Token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(peer.Wire.GetAwaiter().IsCompleted, Is.True);
+        }
+        finally
+        {
+            await peer.CloseAsync(allowRejection: true);
+        }
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task PropagatesTransportAuthenticationFailure(int message)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using HandshakePeer peer = new(message);
+        try
+        {
+            await peer.AuthenticateAsync(deadline.Token);
+            byte[] frame = peer.DataFrame();
+            frame[^1] ^= 1;
+            await peer.SendAsync(frame, false, deadline.Token);
+            Assert.ThrowsAsync<CryptographicException>(async () => await peer.Subject.WaitAsync(deadline.Token));
+            Assert.That((await peer.Up.Reverse.ReadAsync(1, token: deadline.Token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(peer.Wire.GetAwaiter().IsCompleted, Is.True);
+        }
+        finally
+        {
+            await peer.CloseAsync(allowRejection: true);
+        }
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task AcceptsEmptyTransportRecordFollowedByData(int message)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using HandshakePeer peer = new(message);
+        try
+        {
+            await peer.AuthenticateAsync(deadline.Token);
+            byte[] empty = peer.DataFrame([]);
+            Assert.That(BinaryPrimitives.ReadUInt16BigEndian(empty), Is.EqualTo(16));
+            Task write = peer.SendAsync([.. empty, .. peer.DataFrame()], false, deadline.Token);
+            Assert.That((await peer.Up.Reverse.ReadAsync(3, token: deadline.Token).OrThrow()).ToArray(), Is.EqualTo(new byte[] { 9, 8, 7 }));
+            await write.WaitAsync(deadline.Token);
+            await peer.Wire.WriteEofAsync(deadline.Token);
+            Assert.That((await peer.Up.Reverse.ReadAsync(1, token: deadline.Token)).Result, Is.EqualTo(IOResult.Ended));
+            await peer.Subject.WaitAsync(deadline.Token);
+        }
+        finally
+        {
+            await peer.CloseAsync();
+        }
+    }
+
+    [TestCase(1, false)]
+    [TestCase(2, false)]
+    [TestCase(1, true)]
+    [TestCase(2, true)]
+    public async Task JoinsSiblingPumpAndPropagatesFailure(int message, bool malformedRecord)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        TaskCompletionSource reading = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<ReadResult> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        IChannel up = Substitute.For<IChannel>();
+        up.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            reading.TrySetResult();
+            return new ValueTask<ReadResult>(read.Task);
+        });
+        up.GetAwaiter().Returns(shutdown.Task.GetAwaiter());
+        up.CloseAsync().Returns(_ => { shutdown.TrySetResult(); return ValueTask.CompletedTask; });
+        up.AbortAsync().Returns(_ => { shutdown.TrySetResult(); return ValueTask.CompletedTask; });
+        using HandshakePeer peer = new(message, upChannel: up);
+        try
+        {
+            await peer.AuthenticateAsync(deadline.Token);
+            await reading.Task.WaitAsync(deadline.Token);
+            if (malformedRecord)
+                await peer.Wire.WriteAsync(new ReadOnlySequence<byte>(new byte[2]), deadline.Token);
+            else
+                await peer.Wire.WriteEofAsync(deadline.Token);
+
+            await shutdown.Task.WaitAsync(deadline.Token);
+            // The sibling has entered its read and deliberately delays cancellation.
+            // Public completion must wait for it even after channel shutdown begins.
+            Assert.That(peer.Subject.IsCompleted, Is.False);
+            InvalidOperationException siblingFailure = new("Sibling pump failed during shutdown.");
+            read.SetException(siblingFailure);
+            if (malformedRecord)
+                Assert.ThrowsAsync<Libp2pException>(async () => await peer.Subject.WaitAsync(deadline.Token));
+            else
+                Assert.That(Assert.ThrowsAsync<InvalidOperationException>(async () => await peer.Subject.WaitAsync(deadline.Token)), Is.SameAs(siblingFailure));
+        }
+        finally
+        {
+            read.TrySetResult(ReadResult.Aborted);
+            await peer.CloseAsync(allowRejection: true);
+        }
+    }
+
     private sealed class HandshakePeer : IDisposable
     {
         private readonly int _message;
@@ -133,7 +260,7 @@ public class HandshakeFramingTests
         public TaskCompletionSource Upgraded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Subject { get; }
 
-        public HandshakePeer(int message, CancellationToken connectionToken = default)
+        public HandshakePeer(int message, CancellationToken connectionToken = default, IChannel? upChannel = null)
         {
             _message = message;
             Protocol protocol = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
@@ -144,7 +271,7 @@ public class HandshakeFramingTests
             Context.Upgrade(Arg.Any<UpgradeOptions>()).Returns(_ =>
             {
                 Upgraded.TrySetResult();
-                return Up;
+                return upChannel ?? Up;
             });
             Subject = message == 1
                 ? new NoiseProtocol().DialAsync(_down, Context)
@@ -157,6 +284,20 @@ public class HandshakeFramingTests
                 await SendAsync(Frame([]), false, token);
             if (_message != 0)
                 await ReceiveAsync(token);
+        }
+
+        public async Task AuthenticateAsync(CancellationToken token)
+        {
+            await PrepareAsync(token);
+            await SendAsync(Frame(Payload()), false, token);
+            if (_message != 2)
+            {
+                await ReceiveAsync(token);
+                if (_message == 0)
+                    await SendAsync(Frame(Payload()), false, token);
+            }
+            await Upgraded.Task.WaitAsync(token);
+            Assert.That(Context.State.RemotePeerId, Is.EqualTo(TestPeers.PeerId(2)));
         }
 
         public byte[] Payload(int? wireLength = null)
@@ -200,10 +341,12 @@ public class HandshakeFramingTests
             _transport = result.Transport;
         }
 
-        public byte[] DataFrame()
+        public byte[] DataFrame() => DataFrame([9, 8, 7]);
+
+        public byte[] DataFrame(byte[] payload)
         {
-            byte[] frame = new byte[21];
-            int length = _transport!.WriteMessage([9, 8, 7], frame.AsSpan(2));
+            byte[] frame = new byte[2 + 16 + payload.Length];
+            int length = _transport!.WriteMessage(payload, frame.AsSpan(2));
             BinaryPrimitives.WriteUInt16BigEndian(frame, checked((ushort)length));
             return frame;
         }
@@ -223,7 +366,7 @@ public class HandshakeFramingTests
             await Up.CloseAsync();
             await _down.CloseAsync();
             try { await Subject.WaitAsync(TimeSpan.FromSeconds(10)); }
-            catch (ChannelClosedException) when (allowRejection) { }
+            catch (Exception) when (allowRejection && Subject.IsFaulted) { }
         }
 
         public void Dispose()
