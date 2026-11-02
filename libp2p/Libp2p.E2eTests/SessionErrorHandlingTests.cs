@@ -67,6 +67,25 @@ public class SessionErrorHandlingTests
         });
     }
 
+    [Test]
+    public async Task TestTransportListenerUnbindsWhenPeerDisposalCompletes()
+    {
+        ChannelBus channelBus = new();
+        await using ServiceProvider provider = MakeServiceProvider(channelBus);
+        IPeerFactory factory = provider.GetRequiredService<IPeerFactory>();
+        await using ILocalPeer peer = factory.Create(TestPeers.Identity(1));
+        await peer.StartListenAsync();
+
+        await peer.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.That(peer.ListenAddresses, Is.Empty);
+        // TestPeerFactory caches peers by identity, so use another factory on the same bus.
+        await using ServiceProvider reboundProvider = MakeServiceProvider(channelBus);
+        await using ILocalPeer rebound = reboundProvider.GetRequiredService<IPeerFactory>().Create(TestPeers.Identity(1));
+        await rebound.StartListenAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(rebound.ListenAddresses, Is.Not.Empty);
+    }
+
     private static ServiceProvider MakeServiceProvider(ChannelBus channelBus)
     {
         return new ServiceCollection()

@@ -11,10 +11,14 @@ public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, P
     : ContextBase(localPeer, session, protocol, isListener, upgradeOptions, activitySource, parentActivity), INewSessionContext
 {
     private readonly ILogger? logger = loggerFactory?.CreateLogger<NewSessionContext>();
+    protected override bool IsApplicationStream => true;
 
     public IEnumerable<UpgradeOptions> DialRequests => session.GetRequestQueue();
 
     public CancellationToken Token => session.ConnectionToken;
+
+    public Task Completion => session.DrainUpgradesAsync();
+    public bool TryDisconnectIfIdle(TimeSpan idleTimeout) => session.TryDisconnectIfIdle(idleTimeout);
 
     public new Activity? Activity { get; } = activitySource?.CreateActivity("New session", ActivityKind.Internal, parentActivity?.Context ?? default);
 

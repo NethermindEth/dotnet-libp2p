@@ -19,9 +19,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- Certes in the standard stack needs this at runtime; tests use BouncyCastle.Cryptography. -->
+    <PackageReference Include="Portable.BouncyCastle" VersionOverride="1.9.0" ExcludeAssets="compile" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Multistream\Libp2p.Protocols.Multistream.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Pubsub\Libp2p.Protocols.Pubsub.csproj" />

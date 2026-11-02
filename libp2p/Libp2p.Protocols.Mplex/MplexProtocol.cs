@@ -14,10 +14,13 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>Legacy Mplex interoperability. Prefer Yamux when both peers support it.</summary>
 public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
 {
-    internal const int MaxStreams = 512;
+    internal const int MaxInboundStreams = 512;
+    internal const int MaxOutboundStreams = 512;
     internal const int MaxBufferedBytesPerStream = 4 * 1024 * 1024;
     internal const int MaxBufferedBytesPerConnection = 16 * 1024 * 1024;
     internal const int MaxQueuedFrames = 64;
+    internal const int MaxRejectedResets = 64;
+    internal const int MaxResetBurst = 8;
     internal const int MaxOutgoingFrameLength = 16 * 1024;
 
     private readonly ILogger? _logger;
@@ -49,13 +52,16 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
         public bool ReceiveClosed { get; set; }
         public bool RemoteReset { get; set; }
         public bool Retired { get; set; }
+        public bool ResetPending { get; set; }
         public volatile bool DiscardIncoming;
         public int BufferedBytes { get; set; }
     }
 
-    private sealed record OutgoingFrame(byte[] Bytes, StreamState? Stream = null, TaskCompletionSource<IOResult>? Completion = null);
+    private sealed record OutgoingFrame(byte[] Bytes, StreamState Stream, TaskCompletionSource<IOResult> Completion);
 
-    private sealed class Connection(IChannel transport, IConnectionContext context, ILogger? logger)
+    private sealed record ResetFrame(byte[] Bytes, StreamState? Stream = null);
+
+    internal sealed class Connection(IChannel transport, IConnectionContext context, ILogger? logger)
     {
         private readonly Lock _gate = new();
         private readonly Dictionary<(ulong Id, bool Local), StreamState> _streams = [];
@@ -65,6 +71,21 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
             SingleReader = true,
             AllowSynchronousContinuations = false,
         });
+        // Accepted resets own their stream's admission reservation; rejected opens own a permit.
+        // Both budgets include the frame currently being written.
+        private readonly Queue<ResetFrame> _resets = new();
+        private readonly SemaphoreSlim _rejectionBudget = new(MaxRejectedResets, MaxRejectedResets);
+        private readonly Channel<bool> _writeReady = System.Threading.Channels.Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+        {
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.DropWrite,
+            AllowSynchronousContinuations = false,
+        });
+        private int _inboundStreams;
+        private int _outboundStreams;
+        private int _pendingResets;
+        private int _pendingRejections;
+        private bool _rejectionWarningLogged;
         private INewSessionContext? _session;
         private CancellationTokenRegistration _sessionClosed;
         private Task _dialRequests = Task.CompletedTask;
@@ -74,6 +95,15 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
         private readonly int _outgoingFrameLength = context.State.PreferredWriteSize is int preferred && preferred > 12
             ? Math.Min(MaxOutgoingFrameLength, preferred - 12)
             : MaxOutgoingFrameLength;
+
+        internal int QueuedFrameCount => _outgoing.Reader.Count;
+        internal int ReservedStreamCount { get { lock (_gate) return _streams.Count; } }
+        internal int InboundStreamCount { get { lock (_gate) return _inboundStreams; } }
+        internal int OutboundStreamCount { get { lock (_gate) return _outboundStreams; } }
+        internal int RetiredStreamCount { get { lock (_gate) return _streams.Values.Count(stream => stream.Retired); } }
+        internal int PendingResetCount { get { lock (_gate) return _pendingResets; } }
+        internal int PendingRejectionCount { get { lock (_gate) return _pendingRejections; } }
+        internal int BufferedByteCount { get { lock (_gate) return _bufferedBytes; } }
 
         public async Task RunAsync(bool isListener)
         {
@@ -110,6 +140,14 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                 await _dialRequests;
                 await writer;
                 await Task.WhenAll(streams.Select(stream => stream.Worker));
+                lock (_gate)
+                {
+                    _streams.Clear();
+                    _inboundStreams = 0;
+                    _outboundStreams = 0;
+                }
+                _writeReady.Writer.TryComplete();
+                _rejectionBudget.Dispose();
                 _sessionClosed.Dispose();
                 transportClosed.Dispose();
                 _stop.Dispose();
@@ -138,7 +176,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     StreamState? stream;
                     lock (_gate)
                     {
-                        stream = !_closing && _streams.Count < MaxStreams && _nextId <= MplexFrame.MaxStreamId
+                        stream = !_closing && _outboundStreams < MaxOutboundStreams && _nextId <= MplexFrame.MaxStreamId
                             ? AddStream(_nextId++, true, request)
                             : null;
                     }
@@ -163,8 +201,18 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
         {
             StreamState stream = new(id, local, options, _stop.Token);
             _streams.Add((id, local), stream);
+            if (local) _outboundStreams++;
+            else _inboundStreams++;
             stream.Worker = Task.Run(() => RunStreamAsync(stream));
             return stream;
+        }
+
+        // Called under _gate. Cleanup and required reset transmission jointly own admission.
+        private void ReleaseReservation(StreamState stream)
+        {
+            if (!stream.Retired || stream.ResetPending || !_streams.Remove((stream.Id, stream.Local))) return;
+            if (stream.Local) _outboundStreams--;
+            else _inboundStreams--;
         }
 
         private async Task ReadFramesAsync()
@@ -177,21 +225,26 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     await DiscardAsync(frame.Length);
                     // Match the other TCP muxer: defer listener session admission until a valid stream arrives.
                     if (_session is null) StartSession();
+                    bool rejected;
                     lock (_gate)
                     {
                         if (_streams.ContainsKey((frame.StreamId, false)))
                             throw new InvalidDataException("Duplicate Mplex stream.");
-                        if (!_closing && _streams.Count < MaxStreams)
-                            AddStream(frame.StreamId, false, new UpgradeOptions());
-                        else
-                            SendControl(frame.StreamId, MplexFlag.ResetReceiver);
+                        rejected = _closing || _inboundStreams >= MaxInboundStreams;
+                        if (!rejected) AddStream(frame.StreamId, false, new UpgradeOptions());
                     }
+                    // Only the reader waits for rejection capacity, outside the stream lock.
+                    if (rejected) await RejectStreamAsync(frame.StreamId);
                     continue;
                 }
 
                 bool local = ((byte)frame.Flag & 1) != 0;
                 StreamState? stream;
-                lock (_gate) _streams.TryGetValue((frame.StreamId, local), out stream);
+                lock (_gate)
+                {
+                    _streams.TryGetValue((frame.StreamId, local), out stream);
+                    if (stream?.Retired == true) stream = null;
+                }
                 if (stream is null)
                 {
                     // Late frames for retired streams are legal. Never resurrect them.
@@ -324,7 +377,7 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                     {
                         CancelStream(stream);
                         if (!_stop.IsCancellationRequested && !stream.RemoteReset)
-                            SendControl(stream.Id, stream.Local ? MplexFlag.ResetInitiator : MplexFlag.ResetReceiver);
+                            QueueReset(stream);
                     }
                     if (up is not null) await up.AbortAsync();
                 }
@@ -335,9 +388,10 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
                 while (stream.Incoming.Reader.TryRead(out byte[]? payload)) ReleaseBytes(stream, payload.Length);
                 lock (_gate)
                 {
+                    // Cleanup and reset transmission may finish in either order; the last releases admission.
                     stream.Retired = true;
                     stream.Stop.Dispose();
-                    _streams.Remove((stream.Id, stream.Local));
+                    ReleaseReservation(stream);
                 }
             }
         }
@@ -413,32 +467,135 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
             TaskCompletionSource<IOResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             OutgoingFrame frame = new(new MplexFrame(stream.Id, flag, (int)payload.Length).Encode(payload), stream, completion);
             await _outgoing.Writer.WriteAsync(frame, stream.Stop.Token);
+            _writeReady.Writer.TryWrite(true);
             IOResult result = await completion.Task.WaitAsync(stream.Stop.Token);
             if (result != IOResult.Ok) throw new ChannelAbortedException();
         }
 
-        // The shared reader must never wait on an application or a saturated writer queue.
-        private void SendControl(ulong id, MplexFlag flag)
+        // Called under _gate. The stream already owns a reservation, so this cannot overflow.
+        private void QueueReset(StreamState stream)
         {
-            if (!_outgoing.Writer.TryWrite(new(new MplexFrame(id, flag, 0).Encode(default))))
-                _stop.Cancel();
+            if (stream.ResetPending) return;
+            stream.ResetPending = true;
+            _resets.Enqueue(new(new MplexFrame(stream.Id,
+                stream.Local ? MplexFlag.ResetInitiator : MplexFlag.ResetReceiver, 0).Encode(default), stream));
+            _pendingResets++;
+            _writeReady.Writer.TryWrite(true);
+        }
+
+        private async Task RejectStreamAsync(ulong id)
+        {
+            if (!_rejectionBudget.Wait(0))
+            {
+                if (!_rejectionWarningLogged && !_stop.IsCancellationRequested)
+                {
+                    _rejectionWarningLogged = true;
+                    logger?.LogWarning("Mplex connection {Context} paused reading at rejected stream {Stream}: {Budget} rejection resets outstanding",
+                        context.Id, id, MaxRejectedResets);
+                }
+                await _rejectionBudget.WaitAsync(_stop.Token);
+            }
+
+            bool transferred = false;
+            try
+            {
+                lock (_gate)
+                {
+                    if (_closing || _stop.IsCancellationRequested) return;
+                    _resets.Enqueue(new(new MplexFrame(id, MplexFlag.ResetReceiver, 0).Encode(default)));
+                    _pendingResets++;
+                    _pendingRejections++;
+                    transferred = true;
+                }
+                _writeReady.Writer.TryWrite(true);
+            }
+            finally
+            {
+                if (!transferred) _rejectionBudget.Release();
+            }
+        }
+
+        private void CompleteReset(ResetFrame frame, bool sent)
+        {
+            lock (_gate)
+            {
+                _pendingResets--;
+                if (frame.Stream is { } stream)
+                {
+                    if (sent)
+                    {
+                        stream.ResetPending = false;
+                        ReleaseReservation(stream);
+                    }
+                }
+                else
+                {
+                    _pendingRejections--;
+                    _rejectionBudget.Release();
+                }
+            }
         }
 
         private async Task WriteFramesAsync()
         {
             try
             {
-                await foreach (OutgoingFrame frame in _outgoing.Reader.ReadAllAsync(_stop.Token))
+                int resetBurst = 0;
+                while (!_stop.IsCancellationRequested)
                 {
-                    IOResult result = IOResult.Aborted;
-                    try
+                    ResetFrame? reset = null;
+                    OutgoingFrame? ordinary = null;
+                    lock (_gate)
                     {
-                        if (frame.Stream?.Stop.IsCancellationRequested != true)
-                            result = await transport.WriteAsync(new ReadOnlySequence<byte>(frame.Bytes), _stop.Token);
-                        if (result != IOResult.Ok && frame.Stream?.Stop.IsCancellationRequested != true)
-                            throw new ChannelAbortedException();
+                        if (resetBurst < MaxResetBurst) _resets.TryDequeue(out reset);
                     }
-                    finally { frame.Completion?.TrySetResult(result); }
+                    if (reset is null)
+                    {
+                        while (_outgoing.Reader.TryRead(out OutgoingFrame? candidate))
+                        {
+                            if (candidate.Stream.Stop.IsCancellationRequested)
+                                candidate.Completion.TrySetResult(IOResult.Aborted);
+                            else
+                            {
+                                ordinary = candidate;
+                                break;
+                            }
+                        }
+                        if (ordinary is null)
+                            lock (_gate) _resets.TryDequeue(out reset);
+                    }
+
+                    if (reset is not null)
+                    {
+                        bool sent = false;
+                        try
+                        {
+                            IOResult result = await transport.WriteAsync(new ReadOnlySequence<byte>(reset.Bytes), _stop.Token);
+                            if (result != IOResult.Ok) throw new ChannelAbortedException();
+                            sent = true;
+                        }
+                        finally { CompleteReset(reset, sent); }
+                        resetBurst = Math.Min(resetBurst + 1, MaxResetBurst);
+                    }
+                    else if (ordinary is not null)
+                    {
+                        IOResult result = IOResult.Aborted;
+                        try
+                        {
+                            if (!ordinary.Stream.Stop.IsCancellationRequested)
+                            {
+                                result = await transport.WriteAsync(new ReadOnlySequence<byte>(ordinary.Bytes), _stop.Token);
+                                if (result != IOResult.Ok) throw new ChannelAbortedException();
+                                resetBurst = 0;
+                            }
+                        }
+                        finally { ordinary.Completion.TrySetResult(result); }
+                    }
+                    else
+                    {
+                        // A single coalescing notification covers both queues. Always inspect them before waiting.
+                        await _writeReady.Reader.ReadAsync(_stop.Token);
+                    }
                 }
             }
             catch (Exception exception)
@@ -455,7 +612,10 @@ public class MplexProtocol : SymmetricProtocol, IConnectionProtocol
             }
             finally
             {
-                while (_outgoing.Reader.TryRead(out OutgoingFrame? frame)) frame.Completion?.TrySetResult(IOResult.Aborted);
+                _outgoing.Writer.TryComplete();
+                while (_outgoing.Reader.TryRead(out OutgoingFrame? frame)) frame.Completion.TrySetResult(IOResult.Aborted);
+                lock (_gate)
+                    while (_resets.TryDequeue(out ResetFrame? reset)) CompleteReset(reset, false);
             }
         }
     }

@@ -112,6 +112,12 @@ public static class VarInt
         {
             using ReadResult read = await buf.ReadOwnedAsync(1, token: token);
             byte @byte = read.OrThrow().FirstSpan[0];
+            // The fifth byte has only three payload bits and cannot continue.
+            if (i == 4 && @byte > 0x07)
+            {
+                throw new FormatException("Invalid 7-bit encoding");
+            }
+
             res += (@byte & 127) << mul;
             mul += 7;
             if ((@byte & 128) == 0)

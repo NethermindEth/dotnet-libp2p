@@ -30,7 +30,7 @@ public class StrictSignTests
         Identity author = new();
         PublicKey padded = new() { Type = KeyType.Ed25519, Data = ByteString.CopyFrom([.. author.PublicKey.Data.ToByteArray(), 0x00]) };
 
-        Assert.That(Signed(author, new PeerId(padded)).VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.False);
+        Assert.That(Signed(author, new PeerId(Multiformats.Hash.Multihash.Encode(padded.ToByteArray(), Multiformats.Hash.HashType.ID))).VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.False);
     }
 
     private static Message Signed(Identity author, PeerId from) =>

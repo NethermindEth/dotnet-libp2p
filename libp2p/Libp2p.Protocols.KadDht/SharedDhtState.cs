@@ -7,6 +7,7 @@ using Libp2p.Protocols.KadDht.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nethermind.Kademlia;
+using Nethermind.Libp2p.Core;
 
 namespace Libp2p.Protocols.KadDht;
 
@@ -40,19 +41,50 @@ public class SharedDhtState
     /// <summary>
     /// Gets the distributed value store for the DHT.
     /// </summary>
-    public DhtValueStore ValueStore { get; }
+    [Obsolete("Use IValueStore or the peer-bound DhtClient asynchronous API.")]
+    public DhtValueStore ValueStore => ClaimValueStore();
+    private readonly Lock _valueStoreLock = new();
+    private DhtValueStore _legacyValues;
+    private bool _valueStoreBound;
+    internal DhtValueStore ClaimValueStore()
+    {
+        lock (_valueStoreLock)
+        {
+            _valueStoreBound = true;
+            return _legacyValues;
+        }
+    }
+
+    internal void UseValueStore(IValueStore values, TimeSpan ttl)
+    {
+        lock (_valueStoreLock)
+        {
+            bool matches = ReferenceEquals(values, _legacyValues.Store) && ttl == _legacyValues.DefaultTtl;
+            if (_valueStoreBound && !matches)
+                throw new InvalidOperationException("SharedDhtState is already bound to a different value store or record TTL. Use a separate state for each store and TTL.");
+            if (!matches) _legacyValues = new DhtValueStore(values, ttl);
+            _valueStoreBound = true;
+        }
+    }
 
     /// <summary>
     /// Creates shared DHT state with optional routing table reference.
     /// </summary>
     /// <param name="routingTable">Optional routing table for efficient peer lookups. If null, GetKNearestPeers returns empty array.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
-    /// <param name="maintenanceInterval">Optional cleanup interval for value store. Defaults to 1 hour.</param>
+    /// <param name="maintenanceInterval">Legacy cleanup interval retained for compatibility; maintenance follows the backing IValueStore lifecycle.</param>
     public SharedDhtState(IRoutingTable<DhtNode, ValueHash256>? routingTable = null, ILoggerFactory? loggerFactory = null, TimeSpan? maintenanceInterval = null)
     {
         _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
         _routingTable = routingTable;
-        ValueStore = new DhtValueStore(loggerFactory, cleanupInterval: maintenanceInterval);
+        _legacyValues = new DhtValueStore(loggerFactory, cleanupInterval: maintenanceInterval);
+    }
+
+    internal SharedDhtState(IValueStore values, ILoggerFactory? loggerFactory, TimeSpan ttl)
+    {
+        _logger = loggerFactory?.CreateLogger<SharedDhtState>() ?? NullLogger<SharedDhtState>.Instance;
+        _legacyValues = new DhtValueStore(values, ttl);
+        _valueStoreBound = true;
     }
 
     /// <summary>
@@ -72,6 +104,9 @@ public class SharedDhtState
     /// physical peer (e.g. different multiaddresses) don't produce duplicate RPCs.
     /// </summary>
     public DhtNode[] GetKNearestPeers(PublicKey targetKey, int k = 0)
+        => GetKNearestPeers(targetKey, k, null);
+
+    internal DhtNode[] GetKNearestPeers(PublicKey targetKey, int k, PeerId? excludedPeer)
     {
         if (k <= 0) k = KValue;
 
@@ -87,8 +122,13 @@ public class SharedDhtState
         var seen = new HashSet<string>();
         var closestPeers = new List<DhtNode>(k);
 
-        foreach (var peer in _routingTable.GetKNearestNeighbour(targetKey.Hash, excludeSelf: true))
+        // Exclude during lookup: the underlying table itself caps ordinary results at K.
+        var candidates = excludedPeer is null
+            ? _routingTable.GetKNearestNeighbour(targetKey.Hash, excludeSelf: true)
+            : _routingTable.GetKNearestNeighbourExcluding(targetKey.Hash, PublicKey.ComputeHash(excludedPeer.Bytes), true);
+        foreach (var peer in candidates)
         {
+            if (excludedPeer is not null && excludedPeer.Equals(peer.PeerId)) continue;
             var peerIdStr = peer.PeerId?.ToString();
             if (peerIdStr != null && !seen.Add(peerIdStr))
             {

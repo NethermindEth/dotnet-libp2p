@@ -16,6 +16,17 @@ public class MessageHelperTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public void WireHelpersRejectMalformedOrOversizedIdentities(bool oversized)
+    {
+        byte[] bytes = oversized ? [0, 127, .. new byte[127]] : [255, 255, 255];
+        var node = new PeerId(bytes).ToDhtNode();
+
+        Assert.That(() => MessageHelper.ToWirePeer(node), Throws.TypeOf<ArgumentException>());
+        Assert.That(() => MessageHelper.CreateAddProviderRequest([1], [node]), Throws.TypeOf<ArgumentException>());
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public void FromWirePeer_PreservesRelayDestination(bool includeDestination)
     {
         var peerId = new Identity(new byte[32]).PeerId;

@@ -21,6 +21,7 @@ public class PubsubRouterLifecycleTests
         Assert.That(topic.IsSubscribed, Is.True);
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(topic.IsSubscribed, Is.False);
     }
@@ -78,7 +79,9 @@ public class PubsubRouterLifecycleTests
         List<Rpc> sent = ConnectFloodsubPeer(router, subscribedTo: "topic");
 
         topic.Unsubscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         topic.Subscribe();
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(Announcements(sent, "topic"), Is.EqualTo(new[] { false, true }));
     }
@@ -90,6 +93,7 @@ public class PubsubRouterLifecycleTests
         List<Rpc> sent = ConnectFloodsubPeer(router, subscribedTo: "topic");
 
         router.GetTopic("topic");
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
 
         Assert.That(Announcements(sent, "topic"), Is.EqualTo(new[] { true }));
     }

@@ -12,6 +12,7 @@ using SharedReadResult = Nethermind.Channels.ReadResult;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
+[assembly: InternalsVisibleTo("Libp2p.E2eTests")]
 
 namespace Nethermind.Libp2p.Core;
 

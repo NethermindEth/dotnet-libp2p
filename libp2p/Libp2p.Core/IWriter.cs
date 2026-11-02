@@ -23,6 +23,9 @@ public interface IWriter
         => WriteAsync(new ReadOnlySequence<byte>(slice.ReadOnlyMemory.ToArray()), token);
 
     ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
+        => WriteLineAsync(str, CancellationToken.None);
+
+    ValueTask<IOResult> WriteLineAsync(string str, CancellationToken token)
     {
         int len = Encoding.UTF8.GetByteCount(str) + 1;
         byte[] buf = new byte[VarInt.GetSizeInBytes(len) + len];
@@ -30,7 +33,7 @@ public interface IWriter
         VarInt.Encode(len, buf, ref offset);
         Encoding.UTF8.GetBytes(str, 0, str.Length, buf, offset);
         buf[^1] = 0x0a;
-        return WriteAsync(new ReadOnlySequence<byte>(buf));
+        return WriteAsync(new ReadOnlySequence<byte>(buf), token);
     }
 
     ValueTask<IOResult> WriteVarintAsync(int val)

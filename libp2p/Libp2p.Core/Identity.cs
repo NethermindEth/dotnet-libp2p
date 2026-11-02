@@ -62,7 +62,7 @@ public class Identity
                 break;
             case KeyType.Rsa:
                 {
-                    using RSA rsa = RSA.Create(1024);
+                    using RSA rsa = RSA.Create(2048);
                     privateKeyData = ByteString.CopyFrom(rsa.ExportRSAPrivateKey());
                 }
                 break;

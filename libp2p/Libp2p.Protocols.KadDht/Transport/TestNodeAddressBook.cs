@@ -13,6 +13,7 @@ namespace Libp2p.Protocols.KadDht.Transport;
 /// Minimal address book for TestNode so we can exercise real dialing.
 /// In production, replace with your domain node type or back with PeerStore.
 /// </summary>
+[Obsolete("Use DhtNode and the peer-bound KadDhtProtocol or IDhtMessageSender APIs.")]
 public sealed class TestNodeAddressBook
 {
     private readonly ConcurrentDictionary<PeerId, Multiaddress[]> _map = new();

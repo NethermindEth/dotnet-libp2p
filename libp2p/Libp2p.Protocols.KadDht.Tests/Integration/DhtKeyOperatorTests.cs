@@ -124,7 +124,10 @@ public class DhtKeyOperatorTests
     [Test]
     public void SessionKeyOperator_CreateRandomKeyAtDistance_ShouldReturnNormalWireKey()
     {
+#pragma warning disable CS0618 // Verify the retained legacy key operator.
         var sessionKeyOperator = new PublicKeyKeyOperator();
+#pragma warning restore CS0618
+
         ValueHash256 prefix = CreatePrefixHash();
 
         PublicKey result = sessionKeyOperator.CreateRandomKeyAtDistance(prefix, 128);

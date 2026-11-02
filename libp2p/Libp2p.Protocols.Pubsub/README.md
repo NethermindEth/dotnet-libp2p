@@ -51,6 +51,8 @@ ITopic alerts = router.GetTopic("alerts", subscribe: false);
 alerts.Subscribe();
 ```
 
+Only a current local subscription admits received full messages. A remote announcement, score configuration, publishing fanout, or an unsubscribed topic handle does not establish delivery interest. Unwanted payloads are ignored before message-ID calculation, signature or application validation, caches, delivery scoring, events, and forwarding. Subscriptions and control messages in the same RPC still run. Subscribed topics retain their default delivery rewards and invalid-message penalties even without explicit score parameters.
+
 ## Publishing
 
 Publish raw bytes or protobuf messages:
@@ -127,6 +129,150 @@ router.UnsubscribeAll();
 ```
 
 Unsubscribing announces the topic leave to connected pubsub peers and prunes the local mesh for that topic.
+It also removes pending validations for the topic and releases their capacity; their later `CompleteValidation` calls return `false`, even after resubscribing. Already accepted callbacks queued for dispatch may finish concurrently with unsubscribe. Application validation work is not cancelled.
+
+Outstanding IWANT promises survive local unsubscribe. Replies on the unwanted topic are ignored and do not fulfill those promises, so expiry can still incur a behavioral penalty for the peer that announced the message.
+
+## Mesh admission and prune backoff
+
+GRAFT admission requires a nonnegative peer score. Rejected negative-score and premature
+GRAFTs receive PRUNE without peer exchange (PX); both refresh the local backoff.
+Heartbeat pruning also records backoff, including pruning for excess mesh degree.
+Gossipsub v1.0 receives topic-only PRUNE; v1.1–v1.3 also receive the backoff duration.
+
+Received nonzero PRUNE backoff is capped at **24 hours**, before converting its wire
+`uint64` seconds or calculating a deadline. This is a local defensive policy, not a
+protocol maximum. An omitted or zero duration uses configured `PruneBackoff`.
+Configured local `PruneBackoff` and `UnsubscribeBackoff` (milliseconds) remain authoritative,
+including durations longer than 24 hours. Negative local durations are treated as zero;
+zero unsubscribe backoff permits immediate re-entry. Wire durations round up to whole seconds.
+
+Backoff uses the router's injected UTC `TimeProvider`. Refresh preserves a later existing
+deadline within a retention horizon of the maximum of 24 hours and the two configured local
+durations. Deadlines saturate at the maximum representable date. Receipt of PRUNE removes
+the peer from the mesh before processing backoff or PX, so extreme durations cannot leave
+membership intact or abort later controls in that RPC.
+
+These rules follow [gossipsub v1.1 scoring and backoff](https://github.com/libp2p/specs/blob/c750236de43cd8b246a824b377dfdb26bae686db/pubsub/gossipsub/gossipsub-v1.1.md);
+the 24-hour cap is this implementation's policy.
+
+## Remote subscription limits
+
+Remote membership is retained independently of local subscriptions so a later local subscription can discover peers. Configure these positive settings before constructing the router:
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `MaxRemoteSubscriptionsPerPeer` | 1,024 | Distinct retained topic memberships for one remote peer |
+| `MaxRemoteSubscriptionTopicBytesPerPeer` | 1 MiB | Topic-name byte charges for one remote peer |
+| `MaxRemoteSubscriptions` | 65,536 | Memberships across all remote peers |
+| `MaxRemoteSubscriptionTopicBytes` | 64 MiB | Topic-name byte charges across all remote peers |
+
+Each membership charges `2L * topic.Length` bytes for UTF-16 characters, including when multiple peers share a topic. Count limits also bound collection overhead; byte limits do not measure total managed-heap usage. Application-created local topics and historical scoring keep their existing lifetimes.
+
+Announcements are processed in wire order. Per-peer limits always apply. At a global count or byte limit, a membership for a currently subscribed local topic can reclaim capacity by evicting the oldest unwanted memberships. Existing memberships on subscribed topics are protected. Local subscribe and unsubscribe update that priority without discarding remote announcements. The router checks that the entire new membership can fit before evicting anything; all count and byte limits remain hard bounds.
+
+Other additions exceeding a budget are ignored without a penalty or disconnect; later entries, including unsubscribe, still run. Duplicate announcements consume no additional capacity and can update partial-message options. Rejected or evicted memberships require a new announcement to become known again, so discovery of topics without a local subscription is best effort at saturation. GRAFT's implicit membership uses the same priority and limits, and responds with PRUNE if it cannot fit. Saturation by subscribed memberships can still reject further wanted memberships; applications must size the limits for their active topics and peers.
+
+Remote unsubscribe and disconnect release membership and partial-message metadata. Empty remote topic keys are removed from `IRoutingStateContainer.FloodsubPeers` and `GossipsubPeers`; local subscription alone no longer creates these keys. An active local subscription keeps its empty mesh so heartbeat can refill it. Local unsubscribe retains remote announcements, and publishing without subscribing continues to use fanout.
+
+## Outbound work and incoming dispatch
+
+Configure these positive limits before constructing the router:
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `MaxOutboundRpcEntriesPerPeer` | 32 | Queued plus in-flight frames per peer |
+| `MaxOutboundRpcBytesPerPeer` | 4 MiB | Encoded bytes, including framing, per peer |
+| `MaxOutboundRpcEntries` | 4,096 | Frames across the router, including draining connections |
+| `MaxOutboundRpcBytes` | 64 MiB | Encoded bytes across the router, including draining connections |
+| `OutboundRpcTimeout` | 30,000 ms | Maximum outbound frame residence, from admission through write completion |
+| `MaxIncomingMessageIdRpcEntries` | 128 | Incoming RPCs awaiting calculation or completing dispatch |
+| `MaxIncomingMessageIdRpcBytes` | 16 MiB | Full protobuf size of those incoming RPCs; at least `MaxRpcBytes` |
+| `MaxIncomingMessageIdRpcEntriesPerPeer` | 8 | One connected peer's share of the incoming entries, across all of its streams |
+| `MaxIncomingMessageIdRpcBytesPerPeer` | 2 MiB | One connected peer's share of the incoming bytes for additional concurrent RPCs |
+
+Every outbound RPC uses the same budgets, including before a reply stream is attached. Admission
+never waits for space. Each peer has one asynchronous writer and owns immutable serialized frames;
+mutating an RPC after admission cannot change queued data. Reservations remain charged until the
+underlying write finishes, including a partly consumed write during shutdown. Byte limits measure
+encoded payloads, rather than total managed memory; entry limits also bound queue overhead.
+Required control queued behind a busy writer, or before a reply stream attaches, is coalesced: a
+subscribe, unsubscribe, GRAFT or PRUNE for a topic the pending frame does not yet mention merges into
+that frame, so subscribing to many topics in a burst costs one entry rather than one per topic. A
+repeated GRAFT is redundant and a repeated PRUNE is superseded; control for a topic already pending
+starts a new frame so receivers see the same per-topic order. Merging charges only the byte delta,
+keeps the frame's original admission time, and never reads the caller's RPC again.
+
+At capacity, payloads, partial messages, IHAVE, IDONTWANT and IWANT requests drop newest without a
+score penalty. Losing a subscribe, unsubscribe, GRAFT, PRUNE or first-frame extension advertisement
+instead closes that peer generation and disconnects its owning session. A failed write also closes
+the generation, because continuing a possibly incomplete framed stream is unsafe. This session
+closure can affect other protocols sharing the connection. Local subscriptions survive teardown;
+a fresh connection advertises the current snapshot. Insufficient capacity for that snapshot closes
+the new connection again. Automatic connections retain the existing retry policy; with
+`AutoConnect = false`, the application owns recovery.
+
+Required control has reserved headroom **within** both router-wide limits: the smaller of one
+peer's limit and half the router-wide limit, rounded up, is unavailable to optional traffic.
+With the defaults, optional traffic can occupy at most 4,064 entries and 60 MiB; required control
+can use the full 4,096 entries and 64 MiB. This keeps stalled peers' optional traffic from
+consuming the space for healthy peers' subscription, mesh and initial extension announcements.
+An RPC that combines required control with payloads, partial messages, IHAVE, IWANT or IDONTWANT
+is queued as two frames: a control-only frame checked against the full limits, followed by the
+optional frame checked against the optional limits. Optional content therefore never occupies the
+reserved headroom, including when a remote peer provokes a combined response such as a PRUNE with
+IWANT replies. Dropping the optional frame leaves the control frame queued and the generation open.
+Control-only frames remain bounded by the per-peer limits and `OutboundRpcTimeout`. A one-entry
+router-wide limit leaves no optional entry capacity. If required traffic also exhausts the total
+budget, or an individual required frame cannot fit, its recipient still closes rather than retaining
+inconsistent subscription or mesh state. No capacity waiters, retry backlog or separate control
+queue are created.
+
+`OutboundRpcTimeout` is a positive construction-time deadline measured with monotonic time.
+Every frame must complete within this interval after admission, including queue residence and
+waiting for a reply stream to attach. Expiry closes the generation holding the stalled work,
+aborts its stream and disconnects its owning session without a score penalty. One owned timer
+per generation tracks its oldest outstanding frame and is disposed during teardown. Queued
+frames release capacity on teardown; an active write remains charged until the underlying
+operation actually terminates, even after cancellation or abort has been requested.
+
+IWANT promises reserve bounded tracking capacity only after admission. Queue residence and stalled
+writes do not consume the follow-up deadline. A successful channel write starts that deadline;
+fulfillment, failed writes and teardown cancel pending promises. A write completion from an old
+connection cannot arm a replacement connection's promise. Incoming request and response-attempt
+limits remain conservative abuse limits even when outbound work is dropped.
+
+Receive loops await message-ID admission before reading another frame. The incoming budgets bound
+both semaphore waiters and RPCs retained through dispatch. An admitted RPC stays charged until its
+synchronous application callbacks return, so inbound publish concurrency is bounded by the entry
+budget divided by handler latency; slow handlers cost incoming capacity rather than forwarding
+latency. Each connected peer may hold at most its per-peer share, charged across every inbound
+stream it has opened, so one peer cannot take the router-wide budget by opening many streams. The
+share narrows that exposure rather than closing it: the router-wide check runs first and reserves
+nothing for peers holding nothing, so with the defaults sixteen peers each holding eight entries,
+or fewer peers holding large RPCs up to the byte budget, exhaust the router-wide budget and every
+other peer's publishes are skipped with `reason` `capacity` until entries release. A peer holding
+nothing always gets one RPC admitted, up to `MaxRpcBytes`, so a share smaller than a maximum-size
+RPC never blocks delivery; the share bounds that peer's additional concurrent RPCs.
+The router-wide byte budget must be at least `MaxRpcBytes`, which construction enforces. At
+either limit, publishes are skipped before hashing, validation, caching, delivery credit or
+penalties; subscriptions and controls still run, and the skipped message IDs are not cached, so
+gossip can request them again. A skip also cancels the sender's pending IWANT promises, as a
+throttled validation does, so local overload never becomes a broken-promise penalty for a peer
+that did deliver. Control-only, unwanted-topic and graylisted traffic keep their early
+gates. Calculations share the existing concurrency limit with synchronous application publishing.
+Cancellation stops pending admission; already running host calculations and application callbacks
+cannot be forcibly cancelled.
+
+Forwarding and IDONTWANT admission happen before synchronous full-message and partial-message
+callbacks, including accepted deferred validations. Application events retain their signatures,
+ordering and exception isolation and run outside the router lock. An admitted frame is queued work,
+not an acknowledgement of delivery.
+
+The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
+`libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`),
+and `libp2p.pubsub.incoming.skipped` with `reason` `capacity` (router-wide) or `peer-capacity`.
+None carry peer or topic labels.
 
 ## Stopping the router
 

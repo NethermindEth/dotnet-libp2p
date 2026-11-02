@@ -142,6 +142,7 @@ public class MessageCacheTests
         sentRpcs.Clear();
 
         router.Publish(topic, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         Message published = sentRpcs.Single().Publish.Single();
         MessageId messageId = PubsubSettings.ConcatFromAndSeqno(published);
         sentRpcs.Clear();
@@ -157,6 +158,7 @@ public class MessageCacheTests
                 Assert.That(sentRpcs.Single().Publish.Single(), Is.EqualTo(published),
                     $"Message should remain available after {heartbeat} heartbeats.");
                 await router.Heartbeat();
+                router.FlushOutboundAsync().GetAwaiter().GetResult();
             }
 
             sentRpcs.Clear();
