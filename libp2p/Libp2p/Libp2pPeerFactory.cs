@@ -15,25 +15,33 @@ public class Libp2pPeerFactory(
         IdentifyNotifier identifyNotifier,
         ActivitySource? activitySource = null,
         Activity? rootActivity = null,
-        ILoggerFactory? loggerFactory = null)
-    : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory)
+        ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
+    : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory, resourceLimits, timeProvider)
 {
-    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory);
+    public Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, IdentifyNotifier identifyNotifier,
+        ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
+        : this(protocolStackSettings, peerStore, identifyNotifier, activitySource, rootActivity, loggerFactory, null, null) { }
+
+    public override ILocalPeer Create(Identity? identity = null) => new Libp2pPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), identifyNotifier, activitySource, base.rootActivity, LoggerFactory, ResourceLimits, Clock);
 }
 
 public class Libp2pPeer : LocalPeer
 {
-    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null)
-        : base(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory)
+    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
+        : base(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory, resourceLimits: resourceLimits, timeProvider: timeProvider)
     {
         identifyNotifier.TrackChanges(this);
     }
+
+    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier,
+        ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
+        : this(protocolStackSettings, peerStore, identity, identifyNotifier, activitySource, rootActivity, loggerFactory, null, null) { }
 
     protected override async Task ConnectedTo(ISession session, bool isDialer)
     {
         if (GetProtocol<ISessionProtocol>(IdentifyProtocol.ProtocolId) is { } identify)
         {
-            await session.DialAsync(identify);
+            await session.DialAsync(identify, session.Closed);
         }
     }
 }

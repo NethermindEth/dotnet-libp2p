@@ -16,6 +16,7 @@ using NUnit.Framework;
 namespace Nethermind.Libp2p.Protocols.KadDht.Tests;
 
 [TestFixture]
+[Obsolete("Exercises the retained legacy API.")]
 public class DhtClientTests
 {
     [TestCase(false)]

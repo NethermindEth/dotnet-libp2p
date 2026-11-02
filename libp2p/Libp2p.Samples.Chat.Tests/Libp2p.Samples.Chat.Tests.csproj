@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <EnableNUnitRunner>true</EnableNUnitRunner>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Libp2p.Core.TestsBase/Libp2p.Core.TestsBase.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exercise the real console and MAUI sample sources without a MAUI workload. -->
+    <Compile Include="../../samples/chat/ChatProtocol.cs" Link="Samples/ChatProtocol.cs" />
+    <Compile Include="../../samples/maui-chat/ChatProtocol.cs" Link="Samples/MauiChatProtocol.cs" />
+  </ItemGroup>
+</Project>

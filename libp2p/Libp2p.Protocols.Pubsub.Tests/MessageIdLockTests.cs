@@ -408,7 +408,12 @@ public class MessageIdLockTests
         GetMessageId = message => new(message.Data.ToByteArray()),
     };
 
-    private static PubsubRouter CreateRouter(PubsubSettings settings) => new(new PeerStore(), settings);
+    private static PubsubRouter CreateRouter(PubsubSettings settings)
+    {
+        PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic(Topic);
+        return router;
+    }
 
     private static void ConnectPeers(PubsubRouter router, int count = 2)
     {

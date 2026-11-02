@@ -11,6 +11,9 @@ public class NewConnectionContext(LocalPeer localPeer, LocalPeer.Session session
 {
     public CancellationToken Token { get; } = session.ConnectionToken;
 
+    public Task Completion => session.DrainUpgradesAsync();
+    public bool TryDisconnectIfIdle(TimeSpan idleTimeout) => session.TryDisconnectIfIdle(idleTimeout);
+
     public void Dispose()
     {
         try { _ = session.DisconnectAsync(); }

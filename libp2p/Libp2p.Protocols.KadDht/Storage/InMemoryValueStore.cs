@@ -51,7 +51,7 @@ public class InMemoryValueStore : IValueStore
             return Task.FromResult(false);
         }
 
-        _values.AddOrUpdate(keyString, value, (_, existingValue) =>
+        StoredValue retained = _values.AddOrUpdate(keyString, value, (_, existingValue) =>
         {
             // Replace if the new value is newer (higher timestamp)
             if (value.Timestamp >= existingValue.Timestamp)
@@ -66,7 +66,7 @@ public class InMemoryValueStore : IValueStore
             return existingValue;
         });
 
-        return Task.FromResult(true);
+        return Task.FromResult(retained.Value.AsSpan().SequenceEqual(value.Value));
     }
 
     public Task<StoredValue?> GetValueAsync(ReadOnlyMemory<byte> key, CancellationToken cancellationToken = default)

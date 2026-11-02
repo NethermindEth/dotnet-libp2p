@@ -131,6 +131,7 @@ public class GraylistTests
         PeerId peerId = Connect(router, TestPeers.Multiaddr(1), sent.Add, PubsubRouter.GossipsubProtocolVersionV12);
         router.OnRpc(peerId, new Rpc().WithTopics([Topic], []));
         router.Publish(Topic, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         MessageId messageId = PubsubSettings.ConcatFromAndSeqno(sent.Last().Publish.Single());
         if (graylisted)
         {
@@ -205,6 +206,7 @@ public class GraylistTests
         sent.Clear();
 
         router.Publish(Topic, [1, 2, 3]);
+        router.FlushOutboundAsync().GetAwaiter().GetResult();
         cancellation.Cancel();
 
         Assert.That(sent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(graylisted ? 1 : 0));
@@ -247,7 +249,8 @@ public class GraylistTests
         IRoutingStateContainer state = router;
         _ = router.GetTopic(Topic);
         router.VerifyMessage = (_, _) => MessageValidity.Rejected;
-        PeerId peerId = Connect(router, address, _ => { });
+        List<Rpc> sent = [];
+        PeerId peerId = Connect(router, address, sent.Add);
 
         Rpc rpc = Graft().WithTopics([Topic], []);
         for (int i = 0; i < invalidCount; i++)
@@ -263,7 +266,10 @@ public class GraylistTests
         Assert.Multiple(() =>
         {
             Assert.That(subscribed, Is.EqualTo(allowed));
-            Assert.That(state.Mesh[Topic].Contains(peerId), Is.EqualTo(allowed && !direct));
+            // Processing the rest of an RPC still does not admit a negative-score GRAFT.
+            Assert.That(state.Mesh[Topic], Does.Not.Contain(peerId));
+            Assert.That(sent.SelectMany(response => response.Control?.Prune ?? []).Select(prune => prune.TopicID),
+                Is.EqualTo(allowed ? new[] { Topic } : Array.Empty<string>()));
         });
     }
 

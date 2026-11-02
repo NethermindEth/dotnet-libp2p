@@ -24,6 +24,7 @@ jobs:
         run: dotnet format whitespace . --folder --verify-no-changes
 
       - name: Check spelling
-        uses: streetsidesoftware/cspell-action@v7
+        uses: streetsidesoftware/cspell-action@v8
         with:
           config: ./cspell.json
+          incremental_files_only: true

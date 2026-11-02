@@ -35,9 +35,16 @@ public class WebRtcDirectProtocol : ITransportProtocol
     private readonly SemaphoreSlim _incomingOfferSlots = new(MaxConcurrentIncomingOffers, MaxConcurrentIncomingOffers);
     private readonly RTCCertificate2 _certificate;
     private readonly DtlsFingerprint _fingerprint;
+    private readonly Func<RTCPeerConnection, RTCDtlsFingerprint?> _readRemoteFingerprint;
 
     public WebRtcDirectProtocol(ILoggerFactory? loggerFactory = null)
+        : this(pc => pc.RemotePeerDtlsFingerprint, loggerFactory)
     {
+    }
+
+    internal WebRtcDirectProtocol(Func<RTCPeerConnection, RTCDtlsFingerprint?> readRemoteFingerprint, ILoggerFactory? loggerFactory = null)
+    {
+        _readRemoteFingerprint = readRemoteFingerprint;
         _logger = loggerFactory?.CreateLogger<WebRtcDirectProtocol>();
         (_certificate, _fingerprint) = CreateLocalCertificate();
     }
@@ -143,7 +150,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             await connectionTask;
             RTCDataChannel openedNoiseDataChannel = await noiseOpenTask;
 
-            ValidateRemoteFingerprint(pc, expectedFingerprint);
+            ValidateRemoteFingerprint(_readRemoteFingerprint(pc), expectedFingerprint);
 
             using INewConnectionContext connectionContext = context.CreateConnection();
             using CancellationTokenRegistration closed = connectionContext.Token.Register(pc.close);
@@ -201,7 +208,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             await signalingUdp.SendAsync(answerBytes, answerBytes.Length, remoteEndpoint);
 
             await WaitForConnectionAsync(pc, token);
-            ValidateRemoteFingerprint(pc, offeredFingerprint);
+            ValidateRemoteFingerprint(_readRemoteFingerprint(pc), offeredFingerprint);
             RTCDataChannel openedNoiseChannel = await noiseOpenTask;
 
             using INewConnectionContext connectionContext = context.CreateConnection();
@@ -311,9 +318,8 @@ public class WebRtcDirectProtocol : ITransportProtocol
         return opened.Task;
     }
 
-    private static void ValidateRemoteFingerprint(RTCPeerConnection pc, DtlsFingerprint expected)
+    internal static void ValidateRemoteFingerprint(RTCDtlsFingerprint? remote, DtlsFingerprint expected)
     {
-        RTCDtlsFingerprint? remote = pc.RemotePeerDtlsFingerprint;
         if (remote is null || !expected.Matches(remote))
         {
             throw new InvalidOperationException("Remote DTLS fingerprint does not match /certhash.");

@@ -25,9 +25,21 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 /// https://github.com/libp2p/specs/blob/master/quic/README.md
 /// </summary>
-public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
+public class QuicProtocol : ITransportProtocol
 {
-    private readonly ILogger<QuicProtocol>? _logger = loggerFactory?.CreateLogger<QuicProtocol>();
+    private readonly ILogger<QuicProtocol>? _logger;
+    private readonly ArrayPool<byte> _receiveBufferPool;
+
+    public QuicProtocol(ILoggerFactory? loggerFactory = null) : this(loggerFactory, ArrayPool<byte>.Shared)
+    {
+    }
+
+    internal QuicProtocol(ILoggerFactory? loggerFactory, ArrayPool<byte> receiveBufferPool)
+    {
+        _logger = loggerFactory?.CreateLogger<QuicProtocol>();
+        _receiveBufferPool = receiveBufferPool;
+    }
+
     private readonly ECDsa _sessionKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
@@ -282,7 +294,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                     QuicStream stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, session.Token);
                     try
                     {
-                        IChannel upChannel = context.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
+                        IChannel upChannel = session.Upgrade(upgradeOptions with { ModeOverride = UpgradeModeOverride.Dial });
                         TrackExchange(stream, upChannel);
                     }
                     catch
@@ -315,7 +327,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 QuicStream inboundStream = await completedAccept;
                 try
                 {
-                    IChannel upChannel = context.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
+                    IChannel upChannel = session.Upgrade(new UpgradeOptions { ModeOverride = UpgradeModeOverride.Listen });
                     TrackExchange(inboundStream, upChannel);
                 }
                 catch
@@ -362,7 +374,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         }
     }
 
-    private async Task ExchangeData(QuicStream stream, IChannel upChannel, CancellationToken token)
+    internal async Task ExchangeData(QuicStream stream, IChannel upChannel, CancellationToken token)
     {
         using CancellationTokenSource pumpCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         Task outgoing = Task.Run(async () =>
@@ -394,17 +406,20 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
 
         Task incoming = Task.Run(async () =>
         {
+            byte[]? buf = null;
             try
             {
+                const int receiveCapacity = 1024;
+                buf = _receiveBufferPool.Rent(receiveCapacity);
                 while (stream.CanRead)
                 {
-                    byte[] buf = new byte[1024];
-                    int len = await stream.ReadAtLeastAsync(buf, 1, false, pumpCancellation.Token);
+                    int len = await stream.ReadAtLeastAsync(buf.AsMemory(0, receiveCapacity), 1, false, pumpCancellation.Token);
                     if (len == 0)
                     {
                         break;
                     }
-                    if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsMemory()[..len]), pumpCancellation.Token) != IOResult.Ok)
+                    // WaitAll readers can retain fragments after WriteAsync completes.
+                    if (await upChannel.WriteAsync(new ReadOnlySequence<byte>(buf.AsSpan(0, len).ToArray()), pumpCancellation.Token) != IOResult.Ok)
                     {
                         break;
                     }
@@ -420,6 +435,13 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
                 _logger?.LogDebug(ex, "QUIC stream {streamId} incoming data failed", stream.Id);
                 pumpCancellation.Cancel();
                 await upChannel.CloseAsync();
+            }
+            finally
+            {
+                if (buf is not null)
+                {
+                    _receiveBufferPool.Return(buf);
+                }
             }
         });
 

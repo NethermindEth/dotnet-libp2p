@@ -121,6 +121,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
     {
         using var operation = BeginOperation(cancellationToken);
         cancellationToken = operation.Token;
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
@@ -194,11 +195,13 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
         CancellationToken callerCancellationToken = cancellationToken;
         using var operation = BeginOperation(cancellationToken);
         cancellationToken = operation.Token;
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length == 0) throw new ArgumentException("Key cannot be empty", nameof(key));
 
         var localValue = await _valueStore.GetValueAsync(key, cancellationToken);
-        if (localValue is { Value.Length: > 0 })
+        cancellationToken.ThrowIfCancellationRequested();
+        if (localValue is { Value.Length: > 0 } && localValue.Value.Length <= _options.MaxValueSize && _validator.Validate(key, localValue.Value))
         {
             _logger?.LogDebug("GetValue found locally for key {KeyHash}", KeyHashHex(key));
             return localValue.Value;
@@ -223,7 +226,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
                 var result = await _dhtMessageSender.GetValueAsync(node, key, token);
                 if (result.HasValue)
                 {
-                    if (_validator.Validate(key, result.Value))
+                    if (result.Value!.Length <= _options.MaxValueSize && _validator.Validate(key, result.Value))
                         collectedValues.Add(result.Value!);
                     else
                         nodesWithStaleValue.Add(node);
@@ -241,7 +244,7 @@ public class KadDhtProtocol : ISessionProtocol, IDisposable
 
         var valuesList = collectedValues.ToList();
         int bestIndex = _validator.Select(key, valuesList);
-        if (bestIndex < 0)
+        if (bestIndex < 0 || bestIndex >= valuesList.Count)
             return null;
 
         var bestValue = valuesList[bestIndex];

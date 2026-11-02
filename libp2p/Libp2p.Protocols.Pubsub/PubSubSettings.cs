@@ -29,7 +29,41 @@ public class PubsubSettings
     public int HighestDegree { get; set; } = 12; // Upper bound for outbound degree 	12
     public int LazyDegree { get; set; } = 6; // (Optional) the outbound degree for gossip emission D
 
+    /// <summary>Outbound queued plus in-flight frames per peer. Configure capacities before router construction.</summary>
+    public int MaxOutboundRpcEntriesPerPeer { get; set; } = 32;
+    /// <summary>Outbound encoded bytes per peer, including framing and in-flight writes.</summary>
+    public long MaxOutboundRpcBytesPerPeer { get; set; } = 4L * 1024 * 1024;
+    /// <summary>Outbound frames across all peers, including draining generations.</summary>
+    public int MaxOutboundRpcEntries { get; set; } = 4_096;
+    /// <summary>Outbound encoded bytes across all peers, including draining generations.</summary>
+    public long MaxOutboundRpcBytes { get; set; } = 64L * 1024 * 1024;
+    /// <summary>Maximum milliseconds from outbound admission through write completion, including waiting for a reply stream. Configure before router construction.</summary>
+    public int OutboundRpcTimeout { get; set; } = 30_000;
+    /// <summary>Incoming RPCs retained while awaiting or performing message-ID calculation and dispatch.</summary>
+    public int MaxIncomingMessageIdRpcEntries { get; set; } = 128;
+    /// <summary>Total protobuf bytes of admitted incoming message-ID RPCs. Must be at least <see cref="MaxRpcBytes"/>.</summary>
+    public long MaxIncomingMessageIdRpcBytes { get; set; } = 16L * 1024 * 1024;
+    /// <summary>Share of <see cref="MaxIncomingMessageIdRpcEntries"/> one connected peer may hold, across all of its streams.</summary>
+    public int MaxIncomingMessageIdRpcEntriesPerPeer { get; set; } = 8;
+    /// <summary>
+    /// Share of <see cref="MaxIncomingMessageIdRpcBytes"/> that bounds one connected peer's additional concurrent RPCs,
+    /// across all of its streams. A peer holding nothing always gets one RPC up to <see cref="MaxRpcBytes"/>.
+    /// </summary>
+    public long MaxIncomingMessageIdRpcBytesPerPeer { get; set; } = 2L * 1024 * 1024;
+
     public int MaxConnections { get; set; }
+
+    /// <summary>Maximum distinct remote topic memberships retained for one peer. Configure before constructing the router.</summary>
+    public int MaxRemoteSubscriptionsPerPeer { get; set; } = 1_024;
+
+    /// <summary>Maximum topic-name bytes retained per peer, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytesPerPeer { get; set; } = 1 * 1024 * 1024;
+
+    /// <summary>Maximum remote peer/topic memberships retained across the router.</summary>
+    public int MaxRemoteSubscriptions { get; set; } = 65_536;
+
+    /// <summary>Maximum topic-name bytes across all remote memberships, charged as twice the UTF-16 length per membership.</summary>
+    public long MaxRemoteSubscriptionTopicBytes { get; set; } = 64 * 1024 * 1024;
 
     /// <summary>
     /// Peers with reciprocal explicit peering agreements. Each address must
@@ -184,6 +218,13 @@ public class PubsubSettings
     public int DScore { get; set; } = 5;
     public int DOut { get; set; } = 2;
     public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
+
+    /// <summary>
+    /// Maximum peer exchange entries handled from one PRUNE. Longer lists are shuffled and
+    /// truncated first, as with <c>PrunePeers</c> in go-libp2p and js-libp2p.
+    /// </summary>
+    public int PrunePeers { get; set; } = 16;
+
     public int UnsubscribeBackoff { get; set; } = 10 * 1000; // 10 seconds
     public bool FloodPublish { get; set; } = true;
     public double GossipFactor { get; set; } = 0.25;

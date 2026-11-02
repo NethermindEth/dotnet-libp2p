@@ -37,7 +37,7 @@ class TestMuxerProtocol(ChannelBus bus, ILoggerFactory? loggerFactory = null) : 
     {
         context.ListenerReady(listenAddr);
         logger?.LogDebug($"{context.Peer.Identity.PeerId}: Listen async");
-        await foreach (IChannel item in bus.GetIncomingRequests(context.Peer.Identity.PeerId))
+        await foreach (IChannel item in bus.GetIncomingRequests(context.Peer.Identity.PeerId, token))
         {
             _ = Task.Run(async () =>
             {
