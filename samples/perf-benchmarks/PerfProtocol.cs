@@ -20,6 +20,7 @@ public class PerfProtocol : ISessionProtocol
 
     public static ulong BytesToReceive { get; set; }
     public static ulong BytesToSend { get; set; }
+    public static PerfReporter? Reporter { get; set; }
 
     static PerfProtocol()
     {
@@ -85,6 +86,7 @@ public class PerfProtocol : ISessionProtocol
         {
             var chunkSize = (int)Math.Min(remaining, (ulong)BlockSize);
             await WriteAsync(channel, new ReadOnlySequence<byte>(SendBuffer.AsMemory(0, chunkSize)));
+            Reporter?.AddUpload(chunkSize);
             remaining -= (ulong)chunkSize;
         }
     }
@@ -97,7 +99,8 @@ public class PerfProtocol : ISessionProtocol
             var length = (ulong)chunk.Length;
             if (expectedBytes is ulong expected && (total > expected || length > expected - total))
                 throw new InvalidDataException($"Received more than {expected} bytes");
-            total = checked(total + length);
+                total = checked(total + length);
+                Reporter?.AddDownload(chunk.Length);
         }
 
         return total;
