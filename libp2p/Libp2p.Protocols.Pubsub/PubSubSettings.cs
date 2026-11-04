@@ -237,6 +237,7 @@ public class PubsubSettings
     /// <summary>
     /// IP networks exempt from colocation counting and penalties. Configure before connecting peers.
     /// Private addresses count unless exempted; IPv4-mapped IPv6 addresses use IPv4 networks.
+    /// Use <see cref="AddIPColocationWhitelist"/> to configure entries from CIDR strings.
     /// </summary>
     public List<IPNetwork> IPColocationFactorWhitelist { get; set; } = [];
     public double BehaviorPenaltyWeight { get; set; } = -15;
@@ -248,6 +249,13 @@ public class PubsubSettings
     public Dictionary<string, TopicScoreParams> TopicScoreParams { get; set; } = new();
 
     public double TopicScoreCap { get; set; } = 3600;
+
+    /// <summary>
+    /// Parses and adds a CIDR network, such as <c>10.0.0.0/8</c>, to
+    /// <see cref="IPColocationFactorWhitelist"/>. Configure before connecting peers.
+    /// </summary>
+    /// <exception cref="FormatException">The string is not a valid CIDR network.</exception>
+    public void AddIPColocationWhitelist(string cidr) => IPColocationFactorWhitelist.Add(IPNetwork.Parse(cidr));
 
     public static MessageId ConcatFromAndSeqno(Message message) => new([.. message.From, .. message.Seqno]);
 }

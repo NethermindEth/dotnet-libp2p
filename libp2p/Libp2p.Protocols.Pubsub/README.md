@@ -283,10 +283,19 @@ Above `IPColocationFactorThreshold` (default 10), the squared surplus is multipl
 `IPColocationFactorWeight` (default -35).
 
 Unresolved DNS, relay paths, scoped IPv6, loopback and unspecified addresses are excluded;
-DNS is never resolved for scoring. Private addresses count. Configure
-`PubsubSettings.IPColocationFactorWhitelist` with `System.Net.IPNetwork` entries before
-connecting peers to exempt trusted gateways or private networks. Exempt addresses neither
-count toward a bucket nor receive its penalty. IPv4-mapped addresses use IPv4 whitelist entries.
+DNS is never resolved for scoring. Private addresses count. Call
+`PubsubSettings.AddIPColocationWhitelist` with CIDR strings before connecting peers to
+exempt trusted gateways or private networks:
+
+```csharp
+PubsubSettings settings = new();
+settings.AddIPColocationWhitelist("10.0.0.0/8");
+settings.AddIPColocationWhitelist("2001:db8::/32");
+```
+
+The helper parses and validates each network once during configuration; invalid CIDR
+strings throw `FormatException`. Exempt addresses neither count toward a bucket nor
+receive its penalty. IPv4-mapped addresses use IPv4 whitelist entries.
 
 Additional streams keep the existing peer's bucket. Disconnecting removes the peer from
 its bucket, including when its other score penalties are retained. A reconnect uses the

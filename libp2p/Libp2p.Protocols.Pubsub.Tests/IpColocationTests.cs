@@ -3,7 +3,6 @@
 
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
-using System.Net;
 using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
@@ -11,6 +10,22 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [TestFixture]
 public class IpColocationTests
 {
+    [TestCase("")]
+    [TestCase("invalid")]
+    [TestCase("10.0.0.0/33")]
+    [TestCase("2001:db8::/129")]
+    [TestCase("10.0.0.0/-1")]
+    public void InvalidCidrDoesNotModifyTheWhitelist(string cidr)
+    {
+        PubsubSettings settings = new();
+        settings.AddIPColocationWhitelist("10.0.0.0/8");
+
+        Assert.Throws<FormatException>(() => settings.AddIPColocationWhitelist(cidr));
+
+        Assert.That(settings.IPColocationFactorWhitelist, Has.Count.EqualTo(1));
+        Assert.That(IpColocation.GetKey(Address(1, "/ip4/10.0.0.1/tcp/4001"), settings.IPColocationFactorWhitelist), Is.Null);
+    }
+
     [TestCase("/ip4/192.0.2.1/tcp/4001", "192.0.2.1")]
     [TestCase("/ip6/::ffff:192.0.2.1/tcp/4001", "192.0.2.1")]
     [TestCase("/ip6/2001:db8:abcd:12::1/udp/4001/quic-v1", "2001:db8:abcd:12::/64")]
@@ -269,15 +284,14 @@ public class IpColocationTests
 
     private static PubsubSettings WhitelistedSettings(string network)
     {
-        string[] parts = network.Split('/');
-        return new PubsubSettings
+        PubsubSettings settings = new()
         {
             AutoConnect = false,
             IPColocationFactorThreshold = 2,
-            IPColocationFactorWeight = -1,
-            // Target typing selects the BCL network type despite a legacy transitive IPNetwork dependency.
-            IPColocationFactorWhitelist = [new(IPAddress.Parse(parts[0]), int.Parse(parts[1]))]
+            IPColocationFactorWeight = -1
         };
+        settings.AddIPColocationWhitelist(network);
+        return settings;
     }
 
     private static Multiaddress Address(int peer, string endpoint = "") => $"{endpoint}/p2p/{TestPeers.PeerId(peer)}";
