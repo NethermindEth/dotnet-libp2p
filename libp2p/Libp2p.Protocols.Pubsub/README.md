@@ -274,6 +274,24 @@ The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
 and `libp2p.pubsub.incoming.skipped` with `reason` `capacity` (router-wide) or `peer-capacity`.
 None carry peer or topic labels.
 
+## IP colocation scoring
+
+Gossipsub counts each connected peer once using the remote address of its first pubsub
+stream on the established session, rather than addresses advertised by Identify or the peer
+store. IPv4-mapped IPv6 addresses count as IPv4; native IPv6 addresses share a /64 bucket.
+Above `IPColocationFactorThreshold` (default 10), the squared surplus is multiplied by
+`IPColocationFactorWeight` (default -35).
+
+Unresolved DNS, relay paths, scoped IPv6, loopback and unspecified addresses are excluded;
+DNS is never resolved for scoring. Private addresses count. Configure
+`PubsubSettings.IPColocationFactorWhitelist` with `System.Net.IPNetwork` entries before
+connecting peers to exempt trusted gateways or private networks. Exempt addresses neither
+count toward a bucket nor receive its penalty. IPv4-mapped addresses use IPv4 whitelist entries.
+
+Additional streams keep the existing peer's bucket. Disconnecting removes the peer from
+its bucket, including when its other score penalties are retained. A reconnect uses the
+new session address, so changing an address cannot preserve a stale bucket assignment.
+
 ## Stopping the router
 
 The router stops when the token passed to `StartAsync` is cancelled or when the router is disposed. Disposal cancels its heartbeat and reconnect loops and the dials it started, closes the pubsub streams it serves and stops reacting to new `PeerStore` peers. It does not dispose the `PeerStore` or the local peer.

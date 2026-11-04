@@ -4,6 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using Multiformats.Address;
+using System.Net;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -233,6 +234,11 @@ public class PubsubSettings
     public double AppSpecificWeight { get; set; } = 10;
     public double IPColocationFactorWeight { get; set; } = -35;
     public double IPColocationFactorThreshold { get; set; } = 10;
+    /// <summary>
+    /// IP networks exempt from colocation counting and penalties. Configure before connecting peers.
+    /// Private addresses count unless exempted; IPv4-mapped IPv6 addresses use IPv4 networks.
+    /// </summary>
+    public List<IPNetwork> IPColocationFactorWhitelist { get; set; } = [];
     public double BehaviorPenaltyWeight { get; set; } = -15;
     public double BehaviorPenaltyDecay { get; set; } = 0.99;
 
