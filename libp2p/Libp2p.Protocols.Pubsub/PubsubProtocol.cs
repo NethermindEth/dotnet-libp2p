@@ -43,7 +43,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         TaskCompletionSource dialTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         PubsubRouter.PubsubPeer? peer = router.OutboundConnection(context.State.RemoteAddress, Id, dialTcs.Task,
             (bytes, token) => channel.WriteAsync(new System.Buffers.ReadOnlySequence<byte>(bytes), token),
-            channel.AbortAsync, context.DisconnectAsync);
+            channel.AbortAsync, context.DisconnectAsync, context.Direction);
         if (peer is null)
         {
             await channel.AbortAsync();
@@ -70,7 +70,7 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this), context.DisconnectAsync);
+        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this), context.DisconnectAsync, context.Direction);
         CancellationToken channelClosed = channel.CancellationToken;
         using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, channelClosed, router.Stopped);
         token = lifetime.Token;

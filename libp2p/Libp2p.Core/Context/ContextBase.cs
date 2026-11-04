@@ -14,6 +14,7 @@ public class ContextBase(LocalPeer localPeer, LocalPeer.Session session, Protoco
     public PeerResourceLimits ResourceLimits => localPeer.ResourceLimits;
     public TimeProvider Clock => localPeer.Clock;
     public State State => session.State;
+    public ConnectionDirection Direction => session.Direction;
 
     public ActivitySource? ActivitySource { get; } = activitySource;
 

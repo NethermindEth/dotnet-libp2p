@@ -156,7 +156,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         public bool SupportsPeerExchange => Protocol is PubsubProtocol.GossipsubV11 or PubsubProtocol.GossipsubV12 or PubsubProtocol.GossipsubV13;
         public bool SupportsExtensions => Protocol == PubsubProtocol.GossipsubV13;
 
-        public ConnectionInitiation InitiatedBy { get; internal set; }
+        public ConnectionDirection Direction { get; internal set; }
         public Multiaddress Address { get; internal set; } = null!;
 
         public ReconnectionPolicy ReconnectionPolicy { get; }
@@ -659,6 +659,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private bool IsDirectPeer(PeerId peerId) => directPeers.ContainsKey(peerId);
 
+    private bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.Direction == ConnectionDirection.Outbound;
+
+    private IEnumerable<PeerId> GetGraftCandidates(string topic, HashSet<PeerId> meshPeers)
+    {
+        return (gPeers.GetValueOrDefault(topic) ?? [])
+            .Where(p => !meshPeers.Contains(p)
+                && !IsDirectPeer(p)
+                && GetPeerScore(p) >= 0
+                && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime));
+    }
+
     private bool IsDirectPeerSubscribedTo(PeerId peerId, string topic)
     {
         return (fPeers.TryGetValue(topic, out HashSet<PeerId>? floodsubPeers) && floodsubPeers.Contains(peerId)) ||
@@ -740,11 +751,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 if (meshPeers.Count < _settings.LowestDegree)
                 {
                     // Need to graft more peers - exclude peers with negative scores
-                    PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
-                        .Where(p => !meshPeers.Contains(p)
-                            && !IsDirectPeer(p)
-                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
+                    PeerId[] peersToGraft = GetGraftCandidates(topic, meshPeers)
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
 
                     foreach (PeerId peerId in peersToGraft)
@@ -758,31 +765,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
-                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
-
-                    // Get D_score best peers
-                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
-
-                    // Ensure we have D_out outbound connections
-                    var outboundPeers = meshPeers
-                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
-                        .Take(_settings.DOut)
-                        .ToHashSet();
-
-                    // Peers to keep: best scores + outbound quota + random
-                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
-
-                    // Fill remaining spots randomly
-                    int remaining = _settings.HighestDegree - peersToKeep.Count;
-                    if (remaining > 0)
+                    // Keep D peers: best scores first, then random peers, subject to D_out.
+                    PeerId[] candidates = meshPeers.ToArray();
+                    Random.Shared.Shuffle(candidates);
+                    candidates = candidates.OrderByDescending(GetPeerScore).ToArray();
+                    Random.Shared.Shuffle(candidates.AsSpan(Math.Clamp(_settings.DScore, 0, candidates.Length)));
+                    List<PeerId> kept = candidates.Take(_settings.Degree).ToList();
+                    int missingOutbound = Math.Min(_settings.DOut, kept.Count) - kept.Count(IsOutbound);
+                    foreach (PeerId outbound in candidates.Skip(kept.Count).Where(IsOutbound))
                     {
-                        var candidates = meshPeers.Except(peersToKeep).ToList();
-                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
-                        {
-                            peersToKeep.Add(peer);
-                        }
+                        if (missingOutbound <= 0) break;
+                        // Replace random picks before the lowest scoring protected peers.
+                        int replace = kept.FindLastIndex(p => !IsOutbound(p));
+                        kept[replace] = outbound;
+                        missingOutbound--;
                     }
+                    HashSet<PeerId> peersToKeep = kept.ToHashSet();
 
                     // Prune the rest
                     var peersToPrune = meshPeers.Except(peersToKeep).ToList();
@@ -813,6 +811,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
                              .Add(prune);
+                    }
+                }
+
+                if (_settings.DOut > 0 && meshPeers.Count >= _settings.LowestDegree)
+                {
+                    int missingOutbound = _settings.DOut - meshPeers.Count(IsOutbound);
+                    foreach (PeerId peerId in GetGraftCandidates(topic, meshPeers).Where(IsOutbound).Take(missingOutbound).ToArray())
+                    {
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
+                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                            .Ensure(r => r.Control.Graft)
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
             }
@@ -966,7 +977,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     internal CancellationToken Stopped => _stopped.Token;
 
     internal PubsubPeer? OutboundConnection(Multiaddress addr, string protocolId, Task dialTask,
-        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>> write, Func<ValueTask> abort, Func<Task> disconnect)
+        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>> write, Func<ValueTask> abort, Func<Task> disconnect,
+        ConnectionDirection direction = ConnectionDirection.Unknown)
     {
         PeerId? peerId = addr.GetPeerId();
         lock (this)
@@ -974,8 +986,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (peerId is null || _stopped.IsCancellationRequested) return null;
             ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
             if (policy.Suppressed) return null;
-            PubsubPeer peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Local, disconnect);
+            PubsubPeer peer = GetOrCreatePeer(peerId, addr, protocolId, policy, direction, disconnect);
             if (!peer.AttachWriter(write, abort)) return null;
+            if (peer.Direction != direction) peer.Direction = ConnectionDirection.Unknown;
             _ = dialTask.ContinueWith(_ => RemovePeer(peerId, addr, peer), TaskScheduler.Default);
             Rpc hello = new();
             hello.Subscriptions.AddRange(topicState.Where(pair => pair.Value.IsSubscribed)
@@ -986,7 +999,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     internal (CancellationToken Token, Action SuppressReconnection) InboundConnection(Multiaddress addr, string protocolId,
-        Task listTask, Func<Task> subDial, Func<Task> disconnect)
+        Task listTask, Func<Task> subDial, Func<Task> disconnect, ConnectionDirection direction = ConnectionDirection.Unknown)
     {
         PeerId? peerId = addr.GetPeerId();
         PubsubPeer peer;
@@ -1002,7 +1015,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 Track(reply.Task);
             }
-            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Remote, disconnect);
+            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, direction, disconnect);
+            if (peer.Direction != direction) peer.Direction = ConnectionDirection.Unknown;
             peer.IncomingStreams++;
             _ = listTask.ContinueWith(_ =>
             {
@@ -1026,11 +1040,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     private PubsubPeer GetOrCreatePeer(PeerId peerId, Multiaddress addr, string protocolId, ReconnectionPolicy policy,
-        ConnectionInitiation initiation, Func<Task> disconnect)
+        ConnectionDirection direction, Func<Task> disconnect)
     {
         if (peerState.TryGetValue(peerId, out PubsubPeer? existing)) return existing;
         PubsubPeer peer = WithRetainedScore(new PubsubPeer(this, peerId, protocolId, _settings, policy, disconnect)
-        { Address = addr, InitiatedBy = initiation }, out RetainedScore? restored);
+        { Address = addr, Direction = direction }, out RetainedScore? restored);
         peer.DeadlineTimer = _timeProvider.CreateTimer(_ => ExpireOutbound(peer), null,
             Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         peer.Teardown = TeardownPeerAsync(peer);
@@ -1040,10 +1054,4 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         if (restored is not null) ForgetRetainedScore(peerId, restored);
         return peer;
     }
-}
-
-internal enum ConnectionInitiation
-{
-    Local,
-    Remote,
 }

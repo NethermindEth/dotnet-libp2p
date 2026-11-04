@@ -215,7 +215,13 @@ public class PubsubSettings
     public int MaxRetainedScores { get; set; } = 10_000;
 
     // Mesh Management
+    /// <summary>Number of highest scoring peers protected when pruning to Degree, subject to DOut.</summary>
     public int DScore { get; set; } = 5;
+    /// <summary>
+    /// Minimum outbound transport connections to retain or graft in each mesh when available.
+    /// Gossipsub v1.1 requires this below LowestDegree and at most Degree / 2.
+    /// Values at or above HighestDegree can cause repeated grafting and pruning.
+    /// </summary>
     public int DOut { get; set; } = 2;
     public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
 

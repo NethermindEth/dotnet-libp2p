@@ -73,6 +73,8 @@ peer.OnConnected += async remoteSession =>
 
 The handler runs after the lower protocol stack has created the session. Application protocol negotiation still happens when you call `session.DialAsync<...>()`.
 
+Protocol handlers can read `IConnectionContext.Direction` (also on `ISessionContext`) to identify who dialed the underlying transport connection, independently of who opened the current stream; legacy custom contexts default to `ConnectionDirection.Unknown`.
+
 ## Shutting down
 
 Await `peer.DisposeAsync()` to stop its listeners and close its registered connections and sessions. Once disposal starts, transport connections finishing their handshake cannot register new sessions. New dial and listen calls fail with `ObjectDisposedException`. Disposal waits for listeners to unbind and removes their advertised addresses. Cancelled TCP handlers can finish draining afterward, so a handler may itself await peer disposal. Their transport and stream allowances remain charged until that work ends. Cancelling the token passed to `StartListenAsync` can also stop those listeners independently.
