@@ -250,6 +250,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly IwantPromiseTracker _iwantPromises;
     private readonly Dictionary<MessageId, PendingValidation> _pendingValidations = [];
     private readonly TimeProvider _timeProvider;
+    // Used only under the router lock; injected Random instances need not be thread-safe.
+    private readonly Random _random;
     private int _pendingValidationBytes;
 
     private sealed record PendingValidation(MessageId Id, Message Original, Message Snapshot, PeerId Source, int Size)
@@ -332,12 +334,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default, TimeProvider? timeProvider = null)
+        : this(store, settings, loggerFactory, timeProvider, Random.Shared)
+    {
+    }
+
+    internal PubsubRouter(PeerStore store, PubsubSettings? settings, ILoggerFactory? loggerFactory, TimeProvider? timeProvider, Random random)
     {
         logger = loggerFactory?.CreateLogger("pubsub-router");
 
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _random = random;
         _outboundLimits = new(_settings);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytes);
@@ -685,6 +693,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     internal int IwantPromiseCount => _iwantPromises.Count;
 
+    // Partial Fisher-Yates: choose a uniform subset without replacement in bounded time.
+    internal static T[] Sample<T>(IEnumerable<T> candidates, int count, Random random)
+    {
+        T[] pool = candidates.ToArray();
+        int take = Math.Clamp(count, 0, pool.Length);
+        for (int i = 0; i < take; i++)
+        {
+            int j = random.Next(i, pool.Length);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+        return take == pool.Length ? pool : pool[..take];
+    }
+
     public Task Heartbeat()
     {
         if (_stopped.IsCancellationRequested) return Task.CompletedTask;
@@ -740,12 +761,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 if (meshPeers.Count < _settings.LowestDegree)
                 {
                     // Need to graft more peers - exclude peers with negative scores
-                    PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
+                    PeerId[] peersToGraft = Sample((gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
                             && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
-                        .Take(_settings.Degree - meshPeers.Count).ToArray();
+                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime)),
+                        _settings.Degree - meshPeers.Count, _random);
 
                     foreach (PeerId peerId in peersToGraft)
                     {
@@ -761,11 +782,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to prune - keep best scoring peers (Gossipsub v1.1)
                     int numToPrune = meshPeers.Count - _settings.HighestDegree;
 
+                    // Randomize score ties, outbound picks and the remaining peers uniformly.
+                    PeerId[] shuffledPeers = Sample(meshPeers, meshPeers.Count, _random);
+
                     // Get D_score best peers
-                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
+                    var bestPeers = GetBestScoringPeers(shuffledPeers, _settings.DScore).ToHashSet();
 
                     // Ensure we have D_out outbound connections
-                    var outboundPeers = meshPeers
+                    var outboundPeers = shuffledPeers
                         .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
                         .Take(_settings.DOut)
                         .ToHashSet();
@@ -777,8 +801,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     int remaining = _settings.HighestDegree - peersToKeep.Count;
                     if (remaining > 0)
                     {
-                        var candidates = meshPeers.Except(peersToKeep).ToList();
-                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
+                        foreach (var peer in shuffledPeers.Except(peersToKeep).Take(remaining))
                         {
                             peersToKeep.Add(peer);
                         }
@@ -829,9 +852,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? [])
-                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p))
-                            .Take(peerCountToAdd))
+                        foreach (PeerId? peerId in Sample((gPeers.GetValueOrDefault(fanoutTopic) ?? [])
+                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p)),
+                            peerCountToAdd, _random))
                         {
                             fanout[fanoutTopic].Add(peerId);
                         }
@@ -869,7 +892,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
                 // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy).
                 int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Length * _settings.GossipFactor));
-                PeerId[] gossipPeers = eligiblePeers.Take(gossipCount).ToArray();
+                PeerId[] gossipPeers = Sample(eligiblePeers, gossipCount, _random);
 
                 if (partialMessageGroupIds.Count > 0)
                 {
