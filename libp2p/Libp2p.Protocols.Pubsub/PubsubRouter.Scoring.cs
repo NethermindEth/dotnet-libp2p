@@ -325,14 +325,14 @@ public partial class PubsubRouter
     /// <summary>
     /// Gets median score of peers in mesh for a topic
     /// </summary>
-    private double GetMedianMeshScore(string topic)
+    private double GetMedianMeshScore(string topic, IReadOnlyDictionary<PeerId, double> peerScores)
     {
         if (!mesh.TryGetValue(topic, out HashSet<PeerId>? meshPeers) || meshPeers.Count == 0)
         {
             return 0;
         }
 
-        var scores = meshPeers.Select(p => GetPeerScore(p)).OrderBy(s => s).ToList();
+        var scores = meshPeers.Select(p => peerScores.GetValueOrDefault(p)).OrderBy(s => s).ToList();
         int count = scores.Count;
 
         if (count == 0)
@@ -346,6 +346,25 @@ public partial class PubsubRouter
         {
             return scores[count / 2];
         }
+    }
+
+    private PeerId[] GetOpportunisticGraftPeers(string topic, IReadOnlyDictionary<PeerId, double> peerScores)
+    {
+        double median = GetMedianMeshScore(topic, peerScores);
+        if (median >= _settings.OpportunisticGraftThreshold)
+        {
+            return [];
+        }
+
+        // Normal maintenance has already run, so this also excludes peers just grafted and
+        // respects backoff for peers just pruned. Temporary growth past HighestDegree lets
+        // even a full, poorly performing mesh improve; the next heartbeat trims it as usual.
+        return (gPeers.GetValueOrDefault(topic) ?? [])
+            .Where(p => !mesh[topic].Contains(p) && !IsDirectPeer(p) && !IsInBackoff(p, topic) &&
+                peerScores.TryGetValue(p, out double score) && score >= 0 && score > median)
+            .OrderBy(_ => Random.Shared.Next())
+            .Take(_settings.OpportunisticGraftPeers)
+            .ToArray();
     }
 
     /// <summary>

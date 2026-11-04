@@ -140,6 +140,15 @@ GRAFTs receive PRUNE without peer exchange (PX); both refresh the local backoff.
 Heartbeat pruning also records backoff, including pruning for excess mesh degree.
 Gossipsub v1.0 receives topic-only PRUNE; v1.1–v1.3 also receive the backoff duration.
 
+Every `OpportunisticGraftTicks` heartbeats (default **60**, or one minute at the default
+heartbeat interval), meshes with more than one peer and median score below
+`OpportunisticGraftThreshold` graft up to `OpportunisticGraftPeers` additional peers
+(default **2**; zero disables this check). Candidates are randomly selected gossipsub topic
+subscribers with nonnegative scores strictly above the median. Existing mesh peers, direct
+peers and peers in prune backoff are excluded. Even-sized meshes use the average of the two
+middle scores. Opportunistic grafting can temporarily exceed `HighestDegree`; the next
+heartbeat trims excess peers.
+
 Received nonzero PRUNE backoff is capped at **24 hours**, before converting its wire
 `uint64` seconds or calculating a deadline. This is a local defensive policy, not a
 protocol maximum. An omitted or zero duration uses configured `PruneBackoff`.
