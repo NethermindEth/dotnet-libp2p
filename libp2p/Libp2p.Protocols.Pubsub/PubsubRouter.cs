@@ -338,6 +338,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.OpportunisticGraftTicks);
+        ArgumentOutOfRangeException.ThrowIfNegative(_settings.OpportunisticGraftPeers);
         _outboundLimits = new(_settings);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytes);
@@ -732,6 +734,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }
 
+            bool opportunisticGraft = _settings.OpportunisticGraftPeers > 0 &&
+                (heartbeatTick + 1) % _settings.OpportunisticGraftTicks == 0;
+            Dictionary<PeerId, double>? opportunisticScores = null;
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
                 string topic = meshEntry.Key;
@@ -744,7 +749,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         .Where(p => !meshPeers.Contains(p)
                             && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
+                            && !IsInBackoff(p, topic))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
 
                     foreach (PeerId peerId in peersToGraft)
@@ -813,6 +818,25 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                              .Ensure(r => r.Control.Prune)
                              .Add(prune);
+                    }
+                }
+
+                if (opportunisticGraft && meshPeers.Count > 1)
+                {
+                    // Share one score snapshot across topics, including the IP colocation counts.
+                    if (opportunisticScores is null)
+                    {
+                        Dictionary<string, int> ipCounts = CountIpColocation();
+                        opportunisticScores = peerState.ToDictionary(p => p.Key, p => p.Value.Score.GetScore(ipCounts));
+                    }
+
+                    foreach (PeerId peerId in GetOpportunisticGraftPeers(topic, opportunisticScores))
+                    {
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
+                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                            .Ensure(r => r.Control.Graft)
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
             }
