@@ -181,7 +181,7 @@ public class MeshBackoffTests
         List<Rpc> sent = [];
         var peer = Open(router, 1, sent, PubsubRouter.GossipsubProtocolVersionV10);
         await Receive(router, peer.PeerId, Graft());
-        if (excessDegree) settings.HighestDegree = settings.LowestDegree = 0;
+        if (excessDegree) settings.Degree = settings.HighestDegree = settings.LowestDegree = 0;
         else router.SetAppSpecificScore(peer.PeerId, -10);
         sent.Clear();
         await router.Heartbeat();

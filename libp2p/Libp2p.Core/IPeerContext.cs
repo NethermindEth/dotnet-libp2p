@@ -30,6 +30,8 @@ public interface IContextState
 
 public interface IConnectionContext : ITransportContext, IChannelFactory, IContextState
 {
+    /// <summary>Direction of the underlying transport connection, regardless of who opened this stream.</summary>
+    ConnectionDirection Direction => ConnectionDirection.Unknown;
     /// <summary>Lifetime of the connection. Legacy contexts may omit lifetime notifications.</summary>
     CancellationToken Token => CancellationToken.None;
     UpgradeOptions? UpgradeOptions { get; }
