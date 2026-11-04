@@ -29,5 +29,10 @@ public abstract class SymmetricSessionProtocol
         return ConnectAsync(channel, context, true);
     }
 
+    /// <summary>Runs one stream invocation in either direction.</summary>
+    /// <remarks>
+    /// Observe <see cref="UpgradeOptions.CancellationToken"/> on <see cref="IConnectionContext.UpgradeOptions"/>
+    /// and pass it explicitly to nested dials and asynchronous work. Protocol instances may serve concurrent streams.
+    /// </remarks>
     protected abstract Task ConnectAsync(IChannel channel, ISessionContext context, bool isListener);
 }

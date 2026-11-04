@@ -24,6 +24,7 @@ public partial class LocalPeer
         public CancellationToken Closed => ConnectionToken;
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
+        internal int QueuedRequestCount => SubDialRequests.Count;
 
         /// <inheritdoc />
         public async Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol
@@ -35,7 +36,7 @@ public partial class LocalPeer
         /// Dials a specific protocol instance on this session.
         /// </summary>
         /// <param name="protocol">The protocol instance to negotiate over this session.</param>
-        /// <param name="token">Cancellation token used while queueing the dial request.</param>
+        /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
         /// <returns>A task that completes when the dial request has been handled.</returns>
         public async Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         {
@@ -68,28 +69,25 @@ public partial class LocalPeer
             token.ThrowIfCancellationRequested();
             CancellationToken connectionToken = ConnectionToken;
             connectionToken.ThrowIfCancellationRequested();
+            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+            using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
             lock (_lifecycleLock)
             {
                 if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
-                _applicationOperations++;
-            }
-            try
-            {
-                TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
-                using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
+                token.ThrowIfCancellationRequested();
                 connectionToken.ThrowIfCancellationRequested();
-
+                // Admission and publication must be atomic with respect to disconnect's drain.
                 SubDialRequests.Add(new UpgradeOptions()
                 {
                     CompletionSource = tcs,
                     SelectedProtocol = protocol,
                     Argument = argument,
                     CancellationToken = token
-                }, token);
-
-                return await tcs.Task;
+                });
+                _applicationOperations++;
             }
+            try { return await tcs.Task; }
             finally { lock (_lifecycleLock) EndApplicationOperation(); }
         }
 
@@ -313,6 +311,8 @@ public partial class LocalPeer
                 finally
                 {
                     ConnectedTcs.TrySetCanceled(ConnectionToken);
+                    while (SubDialRequests.TryTake(out UpgradeOptions? request))
+                        request.CompletionSource?.TrySetCanceled(ConnectionToken);
                     if (closeSession)
                     {
                         if (_retainedPeerId is { } peerId) peer._peerStore?.Release(peerId);
@@ -349,7 +349,23 @@ public partial class LocalPeer
         public TaskCompletionSource ConnectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Connected => ConnectedTcs.Task;
 
-        internal IEnumerable<UpgradeOptions> GetRequestQueue() => SubDialRequests.GetConsumingEnumerable(ConnectionToken);
+        internal IEnumerable<UpgradeOptions> GetRequestQueue()
+        {
+            foreach (UpgradeOptions request in SubDialRequests.GetConsumingEnumerable(ConnectionToken))
+            {
+                if (ConnectionToken.IsCancellationRequested)
+                {
+                    request.CompletionSource?.TrySetCanceled(ConnectionToken);
+                    continue;
+                }
+                if (request.CancellationToken.IsCancellationRequested)
+                {
+                    request.CompletionSource?.TrySetCanceled(request.CancellationToken);
+                    continue;
+                }
+                yield return request;
+            }
+        }
     }
 
     private void CompleteDisconnection(Session session, TaskCompletionSource completion, Exception? failure)
