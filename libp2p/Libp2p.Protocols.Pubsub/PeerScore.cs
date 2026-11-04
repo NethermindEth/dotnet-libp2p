@@ -18,7 +18,7 @@ public class PeerScore
     public double AppSpecificScore { get; set; } = 0;
     public double BehaviorPenalty { get; set; } = 0;
 
-    // IP colocation tracking (managed at router level)
+    // Normalized IP colocation bucket (managed at router level); IPv6 uses a /64 prefix key.
     public string? IPAddress { get; set; }
 
     // Last decay time

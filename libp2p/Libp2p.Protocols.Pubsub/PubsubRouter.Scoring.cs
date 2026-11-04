@@ -42,42 +42,24 @@ public partial class PubsubRouter
         }
     }
 
+    // Counts connected peer generations, not streams or retained scores. Only used under the router lock.
+    private readonly Dictionary<string, int> _ipColocationCounts = [];
     private static readonly Dictionary<string, int> NoIpColocationCounts = [];
-
-    private Dictionary<string, int> CountIpColocation()
-    {
-        Dictionary<string, int> ipCounts = [];
-        foreach (PubsubPeer p in peerState.Values)
-        {
-            if (p.Score.IPAddress is not null)
-            {
-                ipCounts.TryGetValue(p.Score.IPAddress, out int count);
-                ipCounts[p.Score.IPAddress] = count + 1;
-            }
-        }
-
-        return ipCounts;
-    }
 
     /// <summary>
     /// Gets the score for a peer
     /// </summary>
     internal double GetPeerScore(PeerId peerId)
     {
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        lock (this)
         {
-            return 0;
+            return peerState.TryGetValue(peerId, out PubsubPeer? peer) ? ScoreOf(peer) : 0;
         }
-
-        return ScoreOf(peer);
     }
 
     private double ScoreOf(PubsubPeer peer)
     {
-        // Only this peer's own address can contribute to P6, so the colocation counts are worth
-        // building only when it has one. This runs for every scored peer on the receive and
-        // publish paths, where counting every peer and allocating per call would dominate it.
-        return peer.Score.GetScore(peer.Score.IPAddress is null ? NoIpColocationCounts : CountIpColocation());
+        return peer.Score.GetScore(_ipColocationCounts);
     }
 
     /// <summary>
@@ -357,17 +339,6 @@ public partial class PubsubRouter
         {
             peer.Score.AppSpecificScore = score;
             logger?.LogDebug("Set app-specific score for {peerId} to {score}", peerId, score);
-        }
-    }
-
-    /// <summary>
-    /// Sets IP address for IP colocation tracking (P6)
-    /// </summary>
-    private void SetPeerIPAddress(PeerId peerId, string ipAddress)
-    {
-        if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
-        {
-            peer.Score.IPAddress = ipAddress;
         }
     }
 }
