@@ -98,8 +98,8 @@ public class PeerSelectionTests
             Assert.That(peers, Has.Length.EqualTo(count));
             Assert.That(peers, Is.Unique);
             Assert.That(peers, Is.SubsetOf(eligible));
-            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, count).Select(i => (i, eligible.Length))),
-                "Filter before sampling and use one bounded draw per selected peer.");
+            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, Math.Min(count, Math.Max(0, eligible.Length - 1))).Select(i => (i, eligible.Length))),
+                "Filter before sampling and use one bounded draw per non-forced choice.");
         });
     }
 
@@ -118,7 +118,21 @@ public class PeerSelectionTests
         Assert.Multiple(() =>
         {
             Assert.That(selected, Is.EqualTo(Enumerable.Range(0, expected)));
-            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, expected).Select(i => (i, 4))));
+            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, Math.Min(expected, 3)).Select(i => (i, 4))));
+        });
+    }
+
+    [TestCase(3)]
+    [TestCase(4)]
+    public void Sample_DoesNotMutateSourceWhenPermuting(int count)
+    {
+        int[] candidates = [0, 1, 2, 3];
+
+        int[] selected = PubsubRouter.Sample(candidates, count, new ScriptedRandom(11));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(selected, Is.EqualTo(new[] { 3, 0, 1, 2 }.Take(count)));
             Assert.That(candidates, Is.EqualTo(new[] { 0, 1, 2, 3 }), "Sampling must not mutate the source.");
         });
     }
@@ -288,7 +302,7 @@ public class PeerSelectionTests
     }
 
     [TestCase(0, 0)]
-    [TestCase(2, 0)]
+    [TestCase(4, 0)]
     [TestCase(0, 2)]
     public async Task HeartbeatPrune_ShufflesBeforeQuotaSelection(int scoreCount, int outboundCount)
     {
@@ -300,23 +314,27 @@ public class PeerSelectionTests
             PubsubSettings settings = Settings();
             settings.DScore = scoreCount;
             settings.DOut = outboundCount;
-            settings.LowestDegree = 0;
+            settings.LowestDegree = 3;
+            settings.Degree = 4;
+            settings.HighestDegree = 4;
             settings.TopicScoreParams[Topic] = new TopicScoreParams { TimeInMeshWeight = 0 };
             await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), random);
             router.Subscribe(Topic);
+            HashSet<PeerId> selected = ((IRoutingStateContainer)router).Mesh[Topic];
+            // Seed an oversized mesh directly; GRAFT admission caps it at HighestDegree.
             foreach (int id in Enumerable.Range(10, eligible.Length))
             {
                 var peer = await Open(router, id);
-                await Graft(router, peer.PeerId);
+                selected.Add(peer.PeerId);
+                peer.Score.GetTopicScore(Topic).JoinMesh();
             }
-            settings.HighestDegree = 2;
+            Assert.That(selected, Is.EquivalentTo(eligible));
 
             await router.Heartbeat();
 
-            HashSet<PeerId> selected = ((IRoutingStateContainer)router).Mesh[Topic];
             Assert.That(selected, Has.Count.EqualTo(settings.HighestDegree));
             Assert.That(selected, Is.SubsetOf(eligible));
-            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, eligible.Length).Select(i => (i, eligible.Length))));
+            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, eligible.Length - 1).Select(i => (i, eligible.Length))));
             reached.UnionWith(selected);
         }
         Assert.That(reached, Is.EquivalentTo(eligible));

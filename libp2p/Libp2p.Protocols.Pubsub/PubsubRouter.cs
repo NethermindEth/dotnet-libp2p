@@ -698,7 +698,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         T[] pool = candidates.ToArray();
         int take = Math.Clamp(count, 0, pool.Length);
-        for (int i = 0; i < take; i++)
+        // The final candidate is forced, so a full shuffle needs only n - 1 draws.
+        for (int i = 0; i < take && i < pool.Length - 1; i++)
         {
             int j = random.Next(i, pool.Length);
             (pool[i], pool[j]) = (pool[j], pool[i]);
