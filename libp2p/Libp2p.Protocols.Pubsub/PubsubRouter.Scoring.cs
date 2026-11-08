@@ -46,6 +46,14 @@ public partial class PubsubRouter
     private readonly Dictionary<string, int> _ipColocationCounts = [];
     private static readonly Dictionary<string, int> NoIpColocationCounts = [];
 
+    private void UpdateIpColocationCount(string? key, int delta)
+    {
+        if (key is null) return;
+        int count = (delta > 0 ? _ipColocationCounts.GetValueOrDefault(key) : _ipColocationCounts[key]) + delta;
+        if (count == 0) _ipColocationCounts.Remove(key);
+        else _ipColocationCounts[key] = count;
+    }
+
     /// <summary>
     /// Gets the score for a peer
     /// </summary>
@@ -117,6 +125,7 @@ public partial class PubsubRouter
         {
             // Colocation is about the address this connection uses, not the last one.
             restored.Score.IPAddress = peer.Score.IPAddress;
+            restored.Score.IPColocationSubnet = peer.Score.IPColocationSubnet;
             peer.Score = restored.Score;
         }
 

@@ -278,9 +278,12 @@ None carry peer or topic labels.
 
 Gossipsub counts each connected peer once using the remote address of its first pubsub
 stream on the established session, rather than addresses advertised by Identify or the peer
-store. IPv4-mapped IPv6 addresses count as IPv4; native IPv6 addresses share a /64 bucket.
+store. IPv4-mapped IPv6 addresses count as IPv4. Native IPv6 addresses count in both
+an exact-address bucket and a /64 subnet bucket, as in go-libp2p.
 Above `IPColocationFactorThreshold` (default 10), the squared surplus is multiplied by
-`IPColocationFactorWeight` (default -35).
+`IPColocationFactorWeight` (default -35) for each bucket and the penalties are added.
+Peers sharing one exact IPv6 address can therefore receive both penalties; peers at
+different addresses within the same /64 share only the subnet penalty.
 
 Unresolved DNS, relay paths, scoped IPv6, loopback and unspecified addresses are excluded;
 DNS is never resolved for scoring. Private addresses count. Call
@@ -297,9 +300,9 @@ The helper parses and validates each network once during configuration; invalid 
 strings throw `FormatException`. Exempt addresses neither count toward a bucket nor
 receive its penalty. IPv4-mapped addresses use IPv4 whitelist entries.
 
-Additional streams keep the existing peer's bucket. Disconnecting removes the peer from
-its bucket, including when its other score penalties are retained. A reconnect uses the
-new session address, so changing an address cannot preserve a stale bucket assignment.
+Additional streams keep the existing peer's buckets. Disconnecting removes the peer from
+its buckets, including when its other score penalties are retained. A reconnect uses the
+new session address, so changing an address cannot preserve stale bucket assignments.
 
 ## Stopping the router
 
