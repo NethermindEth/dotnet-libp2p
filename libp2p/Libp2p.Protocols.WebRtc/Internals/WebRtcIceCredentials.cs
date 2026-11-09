@@ -81,7 +81,7 @@ internal readonly record struct WebRtcIceCredentials(string ServerUfrag, string 
 
     /// <summary>
     /// Selects the flow from the server ufrag's prefix. The spec reserves the <c>libp2p+webrtc+</c>
-    /// namespace for versions: an unrecognised prefix, or no prefix at all, is
+    /// namespace for versions: an unrecognized prefix, or no prefix at all, is
     /// <see cref="WebRtcDirectIceFlow.Unknown"/> and must be rejected rather than guessed at.
     /// </summary>
     public static WebRtcDirectIceFlow GetFlow(string? serverUfrag) => serverUfrag switch

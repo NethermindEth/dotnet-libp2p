@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
 [TestFixture]
 // A stalled state machine must turn the run red rather than wedge it: several of these tests
-// previously hung the runner instead of failing when the behaviour they name regressed.
+// previously hung the runner instead of failing when the behavior they name regressed.
 [CancelAfter(15000)]
 public class WebRtcStreamTests
 {

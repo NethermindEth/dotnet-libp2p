@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
 /// <summary>
 /// The parts of <see cref="RtcDataChannelAdapter"/> that do not need a live peer connection: the
-/// synthesised BufferedAmountLow event, and that every way the channel can end collapses into one
+/// synthesized BufferedAmountLow event, and that every way the channel can end collapses into one
 /// <see cref="IWebRtcDataChannel.Closed"/> and one disposed timer. A detached
 /// <see cref="RTCDataChannel"/> is enough -- it reports <c>bufferedAmount</c> 0 and closes
 /// without a transport.
@@ -56,7 +56,7 @@ public class RtcDataChannelAdapterTests
     /// Disposing the timer is the whole reason <see cref="RtcDataChannelAdapter"/> is disposable:
     /// one 20ms timer per dialled connection, left running for the lifetime of the process, is the
     /// cost of forgetting. The <c>_closed</c> flag already makes a late tick inert, so no observable
-    /// behaviour distinguishes a disposed timer from a live one -- hence the reach into the field.
+    /// behavior distinguishes a disposed timer from a live one -- hence the reach into the field.
     /// <see cref="Timer.Change(int, int)"/> returning false is how a disposed timer answers.
     /// </summary>
     [Test]
@@ -134,7 +134,7 @@ public class RtcDataChannelAdapterTests
 
     /// <summary>
     /// RFC 8831 section 6.6 carries an empty message as one zero padding byte under an *_Empty
-    /// PPID. Forwarding that byte would desynchronise frame reassembly in
+    /// PPID. Forwarding that byte would desynchronize frame reassembly in
     /// <see cref="WebRtcStream"/>, and RTCDataChannel.GotData does not strip it.
     /// </summary>
     [Test]

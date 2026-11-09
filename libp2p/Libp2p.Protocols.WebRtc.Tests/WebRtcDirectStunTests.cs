@@ -175,7 +175,7 @@ public class WebRtcDirectStunTests
     }
 
     [Test]
-    public void BuildBindingSuccessResponse_NormalisesAMappedSourceBeforeReflectingIt()
+    public void BuildBindingSuccessResponse_NormalizesAMappedSourceBeforeReflectingIt()
     {
         WebRtcDirectStun.TryParseBindingRequest(CapturedRequest, out STUNMessage? request, out _);
         Assert.That(request, Is.Not.Null);

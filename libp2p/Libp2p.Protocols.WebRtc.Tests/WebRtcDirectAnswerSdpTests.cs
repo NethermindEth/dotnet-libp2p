@@ -91,7 +91,7 @@ public class WebRtcDirectAnswerSdpTests
 
     /// <summary>
     /// The dial path feeds SIPSorcery's own generated ICE password straight into the answer it
-    /// synthesises, so three things have to hold at once: the password is a legal v2 client
+    /// synthesizes, so three things have to hold at once: the password is a legal v2 client
     /// password, the resulting answer is accepted by the very connection that produced it, and the
     /// listener can read the password back out of the server ufrag. A SIPSorcery release that
     /// changed its credential alphabet or length would break the dialer against every remote peer

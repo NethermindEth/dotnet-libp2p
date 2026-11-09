@@ -48,7 +48,7 @@ public class WebRtcDirectListenerTableTests
 
     /// <summary>
     /// Builds a genuine signed binding request the same way <see cref="WebRtcDirectStun.BuildBindingSuccessResponse"/>
-    /// signs its reply: SIPSorcery's own serialiser, MESSAGE-INTEGRITY keyed with the string and a
+    /// signs its reply: SIPSorcery's own serializer, MESSAGE-INTEGRITY keyed with the string and a
     /// FINGERPRINT appended. <paramref name="signingKey"/> defaults to the server ufrag, which is what a
     /// real peer uses; passing anything else forges the HMAC.
     /// </summary>
@@ -142,7 +142,7 @@ public class WebRtcDirectListenerTableTests
     }
 
     [Test]
-    public void Route_AdmitsBothFlows_AndAdmitsNothingForAnUnrecognisedPrefix()
+    public void Route_AdmitsBothFlows_AndAdmitsNothingForAnUnrecognizedPrefix()
     {
         WebRtcDirectListenerTable<Session> table = NewTable();
 
@@ -407,7 +407,7 @@ public class WebRtcDirectListenerTableTests
     }
 
     [Test]
-    public void Route_KeysTheSameUfragSeparatelyPerAddressFamily_AndNormalisesMappedSources()
+    public void Route_KeysTheSameUfragSeparatelyPerAddressFamily_AndNormalizesMappedSources()
     {
         WebRtcDirectListenerTable<Session> table = NewTable();
         string ufrag = V2Ufrag(15);

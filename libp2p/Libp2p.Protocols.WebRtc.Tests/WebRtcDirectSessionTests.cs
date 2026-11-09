@@ -80,7 +80,7 @@ public class WebRtcDirectSessionTests
     /// <summary>
     /// The two rules that hold before a handshake can even start, checked without a live stack so
     /// that they stay covered on a host that cannot run one: the egress is pinned to the first DTLS
-    /// record's normalised source and a later source is ignored, and a session that cannot take a
+    /// record's normalized source and a later source is ignored, and a session that cannot take a
     /// handshake slot allocates nothing and -- F5 -- answers nothing.
     /// </summary>
     [Test]
@@ -94,7 +94,7 @@ public class WebRtcDirectSessionTests
         await using WebRtcDirectSession session = new(
             chain, privateKey, 4242, exhausted, (_, destination) => sentTo.Add(destination));
 
-        // A dual-mode socket reports a v4 peer as ::ffff:a.b.c.d, which must normalise to the same
+        // A dual-mode socket reports a v4 peer as ::ffff:a.b.c.d, which must normalize to the same
         // endpoint the v4 socket would have reported.
         byte[] record = [22, 254, 253, 0, 0];
         session.ReceiveDtls(record, new IPEndPoint(IPAddress.Parse("::ffff:10.0.0.1"), 5000));
@@ -359,8 +359,8 @@ public class WebRtcDirectSessionTests
             RTCSessionDescriptionInit offer = _pc.createOffer(new RTCOfferOptions { X_WaitForIceGatheringToComplete = true });
             _pc.setLocalDescription(offer).GetAwaiter().GetResult();
 
-            // webrtc-direct has no signalling: the answer is synthesised from what a multiaddr
-            // would have carried, and the server ufrag it embeds is what the listener recognises
+            // webrtc-direct has no signalling: the answer is synthesized from what a multiaddr
+            // would have carried, and the server ufrag it embeds is what the listener recognizes
             // the dial by.
             RTCSessionDescriptionInit answer = new()
             {

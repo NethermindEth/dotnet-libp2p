@@ -18,7 +18,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 /// channels and a real Noise handshake, on CI with no browser and no second implementation.
 /// <para>
 /// The two halves enforce different things, which is why they are separate tests rather than one
-/// parameterised over a <c>listener</c> flag. The dialer holds a <c>/certhash</c> from the
+/// parameterized over a <c>listener</c> flag. The dialer holds a <c>/certhash</c> from the
 /// multiaddr and compares it against the certificate the peer actually presented. The listener
 /// dialled nobody, so it has no claim to compare anything against; what binds the certificate it
 /// saw to the peer's libp2p identity is the Noise prologue, and a listener whose view of that
@@ -34,7 +34,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 /// </para>
 /// </summary>
 /// <remarks>
-/// These cover behaviour that already existed, so passing proves nothing by itself; what gives them
+/// These cover behavior that already existed, so passing proves nothing by itself; what gives them
 /// teeth is mutation. Verified at the commit that introduced them, each restored byte-identical:
 /// <list type="bullet">
 /// <item>dropping the dialer's <c>ValidateRemoteFingerprint</c> call kills both

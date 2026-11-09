@@ -71,7 +71,7 @@ internal static class WebRtcDirectStun
     /// </para>
     /// <para>
     /// The catch behind the guard is belt and braces, not cover for a known throw: against 10.0.14 no
-    /// datagram of 20 bytes or more carrying a valid cookie was found to throw, and an unrecognised message
+    /// datagram of 20 bytes or more carrying a valid cookie was found to throw, and an unrecognized message
     /// or attribute type code comes back as its raw numeric value rather than as an exception. It stays
     /// because the parser is a dependency we do not control and it already gets one length check wrong, and
     /// an unauthenticated datagram off the internet is not where we want to discover the next one.
@@ -120,7 +120,7 @@ internal static class WebRtcDirectStun
     /// Verifies the request's MESSAGE-INTEGRITY against an HMAC-SHA1 key of the UTF-8 bytes of
     /// <paramref name="serverUfrag"/>, as webrtc-direct specifies.
     /// <para>
-    /// A true result AUTHORISES NOTHING. The key is the server ufrag, which is the first half of the
+    /// A true result AUTHORIZES NOTHING. The key is the server ufrag, which is the first half of the
     /// USERNAME carried in the very same packet, so every value the check needs is already on the wire in
     /// front of whoever is reading it. It therefore proves only that the sender saw a request — it rules
     /// out blind, off-path spoofing and nothing more. No caller may let a passing check evict a peer,
@@ -141,7 +141,7 @@ internal static class WebRtcDirectStun
 
     /// <summary>
     /// Builds the signed binding success response: the request's transaction id, XOR-MAPPED-ADDRESS for the
-    /// normalised source, MESSAGE-INTEGRITY keyed with the server ufrag and a FINGERPRINT.
+    /// normalized source, MESSAGE-INTEGRITY keyed with the server ufrag and a FINGERPRINT.
     /// </summary>
     public static byte[] BuildBindingSuccessResponse(STUNMessage request, IPEndPoint source, string serverUfrag)
     {

@@ -7,7 +7,7 @@ using System.Net.Sockets;
 namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 
 /// <summary>
-/// Synthesises the server's SDP answer locally from a /webrtc-direct multiaddr, so that no
+/// Synthesizes the server's SDP answer locally from a /webrtc-direct multiaddr, so that no
 /// signalling channel is needed. Mirrors the ICE Lite answer templates of go-libp2p
 /// (p2p/transport/webrtc/sdp.go, serverSDP) and js-libp2p (serverAnswerFromMultiaddr), both of
 /// which use LF line endings.

@@ -130,7 +130,7 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
         // RFC 8831 section 6.6 carries an empty application message as a single zero padding byte
         // under an *_Empty PPID, and RTCDataChannel.GotData forwards that byte verbatim (verified
         // against SIPSorcery 10.0.14). Passing it on would insert a stray byte into the frame
-        // reassembly buffer in WebRtcStream and desynchronise every frame after it.
+        // reassembly buffer in WebRtcStream and desynchronize every frame after it.
         if (protocol is DataChannelPayloadProtocols.WebRTC_Binary_Empty or DataChannelPayloadProtocols.WebRTC_String_Empty
             || data is not { Length: > 0 })
         {
@@ -151,7 +151,7 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
     /// <summary>
     /// RTCDataChannel has a settable <c>bufferedAmountLowThreshold</c> property but raises no event
     /// off it -- there is no <c>onbufferedamountlow</c> member on the type in SIPSorcery 10.0.14 --
-    /// so the browser event the spec's backpressure assumes has to be synthesised by sampling, as
+    /// so the browser event the spec's backpressure assumes has to be synthesized by sampling, as
     /// <see cref="WebRtcDirectSctpMuxer"/> already does for its own channels.
     /// <para>
     /// Fires on every tick below the threshold rather than only on the falling edge: an edge

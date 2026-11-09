@@ -268,7 +268,7 @@ public class WebRtcDirectIntegrationTests
 
     /// <summary>
     /// A genuine signed binding request, built the way <see cref="WebRtcDirectStun.BuildBindingSuccessResponse"/>
-    /// signs its reply: SIPSorcery's serialiser, MESSAGE-INTEGRITY keyed with the server ufrag and a
+    /// signs its reply: SIPSorcery's serializer, MESSAGE-INTEGRITY keyed with the server ufrag and a
     /// FINGERPRINT appended. It is also what proves the loop passes the datagram on at its exact
     /// length -- MESSAGE-INTEGRITY covers the whole buffer, so a single trailing byte fails the check
     /// and the request goes unanswered.

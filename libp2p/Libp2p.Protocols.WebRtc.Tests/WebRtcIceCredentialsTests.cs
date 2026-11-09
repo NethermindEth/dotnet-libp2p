@@ -94,7 +94,7 @@ public class WebRtcIceCredentialsTests
     [TestCase("libp2p+webrtc+v3/0123456789abcdefghijKL")]
     [TestCase("libp2p+webrtc+/0123456789abcdefghijKL")]
     [TestCase("libp2p+webrtc+V2/0123456789abcdefghijKL")]
-    public void TryParseStunUsername_RejectsAbsentOrUnrecognisedPrefix(string serverUfrag)
+    public void TryParseStunUsername_RejectsAbsentOrUnrecognizedPrefix(string serverUfrag)
     {
         Assert.That(WebRtcIceCredentials.TryParseStunUsername($"{serverUfrag}:{ClientUfrag}", out _), Is.False);
         Assert.That(WebRtcIceCredentials.GetFlow(serverUfrag), Is.EqualTo(WebRtcDirectIceFlow.Unknown));

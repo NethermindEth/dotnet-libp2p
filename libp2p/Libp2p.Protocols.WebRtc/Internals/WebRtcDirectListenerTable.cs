@@ -34,7 +34,7 @@ internal enum WebRtcDirectRouteAction
 /// <summary>
 /// The primary table key. A listener may serve the same ufrag on a v4 and a v6 socket at once, and the two
 /// are different peers with different sessions, so the address family is part of the identity rather than
-/// something the lookup has to guess. Taken from the NORMALISED source, so a dual-mode socket's
+/// something the lookup has to guess. Taken from the NORMALIZED source, so a dual-mode socket's
 /// <c>::ffff:a.b.c.d</c> delivery keys as v4 exactly like the same peer arriving on a v4 socket.
 /// </summary>
 internal readonly record struct WebRtcDirectSessionKey(string ServerUfrag, bool IsIPv6);
@@ -70,7 +70,7 @@ internal readonly record struct WebRtcDirectRoute<TSession>(
 /// RE-POINT LIVE STATE. STUN MESSAGE-INTEGRITY is keyed with the server ufrag, which is the first half of
 /// the USERNAME in the same packet (see <see cref="WebRtcDirectStun.CheckIntegrity"/>), so anyone who can
 /// read one packet can mint integrity-valid ones for ever. A passing check rules out blind off-path
-/// spoofing and authorises nothing else. The only eviction anywhere in this class is oldest-first among
+/// spoofing and authorizes nothing else. The only eviction anywhere in this class is oldest-first among
 /// PENDING rows, which own no session; an established session is never evicted by anything off the wire.
 /// </para>
 /// </summary>
@@ -127,7 +127,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     private readonly Dictionary<WebRtcDirectSessionKey, Row> _byUfrag = [];
 
     /// <summary>
-    /// Secondary index: normalised source address -> row, for DTLS records, which carry no ufrag. The third
+    /// Secondary index: normalized source address -> row, for DTLS records, which carry no ufrag. The third
     /// index the design calls for — key -> addresses, for cleanup and for the per-ufrag cap — lives on the
     /// row as <see cref="Row.Addresses"/>, which is the same mapping without a dictionary to keep in step.
     /// </summary>
@@ -244,7 +244,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
     {
         lock (_gate)
         {
-            // A DTLS record carries no ufrag, so the normalised source address is the only key available.
+            // A DTLS record carries no ufrag, so the normalized source address is the only key available.
             // A pending row has nothing to deliver to, so it drops here too.
             if (!_byAddress.TryGetValue(source, out Row? row) || row.Session is null)
             {
@@ -449,7 +449,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
 
         lock (_gate)
         {
-            // Materialised because RemoveLocked mutates _byUfrag.
+            // Materialized because RemoveLocked mutates _byUfrag.
             foreach (Row row in _byUfrag.Values.ToArray())
             {
                 long idleBudget = row.IsEstablished ? EstablishedIdleMs : StunOnlyIdleMs;

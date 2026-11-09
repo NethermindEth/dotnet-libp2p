@@ -211,7 +211,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             await pc.setLocalDescription(offer);
 
             // webrtc-direct has no signalling channel: the offer is never sent anywhere. The answer
-            // is synthesised locally from the multiaddr, and the listener identifies this dial from
+            // is synthesized locally from the multiaddr, and the listener identifies this dial from
             // the STUN USERNAME alone, which carries the server ufrag built below.
             RTCSessionDescriptionInit answer = new()
             {
