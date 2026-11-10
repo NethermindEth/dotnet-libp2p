@@ -228,6 +228,52 @@ public class WebRtcStreamTests
         Assert.That(channel.SentFrames, Has.Count.EqualTo(2), "both payloads must reach the wire");
     }
 
+    /// <summary>
+    /// Teardown has to reach writers queued behind the application send lock, not just the one
+    /// holding it. <c>SemaphoreSlim.Dispose</c> does not complete an existing <c>WaitAsync</c>, so a
+    /// second writer queued while the first was parked on congestion was left pending for ever and
+    /// only an external token could free it.
+    /// </summary>
+    [Test]
+    [CancelAfter(20_000)]
+    public async Task DisposingStream_ReleasesWritersQueuedOnTheApplicationSendLock(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        channel.SetBufferedAmount(WebRtcStream.MaxBufferedAmount);
+        WebRtcStream stream = new(channel);
+
+        Task holding = stream.WriteAsync(new byte[] { 1 }, token).AsTask();
+        await Task.Delay(100, token);
+        Task queued = stream.WriteAsync(new byte[] { 2 }, token).AsTask();
+        await Task.Delay(100, token);
+
+        Assert.That(holding.IsCompleted, Is.False, "the first write must be parked on congestion");
+        Assert.That(queued.IsCompleted, Is.False, "the second must be queued behind it");
+
+        await stream.DisposeAsync();
+
+        // Faulting is the right outcome for both; hanging is not.
+        await Task.WhenAll(Observed(holding), Observed(queued)).WaitAsync(TimeSpan.FromSeconds(5), token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(holding.IsCompletedSuccessfully, Is.False);
+            Assert.That(queued.IsCompletedSuccessfully, Is.False);
+        });
+    }
+
+    private static async Task Observed(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception)
+        {
+            // Teardown faults every in-flight write; the test is about them completing at all.
+        }
+    }
+
     [Test]
     public async Task Backpressure_HoldsTheWriteUntilTheChannelDrains()
     {

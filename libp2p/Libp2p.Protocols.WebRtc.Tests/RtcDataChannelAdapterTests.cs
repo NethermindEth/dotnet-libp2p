@@ -54,6 +54,84 @@ public class RtcDataChannelAdapterTests
     }
 
     /// <summary>
+    /// Retained and live messages must come out in one order. Publishing the handler before
+    /// replaying the backlog let a message that arrived during the replay overtake the queued ones:
+    /// delivering 3 from inside the callback for 1 produced 1, 3, 2. The framing above splits
+    /// payloads across messages, so a reordering here is a corrupt frame, not just a late one.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task RetainedAndLiveMessages_ArriveInOneOrder(CancellationToken token)
+    {
+        RTCDataChannel channel = DetachedChannel();
+        using RtcDataChannelAdapter adapter = new(channel);
+        Action<byte[]> deliver = Deliverer(channel);
+
+        deliver([1]);
+        deliver([2]);
+
+        List<byte> seen = [];
+        adapter.MessageReceived += message =>
+        {
+            seen.Add(message[0]);
+
+            // Re-entrant on purpose: this is the live message arriving mid-replay.
+            if (message[0] == 1)
+            {
+                deliver([3]);
+            }
+        };
+
+        for (int i = 0; i < 500 && seen.Count < 3; i++)
+        {
+            await Task.Delay(10, token);
+        }
+
+        Assert.That(seen, Is.EqualTo(new byte[] { 1, 2, 3 }),
+            "a message arriving during the replay must queue behind the retained ones");
+    }
+
+    /// <summary>
+    /// The bound stays, but overflow has to be visible. SCTP has already delivered these bytes and
+    /// will not retransmit them, so discarding the 257th while keeping the channel open silently
+    /// truncates a payload -- or loses a FIN.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task OverflowingTheRetentionBound_FailsObservably(CancellationToken token)
+    {
+        RTCDataChannel channel = DetachedChannel();
+        using RtcDataChannelAdapter adapter = new(channel);
+        Action<byte[]> deliver = Deliverer(channel);
+
+        for (int i = 0; i < 257; i++)
+        {
+            deliver([(byte)i]);
+        }
+
+        bool closed = false;
+        adapter.Closed += () => closed = true;
+        adapter.MessageReceived += _ => { };
+
+        for (int i = 0; i < 500 && !closed; i++)
+        {
+            await Task.Delay(10, token);
+        }
+
+        Assert.That(closed, Is.True,
+            "an overflowed retention buffer must reach the consumer as a terminal event, not as silence");
+    }
+
+    /// <summary>Delivers an inbound message the way the SCTP association would.</summary>
+    private static Action<byte[]> Deliverer(RTCDataChannel channel)
+    {
+        MethodInfo gotData = typeof(RTCDataChannel).GetMethod("GotData", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("SIPSorcery no longer exposes GotData; rewrite these tests against its replacement.");
+        return payload => gotData.Invoke(channel,
+            [(ushort)0, (ushort)0, (uint)DataChannelPayloadProtocols.WebRTC_Binary, payload]);
+    }
+
+    /// <summary>
     /// WebRtcStream parks a writer and waits for this event, so an adapter that never raises it
     /// deadlocks the first peer that fills the send buffer. SIPSorcery raises no such event of its
     /// own (there is no onbufferedamountlow member on RTCDataChannel in 10.0.14), which is why it

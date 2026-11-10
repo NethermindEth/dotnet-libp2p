@@ -289,22 +289,39 @@ public class WebRtcDirectProtocol : ITransportProtocol
                         "The SCTP stream id space for this side of the association is exhausted; stream ids are never reused.");
                 }
 
+                // The receiver goes on BEFORE anything can open the stream, which is the only
+                // ordering that closes the window rather than narrowing it. createDataChannel sends
+                // the DCEP OPEN inside its synchronous prologue and only then waits for the ACK, so
+                // a receiver installed after it -- even immediately after, without awaiting -- can
+                // still lose what the peer sent as soon as it acknowledged. That is what dropped a
+                // real Go peer's multistream header.
+                //
+                // Inbound therefore comes straight off the association, filtered to this stream id,
+                // rather than from RTCDataChannel.onmessage. SIPSorcery keeps ownership of DCEP and
+                // the ACK; it also routes each frame to its own channel object, where nothing is
+                // subscribed, so there is no second delivery. The association is the same one
+                // WebRtcDirectSctpMuxer drives on the listen half, and this is the same channel
+                // type, so both halves now buffer and order inbound data identically.
+                RTCPeerSctpAssociation association = pc.sctp.RTCSctpAssociation;
+                SctpWebRtcDataChannel inbound = new(association, (ushort)streamId);
+
+                void Deliver(SctpDataFrame frame)
+                {
+                    if (frame.StreamID == (ushort)streamId)
+                    {
+                        inbound.Receive(frame);
+                    }
+                }
+
+                association.OnDataChannelData += Deliver;
+                inbound.Closed += () => association.OnDataChannelData -= Deliver;
+
                 // A libp2p stream carries its own protocol negotiation, so the DCEP label and
                 // subprotocol have nothing to say -- the same empty pair WebRtcDirectSctpMuxer
                 // puts in the OPEN it builds by hand. createDataChannel waits for the peer's DCEP
                 // ACK with no timeout of its own and takes no token, so the token is applied here.
                 Task<RTCDataChannel> creating = pc
                     .createDataChannel(string.Empty, new RTCDataChannelInit { id = (ushort)streamId });
-
-                // Subscribed here, not after the await. createDataChannel registers the channel with
-                // the peer connection and sends the DCEP OPEN in its synchronous prologue, then waits
-                // for the ACK -- so by the time it has yielded, the channel is already findable and
-                // the peer may already be sending. Attaching only after the await is what lost a real
-                // Go peer's multistream header; the adapter retains anything that beats the consumer.
-                RtcDataChannelAdapter? attached =
-                    pc.DataChannels.FirstOrDefault(registered => registered.id == (ushort)streamId) is { } early
-                        ? new RtcDataChannelAdapter(early)
-                        : null;
 
                 RTCDataChannel channel;
                 try
@@ -316,7 +333,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
                     // createDataChannel takes no token, so abandoning the wait does not abandon the
                     // create: whatever it eventually produces has to be closed, or an abandoned open
                     // leaves a live datachannel for the rest of the connection.
-                    attached?.Close();
+                    inbound.Close();
                     _ = creating.ContinueWith(
                         finished => finished.Result.close(),
                         CancellationToken.None,
@@ -331,12 +348,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 // silent data loss into a failed stream open.
                 if (!channel.IsOpened)
                 {
-                    attached?.Close();
+                    inbound.Close();
                     channel.close();
                     throw new InvalidOperationException($"WebRTC data channel {streamId} did not open.");
                 }
 
-                return attached ?? new RtcDataChannelAdapter(channel);
+                // Closing ours closes SIPSorcery's too, so a finished stream does not leave a live
+                // datachannel object behind on the peer connection.
+                inbound.Closed += channel.close;
+                return inbound;
             }
 
             await RunSessionAsync(connectionContext, OpenStreamAsync, inboundStreams, token);

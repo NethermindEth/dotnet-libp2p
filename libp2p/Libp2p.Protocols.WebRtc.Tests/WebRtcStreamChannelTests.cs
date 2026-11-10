@@ -248,6 +248,48 @@ public class WebRtcStreamChannelTests
         Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
+    /// <summary>
+    /// A received FIN ends the read half and nothing else. If the whole datachannel then goes away
+    /// while our write half is still open, that is the transport being lost, not an orderly
+    /// ending -- and the wrapper's awaiter has to complete for it.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task ChannelClosingAfterPeerFin_StillCompletesWholeChannel(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        WebRtcStream stream = new(channel);
+        WebRtcStreamChannel subject = new(stream);
+
+        channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null));
+        Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Ended),
+            "the read half must end on the peer's FIN");
+        Assert.That(subject.GetAwaiter().IsCompleted, Is.False, "but the write half is still open");
+
+        channel.Close();
+
+        await WaitUntilAsync(() => subject.GetAwaiter().IsCompleted, token);
+    }
+
+    /// <summary>
+    /// A stream can be accepted and queued before the session loop wraps it, and the channel can
+    /// close in between. The Closed event has already been and gone by the time anything subscribes,
+    /// so the terminal state has to be readable rather than only observable as an event.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task ChannelClosedBeforeTheWrapperExists_IsStillTerminal(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        channel.Close();
+
+        WebRtcStream stream = new(channel);
+        WebRtcStreamChannel subject = new(stream);
+
+        await WaitUntilAsync(() => subject.GetAwaiter().IsCompleted, token);
+        Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token)
     {
         for (int i = 0; i < 500 && !condition(); i++)

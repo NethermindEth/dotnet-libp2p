@@ -575,13 +575,18 @@ public class WebRtcDirectListenerTableTests
         IPEndPoint probing = Peer(41_000);
         IPEndPoint nominated = Peer(41_001);
 
+        // The production order, which is the whole point of this test: Dispatch admits on the first
+        // ordinary check and Admit attaches the session straight away, before the receive loop can
+        // even look at the next datagram. A test that nominates before attaching cannot fail, and
+        // the previous version of this test made exactly that mistake.
         WebRtcDirectRoute<Session> admitted = table.Route(probing, BindingRequest(ufrag));
         Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
-        Assume.That(table.Route(nominated, NominatingRequest(ufrag)).Action,
-            Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
 
         Session session = new("nominated");
         Assume.That(table.AttachSession(admitted.Key, session), Is.True);
+
+        Assume.That(table.Route(nominated, NominatingRequest(ufrag)).Action,
+            Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
 
         WebRtcDirectRoute<Session> delivered = table.Route(nominated, DtlsRecord);
 
@@ -608,6 +613,11 @@ public class WebRtcDirectListenerTableTests
 
         // Egress is only reported on a DeliverToSession route, so it is asserted below rather than here.
         Establish(table, ufrag, admitting, new Session("honest"));
+
+        // The row has to actually be carrying DTLS, which is what freezes the pair. Routing a real
+        // record is how production gets there, and asserting on a row that merely has a session
+        // object attached would be testing a state the nomination rule deliberately allows.
+        Assume.That(table.Route(admitting, DtlsRecord).Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
 
         Assume.That(table.Route(attacker, NominatingRequest(ufrag)).Action,
             Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));

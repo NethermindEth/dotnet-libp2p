@@ -51,6 +51,14 @@ internal sealed class WebRtcStream : IAsyncDisposable
     /// queueing behind a writer parked on a peer that is not reading.
     /// </summary>
     private readonly SemaphoreSlim _callerSendLock = new(1, 1);
+
+    /// <summary>
+    /// Cancelled when the stream dies, so a writer queued on <see cref="_callerSendLock"/> stops
+    /// waiting. <c>SemaphoreSlim.Dispose</c> does not complete an existing <c>WaitAsync</c>, so
+    /// disposing the semaphore under a queued writer left it pending for ever; the wait has to
+    /// observe the stream's lifetime instead.
+    /// </summary>
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly Lock _sync = new();
     private readonly Lock _receiveLock = new();
     private readonly TaskCompletionSource _finAck = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -75,6 +83,14 @@ internal sealed class WebRtcStream : IAsyncDisposable
         _channel.MessageReceived += OnMessage;
         _channel.BufferedAmountLow += ReleaseWriter;
         _channel.Closed += OnChannelClosed;
+
+        // The Closed event may already have fired: an accepted stream can sit queued for the
+        // session loop, and the channel can die in the meantime. Subscribing after that point sees
+        // nothing, so the state is read once here.
+        if (_channel.IsClosed)
+        {
+            OnChannelClosed();
+        }
     }
 
     /// <summary>
@@ -234,8 +250,20 @@ internal sealed class WebRtcStream : IAsyncDisposable
         }
 
         // Held across the wait AND the send, so the next application write does not register its
-        // own congestion waiter while this one is still parked on it.
-        await _callerSendLock.WaitAsync(token);
+        // own congestion waiter while this one is still parked on it. Linked to the stream's
+        // lifetime so teardown reaches a writer queued here, not only the one holding it.
+        using CancellationTokenSource queued = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+        try
+        {
+            await _callerSendLock.WaitAsync(queued.Token);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            // The stream died while this writer was queued. Report that, not a bare cancellation.
+            ThrowIfSendingIsOver(callerData: true);
+            throw;
+        }
+
         try
         {
             await WaitForCapacityAsync(token);
@@ -480,7 +508,10 @@ internal sealed class WebRtcStream : IAsyncDisposable
         bool ended;
         lock (_sync)
         {
-            ended = _finReceived || _failure is not null;
+            // Both halves, not just the peer's. A received FIN ends reading; if the transport then
+            // disappears while this side still has an open write half, the stream has lost its
+            // channel rather than finished, and a caller awaiting it must be told.
+            ended = _failure is not null || (_finReceived && _finSent);
         }
 
         if (!ended)
@@ -519,8 +550,11 @@ internal sealed class WebRtcStream : IAsyncDisposable
         Detach();
         Fail(new IOException("The stream was disposed."));
         await Task.CompletedTask;
-        _sendLock.Dispose();
-        _callerSendLock.Dispose();
+        // Deliberately NOT disposing _sendLock/_callerSendLock. Fail() above cancels _lifetime,
+        // which is what releases anyone queued on them, and disposing a SemaphoreSlim does not
+        // complete an existing WaitAsync -- it just makes the waiter's eventual Release throw.
+        // Neither semaphore's AvailableWaitHandle is ever touched, so there is nothing to leak.
+        _lifetime.Dispose();
     }
 
     private void Fail(Exception error)
@@ -550,6 +584,10 @@ internal sealed class WebRtcStream : IAsyncDisposable
         _ = _inbound.Reader.Completion.Exception;
         _finAck.TrySetResult();
         ReleaseWriter();
+
+        // Before closing the channel: a writer queued on the application send lock is woken by
+        // this and nothing else.
+        _lifetime.Cancel();
         _channel.Close();
 
         // Last, so a subscriber observing this sees the stream already in its final state.

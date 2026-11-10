@@ -68,15 +68,7 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
 
     private IPEndPoint? _remoteEndPoint;
 
-    /// <summary>
-    /// The address the first DTLS record genuinely came from, kept separately from
-    /// <see cref="_remoteEndPoint"/>, which is where replies go. The two are not the same question:
-    /// the reply address is fixed at admission and cannot be raced, while the observed source is
-    /// whatever the socket reports, and an attacker who has learned the ufrag can attach their own
-    /// address to the row with the public STUN integrity key. Without pinning the source as well,
-    /// such a peer can feed an unauthenticated alert into an honest peer's unfinished handshake.
-    /// </summary>
-    private IPEndPoint? _dtlsSource;
+
     private DtlsSrtpTransport? _dtls;
     private RTCSctpTransport? _sctp;
     private int _preHandshakeDatagrams;
@@ -161,15 +153,14 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
             IPEndPoint normalizedSource = WebRtcDirectStun.Normalize(source);
             IPEndPoint normalized = WebRtcDirectStun.Normalize(egress);
 
-            // Checked against the observed source, not against the reply address: every attached
-            // address reaches this method, and only the one that opened the handshake may continue
-            // it. DTLS authenticates its own records, but a handshake it has not finished yet is
-            // exactly what an injected alert destroys.
-            if (_dtlsSource is null)
-            {
-                _dtlsSource = normalizedSource;
-            }
-            else if (!_dtlsSource.Equals(normalizedSource))
+            // Admission is decided by the SELECTED CANDIDATE PAIR, which is what `egress` carries:
+            // fixed when the row was admitted and then only ever moved by a USE-CANDIDATE check,
+            // before any DTLS flowed. Deciding it by whichever address sent the first record instead
+            // hands the choice to whoever is quickest, and an endpoint that attached itself with the
+            // public STUN integrity key is quick enough -- one inert record and the honest peer is
+            // refused for the rest of the handshake. RFC 8445 sections 7.3.2 and 12.1.1 make the
+            // nominated pair the one that carries media, so it is the one that carries DTLS too.
+            if (!normalized.Equals(normalizedSource))
             {
                 return;
             }

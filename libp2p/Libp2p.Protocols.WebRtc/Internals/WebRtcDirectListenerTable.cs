@@ -258,6 +258,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             }
 
             row.LastSeenMs = _nowMs();
+            row.MarkDtlsRouted();
 
             // Records arriving from any of the ufrag's attached addresses are delivered -- DTLS
             // authenticates them itself, and the session checks the observed source separately --
@@ -546,6 +547,22 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         public bool EgressNominated { get; private set; }
 
         /// <summary>
+        /// Whether a DTLS record has actually been routed to this row, which is what freezes
+        /// <see cref="Egress"/> for good.
+        /// <para>
+        /// Deliberately NOT <c>Session is not null</c>. A session object is allocated the instant a
+        /// row is admitted -- <c>Dispatch</c> admits on the first ordinary check and <c>Admit</c>
+        /// attaches before the receive loop looks at the next datagram -- so gating on the session
+        /// disabled nomination entirely in the only ordering production can produce. Allocating the
+        /// object and selecting the candidate pair are different questions.
+        /// </para>
+        /// </summary>
+        public bool DtlsRouted { get; private set; }
+
+        /// <summary>Records that this row has begun carrying DTLS, after which nothing moves the egress.</summary>
+        public void MarkDtlsRouted() => DtlsRouted = true;
+
+        /// <summary>
         /// Moves the reply address to the pair the dialer nominated, which RFC 8445 sections 7.3.2
         /// and 12.1.1 require an ICE-lite endpoint to use. A dialer that probes several candidates
         /// may well send its first ordinary check from one whose return path does not work and then
@@ -554,13 +571,12 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         /// <para>
         /// Narrow on purpose, so the protection against arbitrary STUN moving a live connection
         /// stays intact: only a nominating check moves it, only the first such check does, and only
-        /// while no DTLS has been routed to this row yet. Once a session exists the address is
-        /// frozen for good.
+        /// before the row has carried any DTLS. From the first record onwards it is frozen.
         /// </para>
         /// </summary>
         public void TryNominateEgress(IPEndPoint source)
         {
-            if (EgressNominated || Session is not null)
+            if (EgressNominated || DtlsRouted || IsEstablished)
             {
                 return;
             }

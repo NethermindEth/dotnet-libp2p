@@ -31,6 +31,13 @@ internal interface IWebRtcDataChannel
 
     event Action? Closed;
 
+    /// <summary>
+    /// Whether the channel has already closed. A stream can be accepted and queued before anything
+    /// wraps it, so the <see cref="Closed"/> event may have fired before there was a subscriber:
+    /// terminal state has to be readable as well as announced.
+    /// </summary>
+    bool IsClosed { get; }
+
     ValueTask SendAsync(ReadOnlyMemory<byte> frame, CancellationToken token = default);
 
     void Close();

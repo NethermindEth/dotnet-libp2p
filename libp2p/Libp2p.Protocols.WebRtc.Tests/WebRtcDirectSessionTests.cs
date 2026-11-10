@@ -172,6 +172,40 @@ public class WebRtcDirectSessionTests
     }
 
     /// <summary>
+    /// The inbound filter must be keyed on the selected candidate pair, not on whoever sends a
+    /// record first. An endpoint that attached itself with the public STUN integrity key can send
+    /// one inert record before the honest peer sends anything; if that claimed the source, every
+    /// subsequent honest record is refused and the handshake dies of silence instead.
+    /// <para>
+    /// Proved by the honest peer's fatal alert having to still take effect afterwards: the alert is
+    /// only acted on if its record reached the DTLS stack, so a handshake that is still running
+    /// means the honest peer was locked out.
+    /// </para>
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task ReceiveDtls_AfterAnAttachedEndpointSendsFirst_StillAcceptsTheSelectedPair(CancellationToken token)
+    {
+        var (_, chain, privateKey, _) = WebRtcDirectProtocol.CreateLocalCertificate();
+        using SemaphoreSlim slots = new(1, 1);
+        await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
+        IPEndPoint selected = new(IPAddress.Loopback, 1111);
+        IPEndPoint attached = new(IPAddress.Loopback, 2222);
+
+        // The attached endpoint gets in first, carrying the selected pair as its egress.
+        session.ReceiveDtls(DiscardedRecord(1), attached, selected);
+
+        // The selected pair's own record must still be acted on.
+        session.ReceiveDtls(FatalAlertRecord(), selected, selected);
+        await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
+
+        Assert.That(session.Established.IsCompleted, Is.True,
+            "the selected pair must not be locked out by whoever sent a record first");
+        Assert.That(async () => await session.Established, Throws.Exception,
+            "and its alert must have reached the DTLS stack");
+    }
+
+    /// <summary>
     /// Past <c>MaxPreHandshakeDatagrams</c> nothing more is handed to the DTLS stack while the
     /// handshake is incomplete, which is what bounds the unbounded queue behind
     /// <c>WriteToRecvStream</c>. Proved by making the datagram that crosses the bound the one

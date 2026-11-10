@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using SIPSorcery.Net;
+using System.Threading.Channels;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 
@@ -59,32 +60,13 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
     {
         add
         {
-            if (value is null)
+            _messageReceived += value;
+            if (Interlocked.Exchange(ref _pumping, 1) == 0)
             {
-                return;
-            }
-
-            byte[][] backlog;
-            lock (_pending)
-            {
-                _messageReceived += value;
-                backlog = [.. _pending];
-                _pending.Clear();
-            }
-
-            // Outside the lock: a consumer is free to re-enter this adapter from its handler.
-            foreach (byte[] message in backlog)
-            {
-                value(message);
+                _ = Task.Run(PumpAsync);
             }
         }
-        remove
-        {
-            lock (_pending)
-            {
-                _messageReceived -= value;
-            }
-        }
+        remove => _messageReceived -= value;
     }
 
     /// <summary>
@@ -94,14 +76,31 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
     /// </summary>
     private const int MaxPendingMessages = 256;
 
-    private readonly Queue<byte[]> _pending = new();
+    /// <summary>
+    /// One ordered path for retained and live messages alike. An earlier version published the
+    /// subscriber and then replayed a backlog outside the lock, which let a message arriving during
+    /// the replay overtake the queued ones -- and since the framing above splits payloads across
+    /// messages, a reordering there is a corrupt frame rather than a late one. A single reader over
+    /// one bounded queue cannot reorder.
+    /// </summary>
+    private readonly Channel<byte[]> _incoming = Channel.CreateBounded<byte[]>(
+        new BoundedChannelOptions(MaxPendingMessages)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+
     private Action<byte[]>? _messageReceived;
+    private int _pumping;
 
     public event Action? BufferedAmountLow;
 
     public event Action? Closed;
 
     public ushort StreamId { get; }
+
+    public bool IsClosed => Volatile.Read(ref _closed) == 1;
 
     /// <summary>
     /// <c>RTCDataChannel.bufferedAmount</c> is a <see cref="ulong"/> count of bytes queued on the
@@ -153,6 +152,7 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
         // the channel. Timer.Dispose does not wait for an in-flight callback, so the flag -- not
         // this call -- is what makes a late tick harmless.
         _bufferedAmountPoll.Dispose();
+        _incoming.Writer.TryComplete();
 
         try
         {
@@ -183,22 +183,39 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
             return;
         }
 
-        Action<byte[]>? handler;
-        lock (_pending)
+        if (!_incoming.Writer.TryWrite(data))
         {
-            handler = _messageReceived;
-            if (handler is null)
-            {
-                if (_pending.Count < MaxPendingMessages)
-                {
-                    _pending.Enqueue(data);
-                }
+            // Failed rather than discarded. SCTP has already delivered these bytes and will not
+            // retransmit them, so dropping one while keeping the channel open silently truncates a
+            // payload -- or loses a FIN. Completing with the fault keeps everything retained so far
+            // and hands the failure to whichever consumer eventually attaches.
+            _incoming.Writer.TryComplete(
+                new IOException($"Inbound buffer overflow on RTC data channel '{_channel.label}': more than {MaxPendingMessages} messages are unread."));
+        }
+    }
 
-                return;
+    /// <summary>
+    /// Drains the retained queue, and then every later message, in arrival order. Started by the
+    /// first subscriber rather than in the constructor, so nothing is drained into a null event
+    /// before the stream above has attached.
+    /// </summary>
+    private async Task PumpAsync()
+    {
+        try
+        {
+            await foreach (byte[] message in _incoming.Reader.ReadAllAsync())
+            {
+                _messageReceived?.Invoke(message);
             }
         }
+        catch (Exception)
+        {
+            // Overflow, or a subscriber that threw. The seam has no error channel, so the stream
+            // learns of it the only way it can: the channel going away under it, which it already
+            // treats as a truncated transfer rather than a clean end.
+        }
 
-        handler(data);
+        Close();
     }
 
     /// <summary>
