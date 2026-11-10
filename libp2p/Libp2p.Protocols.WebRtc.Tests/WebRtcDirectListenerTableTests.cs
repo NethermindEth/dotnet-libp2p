@@ -59,6 +59,15 @@ public class WebRtcDirectListenerTableTests
         return request.ToByteBufferStringKey(signingKey ?? serverUfrag, true);
     }
 
+    /// <summary>A binding request that nominates its pair, as RFC 8445 section 7.3.2's USE-CANDIDATE.</summary>
+    private static byte[] NominatingRequest(string serverUfrag, string clientUfrag = "PSAY")
+    {
+        STUNMessage request = new(STUNMessageTypesEnum.BindingRequest);
+        request.AddUsernameAttribute($"{serverUfrag}:{clientUfrag}");
+        request.Attributes.Add(new STUNAttribute(STUNAttributeTypesEnum.UseCandidate, Array.Empty<byte>()));
+        return request.ToByteBufferStringKey(serverUfrag, true);
+    }
+
     private static IPEndPoint Peer(int port = 40_000, string address = "203.0.113.7") => new(IPAddress.Parse(address), port);
 
     private WebRtcDirectRoute<Session> Establish(
@@ -552,6 +561,67 @@ public class WebRtcDirectListenerTableTests
     /// the honest peer to sending a record -- after which the server's whole DTLS flight goes to it.
     /// Flagged by automated security review against the first implementation of this class.
     /// </summary>
+    /// <summary>
+    /// A dialer that probes several candidates may send its first ordinary check from one whose
+    /// return path does not work, and then nominate a different one. RFC 8445 sections 7.3.2 and
+    /// 12.1.1 require the ICE-lite endpoint to use the nominated pair, so freezing the reply address
+    /// on whichever candidate checked first leaves the selected pair unable to finish its handshake.
+    /// </summary>
+    [Test]
+    public void Route_MovesEgressToTheNominatedCandidate_WhenAnotherCandidateCheckedFirst()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(4_300);
+        IPEndPoint probing = Peer(41_000);
+        IPEndPoint nominated = Peer(41_001);
+
+        WebRtcDirectRoute<Session> admitted = table.Route(probing, BindingRequest(ufrag));
+        Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Assume.That(table.Route(nominated, NominatingRequest(ufrag)).Action,
+            Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+
+        Session session = new("nominated");
+        Assume.That(table.AttachSession(admitted.Key, session), Is.True);
+
+        WebRtcDirectRoute<Session> delivered = table.Route(nominated, DtlsRecord);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(delivered.Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+            Assert.That(delivered.Egress, Is.EqualTo(nominated),
+                "replies must go to the pair the dialer nominated, not to whichever candidate probed first");
+        });
+    }
+
+    /// <summary>
+    /// The narrowness of the rule above: once a session exists, no STUN packet of any kind may move
+    /// the reply address. Minting an integrity-valid request costs an attacker nothing, so a late
+    /// nomination from an address they attached must be ignored.
+    /// </summary>
+    [Test]
+    public void Route_RefusesToMoveEgress_OnceTheRowIsServingDtls()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(4_301);
+        IPEndPoint admitting = Peer(41_010);
+        IPEndPoint attacker = Peer(41_011);
+
+        // Egress is only reported on a DeliverToSession route, so it is asserted below rather than here.
+        Establish(table, ufrag, admitting, new Session("honest"));
+
+        Assume.That(table.Route(attacker, NominatingRequest(ufrag)).Action,
+            Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+
+        WebRtcDirectRoute<Session> delivered = table.Route(attacker, DtlsRecord);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(delivered.Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+            Assert.That(delivered.Egress, Is.EqualTo(admitting),
+                "a nomination arriving after DTLS has started must not redirect an existing connection");
+        });
+    }
+
     [Test]
     public void Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst()
     {

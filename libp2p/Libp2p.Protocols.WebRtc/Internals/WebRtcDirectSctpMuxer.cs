@@ -213,7 +213,8 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     /// a stream to be reopened only once both directions have been reset, and SIPSorcery implements
     /// no RFC 6525 RE-CONFIG chunk to reset them with, so a recycled id risks delivering a late
     /// chunk of the previous stream into the new one. The price is a hard ceiling of 32767 streams
-    /// opened per association (32768 as the DTLS server, which does not give up id 0), after which
+    /// opened per association on either side -- the client skips reserved id 0 and the server stops
+    /// below RFC 8832's reserved 65535 -- after which
     /// the caller has to open a new connection; <see cref="MaxConcurrentChannels"/> is what bounds
     /// the live ones.
     /// </summary>
@@ -221,7 +222,10 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     {
         lock (_streamIdLock)
         {
-            if (_nextOutboundStreamId > ushort.MaxValue)
+            // RFC 8832 section 3 reserves 65535: INIT/INIT-ACK negotiate at most 65535 streams, so
+            // the last usable id is 65534. Handing out the reserved one would put a DCEP OPEN on the
+            // wire that a conforming peer must refuse, which is worse than reporting exhaustion here.
+            if (_nextOutboundStreamId >= ushort.MaxValue)
             {
                 throw new InvalidOperationException(
                     "The SCTP stream id space for this side of the association is exhausted; stream ids are never reused.");

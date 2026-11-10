@@ -34,6 +34,22 @@ public class WebRtcDirectProtocol : ITransportProtocol
     /// </summary>
     private static readonly TimeSpan ReapInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long an inbound peer may take to get from an admitted row to an authenticated libp2p
+    /// identity -- DTLS, then the SCTP association, then Noise.
+    /// <para>
+    /// It has to be bounded here because a peer that finishes DTLS and then simply stops has
+    /// already been promoted into the <see cref="WebRtcDirectListenerTable{TSession}.MaxEstablishedSessions"/>
+    /// pool, and its continuing consent checks keep refreshing the long idle TTL, so the reaper
+    /// never collects it. DTLS alone may take
+    /// <see cref="WebRtcDirectSession.DtlsHandshakeTimeoutMs"/> (10s) and the association and
+    /// handshake need a couple of round trips each, so this is generous for an honest peer while
+    /// holding an established slot for a small fraction of
+    /// <see cref="WebRtcDirectListenerTable{TSession}.EstablishedIdleMs"/> (300s).
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan PreAuthenticationTimeout = TimeSpan.FromSeconds(30);
+
     private readonly ILogger<WebRtcDirectProtocol>? _logger;
 
     /// <summary>
@@ -179,6 +195,11 @@ public class WebRtcDirectProtocol : ITransportProtocol
     {
         (IPEndPoint endpoint, DtlsFingerprint expectedFingerprint) = WebRtcDirectMultiaddr.Parse(remoteAddr);
 
+        // Kept rather than discarded: if the caller dialled a /p2p address, the identity Noise
+        // authenticates has to be the one that was asked for, and this is the only place both
+        // values exist.
+        PeerId? expectedPeerId = remoteAddr.GetPeerId();
+
         RTCPeerConnection pc = CreatePeerConnection();
 
         try
@@ -240,12 +261,16 @@ public class WebRtcDirectProtocol : ITransportProtocol
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
                 WebRtcDirectRoles.OrderFingerprints(isListener: false, local: _fingerprint, remote: expectedFingerprint);
 
-            connectionContext.State.RemotePublicKey = await RunNoiseHandshakeAsync(
+            PublicKey remoteKey = await RunNoiseHandshakeAsync(
                 noiseStream,
                 context.Peer.Identity,
                 WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
                 isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator,
                 token);
+
+            connectionContext.State.RemotePublicKey = remoteKey;
+            connectionContext.State.RemoteAddress = AuthenticatedAddress(
+                endpoint, expectedFingerprint, remoteKey, expectedPeerId);
 
             // Ids are chosen here rather than left to SIPSorcery. RTCDataChannelCollection seeds
             // its counter at ushort.MaxValue - 1 and adds 2 unchecked, so the first id it offers
@@ -268,9 +293,37 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 // subprotocol have nothing to say -- the same empty pair WebRtcDirectSctpMuxer
                 // puts in the OPEN it builds by hand. createDataChannel waits for the peer's DCEP
                 // ACK with no timeout of its own and takes no token, so the token is applied here.
-                RTCDataChannel channel = await pc
-                    .createDataChannel(string.Empty, new RTCDataChannelInit { id = (ushort)streamId })
-                    .WaitAsync(streamToken);
+                Task<RTCDataChannel> creating = pc
+                    .createDataChannel(string.Empty, new RTCDataChannelInit { id = (ushort)streamId });
+
+                // Subscribed here, not after the await. createDataChannel registers the channel with
+                // the peer connection and sends the DCEP OPEN in its synchronous prologue, then waits
+                // for the ACK -- so by the time it has yielded, the channel is already findable and
+                // the peer may already be sending. Attaching only after the await is what lost a real
+                // Go peer's multistream header; the adapter retains anything that beats the consumer.
+                RtcDataChannelAdapter? attached =
+                    pc.DataChannels.FirstOrDefault(registered => registered.id == (ushort)streamId) is { } early
+                        ? new RtcDataChannelAdapter(early)
+                        : null;
+
+                RTCDataChannel channel;
+                try
+                {
+                    channel = await creating.WaitAsync(streamToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // createDataChannel takes no token, so abandoning the wait does not abandon the
+                    // create: whatever it eventually produces has to be closed, or an abandoned open
+                    // leaves a live datachannel for the rest of the connection.
+                    attached?.Close();
+                    _ = creating.ContinueWith(
+                        finished => finished.Result.close(),
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnRanToCompletion,
+                        TaskScheduler.Default);
+                    throw;
+                }
 
                 // A channel created while the peer connection is not connected is parked as a
                 // placeholder and returned unopened, and RTCDataChannel.send logs a warning and
@@ -278,11 +331,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 // silent data loss into a failed stream open.
                 if (!channel.IsOpened)
                 {
+                    attached?.Close();
                     channel.close();
                     throw new InvalidOperationException($"WebRTC data channel {streamId} did not open.");
                 }
 
-                return new RtcDataChannelAdapter(channel);
+                return attached ?? new RtcDataChannelAdapter(channel);
             }
 
             await RunSessionAsync(connectionContext, OpenStreamAsync, inboundStreams, token);
@@ -344,18 +398,22 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 break;
 
             case WebRtcDirectRouteAction.DeliverToSession:
-                // route.Egress, NOT source. The session pins its egress to whatever address it first
-                // sees a DTLS record from, and that race is one an off-path attacker can enter: the
-                // MESSAGE-INTEGRITY key is the server ufrag carried in the same packet, so observing
-                // one binding request is enough to mint a valid one, get an address attached to the
-                // row and then beat the honest peer to sending a record. Handing the session the
-                // row's egress -- fixed at admission, which cannot be raced, see
-                // WebRtcDirectListenerTable.Row.Egress -- means records from any attached address are
-                // delivered, DTLS authenticates them itself, and every reply still goes to the peer
-                // that admitted the row. WebRtcDirectListenerTableTests
-                // .Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst pins the value;
-                // this is the line that honours it.
-                route.Session!.ReceiveDtls(datagram, route.Egress!);
+                // BOTH addresses, because they answer different questions and collapsing them loses
+                // one of the answers.
+                //
+                // route.Egress is where replies go. It is fixed when the row is admitted, which
+                // cannot be raced: the MESSAGE-INTEGRITY key is the server ufrag carried in the same
+                // packet, so observing one binding request is enough to mint a valid one and get an
+                // address attached to the row. Replying to the admitting address and no other is
+                // what stops that becoming a hijack. WebRtcDirectListenerTableTests
+                // .Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst pins the value.
+                //
+                // source is where this datagram actually came from, and the session needs it to
+                // admit records. Passing the egress as the source -- which this line used to do --
+                // presents every attached address as if it were the admitting peer, so the session's
+                // own source check could never fire, and whoever knew the ufrag could drop an
+                // unauthenticated alert into an honest peer's unfinished handshake.
+                route.Session!.ReceiveDtls(datagram, source, route.Egress!);
                 break;
 
             case WebRtcDirectRouteAction.Drop:
@@ -422,9 +480,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
     {
         try
         {
+            // Everything up to an authenticated identity runs under this, not under the listener's
+            // own lifetime: a peer that completes DTLS and then goes quiet would otherwise sit in
+            // the established pool until the listener itself stopped.
+            using CancellationTokenSource preAuthentication = CancellationTokenSource.CreateLinkedTokenSource(token);
+            preAuthentication.CancelAfter(PreAuthenticationTimeout);
+
             // Established faults on failure, timeout and disposal but never cancels, so the token is
             // the only thing that unparks this when the listener stops.
-            await session.Established.WaitAsync(token);
+            await session.Established.WaitAsync(preAuthentication.Token);
 
             // DTLS is up, so this row has earned the long idle budget and exemption from eviction.
             // A full established pool is refused here rather than at attach, which keeps capacity for
@@ -454,9 +518,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // peer's INIT at that point. SctpAssociation.SendData on an association still in Closed
             // logs a warning and DISCARDS the message, so writing the Noise handshake here rather
             // than after Connected loses message one outright and both sides wait for ever.
-            await muxer.Connected.WaitAsync(token);
+            await muxer.Connected.WaitAsync(preAuthentication.Token);
 
             using INewConnectionContext connectionContext = context.CreateConnection();
+
+            // From here the core has a say too: its own inbound-upgrade deadline and any disconnect
+            // live on connectionContext.Token, and before this link existed neither could end the
+            // handshake below or get the session disposed.
+            using CancellationTokenSource authenticating =
+                CancellationTokenSource.CreateLinkedTokenSource(preAuthentication.Token, connectionContext.Token);
             connectionContext.State.LocalAddress = localEndpoint.ToMultiaddress(ProtocolType.Udp);
             connectionContext.State.RemoteAddress = remoteEndPoint.ToMultiaddress(ProtocolType.Udp);
 
@@ -468,12 +538,19 @@ public class WebRtcDirectProtocol : ITransportProtocol
             (DtlsFingerprint dialerFingerprint, DtlsFingerprint listenerFingerprint) =
                 WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
 
-            connectionContext.State.RemotePublicKey = await RunNoiseHandshakeAsync(
+            PublicKey remoteKey = await RunNoiseHandshakeAsync(
                 noiseStream,
                 context.Peer.Identity,
                 WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
                 isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator,
-                token);
+                authenticating.Token);
+
+            connectionContext.State.RemotePublicKey = remoteKey;
+
+            // The listener dialled nobody, so there is no expected identity to check against --
+            // the one Noise just proved is the only one there has ever been.
+            connectionContext.State.RemoteAddress = AuthenticatedAddress(
+                remoteEndPoint, remoteFingerprint, remoteKey, expectedPeerId: null);
 
             await RunSessionAsync(
                 connectionContext,
@@ -549,10 +626,25 @@ public class WebRtcDirectProtocol : ITransportProtocol
         {
             foreach (UpgradeOptions request in session.DialRequests)
             {
+                // Both open paths wait for the peer's DCEP ACK and this loop is serial, so a peer
+                // that withholds one ACK would otherwise park every later outbound stream behind it
+                // for ever -- cancelling ISession.DialAsync(..., token) completed the caller's
+                // source and left the open itself running.
+                using CancellationTokenSource opening =
+                    CancellationTokenSource.CreateLinkedTokenSource(stopping.Token, request.CancellationToken);
+
                 IWebRtcDataChannel channel;
                 try
                 {
-                    channel = await openStream(stopping.Token);
+                    channel = await openStream(opening.Token);
+                }
+                catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested
+                                                         && !stopping.IsCancellationRequested)
+                {
+                    // One caller gave up on one stream. That is not a reason to end the session, so
+                    // the loop moves on to the next request.
+                    request.CompletionSource?.TrySetCanceled(request.CancellationToken);
+                    continue;
                 }
                 catch (Exception ex)
                 {
@@ -625,6 +717,36 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 Interlocked.Decrement(ref liveInboundStreams);
             }
         }
+    }
+
+    /// <summary>
+    /// The remote address a session can actually be created from: the transport address plus the
+    /// <c>/p2p</c> identity Noise authenticated.
+    /// <para>
+    /// <see cref="State.RemotePeerId"/> reads that component and nothing else, so leaving the
+    /// address at <c>/ip4/.../udp/...</c> makes <see cref="INewConnectionContext.UpgradeToSession"/>
+    /// throw for every connection -- which a mocked context hides and a real
+    /// <see cref="Core.LocalPeer"/> does not.
+    /// </para>
+    /// </summary>
+    /// <param name="expectedPeerId">
+    /// What the dialled multiaddr asked for, when it named one. A mismatch is refused here: the
+    /// /certhash check proves which certificate answered, and this proves which peer owns it.
+    /// </param>
+    private static Multiaddress AuthenticatedAddress(
+        IPEndPoint endpoint,
+        DtlsFingerprint fingerprint,
+        PublicKey remoteKey,
+        PeerId? expectedPeerId)
+    {
+        PeerId authenticated = new Identity(remoteKey).PeerId;
+        if (expectedPeerId is not null && !expectedPeerId.Equals(authenticated))
+        {
+            throw new InvalidOperationException(
+                $"Remote peer authenticated as {authenticated}, but {expectedPeerId} was dialled.");
+        }
+
+        return WebRtcDirectMultiaddr.BuildWithIdentity(endpoint, fingerprint, authenticated);
     }
 
     /// <summary>One libp2p stream, from its data channel up to the protocol stack that consumes it.</summary>

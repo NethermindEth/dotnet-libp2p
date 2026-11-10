@@ -200,6 +200,34 @@ public class WebRtcStreamTests
         Assert.That(channel.IsClosed, Is.True);
     }
 
+    /// <summary>
+    /// Two application writes parked on a full send buffer must both be released. There is one
+    /// waiter slot, so a second registration used to overwrite the first and leave it with nothing left to wake it --
+    /// the drain released only the later write, and neither a further drain nor stream failure could
+    /// reach the earlier one. This transport hands its channel straight to application protocols,
+    /// which do not serialize their writers the way the core <c>Channel</c> does.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task Backpressure_ReleasesEveryParkedWriter_NotJustTheLast(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        channel.SetBufferedAmount(WebRtcStream.MaxBufferedAmount);
+        await using WebRtcStream stream = new(channel);
+
+        Task first = stream.WriteAsync(new byte[] { 1 }, token).AsTask();
+        Task second = stream.WriteAsync(new byte[] { 2 }, token).AsTask();
+
+        await Task.Delay(100, token);
+        Assert.That(first.IsCompleted, Is.False, "the first write must park on congestion");
+        Assert.That(second.IsCompleted, Is.False, "and so must the second");
+
+        channel.Drain();
+
+        await Task.WhenAll(first, second).WaitAsync(TestTimeout, token);
+        Assert.That(channel.SentFrames, Has.Count.EqualTo(2), "both payloads must reach the wire");
+    }
+
     [Test]
     public async Task Backpressure_HoldsTheWriteUntilTheChannelDrains()
     {

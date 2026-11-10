@@ -41,6 +41,16 @@ internal sealed class WebRtcStream : IAsyncDisposable
             FullMode = BoundedChannelFullMode.Wait,
         });
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+
+    /// <summary>
+    /// Serializes application writes, and only those, around the congestion wait. There is one
+    /// <see cref="_drained"/> slot, so two writers parking on a full send buffer would have the
+    /// second overwrite the first's completion source and leave it with nothing left to wake it: the drain releases
+    /// only the last registration, and neither a later drain nor <see cref="Fail"/> can find the
+    /// one that was replaced. Teardown flags never take this, which is what keeps a FIN_ACK from
+    /// queueing behind a writer parked on a peer that is not reading.
+    /// </summary>
+    private readonly SemaphoreSlim _callerSendLock = new(1, 1);
     private readonly Lock _sync = new();
     private readonly Lock _receiveLock = new();
     private readonly TaskCompletionSource _finAck = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -72,6 +82,17 @@ internal sealed class WebRtcStream : IAsyncDisposable
     /// caller that needs its original message boundaries has to delimit them itself, as it would on
     /// any other libp2p stream.
     /// </summary>
+    /// <summary>
+    /// Raised once when the stream dies for a reason that is not an orderly half-close: a peer
+    /// RESET_STREAM, the data channel going away underneath, or local disposal. An orderly FIN does
+    /// NOT raise it -- that path completes the inbound queue normally and surfaces as an end of
+    /// stream, which a reader is entitled to treat as a complete message.
+    /// </summary>
+    public event Action? Terminated;
+
+    /// <summary>Whether <see cref="Terminated"/> has already fired, for a late subscriber.</summary>
+    public bool IsTerminated { get { lock (_sync) { return _failure is not null; } } }
+
     /// <summary>The SCTP stream this one runs on; see <see cref="IWebRtcDataChannel.StreamId"/>.</summary>
     public ushort StreamId => _channel.StreamId;
 
@@ -205,16 +226,25 @@ internal sealed class WebRtcStream : IAsyncDisposable
         // frames are a few bytes and bounded in number per stream, so gating them on congestion
         // would withhold the FIN_ACK a peer is blocked on; and waiting inside the lock would let a
         // parked writer block every teardown path behind it.
-        if (callerData)
-        {
-            await WaitForCapacityAsync(token);
-        }
-        else
+        if (!callerData)
         {
             ThrowIfSendingIsOver(callerData: false);
+            await SendRawAsync(frame, token);
+            return;
         }
 
-        await SendRawAsync(frame, token);
+        // Held across the wait AND the send, so the next application write does not register its
+        // own congestion waiter while this one is still parked on it.
+        await _callerSendLock.WaitAsync(token);
+        try
+        {
+            await WaitForCapacityAsync(token);
+            await SendRawAsync(frame, token);
+        }
+        finally
+        {
+            _callerSendLock.Release();
+        }
     }
 
     /// <summary>
@@ -490,6 +520,7 @@ internal sealed class WebRtcStream : IAsyncDisposable
         Fail(new IOException("The stream was disposed."));
         await Task.CompletedTask;
         _sendLock.Dispose();
+        _callerSendLock.Dispose();
     }
 
     private void Fail(Exception error)
@@ -520,5 +551,8 @@ internal sealed class WebRtcStream : IAsyncDisposable
         _finAck.TrySetResult();
         ReleaseWriter();
         _channel.Close();
+
+        // Last, so a subscriber observing this sees the stream already in its final state.
+        Terminated?.Invoke();
     }
 }

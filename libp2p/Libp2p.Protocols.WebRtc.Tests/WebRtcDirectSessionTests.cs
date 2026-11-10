@@ -97,8 +97,8 @@ public class WebRtcDirectSessionTests
         // A dual-mode socket reports a v4 peer as ::ffff:a.b.c.d, which must normalize to the same
         // endpoint the v4 socket would have reported.
         byte[] record = [22, 254, 253, 0, 0];
-        session.ReceiveDtls(record, new IPEndPoint(IPAddress.Parse("::ffff:10.0.0.1"), 5000));
-        session.ReceiveDtls(record, new IPEndPoint(IPAddress.Parse("10.0.0.2"), 5001));
+        session.ReceiveDtls(record, new IPEndPoint(IPAddress.Parse("::ffff:10.0.0.1"), 5000), new IPEndPoint(IPAddress.Parse("::ffff:10.0.0.1"), 5000));
+        session.ReceiveDtls(record, new IPEndPoint(IPAddress.Parse("10.0.0.2"), 5001), new IPEndPoint(IPAddress.Parse("10.0.0.2"), 5001));
 
         Assert.Multiple(() =>
         {
@@ -124,8 +124,8 @@ public class WebRtcDirectSessionTests
         await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
         IPEndPoint peer = new(IPAddress.Loopback, 1111);
 
-        session.ReceiveDtls(DiscardedRecord(1), peer);
-        session.ReceiveDtls(FatalAlertRecord(), peer);
+        session.ReceiveDtls(DiscardedRecord(1), peer, peer);
+        session.ReceiveDtls(FatalAlertRecord(), peer, peer);
 
         InvalidOperationException? failure = Assert.ThrowsAsync<InvalidOperationException>(
             async () => await session.Established.WaitAsync(token));
@@ -156,8 +156,11 @@ public class WebRtcDirectSessionTests
         await using WebRtcDirectSession session = new(chain, privateKey, 4242, slots, (_, _) => { });
         IPEndPoint peer = new(IPAddress.Loopback, 1111);
 
-        session.ReceiveDtls(DiscardedRecord(1), peer);
-        session.ReceiveDtls(FatalAlertRecord(), new IPEndPoint(IPAddress.Loopback, 2222));
+        session.ReceiveDtls(DiscardedRecord(1), peer, peer);
+        // The attacker's own source with the row's egress: an address attached using the public
+        // STUN integrity key arrives here carrying the honest peer's reply address, which is what
+        // used to make the session's source check unreachable.
+        session.ReceiveDtls(FatalAlertRecord(), new IPEndPoint(IPAddress.Loopback, 2222), peer);
 
         await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
 
@@ -186,7 +189,7 @@ public class WebRtcDirectSessionTests
         // Exactly the budget, in records the DTLS record layer discards on sight.
         for (ushort i = 0; i < PreHandshakeCap; i++)
         {
-            session.ReceiveDtls(DiscardedRecord(i), peer);
+            session.ReceiveDtls(DiscardedRecord(i), peer, peer);
         }
 
         await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
@@ -195,7 +198,7 @@ public class WebRtcDirectSessionTests
             Is.False,
             "The filler has to be inert, or crossing the bound with an alert proves nothing.");
 
-        session.ReceiveDtls(FatalAlertRecord(), peer);
+        session.ReceiveDtls(FatalAlertRecord(), peer, peer);
         await Task.WhenAny(session.Established, Task.Delay(SettleMs, token));
 
         Assert.That(session.Established.IsCompleted, Is.False);
@@ -322,7 +325,7 @@ public class WebRtcDirectSessionTests
                 }
                 else if (WebRtcDirectStun.IsDtlsRecord(packet.Buffer))
                 {
-                    Session.ReceiveDtls(packet.Buffer, packet.RemoteEndPoint);
+                    Session.ReceiveDtls(packet.Buffer, packet.RemoteEndPoint, packet.RemoteEndPoint);
                 }
             }
         }

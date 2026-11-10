@@ -67,6 +67,16 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
     private readonly Lock _lock = new();
 
     private IPEndPoint? _remoteEndPoint;
+
+    /// <summary>
+    /// The address the first DTLS record genuinely came from, kept separately from
+    /// <see cref="_remoteEndPoint"/>, which is where replies go. The two are not the same question:
+    /// the reply address is fixed at admission and cannot be raced, while the observed source is
+    /// whatever the socket reports, and an attacker who has learned the ufrag can attach their own
+    /// address to the row with the public STUN integrity key. Without pinning the source as well,
+    /// such a peer can feed an unauthenticated alert into an honest peer's unfinished handshake.
+    /// </summary>
+    private IPEndPoint? _dtlsSource;
     private DtlsSrtpTransport? _dtls;
     private RTCSctpTransport? _sctp;
     private int _preHandshakeDatagrams;
@@ -135,7 +145,9 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
     /// Hands one DTLS record from the listener's receive loop to this peer's DTLS stack. Never
     /// blocks and never throws: the loop that calls it serves every peer on the port.
     /// </summary>
-    public void ReceiveDtls(byte[] datagram, IPEndPoint source)
+    /// <param name="source">Where the datagram actually came from, for admission.</param>
+    /// <param name="egress">Where this session's replies go, fixed when the row was admitted.</param>
+    public void ReceiveDtls(byte[] datagram, IPEndPoint source, IPEndPoint egress)
     {
         DtlsSrtpTransport dtls;
 
@@ -146,7 +158,21 @@ internal sealed class WebRtcDirectSession : IAsyncDisposable
                 return;
             }
 
-            IPEndPoint normalized = WebRtcDirectStun.Normalize(source);
+            IPEndPoint normalizedSource = WebRtcDirectStun.Normalize(source);
+            IPEndPoint normalized = WebRtcDirectStun.Normalize(egress);
+
+            // Checked against the observed source, not against the reply address: every attached
+            // address reaches this method, and only the one that opened the handshake may continue
+            // it. DTLS authenticates its own records, but a handshake it has not finished yet is
+            // exactly what an injected alert destroys.
+            if (_dtlsSource is null)
+            {
+                _dtlsSource = normalizedSource;
+            }
+            else if (!_dtlsSource.Equals(normalizedSource))
+            {
+                return;
+            }
 
             if (_remoteEndPoint is null)
             {

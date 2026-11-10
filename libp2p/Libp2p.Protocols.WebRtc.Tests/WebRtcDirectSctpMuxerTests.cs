@@ -51,7 +51,7 @@ public class WebRtcDirectSctpMuxerTests
     /// to skip it.
     /// </summary>
     [TestCase(true, 32767, (ushort)65534)]
-    [TestCase(false, 32768, (ushort)65535)]
+    [TestCase(false, 32767, (ushort)65533)]
     public async Task OutboundStreamIds_AreNeverZeroAndRunOutRatherThanWrap(bool isDtlsClient, int expectedCount, ushort expectedLast)
     {
         RTCSctpTransport transport = CreateTransport();
@@ -347,6 +347,35 @@ public class WebRtcDirectSctpMuxerTests
         await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient: true);
 
         Assert.That(muxer.TryAcceptInboundChannel(1, type, out _), Is.EqualTo(expectAccepted));
+    }
+
+    /// <summary>
+    /// The listen half's equivalent of the dial half's early-data window. An accepted stream is
+    /// published to <c>InboundChannels</c> and only subscribed when the session loop builds a
+    /// <see cref="WebRtcStream"/> over it, so frames the peer sent in between -- which RFC 8832
+    /// section 6 permits before the OPEN/ACK exchange finishes -- were drained into a null event.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task InboundFramesBeforeAConsumerAttaches_AreRetained(CancellationToken token)
+    {
+        await using WebRtcDirectSctpMuxer muxer = new(CreateTransport(), isDtlsClient: false);
+        Assert.That(muxer.TryAcceptInboundChannel(2, DataChannelTypes.DATA_CHANNEL_RELIABLE,
+            out SctpWebRtcDataChannel? channel), Is.True);
+
+        channel!.Receive(new SctpDataFrame(false, 2, 0, (uint)DataChannelPayloadProtocols.WebRTC_Binary, [1, 2, 3]));
+
+        List<byte[]> received = [];
+        channel.MessageReceived += received.Add;
+        channel.Receive(new SctpDataFrame(false, 2, 0, (uint)DataChannelPayloadProtocols.WebRTC_Binary, [4, 5, 6]));
+
+        for (int i = 0; i < 500 && received.Count < 2; i++)
+        {
+            await Task.Delay(10, token);
+        }
+
+        Assert.That(received, Is.EqualTo(new[] { new byte[] { 1, 2, 3 }, new byte[] { 4, 5, 6 } }),
+            "the frame delivered before the consumer attached must still arrive, and in order");
     }
 
     private static SctpWebRtcDataChannel CreateChannel() => new(CreateTransport().RTCSctpAssociation, 2);

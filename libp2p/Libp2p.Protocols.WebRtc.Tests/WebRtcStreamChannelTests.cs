@@ -211,4 +211,50 @@ public class WebRtcStreamChannelTests
         Assert.That(WebRtcFraming.TryDecode(frame, out Message? message, out _), Is.True);
         return message!;
     }
+
+    /// <summary>
+    /// A peer RESET_STREAM has to complete the awaiter and cancel the channel token. Callers wait on
+    /// exactly that: <c>PubsubProtocol.DialAsync</c> awaits the channel before releasing its
+    /// outbound registration, and <c>RequestResponseProtocol.ListenAsync</c> gives the channel's
+    /// token to a handler. With nothing pending on the wrapper, the stream used to fail underneath
+    /// it and leave both waiting for ever.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task RemoteReset_CompletesTheAwaiter_WithNoIoPending(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        WebRtcStream stream = new(channel);
+        WebRtcStreamChannel subject = new(stream);
+
+        channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.ResetStream, null));
+
+        await WaitUntilAsync(() => subject.GetAwaiter().IsCompleted, token);
+        Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    /// <summary>The datachannel going away underneath is the same class of event as a reset.</summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task ChannelClosing_CompletesTheAwaiter_WithNoIoPending(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        WebRtcStream stream = new(channel);
+        WebRtcStreamChannel subject = new(stream);
+
+        channel.Close();
+
+        await WaitUntilAsync(() => subject.GetAwaiter().IsCompleted, token);
+        Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token)
+    {
+        for (int i = 0; i < 500 && !condition(); i++)
+        {
+            await Task.Delay(10, token);
+        }
+
+        Assert.That(condition(), Is.True, "the channel awaiter never completed");
+    }
 }

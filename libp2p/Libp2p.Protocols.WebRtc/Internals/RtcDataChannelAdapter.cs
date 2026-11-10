@@ -49,7 +49,53 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
         _bufferedAmountPoll = new Timer(_ => PollBufferedAmount(), null, BufferedAmountPollInterval, BufferedAmountPollInterval);
     }
 
-    public event Action<byte[]>? MessageReceived;
+    /// <summary>
+    /// Buffered until a consumer attaches. <c>RTCDataChannel.GotData</c> invokes its event with no
+    /// queue behind it, and RFC 8832 section 6 lets a peer send data before the OPEN/ACK exchange
+    /// finishes, so anything arriving between this adapter being constructed and the stream above it
+    /// subscribing used to be dropped -- which is a lost multistream header, not a lost byte.
+    /// </summary>
+    public event Action<byte[]>? MessageReceived
+    {
+        add
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            byte[][] backlog;
+            lock (_pending)
+            {
+                _messageReceived += value;
+                backlog = [.. _pending];
+                _pending.Clear();
+            }
+
+            // Outside the lock: a consumer is free to re-enter this adapter from its handler.
+            foreach (byte[] message in backlog)
+            {
+                value(message);
+            }
+        }
+        remove
+        {
+            lock (_pending)
+            {
+                _messageReceived -= value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Matches <see cref="SctpWebRtcDataChannel"/>'s inbound depth, and for the same reason: deep
+    /// enough to absorb a burst before the consumer attaches, shallow enough that a stream nobody
+    /// ever reads is bounded.
+    /// </summary>
+    private const int MaxPendingMessages = 256;
+
+    private readonly Queue<byte[]> _pending = new();
+    private Action<byte[]>? _messageReceived;
 
     public event Action? BufferedAmountLow;
 
@@ -137,7 +183,22 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
             return;
         }
 
-        MessageReceived?.Invoke(data);
+        Action<byte[]>? handler;
+        lock (_pending)
+        {
+            handler = _messageReceived;
+            if (handler is null)
+            {
+                if (_pending.Count < MaxPendingMessages)
+                {
+                    _pending.Enqueue(data);
+                }
+
+                return;
+            }
+        }
+
+        handler(data);
     }
 
     /// <summary>

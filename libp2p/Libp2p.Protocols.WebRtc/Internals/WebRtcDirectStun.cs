@@ -127,6 +127,18 @@ internal static class WebRtcDirectStun
     /// re-key a session, move an egress address, or allocate state without an independent bound.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Whether this binding request nominates its candidate pair (RFC 8445 section 7.3.2's
+    /// USE-CANDIDATE). An ICE-lite endpoint has no agent of its own, so this flag is the only signal
+    /// it gets about which of a dialer's candidates was actually selected -- and sections 7.3.2 and
+    /// 12.1.1 require it to use that pair rather than whichever candidate happened to probe first.
+    /// </summary>
+    public static bool NominatesCandidate(STUNMessage request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.Attributes.Any(attribute => attribute.AttributeType == STUNAttributeTypesEnum.UseCandidate);
+    }
+
     public static bool CheckIntegrity(STUNMessage request, string serverUfrag)
     {
         try

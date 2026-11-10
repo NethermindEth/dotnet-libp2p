@@ -113,6 +113,54 @@ public class WebRtcDirectProtocolTests
     }
 
     /// <summary>
+    /// A caller that gives up on one stream must not strand every later one. Both open paths wait
+    /// for the peer's DCEP ACK and the dial loop is serial, so a withheld ACK plus an ignored
+    /// request token used to park the whole outbound direction: cancelling
+    /// <c>ISession.DialAsync(..., token)</c> completed the caller's source and left the open itself
+    /// running for the life of the connection.
+    /// </summary>
+    [Test]
+    [CancelAfter(30_000)]
+    public async Task Session_CancellingOneDialRequest_CancelsThatOpenAndKeepsTheSession(CancellationToken token)
+    {
+        WebRtcDirectProtocol protocol = new();
+        SessionHarness harness = new();
+        using CancellationTokenSource caller = new();
+        TaskCompletionSource<CancellationToken> captured = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Never completes: this stands for the peer that accepts the OPEN and withholds the ACK.
+        Task<IWebRtcDataChannel> StuckOpen(CancellationToken streamToken)
+        {
+            captured.TrySetResult(streamToken);
+            return new TaskCompletionSource<IWebRtcDataChannel>().Task;
+        }
+
+        Task session = protocol.RunSessionAsync(harness.Connection, StuckOpen, harness.InboundStreams, token);
+        harness.RequestStream(new UpgradeOptions { CancellationToken = caller.Token });
+
+        CancellationToken passed = await captured.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
+        Assert.That(passed.CanBeCanceled, Is.True, "the open must be given a cancellable token");
+        Assert.That(passed.IsCancellationRequested, Is.False);
+
+        await caller.CancelAsync();
+        for (int i = 0; i < 500 && !passed.IsCancellationRequested; i++)
+        {
+            await Task.Delay(10, token);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(passed.IsCancellationRequested, Is.True,
+                "cancelling the dial request must reach the open it is waiting on");
+            Assert.That(session.IsCompleted, Is.False, "one abandoned stream must not end the session");
+        });
+
+        harness.StopOfferingStreams();
+        harness.Release();
+        await session.WaitAsync(TimeSpan.FromSeconds(10), token);
+    }
+
+    /// <summary>
     /// The layer above the session loop, reduced to what the loop actually touches: a connection
     /// that upgrades to a session, a dial-request queue and a sequence of inbound streams. The
     /// <c>Upgrade</c> task never completes on its own, as in production, where it stands for the
@@ -170,6 +218,9 @@ public class WebRtcDirectProtocolTests
 
         public Func<CancellationToken, Task<IWebRtcDataChannel>> OpenStream =>
             _ => Task.FromException<IWebRtcDataChannel>(new NotSupportedException("This test opens no outbound streams."));
+
+        /// <summary>Queues one outbound request, as a dialling protocol would.</summary>
+        public void RequestStream(UpgradeOptions options) => _requests.Add(options);
 
         public void Offer(IWebRtcDataChannel channel) => _inbound.Writer.TryWrite(channel);
 

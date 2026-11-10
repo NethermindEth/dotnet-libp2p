@@ -3,6 +3,7 @@
 
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using SIPSorcery.Net;
+using System.Reflection;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
@@ -17,6 +18,40 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 public class RtcDataChannelAdapterTests
 {
     private static RTCDataChannel DetachedChannel() => new(null!, new RTCDataChannelInit { negotiated = true, id = 0 });
+
+    /// <summary>
+    /// RFC 8832 section 6 lets a peer send data before the OPEN/ACK exchange finishes, and
+    /// <c>RTCDataChannel.GotData</c> invokes its event with nothing queued behind it. So everything
+    /// that lands between this adapter being constructed and the stream above it subscribing used to
+    /// be dropped -- which against a real Go peer meant the multistream header vanished and the
+    /// first reply read as <c>/ipfs/ping/1.0.0</c>.
+    /// </summary>
+    /// <remarks>
+    /// Driven through <c>GotData</c> by reflection because it is internal to SIPSorcery: there is no
+    /// public way to deliver an inbound datachannel message, and faking the seam instead would test
+    /// the fake rather than the adapter.
+    /// </remarks>
+    [Test]
+    [CancelAfter(10_000)]
+    public void MessagesArrivingBeforeAConsumerAttaches_AreRetained(CancellationToken token)
+    {
+        RTCDataChannel channel = DetachedChannel();
+        using RtcDataChannelAdapter adapter = new(channel);
+        MethodInfo gotData = typeof(RTCDataChannel).GetMethod("GotData", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("SIPSorcery no longer exposes GotData; rewrite this test against its replacement.");
+
+        void Deliver(byte[] payload) => gotData.Invoke(channel,
+            [(ushort)0, (ushort)0, (uint)DataChannelPayloadProtocols.WebRTC_Binary, payload]);
+
+        Deliver([1, 2, 3]);
+
+        List<byte[]> received = [];
+        adapter.MessageReceived += received.Add;
+        Deliver([4, 5, 6]);
+
+        Assert.That(received, Is.EqualTo(new[] { new byte[] { 1, 2, 3 }, new byte[] { 4, 5, 6 } }),
+            "the message delivered before the consumer attached must still arrive, and in order");
+    }
 
     /// <summary>
     /// WebRtcStream parks a writer and waits for this event, so an adapter that never raises it

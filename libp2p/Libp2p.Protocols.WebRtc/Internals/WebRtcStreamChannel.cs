@@ -35,7 +35,23 @@ internal sealed class WebRtcStreamChannel : IChannel
     private int _writesDone;
     private int _readsDone;
 
-    public WebRtcStreamChannel(WebRtcStream stream) => _stream = stream;
+    public WebRtcStreamChannel(WebRtcStream stream)
+    {
+        _stream = stream;
+
+        // Without this the awaiter only ever moves when THIS wrapper does I/O or closes locally. A
+        // peer RESET_STREAM, or the data channel vanishing, fails the stream underneath and leaves
+        // `await channel` pending for ever with IChannel.CancellationToken never cancelling -- which
+        // strands real callers: PubsubProtocol.DialAsync awaits the channel before releasing its
+        // outbound registration, and RequestResponseProtocol.ListenAsync hands the channel's token
+        // to a handler. An orderly half-close is deliberately not routed here.
+        _stream.Terminated += Abort;
+        if (_stream.IsTerminated)
+        {
+            // It died before this wrapper existed, so the event has already been and gone.
+            Abort();
+        }
+    }
 
     /// <summary>The SCTP stream this channel runs on; see <see cref="IWebRtcDataChannel.StreamId"/>.</summary>
     public ushort StreamId => _stream.StreamId;

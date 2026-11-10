@@ -45,10 +45,29 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
     {
         _association = association;
         StreamId = streamId;
-        _ = Task.Run(PumpAsync);
     }
 
-    public event Action<byte[]>? MessageReceived;
+    /// <summary>
+    /// Subscribing is what starts the pump. Inbound frames land in <see cref="_incoming"/> from the
+    /// moment the channel exists, and RFC 8832 section 6 lets a peer send data before the OPEN/ACK
+    /// exchange finishes, so a stream accepted and handed up a moment later would otherwise have its
+    /// first frames drained into a null event and lost. They now wait in the queue instead.
+    /// </summary>
+    public event Action<byte[]>? MessageReceived
+    {
+        add
+        {
+            _messageReceived += value;
+            if (Interlocked.Exchange(ref _pumping, 1) == 0)
+            {
+                _ = Task.Run(PumpAsync);
+            }
+        }
+        remove => _messageReceived -= value;
+    }
+
+    private Action<byte[]>? _messageReceived;
+    private int _pumping;
 
     public event Action? BufferedAmountLow;
 
@@ -161,7 +180,7 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
         {
             await foreach (byte[] message in _incoming.Reader.ReadAllAsync())
             {
-                MessageReceived?.Invoke(message);
+                _messageReceived?.Invoke(message);
             }
         }
         catch (Exception)

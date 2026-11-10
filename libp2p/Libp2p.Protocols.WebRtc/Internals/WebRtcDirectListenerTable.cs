@@ -228,6 +228,12 @@ internal sealed class WebRtcDirectListenerTable<TSession>
 
                 row.LastSeenMs = _nowMs();
                 AttachAddress(row, source);
+
+                if (WebRtcDirectStun.NominatesCandidate(request))
+                {
+                    row.TryNominateEgress(source);
+                }
+
                 return Answer(WebRtcDirectRouteAction.AnswerStun, key, request, source);
             }
 
@@ -254,8 +260,9 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             row.LastSeenMs = _nowMs();
 
             // Records arriving from any of the ufrag's attached addresses are delivered -- DTLS
-            // authenticates them itself -- but they are answered to Row.Egress, which was fixed at
-            // admission and cannot move.
+            // authenticates them itself, and the session checks the observed source separately --
+            // but they are answered to Row.Egress, which by this point is either the admitting
+            // address or the pair the dialer nominated, and can no longer move.
             return new(WebRtcDirectRouteAction.DeliverToSession, row.Key, null, row.Session, row.Egress);
         }
     }
@@ -533,7 +540,34 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         /// record. The admitting request cannot be raced the same way -- by the time an attacker has seen
         /// the ufrag the row already exists, so it can never be the admitter.
         /// </summary>
-        public IPEndPoint Egress { get; } = egress;
+        public IPEndPoint Egress { get; private set; } = egress;
+
+        /// <summary>Whether a USE-CANDIDATE check has already chosen <see cref="Egress"/>.</summary>
+        public bool EgressNominated { get; private set; }
+
+        /// <summary>
+        /// Moves the reply address to the pair the dialer nominated, which RFC 8445 sections 7.3.2
+        /// and 12.1.1 require an ICE-lite endpoint to use. A dialer that probes several candidates
+        /// may well send its first ordinary check from one whose return path does not work and then
+        /// nominate a different one, so freezing on the first check seen leaves the nominated pair
+        /// unable to finish its handshake.
+        /// <para>
+        /// Narrow on purpose, so the protection against arbitrary STUN moving a live connection
+        /// stays intact: only a nominating check moves it, only the first such check does, and only
+        /// while no DTLS has been routed to this row yet. Once a session exists the address is
+        /// frozen for good.
+        /// </para>
+        /// </summary>
+        public void TryNominateEgress(IPEndPoint source)
+        {
+            if (EgressNominated || Session is not null)
+            {
+                return;
+            }
+
+            EgressNominated = true;
+            Egress = source;
+        }
 
         public long LastSeenMs { get; set; } = now;
 
