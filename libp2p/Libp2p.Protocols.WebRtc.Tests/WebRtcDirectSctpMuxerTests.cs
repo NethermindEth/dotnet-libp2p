@@ -242,7 +242,7 @@ public class WebRtcDirectSctpMuxerTests
 
     /// <summary>
     /// The invariant a parked writer depends on: BufferedAmountLow only ever fires below
-    /// <see cref="WebRtcStream.MaxBufferedAmount"/>, so WaitForCapacityAsync's re-check succeeds
+    /// <see cref="WebRtcChannel.MaxBufferedAmount"/>, so WaitForCapacityAsync's re-check succeeds
     /// instead of parking again forever.
     /// </summary>
     [Test]
@@ -264,10 +264,10 @@ public class WebRtcDirectSctpMuxerTests
     /// separate mutations of it survived.
     /// </summary>
     [TestCase(0, true)]
-    [TestCase(WebRtcStream.MaxBufferedAmount - 1, true)]
-    [TestCase(WebRtcStream.MaxBufferedAmount, false)]
-    [TestCase(WebRtcStream.MaxBufferedAmount + 1, false)]
-    [TestCase(WebRtcStream.MaxBufferedAmount * 1000L, false)]
+    [TestCase(WebRtcChannel.MaxBufferedAmount - 1, true)]
+    [TestCase(WebRtcChannel.MaxBufferedAmount, false)]
+    [TestCase(WebRtcChannel.MaxBufferedAmount + 1, false)]
+    [TestCase(WebRtcChannel.MaxBufferedAmount * 1000L, false)]
     public void Channel_RaisesBufferedAmountLowOnlyStrictlyBelowTheStreamThreshold(long buffered, bool expectRaised)
     {
         SctpWebRtcDataChannel channel = CreateChannel();
@@ -352,7 +352,7 @@ public class WebRtcDirectSctpMuxerTests
     /// <summary>
     /// The listen half's equivalent of the dial half's early-data window. An accepted stream is
     /// published to <c>InboundChannels</c> and only subscribed when the session loop builds a
-    /// <see cref="WebRtcStream"/> over it, so frames the peer sent in between -- which RFC 8832
+    /// <see cref="WebRtcChannel"/> over it, so frames the peer sent in between -- which RFC 8832
     /// section 6 permits before the OPEN/ACK exchange finishes -- were drained into a null event.
     /// </summary>
     [Test]
@@ -381,7 +381,7 @@ public class WebRtcDirectSctpMuxerTests
     /// <summary>
     /// The mechanism every <see cref="SctpWebRtcDataChannel"/> depends on and that nothing else
     /// supplies: SCTP reports no send-buffer drain, so a writer parked at
-    /// <see cref="WebRtcStream.MaxBufferedAmount"/> is woken by this poll and by nothing else. A
+    /// <see cref="WebRtcChannel.MaxBufferedAmount"/> is woken by this poll and by nothing else. A
     /// channel created without a poller never resumes -- which is exactly how a dialled stream
     /// stalled a 1 MiB transfer after 32 KiB.
     /// </summary>
