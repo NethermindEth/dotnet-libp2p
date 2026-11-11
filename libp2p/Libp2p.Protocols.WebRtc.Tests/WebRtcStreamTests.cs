@@ -274,6 +274,39 @@ public class WebRtcStreamTests
         }
     }
 
+    /// <summary>
+    /// A terminal send event landing between the congestion sample and the waiter being registered
+    /// must not be lost. Its ReleaseWriter finds no waiter, so a writer that then registers one and
+    /// waits is waiting for a wake-up that has already happened. STOP_SENDING is the case that
+    /// cannot be covered by cancellation alone: it ends this side's writing without ending the
+    /// stream, so the state has to be re-read after registering.
+    /// </summary>
+    [Test]
+    [CancelAfter(20_000)]
+    public async Task Backpressure_TerminalEventRacingTheWaiterRegistration_StillEndsTheWrite(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        channel.SetBufferedAmount(WebRtcStream.MaxBufferedAmount);
+        await using WebRtcStream stream = new(channel);
+
+        int reads = 0;
+        channel.OnBufferedAmountRead = () =>
+        {
+            // On the first sample only: this is after the writer's terminal-state check and before
+            // it has published anything for ReleaseWriter to find.
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.StopSending, null));
+            }
+        };
+
+        Task write = stream.WriteAsync(new byte[] { 1 }, token).AsTask();
+
+        await Observed(write).WaitAsync(TimeSpan.FromSeconds(5), token);
+        Assert.That(write.IsCompletedSuccessfully, Is.False,
+            "a write whose peer stopped reading must end, not hang");
+    }
+
     [Test]
     public async Task Backpressure_HoldsTheWriteUntilTheChannelDrains()
     {

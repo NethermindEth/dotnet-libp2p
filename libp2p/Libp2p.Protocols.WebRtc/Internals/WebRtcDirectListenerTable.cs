@@ -207,6 +207,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
         }
 
         WebRtcDirectSessionKey key = KeyFor(credentials.ServerUfrag, source);
+        bool nominates = WebRtcDirectStun.NominatesCandidate(request);
         TSession? evictedSession = null;
 
         lock (_gate)
@@ -229,7 +230,7 @@ internal sealed class WebRtcDirectListenerTable<TSession>
                 row.LastSeenMs = _nowMs();
                 AttachAddress(row, source);
 
-                if (WebRtcDirectStun.NominatesCandidate(request))
+                if (nominates)
                 {
                     row.TryNominateEgress(source);
                 }
@@ -240,6 +241,14 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             if (!TryAdmitLocked(key, source, datagram.Length, out evictedSession))
             {
                 return WebRtcDirectRoute<TSession>.Drop;
+            }
+
+            // The admitting request may itself be the nomination. Recording it here is what makes
+            // that pair stick: without it nothing marked the row as nominated, so a second
+            // nomination -- which anyone who has learned the ufrag can send -- replaced the first.
+            if (nominates && _byUfrag.TryGetValue(key, out Row? admittedRow))
+            {
+                admittedRow.TryNominateEgress(source);
             }
         }
 
@@ -258,7 +267,15 @@ internal sealed class WebRtcDirectListenerTable<TSession>
             }
 
             row.LastSeenMs = _nowMs();
-            row.MarkDtlsRouted();
+
+            // Only a record from the selected pair freezes the selection, because only such a
+            // record will be admitted by the session. Any attached endpoint can put one byte in the
+            // DTLS range on the wire; freezing on that let an unselected sender -- whose record the
+            // session then refused -- block a genuine nomination that had not arrived yet.
+            if (source.Equals(row.Egress))
+            {
+                row.MarkDtlsRouted();
+            }
 
             // Records arriving from any of the ufrag's attached addresses are delivered -- DTLS
             // authenticates them itself, and the session checks the observed source separately --

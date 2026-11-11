@@ -29,14 +29,6 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     /// </summary>
     public const int MaxConcurrentChannels = 256;
 
-    /// <summary>
-    /// How often <see cref="SctpWebRtcDataChannel.PollBufferedAmount"/> runs. SCTP gives no
-    /// send-buffer drain notification, so a parked writer is woken by polling; short enough not to
-    /// show up as throughput loss, long enough that the O(send queue) scan behind
-    /// <see cref="SctpAssociation.SendBufferedAmount"/> stays noise.
-    /// </summary>
-    private static readonly TimeSpan BufferedAmountPollInterval = TimeSpan.FromMilliseconds(20);
-
     private readonly RTCSctpTransport _transport;
     private readonly RTCPeerSctpAssociation _association;
     private readonly bool _isDtlsClient;
@@ -51,7 +43,7 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     private readonly TaskCompletionSource _connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Lock _streamIdLock = new();
-    private readonly Timer _bufferedAmountPoll;
+    private readonly SctpBufferedAmountPoller _bufferedAmountPoll;
 
     /// <summary>
     /// Widened to int so exhaustion is a comparison rather than a wrap: as a ushort this rolls from
@@ -67,7 +59,6 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
     private readonly HashSet<ushort> _acceptedInboundIds = [];
     private readonly Lock _acceptedInboundIdsLock = new();
 
-    private int _polling;
     private int _disposed;
 
     public WebRtcDirectSctpMuxer(RTCSctpTransport transport, bool isDtlsClient)
@@ -85,7 +76,7 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
         _association.OnDataChannelOpened += OnDataChannelOpened;
         _association.OnNewDataChannel += OnNewDataChannel;
 
-        _bufferedAmountPoll = new Timer(_ => PollBufferedAmount(), null, BufferedAmountPollInterval, BufferedAmountPollInterval);
+        _bufferedAmountPoll = new(_association, () => _channels.Values);
 
         // OnStateChanged only fires on a transition. Constructed on a transport that is already
         // connected, nothing would ever complete _connected and OpenStreamAsync would hang.
@@ -277,39 +268,6 @@ internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
             }
 
             created.Close();
-        }
-    }
-
-    private void PollBufferedAmount()
-    {
-        // Timer ticks can overlap if a poll runs long; one at a time is enough, and a skipped tick
-        // costs at most one extra interval of latency for a parked writer.
-        if (Interlocked.Exchange(ref _polling, 1) == 1)
-        {
-            return;
-        }
-
-        try
-        {
-            // SendBufferedAmount is association-wide and sums the whole send queue on each read,
-            // so it is read once per tick rather than once per channel.
-            long buffered = (long)_association.SendBufferedAmount;
-            foreach (SctpWebRtcDataChannel channel in _channels.Values)
-            {
-                try
-                {
-                    channel.PollBufferedAmount(buffered);
-                }
-                catch
-                {
-                    // Per channel: one throwing subscriber must not strand the writers on every
-                    // channel after it in the iteration.
-                }
-            }
-        }
-        finally
-        {
-            Volatile.Write(ref _polling, 0);
         }
     }
 

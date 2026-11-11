@@ -632,6 +632,59 @@ public class WebRtcDirectListenerTableTests
         });
     }
 
+    /// <summary>
+    /// Selection must freeze on a record the session will actually accept, not on any record the
+    /// table happened to route. An attached but unselected endpoint can send one byte that looks
+    /// like a DTLS record; the session rejects it because it is not from the selected pair, but if
+    /// the table has already frozen selection then a genuine later nomination cannot be honored.
+    /// </summary>
+    [Test]
+    public void Route_DoesNotFreezeSelection_OnARecordTheSessionRefuses()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(4_310);
+        IPEndPoint probing = Peer(41_020);
+        IPEndPoint unselected = Peer(41_021);
+        IPEndPoint nominated = Peer(41_022);
+
+        WebRtcDirectRoute<Session> admitted = table.Route(probing, BindingRequest(ufrag));
+        Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Assume.That(table.AttachSession(admitted.Key, new Session("peer")), Is.True);
+
+        // The unselected endpoint attaches and sends a record the session will refuse.
+        Assume.That(table.Route(unselected, BindingRequest(ufrag)).Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+        Assume.That(table.Route(unselected, DtlsRecord).Action, Is.EqualTo(WebRtcDirectRouteAction.DeliverToSession));
+
+        // A genuine nomination arriving afterwards must still be able to select its pair.
+        Assume.That(table.Route(nominated, NominatingRequest(ufrag)).Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+
+        Assert.That(table.Route(nominated, DtlsRecord).Egress, Is.EqualTo(nominated),
+            "a record the session refuses must not freeze the selected pair");
+    }
+
+    /// <summary>
+    /// When the very first request is itself a nomination, that selection has to be recorded on
+    /// admission -- otherwise nothing marks the row as nominated and a second nomination, which
+    /// anyone who learned the ufrag can send, replaces it.
+    /// </summary>
+    [Test]
+    public void Route_KeepsTheFirstNomination_WhenTheAdmittingRequestNominates()
+    {
+        WebRtcDirectListenerTable<Session> table = NewTable();
+        string ufrag = V2Ufrag(4_311);
+        IPEndPoint first = Peer(41_030);
+        IPEndPoint second = Peer(41_031);
+
+        WebRtcDirectRoute<Session> admitted = table.Route(first, NominatingRequest(ufrag));
+        Assume.That(admitted.Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStunAndAdmit));
+        Assume.That(table.AttachSession(admitted.Key, new Session("peer")), Is.True);
+
+        Assume.That(table.Route(second, NominatingRequest(ufrag)).Action, Is.EqualTo(WebRtcDirectRouteAction.AnswerStun));
+
+        Assert.That(table.Route(first, DtlsRecord).Egress, Is.EqualTo(first),
+            "the pair selected by the admitting request must survive a later nomination");
+    }
+
     [Test]
     public void Route_PinsEgressToTheAdmittingAddress_NotToWhoeverSendsDtlsFirst()
     {

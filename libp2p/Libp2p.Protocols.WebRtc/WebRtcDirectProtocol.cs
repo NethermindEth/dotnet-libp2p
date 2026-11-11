@@ -14,6 +14,7 @@ using Org.BouncyCastle.X509;
 using SIPSorcery.Net;
 using System.Net;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -278,6 +279,15 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // closed and released. It only hands out 2 while id 0 is still occupied, which is no
             // longer true by the time a stream is opened. RFC 8832 section 6 parity is ours to
             // honour either way, and FirstOutboundStreamId is where it is written down.
+            // Every SctpWebRtcDataChannel needs something calling PollBufferedAmount, because SCTP
+            // reports no drain and WebRtcStream's parked writer is woken by nothing else. The
+            // listener gets that from its muxer; these dialled channels have no muxer, so they get
+            // their own poller over the same association. Without it a writer stops at
+            // MaxBufferedAmount and never resumes -- a 1 MiB transfer stalled after 32 KiB.
+            ConcurrentDictionary<ushort, SctpWebRtcDataChannel> dialledStreams = new();
+            using SctpBufferedAmountPoller dialledStreamPoller =
+                new(pc.sctp.RTCSctpAssociation, () => dialledStreams.Values);
+
             int nextStreamId = WebRtcDirectRoles.FirstOutboundStreamId(isDtlsClient: !WebRtcDirectRoles.ListenerIsDtlsClient);
 
             async Task<IWebRtcDataChannel> OpenStreamAsync(CancellationToken streamToken)
@@ -314,7 +324,12 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 }
 
                 association.OnDataChannelData += Deliver;
-                inbound.Closed += () => association.OnDataChannelData -= Deliver;
+                dialledStreams[(ushort)streamId] = inbound;
+                inbound.Closed += () =>
+                {
+                    association.OnDataChannelData -= Deliver;
+                    dialledStreams.TryRemove((ushort)streamId, out _);
+                };
 
                 // A libp2p stream carries its own protocol negotiation, so the DCEP label and
                 // subprotocol have nothing to say -- the same empty pair WebRtcDirectSctpMuxer

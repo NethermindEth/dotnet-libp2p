@@ -305,14 +305,34 @@ internal sealed class WebRtcStream : IAsyncDisposable
             TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref _drained, drained);
 
-            // Re-check after publishing the waiter, otherwise a drain in between is a lost wakeup.
+            // Both re-checks happen AFTER publishing the waiter, and both are lost wake-ups
+            // otherwise. A drain in between is the obvious one. The other is a terminal send event
+            // -- a close, or a STOP_SENDING -- landing after the check at the top of this loop:
+            // its ReleaseWriter finds no waiter, and registering one afterwards means waiting for a
+            // notification that has already been and gone. STOP_SENDING is why a state re-read is
+            // needed rather than just cancellation; it ends this side's writing without ending the
+            // stream, so no token fires for it.
+            ThrowIfSendingIsOver(callerData: true);
             if (_channel.BufferedAmount < MaxBufferedAmount)
             {
                 Interlocked.CompareExchange(ref _drained, null, drained);
                 return;
             }
 
-            await drained.Task.WaitAsync(token);
+            // Linked to the stream's lifetime as well, so a close or disposal does not leave this
+            // write parked waiting for a caller token that may never fire.
+            using CancellationTokenSource waiting =
+                CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+            try
+            {
+                await drained.Task.WaitAsync(waiting.Token);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+                // Report what actually happened to the stream rather than a bare cancellation.
+                ThrowIfSendingIsOver(callerData: true);
+                throw;
+            }
         }
     }
 

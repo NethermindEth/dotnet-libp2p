@@ -378,5 +378,29 @@ public class WebRtcDirectSctpMuxerTests
             "the frame delivered before the consumer attached must still arrive, and in order");
     }
 
+    /// <summary>
+    /// The mechanism every <see cref="SctpWebRtcDataChannel"/> depends on and that nothing else
+    /// supplies: SCTP reports no send-buffer drain, so a writer parked at
+    /// <see cref="WebRtcStream.MaxBufferedAmount"/> is woken by this poll and by nothing else. A
+    /// channel created without a poller never resumes -- which is exactly how a dialled stream
+    /// stalled a 1 MiB transfer after 32 KiB.
+    /// </summary>
+    [Test]
+    [CancelAfter(15_000)]
+    public async Task Poller_RaisesBufferedAmountLow_ForEveryChannelItOwns(CancellationToken token)
+    {
+        RTCSctpTransport transport = CreateTransport();
+        SctpWebRtcDataChannel first = new(transport.RTCSctpAssociation, 2);
+        SctpWebRtcDataChannel second = new(transport.RTCSctpAssociation, 4);
+        TaskCompletionSource firstRaised = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource secondRaised = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        first.BufferedAmountLow += () => firstRaised.TrySetResult();
+        second.BufferedAmountLow += () => secondRaised.TrySetResult();
+
+        using SctpBufferedAmountPoller poller = new(transport.RTCSctpAssociation, () => [first, second]);
+
+        await Task.WhenAll(firstRaised.Task, secondRaised.Task).WaitAsync(TimeSpan.FromSeconds(10), token);
+    }
+
     private static SctpWebRtcDataChannel CreateChannel() => new(CreateTransport().RTCSctpAssociation, 2);
 }

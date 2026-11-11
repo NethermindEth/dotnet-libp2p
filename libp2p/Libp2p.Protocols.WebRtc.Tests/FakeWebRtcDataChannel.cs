@@ -23,7 +23,23 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
 
     public ushort StreamId { get; init; }
 
-    public long BufferedAmount { get; private set; }
+    private long _bufferedAmount;
+
+    /// <summary>
+    /// Runs on each read of <see cref="BufferedAmount"/>, so a test can interleave an event with
+    /// the exact point the stream samples congestion -- which is the only way to land inside the
+    /// window between that sample and the waiter being registered.
+    /// </summary>
+    public Action? OnBufferedAmountRead { get; set; }
+
+    public long BufferedAmount
+    {
+        get
+        {
+            OnBufferedAmountRead?.Invoke();
+            return _bufferedAmount;
+        }
+    }
 
     public bool IsClosed { get; private set; }
 
@@ -66,11 +82,11 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
     /// <summary>Hands raw bytes to the stream as one data channel message, framing and all.</summary>
     public void Deliver(byte[] message) => MessageReceived?.Invoke(message);
 
-    public void SetBufferedAmount(long value) => BufferedAmount = value;
+    public void SetBufferedAmount(long value) => _bufferedAmount = value;
 
     public void Drain()
     {
-        BufferedAmount = 0;
+        _bufferedAmount = 0;
         BufferedAmountLow?.Invoke();
     }
 
