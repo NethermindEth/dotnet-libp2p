@@ -719,7 +719,7 @@ public class WebRtcChannelTests
     }
 
     [Test]
-    public async Task NonblockingRead_ReturnsAvailableBytesAndThenEmpty(CancellationToken token)
+    public async Task ReadWithoutWaiting_ReturnsAvailableBytesAndThenEmpty(CancellationToken token)
     {
         FakeWebRtcDataChannel dataChannel = new();
         await using WebRtcChannel channel = new(dataChannel);
