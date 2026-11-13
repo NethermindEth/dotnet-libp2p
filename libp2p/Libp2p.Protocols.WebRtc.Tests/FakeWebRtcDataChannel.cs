@@ -43,6 +43,10 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
 
     public bool IsClosed { get; private set; }
 
+    public Action? OnClose { get; set; }
+
+    public Action<byte[]>? BeforeSend { get; set; }
+
     public IReadOnlyList<byte[]> SentFrames
     {
         get
@@ -66,6 +70,7 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
     public ValueTask SendAsync(ReadOnlyMemory<byte> frame, CancellationToken token = default)
     {
         byte[] copy = frame.ToArray();
+        BeforeSend?.Invoke(copy);
         lock (_sent)
         {
             _sent.Add(copy);
@@ -98,6 +103,7 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
         }
 
         IsClosed = true;
+        OnClose?.Invoke();
         Closed?.Invoke();
     }
 }

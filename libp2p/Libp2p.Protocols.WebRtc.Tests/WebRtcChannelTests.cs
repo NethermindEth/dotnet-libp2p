@@ -522,9 +522,9 @@ public class WebRtcChannelTests
 
         await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
 
-        Assert.That(channelA.SentFrames, Has.Count.EqualTo(1));
-        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.Fin }));
+        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }));
         Assert.That(Flags(channelB), Is.EqualTo(new[] { Message.Types.Flag.FinAck }));
+        Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })), Is.EqualTo(IOResult.Aborted));
     }
 
     [Test]
@@ -542,7 +542,22 @@ public class WebRtcChannelTests
 
         await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
 
-        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.Fin }));
+        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }));
+    }
+
+    [Test]
+    public async Task CloseAfterPeerFin_DoesNotSendStopSendingOnClosedTransport()
+    {
+        (FakeWebRtcDataChannel channelA, FakeWebRtcDataChannel channelB) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel channel = new(channelA);
+        await using WebRtcChannel remote = new(channelB);
+
+        await remote.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
+        await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
+
+        Assert.That(channelA.IsClosed, Is.True);
+        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.FinAck, Message.Types.Flag.Fin }));
+        Assert.That(Flags(channelB), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.FinAck }));
     }
 
     [Test]
@@ -623,6 +638,62 @@ public class WebRtcChannelTests
 
         await WaitUntilAsync(() => subject.GetAwaiter().IsCompleted, token);
         Assert.That((await subject.ReadAsync(1, ReadBlockingMode.WaitAll, token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Reset_DoesNotPublishEofBeforeDataChannelCloseCompletes(bool local, CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        (WebRtcChannel channel, InlineSynchronizationContext deliveryContext) = CreateChannelWithInlineDelivery(dataChannel);
+
+        await using (channel)
+        {
+            ReadResult duringClose = default;
+            Task<ReadResult>? pendingRead = null;
+            dataChannel.OnClose = () =>
+            {
+                // Finish the pump's queue-completion continuation while transport teardown is
+                // still in progress, before Fail can abort the Core channel. No sleep is needed.
+                deliveryContext.ContinuationCompleted.Task.WaitAsync(TestTimeout, token).GetAwaiter().GetResult();
+                duringClose = channel.ReadAsync(1, ReadBlockingMode.DoNotWait, token).GetAwaiter().GetResult();
+                pendingRead = channel.ReadAsync(1, token: token).AsTask();
+            };
+
+            if (local)
+                await channel.AbortAsync();
+            else
+                dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.ResetStream, null));
+
+            Assert.That(duringClose.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(duringClose.Data.IsEmpty, Is.True);
+            Assert.That((await pendingRead!.WaitAsync(TestTimeout, token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That((await channel.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Aborted));
+        }
+    }
+
+    [Test]
+    public async Task CloseRead_DoesNotPublishEofBeforeStopSendingCompletes(CancellationToken token)
+    {
+        (FakeWebRtcDataChannel local, FakeWebRtcDataChannel remote) = FakeWebRtcDataChannel.CreatePair();
+        (WebRtcChannel channel, InlineSynchronizationContext deliveryContext) = CreateChannelWithInlineDelivery(local);
+        await using (channel)
+        {
+            ReadResult duringClose = default;
+            remote.MessageReceived += _ =>
+            {
+                deliveryContext.ContinuationCompleted.Task.WaitAsync(TestTimeout, token).GetAwaiter().GetResult();
+                duringClose = channel.ReadAsync(1, ReadBlockingMode.DoNotWait, token).GetAwaiter().GetResult();
+            };
+
+            await channel.CloseReadAsync();
+
+            Assert.That(Flags(local), Is.EqualTo(new[] { Message.Types.Flag.StopSending }));
+            Assert.That(duringClose.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(duringClose.Data.IsEmpty, Is.True);
+            Assert.That((await channel.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), token), Is.EqualTo(IOResult.Ok));
+        }
     }
 
     /// <summary>The datachannel going away underneath is the same class of event as a reset.</summary>
@@ -1016,7 +1087,9 @@ public class WebRtcChannelTests
                 Assert.That(await local.WriteEofAsync(token).AsTask().WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
             }
 
-            Assert.That(Flags(localDataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin }));
+            Assert.That(Flags(localDataChannel), Is.EqualTo(closeWholeChannel
+                ? new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }
+                : new[] { Message.Types.Flag.Fin }));
             Assert.That(Flags(remoteDataChannel), Is.EqualTo(new[] { Message.Types.Flag.FinAck }));
             Assert.That((await remote.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Ended));
         }
@@ -1062,8 +1135,69 @@ public class WebRtcChannelTests
         dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
         await Task.WhenAll(first, second).WaitAsync(TestTimeout, token);
 
-        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin }));
+        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }));
         Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
+    }
+
+    [Test]
+    public async Task ConcurrentClose_WaitsForPendingStopSending(CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        await using WebRtcChannel channel = new(dataChannel);
+        Task<IOResult> eof = channel.WriteEofAsync(token).AsTask();
+        dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
+        Assert.That(await eof.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
+
+        TaskCompletionSource sendingStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim releaseStop = new();
+        dataChannel.BeforeSend = _ =>
+        {
+            sendingStop.TrySetResult();
+            releaseStop.Wait(token);
+        };
+
+        Task readClose = Task.Run(async () => await channel.CloseReadAsync(), token);
+        try
+        {
+            await sendingStop.Task.WaitAsync(TestTimeout, token);
+            Task close = channel.CloseAsync().AsTask();
+            Assert.That(close.IsCompleted, Is.False, "Whole close must wait for the pending STOP_SENDING.");
+            Assert.That(channel.GetAwaiter().IsCompleted, Is.False);
+            releaseStop.Set();
+            await Task.WhenAll(readClose, close).WaitAsync(TestTimeout, token);
+            Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }));
+        }
+        finally
+        {
+            releaseStop.Set();
+            await readClose.WaitAsync(TestTimeout, token);
+        }
+    }
+
+    private static (WebRtcChannel, InlineSynchronizationContext) CreateChannelWithInlineDelivery(FakeWebRtcDataChannel dataChannel)
+    {
+        InlineSynchronizationContext deliveryContext = new();
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(deliveryContext);
+            return (new(dataChannel), deliveryContext);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    private sealed class InlineSynchronizationContext : SynchronizationContext
+    {
+        public TaskCompletionSource ContinuationCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            callback(state);
+            ContinuationCompleted.TrySetResult();
+        }
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token)

@@ -76,7 +76,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     private bool _finSent;
     private bool _finReceived;
     private bool _finAckReceived;
-    private bool _readsStopped;
+    private TaskCompletionSource? _readClosed;
     private bool _peerStoppedReading;
     private bool _finAckSent;
     private int _detached;
@@ -119,6 +119,16 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
                 // Core.Channel may return slices of this array to a reader after WriteAsync
                 // completes. Each payload owns its array; it must not be pooled or reused here.
                 if (await _delivery.WriteAsync(new ReadOnlySequence<byte>(payload), _lifetime.Token) != IOResult.Ok)
+                {
+                    return;
+                }
+            }
+
+            lock (_sync)
+            {
+                // Queue completion also wakes this pump during failure or local read shutdown.
+                // Those paths abort the Core reader; publishing EOF first could hide a reset.
+                if (_failure is not null || _readClosed is not null)
                 {
                     return;
                 }
@@ -292,12 +302,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         }
 
         await WriteEofAsync();
-        lock (_sync)
-        {
-            _readsStopped = true;
-        }
-
-        _inbound.Writer.TryComplete();
+        await CloseReadAsync();
         await _received.CloseAsync();
     }
 
@@ -308,28 +313,50 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     /// </summary>
     public async ValueTask CloseReadAsync()
     {
+        bool notifyPeer;
+        bool closing;
+        TaskCompletionSource completion;
         lock (_sync)
         {
-            if (_readsStopped)
-            {
-                return;
-            }
+            closing = _readClosed is null;
+            completion = _readClosed ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            notifyPeer = !_finReceived;
+        }
 
-            _readsStopped = true;
+        if (!closing)
+        {
+            await completion.Task;
+            return;
         }
 
         _inbound.Writer.TryComplete();
         try
         {
-            await SendFlagAsync(Message.Types.Flag.StopSending, CancellationToken.None);
+            // A peer that already sent FIN has ended its writes. The data channel may also
+            // have closed after both FIN handshakes, so there is no STOP_SENDING left to send.
+            if (notifyPeer)
+            {
+                await SendFlagAsync(Message.Types.Flag.StopSending, CancellationToken.None);
+            }
         }
         catch (Exception ex)
         {
+            lock (_sync)
+            {
+                // FIN can arrive while STOP_SENDING waits for the send lock and close the
+                // transport first. The peer has already stopped, so that send is now redundant.
+                if (CanCloseChannel)
+                {
+                    return;
+                }
+            }
+
             Fail(ex);
         }
         finally
         {
             await _received.CloseReadAsync();
+            completion.TrySetResult();
         }
     }
 
@@ -491,7 +518,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
                 // Decided and written under one lock: taken apart, a concurrent CloseReadAsync
                 // can complete the writer between the two and the resulting TryWrite failure is
                 // misreported as an overflow.
-                if (!_readsStopped && !_finReceived && _failure is null)
+                if (_readClosed is null && !_finReceived && _failure is null)
                 {
                     overflowed = !_inbound.Writer.TryWrite(message.Message_.ToByteArray());
                 }
@@ -599,7 +626,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             // "When a FIN_ACK and a FIN have been received, the node may close the datachannel."
             // A FIN_ACK answers a FIN we sent, so _finSent is implied; and the FIN_ACK we owe the
             // peer must have left before we tear the channel down under it.
-            if (!_finSent || !_finReceived || !_finAckReceived || !_finAckSent)
+            if (!CanCloseChannel)
             {
                 return;
             }
@@ -607,6 +634,8 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
 
         _channel.Close();
     }
+
+    private bool CanCloseChannel => _finSent && _finReceived && _finAckReceived && _finAckSent;
 
     private void OnChannelClosed()
     {
