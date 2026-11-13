@@ -58,13 +58,6 @@ X.509 Certificate:
 4. Embed signature in the libp2p extension
 
 ### Platform Support
-- **Platform Validation**: The [validation record](../../docs/development/secure-transport-validation.md)
-  retains Linux results and Windows certificate-list probe observations, with
-  their recorded revisions and coverage limits. The Windows transport suite results
-  previously reported for `84e0e2237eb5c8ce88ba59b747950f6a7cd2aa52` are no longer
-  retained there. The `windows-quic-tls` job in the
-  [Test workflow](../../.github/workflows/test.yml) gates Windows transport, key
-  reuse, and normal-exit checks.
 - **Windows Keys**: Schannel requires a named CNG key. Certificates share one process-owned key, with certificate creation serialized and deletion of that exact key attempted at normal process exit. Disposing a certificate does not delete the shared key; callers of `CertificateFromIdentity` should dispose the certificate and must not explicitly delete its private key.
 - **Crash Lifetime**: Fresh Windows key initialization attempts recovery of exactly marked process keys after proving their owning process incarnation has terminated. Live owners, unknown liveness and unmarked legacy keys are retained. Contention, access restrictions and deletion failure defer recovery to another initialization. See the [recovery contract and validation status](../../docs/development/windows-process-key-recovery.md).
 
