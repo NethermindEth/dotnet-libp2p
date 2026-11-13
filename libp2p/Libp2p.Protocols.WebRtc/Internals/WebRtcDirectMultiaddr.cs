@@ -4,6 +4,7 @@
 using Multiformats.Address;
 using Multiformats.Base;
 using Multiformats.Hash;
+using Nethermind.Libp2p.Core;
 using System.Net;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
@@ -77,6 +78,18 @@ internal static class WebRtcDirectMultiaddr
         string ipProto = endpoint.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? "ip4" : "ip6";
         string certHashText = Multibase.Encode(MultibaseEncoding.Base64Url, fingerprint.ToMultihashBytes());
         return Multiaddress.Decode($"/{ipProto}/{endpoint.Address}/udp/{endpoint.Port}/webrtc-direct/certhash/{certHashText}");
+    }
+
+    /// <summary>
+    /// The same address plus the <c>/p2p</c> component carrying the peer identity Noise
+    /// authenticated. <see cref="Core.State.RemotePeerId"/> is derived from that component and from
+    /// nothing else -- assigning <see cref="Core.State.RemotePublicKey"/> does not populate it -- so
+    /// a connection whose address stops at <c>/udp</c> cannot become a session at all.
+    /// </summary>
+    public static Multiaddress BuildWithIdentity(IPEndPoint endpoint, DtlsFingerprint fingerprint, PeerId peerId)
+    {
+        ArgumentNullException.ThrowIfNull(peerId);
+        return Multiaddress.Decode($"{Build(endpoint, fingerprint)}/p2p/{peerId}");
     }
 
     private static string? GetValue(string[] segments, string componentName)
