@@ -27,11 +27,12 @@ public interface ISession
     /// Dials a session protocol that does not require a request payload.
     /// </summary>
     /// <typeparam name="TProtocol">The application protocol to negotiate over this session.</typeparam>
-    /// <param name="token">Cancellation token used while queueing the dial request.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
     /// <returns>A task that completes when the dial request has been handled.</returns>
     Task DialAsync<TProtocol>(CancellationToken token = default) where TProtocol : ISessionProtocol;
 
     /// <summary>Dials a session protocol without a request payload and returns its response.</summary>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
     /// <remarks>The default implementation does not support typed responses. Implementations must override this method to return protocol results.</remarks>
     /// <exception cref="NotSupportedException">The session implementation does not support typed responses.</exception>
     Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
@@ -44,11 +45,13 @@ public interface ISession
     /// <typeparam name="TRequest">The request type accepted by the protocol.</typeparam>
     /// <typeparam name="TResponse">The response type returned by the protocol.</typeparam>
     /// <param name="request">Request payload passed to the protocol.</param>
-    /// <param name="token">Cancellation token used while queueing the dial request.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
     /// <returns>The response produced by the selected protocol.</returns>
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
 
     /// <summary>Dials the selected protocol instance. Older session implementations may not support instance dialing.</summary>
+    /// <param name="protocol">The protocol instance to negotiate.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
     /// <exception cref="NotSupportedException">The session does not implement instance dialing.</exception>
     Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         => Task.FromException(new NotSupportedException("This session does not support dialing protocol instances."));

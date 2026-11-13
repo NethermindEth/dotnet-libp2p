@@ -41,6 +41,40 @@ int answer = await session.DialAsync<DeepThoughtProtocol, string, int>(
 
 The remote side must expose a protocol with the same `ISessionProtocol.Id`. It does not have to use the same helper class locally; for example, one side can use a protocol implemented with `SymmetricProtocol` while the other uses a direct `ISessionProtocol` implementation, as long as the negotiated protocol id and wire format match.
 
+## Cancellation
+
+Every `ISession.DialAsync` overload accepts a cancellation token. A request canceled
+while queued is skipped before the multiplexer opens a stream. If cancellation races
+with stream creation, the upgrade checks again before invoking the protocol. Once
+the protocol is running, cancellation completes the caller's task and aborts that
+stream. Other streams and the session remain usable.
+
+Protocol instances can serve multiple streams concurrently. In `DialAsync`,
+`ListenAsync`, and `SymmetricSessionProtocol.ConnectAsync`, observe
+`context.UpgradeOptions.CancellationToken` for the current invocation. For outbound
+calls this token links caller cancellation and session closure; for inbound calls
+it signals session closure. Pass it to asynchronous work so the protocol can release
+its resources promptly. A remote stream reset also ends channel I/O, but does not
+cancel the inbound invocation's token independently of the session.
+
+Nested `ISessionContext.DialAsync` calls accept tokens for both typed and untyped
+protocols. Cancellation is explicit: calls without a token do not inherit the
+parent invocation's cancellation. For example, a protocol can forward it with:
+
+```csharp
+CancellationToken token = context.UpgradeOptions?.CancellationToken ?? context.Token;
+await context.DialAsync<PingProtocol>(token);
+```
+
+Older custom `ISessionContext` implementations inherit defaults for the new untyped
+overloads: a pre-canceled token prevents dialing, and later cancellation stops the
+wait. Override these overloads to forward cancellation into the underlying dial.
+
+Disconnect cancels and drains queued requests and signals running invocations in
+both directions. Per-request cancellation registrations are released when the dial
+completes. Invocation tokens are valid until the protocol method returns; use
+`context.Token` or `session.Closed` for work owned by the session instead.
+
 ## Dialing known peers
 
 If discovery has populated the peer store, you can dial by peer id instead of carrying addresses through your code:

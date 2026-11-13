@@ -1033,6 +1033,10 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
         CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(session.ConnectionToken, options?.CancellationToken ?? default);
         CancellationToken upgradeToken = upgradeCancellation.Token;
+        // Session protocols receive a per-invocation lifetime. Connection protocols retain
+        // the original options when forwarding a request through negotiation and multiplexing.
+        SessionContext CreateSessionContext() => new(this, session, top, isListener,
+            (options ?? new UpgradeOptions()) with { CancellationToken = upgradeToken }, activitySource, upgradeActivity);
         CancellationTokenRegistration cancellationRegistration = upgradeToken.Register(() =>
         {
             options?.CompletionSource?.TrySetCanceled(upgradeToken);
@@ -1094,14 +1098,14 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     }
                 case ISessionProtocol sProto:
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        SessionContext ctx = CreateSessionContext();
                         upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
                         break;
                     }
                 default:
                     if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        SessionContext ctx = CreateSessionContext();
                         upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
                         break;
                     }
@@ -1124,7 +1128,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
                         if (dialAsyncMethod != null)
                         {
-                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                            SessionContext ctx = CreateSessionContext();
                             upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
                             break;
                         }

@@ -42,12 +42,35 @@ public interface ISessionContext : IConnectionContext
     Task DialAsync<TProtocol>() where TProtocol : ISessionProtocol;
     Task DialAsync(ISessionProtocol protocol);
 
+    /// <summary>Dials a nested session protocol with explicit cancellation.</summary>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running invocation. Pass the current invocation's token to propagate cancellation.</param>
+    /// <remarks>Legacy implementations only cancel the wait after dialing starts; override to forward cancellation to the invocation.</remarks>
+    async Task DialAsync<TProtocol>(CancellationToken token) where TProtocol : ISessionProtocol
+    {
+        token.ThrowIfCancellationRequested();
+        await DialAsync<TProtocol>().WaitAsync(token);
+    }
+
+    /// <summary>Dials a nested protocol instance with explicit cancellation.</summary>
+    /// <param name="protocol">The protocol instance to negotiate.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running invocation. Pass the current invocation's token to propagate cancellation.</param>
+    /// <remarks>Legacy implementations only cancel the wait after dialing starts; override to forward cancellation to the invocation.</remarks>
+    async Task DialAsync(ISessionProtocol protocol, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        await DialAsync(protocol).WaitAsync(token);
+    }
+
     /// <summary>Dials a session protocol without a request payload and returns its response.</summary>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running invocation.</param>
     /// <remarks>The default implementation does not support typed responses. Implementations must override this method to return protocol results.</remarks>
     /// <exception cref="NotSupportedException">The session implementation does not support typed responses.</exception>
     Task<TResponse> DialAsync<TProtocol, TResponse>(CancellationToken token = default) where TProtocol : ISessionProtocol<TResponse>
         => Task.FromException<TResponse>(new NotSupportedException("This session does not support typed protocol responses."));
 
+    /// <summary>Dials a nested session protocol with a request and returns its response.</summary>
+    /// <param name="request">The request passed to the protocol.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running invocation. Pass the current invocation's token to propagate cancellation.</param>
     Task<TResponse> DialAsync<TProtocol, TRequest, TResponse>(TRequest request, CancellationToken token = default) where TProtocol : ISessionProtocol<TRequest, TResponse>;
 }
 
