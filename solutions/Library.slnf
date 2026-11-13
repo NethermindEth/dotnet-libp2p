@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "../Libp2p.slnx",
+    "projects": [
+      "libp2p/Libp2p/Libp2p.csproj",
+      "libp2p/Libp2p.OpenTelemetry/Libp2p.OpenTelemetry.csproj",
+      "libp2p/Libp2p.Protocols.Mplex/Libp2p.Protocols.Mplex.csproj"
+    ]
+  }
+}

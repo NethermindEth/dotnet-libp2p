@@ -37,6 +37,23 @@ dotnet test
 
 The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
 
+For focused development, open or build a solution filter:
+
+| Entry point | Scope |
+|-------------|-------|
+| [Libp2p.slnx](Libp2p.slnx) | Complete repository solution used by CI |
+| [Core.slnf](solutions/Core.slnf) | Core library and its unit tests |
+| [Library.slnf](solutions/Library.slnf) | Shipping libraries, excluding tests, samples, and benchmarks |
+
+The filters reference the root solution and include the selected projects' dependencies.
+Run these commands from the repository root:
+
+```sh
+dotnet build solutions/Core.slnf
+dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj
+dotnet build solutions/Library.slnf
+```
+
 ## Roadmap
 
 The current implementation supports the protocols marked ✅ below. The roadmap tracks ongoing protocol coverage and improvements.
