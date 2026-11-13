@@ -17,6 +17,7 @@ public partial class LocalPeer
 
         public string Id { get; } = Interlocked.Increment(ref SessionIdCounter).ToString();
         public State State { get; } = new();
+        internal ConnectionDirection Direction { get; set; }
         public Activity? Activity { get; } = activity;
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");

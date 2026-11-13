@@ -897,7 +897,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (topicMesh.Count >= _settings.HighestDegree)
+            if (!topicMesh.Contains(peerId) && topicMesh.Count >= _settings.HighestDegree && !IsOutbound(peerId))
             {
                 ControlPrune prune = CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff);
                 RefreshBackoff(peerId, graft.TopicID, LocalBackoff(_settings.PruneBackoff));

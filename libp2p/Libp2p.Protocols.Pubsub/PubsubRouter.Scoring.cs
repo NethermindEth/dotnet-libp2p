@@ -303,17 +303,6 @@ public partial class PubsubRouter
     }
 
     /// <summary>
-    /// Gets the best scoring peers from a collection
-    /// </summary>
-    private List<PeerId> GetBestScoringPeers(IEnumerable<PeerId> peers, int count)
-    {
-        return peers
-            .OrderByDescending(p => GetPeerScore(p))
-            .Take(count)
-            .ToList();
-    }
-
-    /// <summary>
     /// Checks if peer should be graylisted based on score
     /// </summary>
     private bool ShouldGraylistPeer(PeerId peerId)
