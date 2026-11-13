@@ -196,6 +196,12 @@ public class PubsubSettings
     public double AcceptPXThreshold { get; set; } = 100;
     public double OpportunisticGraftThreshold { get; set; } = 5;
 
+    /// <summary>Heartbeats between opportunistic grafting checks. Must be positive; configure before constructing the router.</summary>
+    public int OpportunisticGraftTicks { get; set; } = 60;
+
+    /// <summary>Maximum peers grafted per topic by each opportunistic check. Zero disables opportunistic grafting.</summary>
+    public int OpportunisticGraftPeers { get; set; } = 2;
+
     // Score Decay
     public int DecayInterval { get; set; } = 1000; // 1 second
     public double DecayToZero { get; set; } = 0.01;
