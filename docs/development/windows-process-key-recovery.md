@@ -246,11 +246,15 @@ moving HEAD or committing. Linux x64, SDK 10.0.402, runtime 10.0.13:
 From repository root, all test builds used warnings as errors and one configured
 temporary artifact root (Debug configuration):
 
+The formatting replay below uses the current root-wide CI scope, including
+samples, in place of the historical library-only invocation. The recorded test
+results remain tied to the revision above.
+
 ```sh
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 53
 dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj --artifacts-path "$TMPDIR/artifacts" -p:TreatWarningsAsErrors=true -- --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredSecurityRejectsAnAliasExpectedPeerId|FullyQualifiedName~RegisteredWindowsKeyRecoveryTests' --minimum-expected-tests 5
-dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes --verbosity diagnostic
+dotnet format whitespace /proc/self/cwd --folder --verify-no-changes --verbosity diagnostic
 ```
 
 The native gate checks used the two new CI filters and minimums with `--no-build`

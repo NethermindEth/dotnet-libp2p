@@ -250,13 +250,17 @@ Commands ran from the repository root. The shared runner settings selected an
 NUnit output directory under the same session's `TMPDIR`. Each test command was
 wrapped with `timeout --signal=TERM --kill-after=10s 240s`:
 
+The formatting replay below uses the current root-wide CI scope, including
+samples, in place of the historical library-only invocation. The recorded test
+results remain tied to the revision above.
+
 ```sh
 dotnet test --project libp2p/Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 14 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 40 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 32 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 25 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings"
 dotnet test --project libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj -c Release --artifacts-path "$TMPDIR/a" -p:TreatWarningsAsErrors=true -- --minimum-expected-tests 45 --timeout 180s --settings "$TMPDIR/secure-transports.runsettings" --filter 'FullyQualifiedName~RegisteredSecureTransportTests|FullyQualifiedName~RegisteredIdentityTests'
-dotnet format whitespace /proc/self/cwd/libp2p --folder --verify-no-changes
+dotnet format whitespace /proc/self/cwd --folder --verify-no-changes
 npx --no-install cspell --no-progress -c cspell.json docs/development/noise-transport-follow-up.md docs/development/secure-transport-validation.md
 ```
 

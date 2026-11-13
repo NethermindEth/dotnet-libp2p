@@ -2,7 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build-env
 WORKDIR /app
 
 # Bring in solution files and sources so project references resolve during restore.
-COPY ./global.json ./Directory.Build.props ./
+COPY ./global.json ./Directory.Build.props ./Directory.Packages.props ./
 COPY ./libp2p ./libp2p
 COPY ./samples ./samples
 

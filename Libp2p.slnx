@@ -57,7 +57,8 @@
     <File Path=".github/workflows/test.yml" />
     <File Path="README.md" />
     <File Path="libp2p/Directory.Build.props" />
-    <File Path="libp2p/Directory.Packages.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="samples/Directory.Packages.props" />
   </Folder>
   <Project Path="libp2p/Libp2p.Core.Benchmarks/Libp2p.Core.Benchmarks.csproj" />
   <Project Path="libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj" />
