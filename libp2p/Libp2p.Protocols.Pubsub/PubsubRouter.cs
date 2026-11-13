@@ -942,6 +942,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             double score = ScoreOf(peer);
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
+                UpdateIpColocationCount(peer.Score.IPAddress, -1);
+                UpdateIpColocationCount(peer.Score.IPColocationSubnet, -1);
                 KeepDisconnectedScore(peerId, peer.Score, score);
                 RemoveRemoteSubscriptions(peer);
                 foreach (var peersByTopic in new[] { fanout, mesh })
@@ -1029,13 +1031,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ConnectionInitiation initiation, Func<Task> disconnect)
     {
         if (peerState.TryGetValue(peerId, out PubsubPeer? existing)) return existing;
-        PubsubPeer peer = WithRetainedScore(new PubsubPeer(this, peerId, protocolId, _settings, policy, disconnect)
-        { Address = addr, InitiatedBy = initiation }, out RetainedScore? restored);
+        PubsubPeer peer = new(this, peerId, protocolId, _settings, policy, disconnect)
+        { Address = addr, InitiatedBy = initiation };
+        (peer.Score.IPAddress, peer.Score.IPColocationSubnet) = IpColocation.GetKeys(addr, _settings.IPColocationFactorWhitelist);
+        peer = WithRetainedScore(peer, out RetainedScore? restored);
         peer.DeadlineTimer = _timeProvider.CreateTimer(_ => ExpireOutbound(peer), null,
             Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         peer.Teardown = TeardownPeerAsync(peer);
         peer.Completion = RunWriterAsync(peer);
         Track(peer.Completion);
+        UpdateIpColocationCount(peer.Score.IPAddress, 1);
+        UpdateIpColocationCount(peer.Score.IPColocationSubnet, 1);
         peerState[peerId] = peer;
         if (restored is not null) ForgetRetainedScore(peerId, restored);
         return peer;

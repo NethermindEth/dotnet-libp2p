@@ -18,8 +18,9 @@ public class PeerScore
     public double AppSpecificScore { get; set; } = 0;
     public double BehaviorPenalty { get; set; } = 0;
 
-    // IP colocation tracking (managed at router level)
+    // Normalized IP colocation buckets (managed at router level).
     public string? IPAddress { get; set; }
+    internal string? IPColocationSubnet { get; set; }
 
     // Last decay time
     public DateTime LastDecay { get; private set; } = DateTime.UtcNow;
@@ -79,19 +80,24 @@ public class PeerScore
         score += _settings.AppSpecificWeight * AppSpecificScore;
 
         // P6: IP colocation factor
-        if (IPAddress != null && ipCounts.TryGetValue(IPAddress, out int ipCount))
-        {
-            if (ipCount > _settings.IPColocationFactorThreshold)
-            {
-                double surplus = ipCount - _settings.IPColocationFactorThreshold;
-                score += _settings.IPColocationFactorWeight * surplus * surplus;
-            }
-        }
+        score += GetIPColocationScore(IPAddress, ipCounts);
+        score += GetIPColocationScore(IPColocationSubnet, ipCounts);
 
         // P7: Behavior penalty
         score += _settings.BehaviorPenaltyWeight * BehaviorPenalty * BehaviorPenalty;
 
         return score;
+    }
+
+    private double GetIPColocationScore(string? key, Dictionary<string, int> ipCounts)
+    {
+        if (key is not null && ipCounts.TryGetValue(key, out int count) && count > _settings.IPColocationFactorThreshold)
+        {
+            double surplus = count - _settings.IPColocationFactorThreshold;
+            return _settings.IPColocationFactorWeight * surplus * surplus;
+        }
+
+        return 0;
     }
 
     /// <summary>
