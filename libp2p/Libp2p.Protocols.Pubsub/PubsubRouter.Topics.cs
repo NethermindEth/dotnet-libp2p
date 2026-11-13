@@ -321,8 +321,8 @@ public partial class PubsubRouter
                     if (topicPeers is { Count: > 0 })
                     {
                         // Select peers with non-negative scores
-                        var eligiblePeers = topicPeers.Where(p => !IsDirectPeer(p) && GetPeerScore(p) >= 0).ToList();
-                        foreach (PeerId peer in eligiblePeers.Take(_settings.Degree))
+                        var eligiblePeers = topicPeers.Where(p => !IsDirectPeer(p) && GetPeerScore(p) >= 0);
+                        foreach (PeerId peer in Sample(eligiblePeers, _settings.Degree, _random))
                         {
                             topicFanout.Add(peer);
                         }
@@ -371,7 +371,7 @@ public partial class PubsubRouter
                 HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
                 if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
                 {
-                    foreach (PeerId peerId in topicPeers.Where(peerId => !IsDirectPeer(peerId) && GetPeerScore(peerId) >= 0).Take(_settings.Degree))
+                    foreach (PeerId peerId in Sample(topicPeers.Where(peerId => !IsDirectPeer(peerId) && GetPeerScore(peerId) >= 0), _settings.Degree, _random))
                     {
                         fanoutPeers.Add(peerId);
                     }
