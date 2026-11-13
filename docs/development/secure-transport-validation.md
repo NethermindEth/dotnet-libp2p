@@ -139,11 +139,10 @@ in certificate serialization, identity validation, or the probe itself.
 
 ## Parent session-key lifetime (#402, historical partial mitigation)
 
-This section records PR #416 and its Windows evidence. The
+This section records PR #416's historical process-owned key design. The
 [current recovery contract and validation status](windows-process-key-recovery.md)
-extend that implementation for newly marked keys after abnormal exit. Results
-below apply to their recorded parent revisions, not the merged PR #421 recovery
-implementation.
+extend that implementation for newly marked keys after abnormal exit. The design
+described here predates the merged PR #421 recovery implementation.
 
 Before PR #416, the helper created a fresh persisted named Windows CNG key on
 every call; both registered TLS roles and QUIC dial/listen use this helper. Only
@@ -190,8 +189,9 @@ owner also prevents repeated failed attempts from creating more keys.
 one persisted key per loaded helper per process run. Across N such runs, up to N
 keys remain; this is unbounded across repeated restarts. The revision removes
 per-connection key churn, not this residual. Multiple separately loaded helper
-assemblies each own one key. The Windows transport results below validate the
-compatible reuse and normal-exit paths; they do not eliminate this crash leak.
+assemblies each own one key. The `windows-quic-tls` job in the
+[Test workflow](../../.github/workflows/test.yml) gates compatible key reuse and
+normal-exit cleanup; these checks do not eliminate this crash leak.
 In PR #416, #402 remained partial and had no closing reference.
 
 `WindowsCertificateKeyTests` covers sequential and concurrent certificate leases

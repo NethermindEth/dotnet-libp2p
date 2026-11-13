@@ -10,7 +10,9 @@ TLS roles and QUIC dial/listen call `CertificateHelper.CreateCertificateLease`.
 Normal process exit deletes the process-owned key; individual certificates own
 independently disposable handles. Abrupt termination bypasses that cleanup.
 The parent has no recovery path. The [parent validation record](secure-transport-validation.md)
-retains its actual Windows transport and normal-exit evidence.
+describes the process-owned key design and its coverage limits. Windows key reuse
+and normal-exit cleanup are gated by the `windows-quic-tls` job in the
+[Test workflow](../../.github/workflows/test.yml).
 
 ## Ownership and recovery
 
