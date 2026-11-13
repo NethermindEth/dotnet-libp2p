@@ -3,16 +3,16 @@
 
 # Noise transport short-record failure: separate follow-up
 
-Status: **filed** as [issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
+Status: **fixed in this change** ([issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431)).
 This record describes the separate follow-up requested in
 [PR #416's review](https://github.com/NethermindEth/dotnet-libp2p/pull/416#pullrequestreview-5651700306).
-The issue tracks the runtime correction separately; PR #416 leaves the defect unchanged.
+The runtime correction is separate from PR #416's handshake framing changes.
 
 ## Issue title
 
 Undersized Noise transport records fault the receive pump without propagating failure
 
-## Finding
+## Historical finding
 
 At inspected candidate `6deef303642830456c3e6f46b9dc40117aea2a8a`, the post-handshake
 `ExchangeData` receive loop reads a peer-controlled unsigned length and its body,
@@ -31,9 +31,14 @@ The same receive-loop allocation and task-return behavior exist in parent
 `0e731cc8b84ad51fd7af3bc31e58744678e0a427`.
 The complete `NoiseProtocol.cs` is byte-identical between the reproduction's
 revision `29ec47562587b3bc87cdc0a3e9bd5cfeae72e053` and the inspected candidate;
-the dated reproduction below still describes the current code.
+the dated reproduction below describes those revisions before the correction.
 
-## Reproduction and observed results
+At this change's base, `d6d849b870aa5f92a951545b96183d4b97c8ed8b`, PR #414
+has already added cancellation, channel shutdown, and joining both pumps. The
+short-record allocation remains, but pump faults are now hidden by joining with
+`ConfigureAwaitOptions.SuppressThrowing` without subsequently propagating them.
+
+## Historical reproduction and observed results
 
 A disposable probe used the existing `HandshakeFramingTests.HandshakePeer(2)`
 helper to drive the real `NoiseProtocol.ListenAsync` and production `Channel`:
@@ -60,14 +65,26 @@ in the same run and delivered application data. The disposable probe was removed
 no test asserting that this defect remains present is retained in the suite.
 This reproduction does not claim a process crash or an authentication bypass.
 
-## Expected follow-up behavior
+## Implemented behavior
 
-- Reject a ciphertext record shorter than its authentication tag before calculating
-  or allocating its plaintext buffer, using the protocol's expected failure path.
-- Observe pump failures and retain ownership of sibling work through shutdown;
-  a fault must not become successful protocol completion or an unobserved exception.
-- Add regressions for short lengths in both roles, complete and truncated bodies,
-  and valid encrypted records, including a zero-length plaintext control.
+- Both roles reject a ciphertext length below the 16-byte authentication tag with
+  `Libp2pException` immediately after its prefix, before reading the body or
+  calculating or allocating the plaintext buffer. A 16-byte record carrying
+  authenticated empty plaintext remains valid.
+- The existing shutdown cancels and joins both pumps. The first pump's failure
+  propagates through `DialAsync` or `ListenAsync`; if it ends normally, a sibling
+  failure still propagates. All pump exceptions are observed during shutdown.
+- `HandshakeFramingTests` covers lengths 0, 1, and 15 in both roles, complete
+  bodies and incomplete bodies on an open connection, tampered ciphertext,
+  and an empty encrypted record followed by application data and orderly EOF.
+  Controlled sibling reads also verify joining through shutdown and propagation
+  when either the first pump or its sibling fails.
 
-The runtime correction belongs in a separate change. PR #416's handshake framing,
-identity validation, and Windows key-lifetime behavior remain unchanged.
+The [pinned libp2p Noise specification](https://github.com/libp2p/specs/blob/c750236de43cd8b246a824b377dfdb26bae686db/noise/README.md#encryption-and-io)
+defines transport ciphertext as an encrypted payload plus 16 authentication bytes.
+The [Go implementation at the referenced revision](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/noise/rw.go)
+uses the same tag overhead and propagates decryption errors to its reader. These
+sources were inspected; cross-client interoperability was not executed here.
+
+PR #416's handshake framing, identity validation, and Windows key-lifetime
+behavior remain unchanged.

@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### Noise transport failure propagation (#431)
+
+Noise now rejects transport records shorter than the 16-byte authentication tag
+before reading their bodies. After authentication, malformed or tampered records
+fault `NoiseProtocol.DialAsync` and `ListenAsync` after both forwarding pumps shut
+down, rather than appearing to complete successfully. Valid empty encrypted
+records and orderly EOF remain supported.
+
 ### Kademlia custom builder compatibility (PR #420)
 
 Kademlia registration now requires inbound stream limits, including with default
