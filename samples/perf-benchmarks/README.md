@@ -55,6 +55,31 @@ dotnet run
 4. The dialer will run performance tests and output results
 5. Stop Redis when done: `docker stop redis-perf && docker rm redis-perf`
 
+## test-plans CLI mode
+
+When started with `--` flags, the sample follows the libp2p test-plans perf contract instead of the environment-variable and Redis mode above. Logs go to stderr; stdout carries only JSON.
+
+| Flag | Description |
+|------|-------------|
+| `--run-server` | Run as the perf server. Never exits; stop it with Ctrl+C. |
+| `--server-address` | Server: listen address (`host:port` or multiaddr, default `0.0.0.0:4001`). Client: multiaddr of the server, including `/p2p/<peerId>`. |
+| `--transport` | `tcp`, `quic` or `quic-v1` (default `tcp`) |
+| `--upload-bytes` | Bytes to upload (client) |
+| `--download-bytes` | Bytes to download (client) |
+
+The client prints a progress line every second and one final line. The final time includes connection setup, upload and download:
+
+    {"type":"intermediary","timeSeconds":1.0,"uploadBytes":120455168,"downloadBytes":0}
+    {"type":"final","timeSeconds":9.49,"uploadBytes":1073741824,"downloadBytes":1073741824}
+
+Example:
+
+    # server
+    dotnet run --project samples/perf-benchmarks -- --run-server --server-address 127.0.0.1:4001 --transport tcp
+
+    # client (use the address the server prints)
+    dotnet run --project samples/perf-benchmarks -- --server-address /ip4/127.0.0.1/tcp/4001/p2p/<peerId> --transport tcp --upload-bytes 1073741824 --download-bytes 1073741824
+
 ## Docker Build
 
 ```bash
