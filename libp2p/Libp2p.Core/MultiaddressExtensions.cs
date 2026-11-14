@@ -12,17 +12,17 @@ public static class MultiaddressExtensions
 {
     public static PeerId? GetPeerId(this Multiaddress? addr)
     {
-        PeerId? peerId = null;
+        P2P? destination = null;
         if (addr is null) return null;
 
         foreach (var protocol in addr.Protocols)
         {
             // A circuit starts a new destination; preceding peer IDs identify relays.
-            if (protocol is P2PCircuit) peerId = null;
-            else if (protocol is P2P peer) peerId = new PeerId(peer.Value is null ? [] : [.. peer.ToBytes()]);
+            if (protocol is P2PCircuit) destination = null;
+            else if (protocol is P2P peer) destination = peer;
         }
 
-        return peerId;
+        return destination is null ? null : new PeerId(destination.Value is null ? [] : [.. destination.ToBytes()]);
     }
 
     public static Multiaddress GetEndpointPart(this Multiaddress multiaddress)
