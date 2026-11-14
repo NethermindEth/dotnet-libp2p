@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="NSubstitute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Libp2p.Core\Libp2p.Core.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.Tls\Libp2p.Protocols.Tls.csproj" />
+  </ItemGroup>
+
+</Project>
