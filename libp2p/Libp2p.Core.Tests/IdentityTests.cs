@@ -43,6 +43,20 @@ public class IdentityTests
     public void Test_KeyGeneration(KeyType keyType)
         => _ = new Identity(keyType: keyType);
 
+    [TestCaseSource(nameof(KeyTypes))]
+    public void Test_PeerIdIsComputedOnce(KeyType keyType)
+    {
+        Identity identity = new(keyType: keyType);
+
+        PeerId peerId = identity.PeerId;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(identity.PeerId, Is.SameAs(peerId));
+            Assert.That(peerId, Is.EqualTo(new PeerId(identity.PublicKey)));
+        });
+    }
+
     public static IEnumerable<TestCaseData> KeyTypes()
         => Enum.GetValues<KeyType>().Select(kt => new TestCaseData(kt) { TestName = kt.ToString() });
 
