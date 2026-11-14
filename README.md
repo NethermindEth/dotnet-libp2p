@@ -35,24 +35,37 @@ dotnet build
 dotnet test
 ```
 
-The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
+The root solution builds the shipping libraries and Core unit tests. Other test runners,
+sample applications, and benchmarks have separate solutions so they do not load or build
+with the default entry point. CI combines all three solutions before restore, build, and
+test discovery.
 
-For focused development, open or build a solution filter:
+The MAUI chat sample is visible in the samples solution but excluded from its default
+restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
+
+For focused development, choose a solution or filter:
 
 | Entry point | Scope |
 |-------------|-------|
-| [Libp2p.slnx](Libp2p.slnx) | Complete repository solution used by CI |
+| [Libp2p.slnx](Libp2p.slnx) | Shipping libraries and Core unit tests |
+| [Tests.slnx](solutions/Tests.slnx) | Protocol, integration, and sample protocol tests |
+| [Samples.slnx](solutions/Samples.slnx) | Sample applications and benchmarks |
 | [Core.slnf](solutions/Core.slnf) | Core library and its unit tests |
 | [Library.slnf](solutions/Library.slnf) | Shipping libraries, excluding tests, samples, and benchmarks |
 
-The filters reference the root solution and include the selected projects' dependencies.
+The filters reference the root solution. Every solution or filter includes its selected
+projects' dependencies through their project references.
 Run these commands from the repository root:
 
 ```sh
 dotnet build solutions/Core.slnf
 dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj
 dotnet build solutions/Library.slnf
+dotnet build solutions/Tests.slnx
+dotnet build solutions/Samples.slnx
 ```
+
+See the [CI helper commands](.github/scripts/README.md) for the complete build and test inventories.
 
 ## Roadmap
 

@@ -47,13 +47,31 @@ jobs:
           python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
           cat "$RUNNER_TEMP/test-projects.txt"
 
+      - name: List CI projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/discover_test_projects.py --all-projects > "$RUNNER_TEMP/ci-projects.txt"
+          cat "$RUNNER_TEMP/ci-projects.txt"
+
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet restore "$project"
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet build "$project" -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
         timeout-minutes: 30
