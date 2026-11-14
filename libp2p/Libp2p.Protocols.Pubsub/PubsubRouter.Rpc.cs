@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
@@ -442,10 +443,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             peerState.GetValueOrDefault(recipient)?.Send(idontwant);
         }
 
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
-        }
+        SendSharingPublishedMessages(peerMessages);
 
         foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
         {
@@ -475,6 +473,69 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     LogSubscriberError(ex, topic);
                 }
             }
+        }
+    }
+
+    // A forwarded message usually goes to several peers in otherwise empty RPCs. Those RPCs serialize
+    // to the same bytes, so each distinct list of message instances is serialized once for all of them.
+    private void SendSharingPublishedMessages(ConcurrentDictionary<PeerId, Rpc> peerMessages)
+    {
+        Dictionary<Rpc, SharedFrame>? sharedFrames = null;
+        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        {
+            if (!peerState.TryGetValue(peerMessage.Key, out PubsubPeer? peer))
+            {
+                continue;
+            }
+
+            Rpc rpc = peerMessage.Value;
+            if (peerMessages.Count == 1 || rpc.Subscriptions.Count != 0 || rpc.Control is not null || rpc.Partial is not null)
+            {
+                peer.Send(rpc);
+                continue;
+            }
+
+            sharedFrames ??= new(PublishedMessagesComparer.Instance);
+            if (!sharedFrames.TryGetValue(rpc, out SharedFrame? frame))
+            {
+                frame = new SharedFrame(rpc);
+                sharedFrames.Add(rpc, frame);
+            }
+            peer.SendShared(frame);
+        }
+    }
+
+    private sealed class PublishedMessagesComparer : IEqualityComparer<Rpc>
+    {
+        public static readonly PublishedMessagesComparer Instance = new();
+
+        public bool Equals(Rpc? x, Rpc? y)
+        {
+            if (x is null || y is null || x.Publish.Count != y.Publish.Count)
+            {
+                return ReferenceEquals(x, y);
+            }
+
+            for (int i = 0; i < x.Publish.Count; i++)
+            {
+                if (!ReferenceEquals(x.Publish[i], y.Publish[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public int GetHashCode(Rpc rpc)
+        {
+            HashCode hash = new();
+            for (int i = 0; i < rpc.Publish.Count; i++)
+            {
+                hash.Add(RuntimeHelpers.GetHashCode(rpc.Publish[i]));
+            }
+
+            return hash.ToHashCode();
         }
     }
 
