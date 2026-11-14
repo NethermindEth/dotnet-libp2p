@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Collections;
 using BenchmarkDotNet.Attributes;
 using Google.Protobuf;
 using Nethermind.Libp2p.Core;
@@ -21,6 +22,8 @@ public class ForwardBenchmarks
     private PeerId source = null!;
     private byte[] payload = null!;
     private long nextId;
+    private MessageId lastId;
+    private IDictionary firstDeliveries = null!;
 
     [Params(1024, 128 * 1024)]
     public int PayloadSize { get; set; }
@@ -28,7 +31,8 @@ public class ForwardBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        router = RouterFixture.Start(RouterFixture.Settings(_ => new MessageId(BitConverter.GetBytes(Interlocked.Increment(ref nextId)))));
+        router = RouterFixture.Start(RouterFixture.Settings(_ => lastId = new MessageId(BitConverter.GetBytes(++nextId))));
+        firstDeliveries = RouterFixture.FirstDeliveries(router);
         router.GetTopic(Topic).OnMessage += static (_, _) => { };
         for (int i = 1; i <= MeshPeers; i++)
         {
@@ -51,6 +55,7 @@ public class ForwardBenchmarks
         Rpc rpc = new();
         rpc.Publish.Add(new Message { Topic = Topic, Data = UnsafeByteOperations.UnsafeWrap(payload) });
         await router.OnRpcAsync(source, rpc, PubsubRouter.GossipsubProtocolVersionV11);
+        firstDeliveries.Remove(lastId);
         await router.FlushOutboundAsync();
     }
 }

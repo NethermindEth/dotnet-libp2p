@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers.Binary;
+using System.Collections;
 using System.Collections.ObjectModel;
+using System.Reflection;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
@@ -42,6 +44,13 @@ internal static class RouterFixture
         router.StartAsync(new LocalPeer(Identity(0))).GetAwaiter().GetResult();
         return router;
     }
+
+    /// <summary>
+    /// The router's first-delivery tracker. Only a heartbeat trims it, and benchmarks run without one,
+    /// so a benchmark removes the entry of each message it delivers to keep the router state constant.
+    /// </summary>
+    public static IDictionary FirstDeliveries(PubsubRouter router) =>
+        (IDictionary)typeof(PubsubRouter).GetField("_firstDeliveryTracker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(router)!;
 
     public static Identity Identity(int index)
     {
