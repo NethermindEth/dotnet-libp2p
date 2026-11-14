@@ -58,6 +58,7 @@ public class GossipsubControlLimitsTests
             _ = setup.Router.GetTopic(topic);
             ihaves.Control.Ihave.Add(new ControlIHave { TopicID = topic, MessageIDs = { ByteString.CopyFrom([i]) } });
         }
+        await setup.Router.FlushOutboundAsync();
         setup.SentRpcs.Clear();
         setup.Router.OnRpc(setup.RemotePeerId, ihaves);
 
