@@ -1,8 +1,12 @@
 # CI test discovery
 
-From `libp2p/`, run `python3 ../.github/scripts/discover_test_projects.py`.
-Both Linux workflows use this list before restore/build, then invoke
-`bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"`.
+From the repository root, run `python3 .github/scripts/discover_test_projects.py`
+for test runners, or add `--all-projects` for the complete CI build inventory.
+Both commands combine `Libp2p.slnx` and `solutions/*.slnx`, deduplicate their members,
+and emit repository-relative paths. The build inventory excludes the MAUI application,
+as before; its protocol boundary tests still run without MAUI workloads.
+Both Linux workflows validate these inventories before restore/build, then invoke
+`bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"`.
 Test steps have a 30-minute deadline, including any retry.
 
 An E2E suite (`.E2eTests.csproj`) that reports test failures (MTP exit 2) is retried
@@ -18,11 +22,12 @@ The shared runner retains `--minimum-expected-tests 1` for intent and parity. Th
 test platform already returns exit 8 when zero tests run without this flag; a
 positive test count below a larger requested minimum returns exit 9.
 
-Runner projects must belong to `Libp2p.slnx` and use `.Tests.csproj` or
+Runner projects must belong to one of these solutions and use `.Tests.csproj` or
 `.E2eTests.csproj`. Discovery cross-checks repository project filenames and explicit
 `EnableNUnitRunner=true` or `IsTestProject=true` declarations, excluding `bin`,
 `obj`, submodules and nested Git checkouts or worktrees containing a `.git` entry.
-The root checkout remains in scope, including new untracked projects. Discovery
+The root checkout remains in scope, including new untracked projects. A runner omitted
+from every solution still fails discovery, including in `--all-projects` mode. Discovery
 does not evaluate MSBuild conditions or imports. Introducing
 an alternate/imported runner declaration requires updating this discovery contract.
 `Libp2p.Core.TestsBase` is support infrastructure, not a runner.

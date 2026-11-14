@@ -28,7 +28,7 @@ jobs:
       BUILD_CONFIG: Release
       NUGET_URL: ${{ inputs.feed == 'Staging' && 'https://int.nugettest.org' || 'https://www.nuget.org' }}
       NUGET_SOURCE: ${{ inputs.feed == 'Staging' && 'https://apiint.nugettest.org' || 'https://api.nuget.org' }}/v3/index.json
-      WORKING_DIR: libp2p
+      WORKING_DIR: .
     steps:
 
       - name: Check out repository
@@ -44,16 +44,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
+          python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
           cat "$RUNNER_TEMP/test-projects.txt"
+
+      - name: List CI projects
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/discover_test_projects.py --all-projects > "$RUNNER_TEMP/ci-projects.txt"
+          cat "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet restore "$project"
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
-        run: dotnet build -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet build "$project" -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
+          done < "$RUNNER_TEMP/ci-projects.txt"
 
       - name: Test
         timeout-minutes: 30
@@ -61,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"
+          bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"
 
       - name: Upload test logs
         if: always()
@@ -86,29 +104,29 @@ jobs:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ inputs.version }}
           NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
-          dotnet pack Libp2p ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Core ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Generators.Protobuf ${{ env.NO_VERSION_PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.AutoTls ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.KadDht ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Mplex ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.PubsubPeerDiscovery ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.RequestResponse ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Relay ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.WebRtc ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.WebSockets ${{ env.PACK_OPTS }}
-          dotnet pack Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Core ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Generators.Protobuf ${{ env.NO_VERSION_PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.AutoTls ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Identify ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.IpTcp ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.KadDht ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.MDns ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Mplex ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Multistream ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Noise ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Ping ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Plaintext ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Pubsub ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.PubsubPeerDiscovery ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.RequestResponse ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Quic ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Relay ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Tls ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.WebRtc ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.WebSockets ${{ env.PACK_OPTS }}
+          dotnet pack libp2p/Libp2p.Protocols.Yamux ${{ env.PACK_OPTS }}
 
           dotnet nuget push **/*.nupkg --skip-duplicate \
             -k "${{ steps.login.outputs.NUGET_API_KEY }}" -s ${{ env.NUGET_SOURCE }}

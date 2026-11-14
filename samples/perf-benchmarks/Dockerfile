@@ -1,6 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY global.json Directory.Build.props ./
+COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY libp2p ./libp2p
 COPY samples ./samples
 RUN dotnet publish samples/perf-benchmarks/PerfBenchmarks.csproj -c Release -o /app/publish \
