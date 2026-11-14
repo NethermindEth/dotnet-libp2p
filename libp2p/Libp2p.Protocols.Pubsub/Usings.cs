@@ -6,3 +6,4 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Tests")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.Pubsub.Benchmarks")]
