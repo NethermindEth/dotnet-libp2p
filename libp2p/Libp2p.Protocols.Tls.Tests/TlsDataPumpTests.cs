@@ -49,7 +49,7 @@ public class TlsDataPumpTests
     }
 
     [Test]
-    public async Task PublishesReceivedRecordsLargerThanOneKibibyte()
+    public async Task PublishesReceivedRecordsLargerThan1024Bytes()
     {
         await using TlsPair pair = await TlsPair.StartAsync();
         byte[] payload = new byte[8 * 1024];
