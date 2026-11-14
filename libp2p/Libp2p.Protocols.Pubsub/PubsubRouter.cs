@@ -3,7 +3,6 @@
 
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
@@ -284,6 +283,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
     private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
     private readonly ConcurrentDictionary<PeerId, byte> pendingDials = new();
+    private readonly Dictionary<PeerId, OutboundDialAttempt> outboundDials = [];
     private long heartbeatTick;
     private ulong seqNo = 1;
 
@@ -297,6 +297,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly ConcurrentDictionary<Task, byte> _connects = new();
 
     private record Reconnection(Multiaddress[] Addresses, int AttemptsRemaining, ReconnectionPolicy? Policy);
+    private sealed class OutboundDialAttempt { }
 
     private ReconnectionPolicy GetReconnectionPolicy(PeerId peerId)
     {
@@ -498,6 +499,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null, int? attemptsRemaining = null)
     {
         PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
+        OutboundDialAttempt? outbound = null;
+        PeerId? remotePeer = null;
         ReconnectionPolicy? policy = reconnectingPolicy ?? (peerId is null ? null : GetReconnectionPolicy(peerId));
         if (policy?.Suppressed == true) return;
 
@@ -510,32 +513,35 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 return;
             }
 
-            if (!peerState.ContainsKey(session.RemoteAddress.Get<P2P>().ToString()))
+            remotePeer = session.RemoteAddress.GetPeerId();
+            if (remotePeer is null) return;
+            string[] protocols = _peerStore.TryGetPeerInfo(remotePeer, out PeerStore.PeerInfo? info) ? info?.SupportedProtocols ?? [] : [];
+            string? protocol = protocols.Contains(GossipsubProtocolVersionV13) ? GossipsubProtocolVersionV13
+                : protocols.Contains(GossipsubProtocolVersionV12) ? GossipsubProtocolVersionV12
+                : protocols.Contains(GossipsubProtocolVersionV11) ? GossipsubProtocolVersionV11
+                : protocols.Contains(GossipsubProtocolVersionV10) ? GossipsubProtocolVersionV10
+                : protocols.Contains(FloodsubProtocolVersion) ? FloodsubProtocolVersion : null;
+            if (protocol is not null && (outbound = ReserveOutbound(remotePeer)) is not null)
             {
-                string[] protocols = _peerStore.TryGetPeerInfo(session.RemoteAddress.GetPeerId()!, out var info) ? info?.SupportedProtocols ?? [] : [];
-                if (protocols.Contains(GossipsubProtocolVersionV13))
+                if (protocol == GossipsubProtocolVersionV13)
                 {
                     await session.DialAsync<GossipsubProtocolV13>(token);
                 }
-                else if (protocols.Contains(GossipsubProtocolVersionV12))
+                else if (protocol == GossipsubProtocolVersionV12)
                 {
                     await session.DialAsync<GossipsubProtocolV12>(token);
                 }
-                else if (protocols.Contains(GossipsubProtocolVersionV11))
+                else if (protocol == GossipsubProtocolVersionV11)
                 {
                     await session.DialAsync<GossipsubProtocolV11>(token);
                 }
-                else if (protocols.Contains(GossipsubProtocolVersionV10))
+                else if (protocol == GossipsubProtocolVersionV10)
                 {
                     await session.DialAsync<GossipsubProtocol>(token);
                 }
-                else if (protocols.Contains(FloodsubProtocolVersion))
-                {
-                    await session.DialAsync<FloodsubProtocol>(token);
-                }
                 else
                 {
-                    return;
+                    await session.DialAsync<FloodsubProtocol>(token);
                 }
                 if (policy?.Suppressed == true)
                 {
@@ -546,12 +552,42 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
         catch (Exception e)
         {
+            if (outbound is not null)
+            {
+                ReleaseOutbound(remotePeer!, outbound);
+                outbound = null;
+            }
             int retries = attemptsRemaining ?? _settings.ReconnectionAttempts;
             if (reconnect && retries > 0 && !token.IsCancellationRequested && policy?.Suppressed != true)
             {
                 logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
                 reconnections.Add(new Reconnection(addrs, retries, policy));
             }
+        }
+        finally
+        {
+            if (outbound is not null) ReleaseOutbound(remotePeer!, outbound);
+        }
+    }
+
+    private OutboundDialAttempt? ReserveOutbound(PeerId peerId)
+    {
+        lock (this)
+        {
+            if (_stopped.IsCancellationRequested || outboundDials.ContainsKey(peerId) ||
+                peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter) return null;
+            OutboundDialAttempt attempt = new();
+            outboundDials.Add(peerId, attempt);
+            return attempt;
+        }
+    }
+
+    private bool ReleaseOutbound(PeerId peerId, OutboundDialAttempt attempt)
+    {
+        lock (this)
+        {
+            if (!outboundDials.TryGetValue(peerId, out OutboundDialAttempt? current) || !ReferenceEquals(current, attempt)) return false;
+            return outboundDials.Remove(peerId);
         }
     }
 
@@ -976,6 +1012,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (policy.Suppressed) return null;
             PubsubPeer peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Local, disconnect);
             if (!peer.AttachWriter(write, abort)) return null;
+            outboundDials.Remove(peerId);
             _ = dialTask.ContinueWith(_ => RemovePeer(peerId, addr, peer), TaskScheduler.Default);
             Rpc hello = new();
             hello.Subscriptions.AddRange(topicState.Where(pair => pair.Value.IsSubscribed)
@@ -991,18 +1028,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         PeerId? peerId = addr.GetPeerId();
         PubsubPeer peer;
         TaskCompletionSource? reply = null;
+        OutboundDialAttempt? outbound;
         lock (this)
         {
             if (peerId is null || peerId == localPeer?.Identity.PeerId || _stopped.IsCancellationRequested)
                 return (Canceled, static () => { });
             ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
             if (policy.Suppressed) return (Canceled, static () => { });
-            if (!peerState.ContainsKey(peerId))
+            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Remote, disconnect);
+            outbound = ReserveOutbound(peerId);
+            if (outbound is not null)
             {
                 reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 Track(reply.Task);
             }
-            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Remote, disconnect);
             peer.IncomingStreams++;
             _ = listTask.ContinueWith(_ =>
             {
@@ -1014,15 +1053,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
             }, TaskScheduler.Default);
         }
-        if (reply is not null) _ = OpenReplyAsync(subDial, reply);
+        if (reply is not null) _ = OpenReplyAsync(peer, outbound!, subDial, reply);
         return (peer.TokenSource.Token, () => peer.ReconnectionPolicy.Suppressed = true);
     }
 
-    private async Task OpenReplyAsync(Func<Task> subDial, TaskCompletionSource completion)
+    private async Task OpenReplyAsync(PubsubPeer peer, OutboundDialAttempt attempt, Func<Task> subDial, TaskCompletionSource completion)
     {
+        bool failed = false;
         try { await subDial().ConfigureAwait(false); }
-        catch (Exception ex) { logger?.LogDebug(ex, "Pubsub reply stream failed"); }
-        finally { completion.TrySetResult(); }
+        catch (Exception ex)
+        {
+            failed = true;
+            logger?.LogDebug(ex, "Pubsub reply stream failed");
+        }
+        finally
+        {
+            lock (this)
+            {
+                if (ReleaseOutbound(peer.PeerId, attempt) && failed && _settings.AutoConnect &&
+                    _settings.ReconnectionAttempts > 0 && !_stopped.IsCancellationRequested &&
+                    _lifetime?.IsCancellationRequested != true && !peer.ReconnectionPolicy.Suppressed &&
+                    (!peerState.TryGetValue(peer.PeerId, out PubsubPeer? current) || !current.HasWriter))
+                    reconnections.Add(new Reconnection([peer.Address], _settings.ReconnectionAttempts, peer.ReconnectionPolicy));
+            }
+            completion.TrySetResult();
+        }
     }
 
     private PubsubPeer GetOrCreatePeer(PeerId peerId, Multiaddress addr, string protocolId, ReconnectionPolicy policy,
