@@ -34,7 +34,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     internal sealed class ReconnectionPolicy
     {
         public volatile bool Suppressed;
-        internal Multiaddress[] Addresses = [];
+        internal Multiaddress? LastSessionAddress;
         internal int? RemainingRetries;
         internal bool RetryQueued;
         internal bool Reconnecting;
@@ -454,12 +454,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     {
                         return;
                     }
-                    Task connect = Connect(addrs, lifetime, true);
-                    Track(connect);
-                    if (dialed is not null)
-                    {
-                        _ = connect.ContinueWith(t => pendingDials.TryRemove(dialed, out byte _), TaskScheduler.Default);
-                    }
+                    Track(ConnectDiscoveredPeer(dialed, addrs, lifetime));
                 };
                 // Subscribing replays already known peers, so it goes last.
                 _peerStore.OnNewPeer += _onNewPeer;
@@ -507,6 +502,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }, TaskScheduler.Default);
     }
 
+    private async Task ConnectDiscoveredPeer(PeerId? peerId, Multiaddress[] addresses, CancellationToken token)
+    {
+        try { await Connect(addresses, token, true).ConfigureAwait(false); }
+        finally { if (peerId is not null) pendingDials.TryRemove(peerId, out _); }
+    }
+
     private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null, int? attemptsRemaining = null)
     {
         PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
@@ -516,7 +517,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         if (policy?.Suppressed == true) return;
         if (policy is not null && reconnectingPolicy is null)
         {
-            lock (this) policy.Addresses = addrs;
+            lock (this)
+            {
+                policy.RemainingRetries = null;
+            }
         }
 
         try
@@ -544,6 +548,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     return;
                 }
                 logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
+            }
+            else if (dial is not null && reconnectingPolicy is not null && attemptsRemaining is int remaining && !token.IsCancellationRequested)
+            {
+                lock (this)
+                {
+                    if (reconnectingPolicy.RemainingRetries == remaining) reconnectingPolicy.RemainingRetries = remaining + 1;
+                    QueueReconnection(remotePeer, addrs, _settings.ReconnectionAttempts, reconnectingPolicy);
+                }
             }
         }
         catch (Exception e)
@@ -580,11 +592,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (peerId is not null && (IsDirectPeer(peerId) || peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter)) return;
             if (policy is not null)
             {
-                policy.RemainingRetries = Math.Min(policy.RemainingRetries ?? attemptsRemaining, attemptsRemaining);
+                policy.RemainingRetries ??= _settings.ReconnectionAttempts;
                 attemptsRemaining = policy.RemainingRetries.Value;
                 if (attemptsRemaining == 0 || policy.RetryQueued) return;
                 policy.RetryQueued = true;
-                if (policy.Addresses.Length != 0) addresses = policy.Addresses;
             }
             reconnections.Add(new Reconnection(addresses, attemptsRemaining, policy));
         }
@@ -695,14 +706,21 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     {
         if (token.IsCancellationRequested || _stopped.IsCancellationRequested) return;
         const int MaxParallelReconnections = 5;
-        List<Reconnection> ready = new(MaxParallelReconnections);
-        while (ready.Count < MaxParallelReconnections && reconnections.TryTake(out Reconnection? rec))
+        int pending = reconnections.Count;
+        List<Reconnection> ready = new(pending);
+        while (ready.Count < pending && reconnections.TryTake(out Reconnection? rec))
         {
             ready.Add(rec);
         }
 
+        int started = 0;
         foreach (Reconnection rec in ready)
         {
+            if (started == MaxParallelReconnections)
+            {
+                reconnections.Add(rec);
+                continue;
+            }
             Multiaddress[] addresses = rec.Addresses;
             int remaining = rec.AttemptsRemaining - 1;
             lock (this)
@@ -717,19 +735,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 {
                     policy.RetryQueued = false;
                     if (policy.Suppressed || policy.RemainingRetries <= 0) continue;
-                    if (policy.Reconnecting)
+                    if (policy.Reconnecting || peerId is not null && outboundDials.ContainsKey(peerId))
                     {
                         policy.RetryQueued = true;
                         reconnections.Add(rec);
                         continue;
                     }
-                    remaining = (policy.RemainingRetries ?? rec.AttemptsRemaining) - 1;
+                    remaining = (policy.RemainingRetries ?? _settings.ReconnectionAttempts) - 1;
                     policy.RemainingRetries = remaining;
                     policy.Reconnecting = true;
-                    if (policy.Addresses.Length != 0) addresses = policy.Addresses;
+                    if (peerId is not null && _peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? info) && info?.Addrs is { Count: > 0 } advertised)
+                        addresses = [.. advertised];
+                    if (policy.LastSessionAddress is { } last && !addresses.Contains(last)) addresses = [.. addresses, last];
                 }
             }
             logger?.LogDebug($"Reconnect to {string.Join(",", addresses.Select(a => a.ToString()))}");
+            started++;
             Track(Connect(addresses, token, true, rec.Policy, remaining));
         }
     }
@@ -1056,6 +1077,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         topicPeers.Remove(peerId);
                     }
                 }
+                peer.ReconnectionPolicy.LastSessionAddress = addr;
                 QueueReconnection(peerId, [addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy);
             }
         }
@@ -1158,6 +1180,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         peer.Completion = RunWriterAsync(peer);
         Track(peer.Completion);
         peerState[peerId] = peer;
+        policy.RemainingRetries = null;
         if (restored is not null) ForgetRetainedScore(peerId, restored);
         return peer;
     }

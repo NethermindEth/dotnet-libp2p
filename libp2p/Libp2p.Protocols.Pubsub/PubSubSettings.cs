@@ -20,7 +20,7 @@ public class PubsubSettings
     /// </summary>
     public bool AutoConnect { get; set; } = true;
 
-    /// <summary>Automatic retries after a failed discovery dial or closed pubsub stream. Zero disables retries; direct peers have a separate reconnect loop.</summary>
+    /// <summary>Shared automatic retry budget per peer, reset by fresh discovery, a new peer generation or an attached writer. Zero disables retries; direct peers use a separate reconnect loop.</summary>
     public int ReconnectionAttempts { get; set; } = 10;
     public int ReconnectionPeriod { get; set; } = 15_000;
 
