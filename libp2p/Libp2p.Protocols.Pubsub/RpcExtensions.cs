@@ -3,7 +3,6 @@
 
 using Google.Protobuf;
 using System.Buffers.Binary;
-using System.Text;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
@@ -13,23 +12,19 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 
 internal static class RpcExtensions
 {
-    private const string SignaturePayloadPrefix = "libp2p-pubsub:";
+    private static ReadOnlySpan<byte> SignaturePayloadPrefix => "libp2p-pubsub:"u8;
 
     public static Rpc WithMessages(this Rpc rpc, string topic, ulong seqNo, byte[] from, byte[] message, Identity identity)
     {
         Message msg = new();
         msg.Topic = topic;
-        Span<byte> seqNoBytes = new byte[8];
+        Span<byte> seqNoBytes = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(seqNoBytes, seqNo);
         msg.Seqno = ByteString.CopyFrom(seqNoBytes);
         msg.From = ByteString.CopyFrom(from);
         msg.Data = ByteString.CopyFrom(message);
 
-        byte[] signingContent = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
-            .Concat(msg.ToByteArray())
-            .ToArray();
-
-        msg.Signature = ByteString.CopyFrom(identity.Sign(signingContent));
+        msg.Signature = UnsafeByteOperations.UnsafeWrap(identity.Sign(GetSigningContent(msg)));
         if (PeerId.ExtractPublicKey(from) is null)
         {
             msg.Key = PublicKeyDecoder.Normalize(identity.PublicKey).ToByteString();
@@ -89,11 +84,16 @@ internal static class RpcExtensions
         // including unknown fields, and never mutate the received message.
         msgToBeVerified.ClearKey();
 
-        byte[] msgToSign = Encoding.UTF8.GetBytes(SignaturePayloadPrefix)
-            .Concat(msgToBeVerified.ToByteArray())
-            .ToArray();
+        return new Identity(pubKey).VerifySignature(GetSigningContent(msgToBeVerified), message.Signature.ToByteArray());
+    }
 
-        return new Identity(pubKey).VerifySignature(msgToSign, message.Signature.ToByteArray());
+    private static byte[] GetSigningContent(Message message)
+    {
+        int size = message.CalculateSize();
+        byte[] content = new byte[SignaturePayloadPrefix.Length + size];
+        SignaturePayloadPrefix.CopyTo(content);
+        message.WriteTo(content.AsSpan(SignaturePayloadPrefix.Length));
+        return content;
     }
 
     public static T Ensure<T>(this Rpc self, Func<Rpc, T> accessor)
