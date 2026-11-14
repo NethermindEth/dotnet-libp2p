@@ -44,16 +44,20 @@ public class IdentityTests
         => _ = new Identity(keyType: keyType);
 
     [TestCaseSource(nameof(KeyTypes))]
-    public void Test_PeerIdIsComputedOnce(KeyType keyType)
+    public void Test_PeerIdReadsAreIndependent(KeyType keyType)
     {
         Identity identity = new(keyType: keyType);
+        PeerId expected = new(identity.PublicKey);
 
-        PeerId peerId = identity.PeerId;
+        PeerId first = identity.PeerId;
+        first.Bytes[^1] ^= 0xFF;
+        PeerId second = identity.PeerId;
 
         Assert.Multiple(() =>
         {
-            Assert.That(identity.PeerId, Is.SameAs(peerId));
-            Assert.That(peerId, Is.EqualTo(new PeerId(identity.PublicKey)));
+            Assert.That(second, Is.Not.SameAs(first));
+            Assert.That(second, Is.EqualTo(expected));
+            Assert.That(second.GetHashCode(), Is.EqualTo(expected.GetHashCode()));
         });
     }
 
