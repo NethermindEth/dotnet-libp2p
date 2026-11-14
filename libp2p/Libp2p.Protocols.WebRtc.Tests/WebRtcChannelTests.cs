@@ -304,17 +304,6 @@ public class WebRtcChannelTests
         return message!;
     }
 
-    /// <summary>Bounded poll for work completing on a detached task; only slows a failing run.</summary>
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        for (int i = 0; i < 2000 && !condition(); i++)
-        {
-            await Task.Delay(1);
-        }
-
-        Assert.That(condition(), Is.True, "condition never became true");
-    }
-
     [Test]
     public async Task WriteEof_StaysPendingUntilFinAckArrives()
     {
@@ -324,7 +313,7 @@ public class WebRtcChannelTests
         await using WebRtcChannel stream = new(channel);
 
         Task close = stream.WriteEofAsync().AsTask();
-        await WaitUntil(() => Flags(channel).Contains(Message.Types.Flag.Fin));
+        await WaitUntilAsync(() => Flags(channel).Contains(Message.Types.Flag.Fin));
         Assert.That(close.IsCompleted, Is.False, "write half closed before any FIN_ACK arrived");
 
         channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
@@ -342,7 +331,7 @@ public class WebRtcChannelTests
         await a.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
         await b.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
 
-        await WaitUntil(() => channelA.IsClosed);
+        await WaitUntilAsync(() => channelA.IsClosed);
         Assert.That(channelA.IsClosed, Is.True);
     }
 
@@ -435,7 +424,7 @@ public class WebRtcChannelTests
         await using WebRtcChannel stream = new(channel, TimeSpan.FromSeconds(30));
 
         Task close = stream.WriteEofAsync().AsTask();
-        await WaitUntil(() => Flags(channel).Contains(Message.Types.Flag.Fin));
+        await WaitUntilAsync(() => Flags(channel).Contains(Message.Types.Flag.Fin));
 
         channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.StopSending, null));
 
@@ -452,7 +441,7 @@ public class WebRtcChannelTests
 
         channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null));
 
-        await WaitUntil(() => Flags(channel).Contains(Message.Types.Flag.FinAck));
+        await WaitUntilAsync(() => Flags(channel).Contains(Message.Types.Flag.FinAck));
         Assert.That((await stream.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
     }
 
@@ -465,7 +454,7 @@ public class WebRtcChannelTests
 
         await stream.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
 
-        await WaitUntil(() => channel.IsClosed);
+        await WaitUntilAsync(() => channel.IsClosed);
         Assert.That(channel.IsClosed, Is.True);
     }
 
@@ -481,7 +470,7 @@ public class WebRtcChannelTests
             channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null));
         }
 
-        await WaitUntil(() => Flags(channel).Contains(Message.Types.Flag.FinAck));
+        await WaitUntilAsync(() => Flags(channel).Contains(Message.Types.Flag.FinAck));
         await Task.Delay(50);
 
         Assert.That(Flags(channel).Count(f => f == Message.Types.Flag.FinAck), Is.EqualTo(1));
@@ -1283,13 +1272,14 @@ public class WebRtcChannelTests
         }
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token)
+    /// <summary>Bounded poll for work completing on a detached task; only slows a failing run.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token = default)
     {
         for (int i = 0; i < 500 && !condition(); i++)
         {
             await Task.Delay(10, token);
         }
 
-        Assert.That(condition(), Is.True, "the channel awaiter never completed");
+        Assert.That(condition(), Is.True, "condition never became true");
     }
 }
