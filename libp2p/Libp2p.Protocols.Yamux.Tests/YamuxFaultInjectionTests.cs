@@ -108,12 +108,14 @@ public class YamuxFaultInjectionTests
     }
 
     [Test]
-    public async Task AppWriteFailure_DoesNotKillSession()
+    public async Task AppWriteFailure_DoesNotKillSession([Values] bool synchronousFailure)
     {
-        // The fire-and-forget upchannel write faults: the continuation must
-        // swallow it (skipping the window extension) without touching the session.
+        // The fire-and-forget upchannel write faults, either through its task or by throwing
+        // before returning one: delivery must swallow it (skipping the window extension)
+        // without touching the session.
         (IConnectionContext ctx, INewSessionContext session) = Mocks.Listener();
-        FaultAppChannel app = new(failWritesWith: _ => new InvalidOperationException("app write blew up"));
+        FaultAppChannel app = new(failWritesWith: _ => new InvalidOperationException("app write blew up"),
+            throwSynchronously: synchronousFailure);
         session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(app);
         TestChannel transport = new();
         List<FuzzObservation> outbound = [];
@@ -573,10 +575,14 @@ public class YamuxFaultInjectionTests
         }
     }
 
-    /// <summary>Upchannel stub whose reads/writes fail with configured exceptions (async: faulted tasks).</summary>
+    /// <summary>
+    /// Upchannel stub whose reads/writes fail with configured exceptions (async: faulted tasks).
+    /// With <c>throwSynchronously</c>, a failing write throws before it returns a task.
+    /// </summary>
     internal sealed class FaultAppChannel(
         Func<int, Exception?>? failReadsWith = null,
-        Func<int, Exception?>? failWritesWith = null) : IChannel
+        Func<int, Exception?>? failWritesWith = null,
+        bool throwSynchronously = false) : IChannel
     {
         private readonly TestChannel _inner = new();
         private int _reads;
@@ -594,13 +600,13 @@ public class YamuxFaultInjectionTests
             return await _inner.ReadAsync(length, blockingMode, token);
         }
 
-        public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
         {
             if (failWritesWith?.Invoke(Interlocked.Increment(ref _writes)) is { } writeFailure)
             {
-                throw writeFailure;
+                return throwSynchronously ? throw writeFailure : ValueTask.FromException<IOResult>(writeFailure);
             }
-            return await _inner.WriteAsync(bytes, token);
+            return _inner.WriteAsync(bytes, token);
         }
 
         public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => _inner.WriteEofAsync(token);
