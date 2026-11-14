@@ -15,25 +15,24 @@ internal class Topic : ITopic
     {
         this.router = router;
         this.topicName = topicName;
-        router.OnMessage += OnRouterMessage;
     }
 
-    private void OnRouterMessage(string topicName, PeerId peerId, byte[] message)
+    // The router calls this for messages of this topic only. User callbacks must not hold
+    // the routing lock: they may wait for work on another thread that needs the router.
+    // An in-flight delivery may finish concurrently with unsubscribe.
+    internal void Deliver(PeerId peerId, byte[] message)
     {
-        if (!IsSubscribed || this.topicName != topicName)
+        Action<PeerId, byte[]>? onMessage = OnMessage;
+        if (!IsSubscribed || onMessage is null)
         {
             return;
         }
 
-        // User callbacks must not hold the routing lock: they may wait for work
-        // on another thread that needs the router. An in-flight delivery may finish
-        // concurrently with unsubscribe.
-        Action<PeerId, byte[]>? onMessage = OnMessage;
-        foreach (Delegate handler in onMessage?.GetInvocationList() ?? [])
+        foreach (Action<PeerId, byte[]> handler in Delegate.EnumerateInvocationList(onMessage))
         {
             try
             {
-                ((Action<PeerId, byte[]>)handler)(peerId, message);
+                handler(peerId, message);
             }
             catch (Exception ex)
             {
@@ -74,6 +73,8 @@ internal class Topic : ITopic
         return partialMessagesTopic ??= new PartialMessagesTopic(this);
     }
 
+    internal void DeliverPartial(PeerId peerId, PartialMessage message) => partialMessagesTopic?.Deliver(peerId, message);
+
     public void Publish(byte[] value)
     {
         router.Publish(topicName, value);
@@ -97,7 +98,6 @@ internal sealed class PartialMessagesTopic : IPartialMessagesTopic
     public PartialMessagesTopic(Topic topic)
     {
         this.topic = topic;
-        topic.Router.OnPartialMessage += OnRouterPartialMessage;
     }
 
     public event Action<PeerId, byte[]>? OnMessage
@@ -128,23 +128,23 @@ internal sealed class PartialMessagesTopic : IPartialMessagesTopic
 
     public void Subscribe() => topic.Subscribe();
 
-    private void OnRouterPartialMessage(string topicName, PeerId peerId, PartialMessage message)
+    internal void Deliver(PeerId peerId, PartialMessage message)
     {
-        if (!IsSubscribed || !SupportsSendingPartialMessages || topic.Name != topicName)
+        Action<PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
+        if (!IsSubscribed || !SupportsSendingPartialMessages || onPartialMessage is null)
         {
             return;
         }
 
-        Action<PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
-        foreach (Delegate handler in onPartialMessage?.GetInvocationList() ?? [])
+        foreach (Action<PeerId, PartialMessage> handler in Delegate.EnumerateInvocationList(onPartialMessage))
         {
             try
             {
-                ((Action<PeerId, PartialMessage>)handler)(peerId, message);
+                handler(peerId, message);
             }
             catch (Exception ex)
             {
-                topic.Router.LogSubscriberError(ex, topicName);
+                topic.Router.LogSubscriberError(ex, topic.Name);
             }
         }
     }
