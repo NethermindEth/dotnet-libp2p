@@ -3,43 +3,39 @@
 
 namespace Nethermind.Libp2p.Core;
 
-public struct MessageId(byte[] bytes) : IComparable<MessageId>, IComparable, IEquatable<MessageId>
+public readonly struct MessageId : IComparable<MessageId>, IComparable, IEquatable<MessageId>
 {
-    public readonly byte[] Bytes = bytes;
-    private int? hashCode = null;
+    public readonly byte[] Bytes;
+    private readonly int hashCode;
 
-    public readonly override bool Equals(object? obj) => obj is MessageId other && Equals(other);
-
-    public readonly bool Equals(MessageId other) => ReferenceEquals(Bytes, other.Bytes) || Bytes.SequenceEqual(other.Bytes);
-
-    public override int GetHashCode()
+    public MessageId(byte[] bytes)
     {
-        static int ComputeHash(params byte[] data)
-        {
-            unchecked
-            {
-                const int p = 16777619;
-                int hash = (int)2166136261;
-
-                for (int i = 0; i < data.Length; i++)
-                {
-                    hash = (hash ^ data[i]) * p;
-                }
-
-                return hash;
-            }
-        }
-
-        return hashCode ??= ComputeHash(Bytes);
+        Bytes = bytes;
+        hashCode = bytes is null ? 0 : ComputeHashCode(bytes);
     }
+
+    // Message IDs come from remote peers. The hash is seeded per process, so a peer cannot
+    // choose IDs that collide in the router's hash tables.
+    private static int ComputeHashCode(ReadOnlySpan<byte> bytes)
+    {
+        HashCode hash = new();
+        hash.AddBytes(bytes);
+        return hash.ToHashCode();
+    }
+
+    public override bool Equals(object? obj) => obj is MessageId other && Equals(other);
+
+    public bool Equals(MessageId other) => ReferenceEquals(Bytes, other.Bytes) || (hashCode == other.hashCode && Bytes.AsSpan().SequenceEqual(other.Bytes));
+
+    public override int GetHashCode() => hashCode;
 
     public static bool operator ==(MessageId left, MessageId right) => left.Equals(right);
 
     public static bool operator !=(MessageId left, MessageId right) => !(left == right);
 
-    public readonly int CompareTo(MessageId other) => ReferenceEquals(Bytes, other.Bytes) ? 0 : Bytes.AsSpan().SequenceCompareTo(other.Bytes.AsSpan());
+    public int CompareTo(MessageId other) => ReferenceEquals(Bytes, other.Bytes) ? 0 : Bytes.AsSpan().SequenceCompareTo(other.Bytes.AsSpan());
 
-    public readonly int CompareTo(object? obj) => obj is not MessageId other ? 1 : CompareTo(other);
+    public int CompareTo(object? obj) => obj is not MessageId other ? 1 : CompareTo(other);
 
-    public override readonly string ToString() => Convert.ToBase64String(Bytes);
+    public override string ToString() => Convert.ToBase64String(Bytes);
 }
