@@ -373,9 +373,8 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
 
     public async ValueTask AbortAsync()
     {
-        // Fail before sending: this releases a writer parked on backpressure, which would
-        // otherwise hold the send lock and make the reset queue behind the very write it exists
-        // to abort.
+        // Fail before sending: the reset frame can queue behind a send that is still in flight,
+        // and nothing waiting on this channel may have to wait for that.
         Fail(new IOException("The stream was reset locally."));
 
         try
@@ -442,20 +441,9 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
                 return;
             }
 
-            // Linked to the stream's lifetime as well, so a close or disposal does not leave this
-            // write parked waiting for a caller token that may never fire.
-            using CancellationTokenSource waiting =
-                CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
-            try
-            {
-                await drained.Task.WaitAsync(waiting.Token);
-            }
-            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-            {
-                // Report what actually happened to the stream rather than a bare cancellation.
-                ThrowIfSendingIsOver(callerData: true);
-                throw;
-            }
+            // The write's token already observes the stream's lifetime, so a close or disposal
+            // does not leave it parked here.
+            await drained.Task.WaitAsync(token);
         }
     }
 
