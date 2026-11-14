@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using Google.Protobuf.WellKnownTypes;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.Extensions;
 
@@ -9,6 +10,105 @@ namespace Nethermind.Libp2p.Core.Tests;
 
 public class ChannelTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ExactZeroRead_AfterCleanEofOrClose_Succeeds(bool close)
+    {
+        Channel channel = new();
+        await channel.Reverse.WriteEofAsync();
+        if (close) await channel.CloseAsync();
+
+        ReadResult empty = await channel.ReadAsync(0);
+        Assert.That(empty.Result, Is.EqualTo(IOResult.Ok));
+        Assert.That(empty.Data.IsEmpty, Is.True);
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.ReadAsync(0, ReadBlockingMode.WaitAny)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That((await channel.ReadAsync(0, ReadBlockingMode.DoNotWait)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ExactZeroRead_AfterAbort_RemainsAborted(bool cancelled)
+    {
+        Channel channel = new();
+        await channel.AbortAsync();
+        using CancellationTokenSource cancellation = new();
+        if (cancelled) cancellation.Cancel();
+
+        Assert.That((await channel.ReadAsync(0, token: cancellation.Token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    public async Task ExactZeroRead_AfterReadShutdown_RemainsAborted()
+    {
+        Channel channel = new();
+        await channel.CloseReadAsync();
+
+        Assert.That((await channel.ReadAsync(0)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ExactZeroRead_ObservesCancellationAfterCleanEofOrClose(bool close)
+    {
+        Channel channel = new();
+        await channel.Reverse.WriteEofAsync();
+        if (close) await channel.CloseAsync();
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+
+        Assert.That((await channel.ReadAsync(0, token: cancelled.Token)).Result, Is.EqualTo(IOResult.Cancelled));
+    }
+
+    [Test]
+    public async Task ExactZeroRead_DoesNotWaitForAnotherReader()
+    {
+        Channel channel = new();
+        Task<ReadResult> pending = channel.ReadAsync(1).AsTask();
+        try
+        {
+            ReadResult empty = await channel.ReadAsync(0).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(empty.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(empty.Data.IsEmpty, Is.True);
+            Assert.That(pending.IsCompleted, Is.False);
+
+            Task<IOResult> write = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 7 })).AsTask();
+            Assert.That((await pending.WaitAsync(TimeSpan.FromSeconds(2))).Data.ToArray(), Is.EqualTo(new byte[] { 7 }));
+            Assert.That(await write, Is.EqualTo(IOResult.Ok));
+        }
+        finally
+        {
+            await channel.AbortAsync();
+            await pending;
+        }
+    }
+
+    [Test]
+    public async Task ExactZeroRead_DoesNotConsumeBufferedData()
+    {
+        Channel channel = new();
+        Task<IOResult> write = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 3, 9 })).AsTask();
+        Assert.That((await channel.ReadAsync(0)).Result, Is.EqualTo(IOResult.Ok));
+        Assert.That(write.IsCompleted, Is.False);
+        Assert.That((await channel.ReadAsync(2)).Data.ToArray(), Is.EqualTo(new byte[] { 3, 9 }));
+        Assert.That(await write, Is.EqualTo(IOResult.Ok));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task EmptyPrefixedProtobuf_ReadsBodyAfterCleanEofOrClose(bool close)
+    {
+        Channel channel = new();
+        IReader reader = new EofBeforeEmptyBodyReader(channel, close);
+        Task<IOResult> prefix = channel.Reverse.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 0 })).AsTask();
+
+        Empty message = await reader.ReadPrefixedProtobufAsync(Empty.Parser).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.That(message, Is.EqualTo(new Empty()));
+        Assert.That(await prefix, Is.EqualTo(IOResult.Ok));
+        Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
     [TestCase(false, false, true)]
     [TestCase(false, true, true)]
     [TestCase(true, false, true)]
@@ -748,6 +848,21 @@ public class ChannelTests
             Assert.That(bytesRead, Is.EqualTo(next.Length));
             Assert.That(buffer, Is.EqualTo(next));
         });
+    }
+
+    private sealed class EofBeforeEmptyBodyReader(Channel channel, bool close) : IReader
+    {
+        public async ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+            CancellationToken token = default)
+        {
+            if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+            {
+                await channel.Reverse.WriteEofAsync();
+                if (close) await channel.CloseAsync();
+            }
+
+            return await channel.ReadAsync(length, blockingMode, token);
+        }
     }
 
     private sealed class NonPumpingSynchronizationContext : SynchronizationContext
