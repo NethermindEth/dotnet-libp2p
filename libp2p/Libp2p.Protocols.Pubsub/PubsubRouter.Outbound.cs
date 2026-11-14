@@ -69,6 +69,16 @@ public partial class PubsubRouter
         internal void Seal() => PendingControl = null;
     }
 
+    /// <summary>
+    /// One RPC sent unchanged to several peers. The first admission serializes it under the outbound lock and
+    /// later admissions queue the same bytes, which are never written to once serialized.
+    /// </summary>
+    internal sealed class SharedFrame(Rpc rpc)
+    {
+        public Rpc Rpc { get; } = rpc;
+        public byte[]? Bytes { get; set; }
+    }
+
     internal sealed partial class PubsubPeer
     {
         private readonly PubsubRouter _router;
@@ -94,7 +104,10 @@ public partial class PubsubRouter
         public Task Completion { get; internal set; } = Task.CompletedTask;
         public bool HasWriter => Write is not null;
 
-        public SendResult Send(Rpc rpc) => _router.AdmitOutbound(this, rpc);
+        public SendResult Send(Rpc rpc) => _router.AdmitOutbound(this, rpc, shared: null);
+
+        /// <summary>Sends <see cref="SharedFrame.Rpc"/>, reusing its bytes when this peer needs no peer-specific copy.</summary>
+        internal SendResult SendShared(SharedFrame frame) => _router.AdmitOutbound(this, frame.Rpc, frame);
 
         internal bool AttachWriter(Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>> write, Func<ValueTask> abort)
         {
@@ -136,7 +149,7 @@ public partial class PubsubRouter
         lock (_outboundLock) return Task.WhenAll(peerState.Values.Where(p => p.HasWriter).Select(p => p.Idle.Task));
     }
 
-    private SendResult AdmitOutbound(PubsubPeer peer, Rpc original)
+    private SendResult AdmitOutbound(PubsubPeer peer, Rpc original, SharedFrame? shared)
     {
         SendResult result;
         string? reason, optionalReason = null;
@@ -146,11 +159,13 @@ public partial class PubsubRouter
             if (peer.Terminal || _stopped.IsCancellationRequested) return SendResult.Closing;
             if (TryPrepareFrames(peer, original, out Rpc first, out Rpc? optional, out required))
             {
-                result = AdmitFrameUnderLock(peer, first, required, out reason);
+                // A peer-specific copy or a split cannot reuse the bytes of the shared RPC.
+                SharedFrame? reusable = optional is null && ReferenceEquals(first, original) ? shared : null;
+                result = AdmitFrameUnderLock(peer, first, required, reusable, out reason);
                 // The control frame is queued ahead of the optional frame, which drops independently.
                 if (optional is not null && result == SendResult.Admitted)
                 {
-                    result = AdmitFrameUnderLock(peer, optional, required: false, out optionalReason);
+                    result = AdmitFrameUnderLock(peer, optional, required: false, shared: null, out optionalReason);
                 }
             }
             else
@@ -228,7 +243,7 @@ public partial class PubsubRouter
 
     // Required frames use the full budgets and close the generation when they cannot fit; optional frames use
     // the lower optional budgets and drop newest. Both charge the same per-peer limits.
-    private SendResult AdmitFrameUnderLock(PubsubPeer peer, Rpc rpc, bool required, out string? dropReason)
+    private SendResult AdmitFrameUnderLock(PubsubPeer peer, Rpc rpc, bool required, SharedFrame? shared, out string? dropReason)
     {
         // A burst of required control to one peer, such as subscribing to many topics while its writer is busy
         // or before its reply stream attaches, must not consume one entry per RPC and close a healthy generation.
@@ -241,8 +256,9 @@ public partial class PubsubRouter
         try
         {
             bool extensions = !peer.ExtensionsQueued && rpc.Control?.Extensions is not null;
-            long length = rpc.CalculateSize();
-            long size = length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length);
+            byte[]? serialized = shared?.Bytes;
+            long length = serialized is null ? rpc.CalculateSize() : 0;
+            long size = serialized?.Length ?? (length < 0 ? (long)int.MaxValue + 1 : length + VarInt.GetSizeInBytes((ulong)length));
             int entryLimit = required ? _outboundLimits.Entries : _outboundLimits.OptionalEntries;
             long byteLimit = required ? _outboundLimits.Bytes : _outboundLimits.OptionalBytes;
             if (size > int.MaxValue || peer.Entries >= _outboundLimits.PeerEntries || _outboundEntries >= entryLimit ||
@@ -260,10 +276,8 @@ public partial class PubsubRouter
                 _outboundEntries++;
                 _outboundBytes += size;
                 if (peer.Idle.Task.IsCompleted) peer.Idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                byte[] bytes = new byte[reserved];
-                int offset = 0;
-                VarInt.Encode((int)length, bytes, ref offset);
-                rpc.WriteTo(bytes.AsSpan(offset));
+                byte[] bytes = serialized ?? Serialize(rpc, (int)length, reserved);
+                if (shared is not null) shared.Bytes = bytes;
                 promise = _iwantPromises.Reserve(peer.PeerId, peer, SamplePromiseId(rpc));
                 // Required frames keep an owned copy so later control can merge without reading the caller's RPC again.
                 OutboundFrame frame = new(bytes, extensions, promise, admittedAt, required ? rpc.Clone() : null);
@@ -300,11 +314,7 @@ public partial class PubsubRouter
             }
             else
             {
-                byte[] bytes = new byte[(int)size];
-                int offset = 0;
-                VarInt.Encode((int)length, bytes, ref offset);
-                merged.WriteTo(bytes.AsSpan(offset));
-                tail.Replace(bytes, merged);
+                tail.Replace(Serialize(merged, (int)length, (int)size), merged);
                 peer.Bytes += delta;
                 _outboundBytes += delta;
                 dropReason = null;
@@ -317,6 +327,15 @@ public partial class PubsubRouter
         }
         TerminateUnderLock(peer, disconnect: true);
         return SendResult.Closing;
+    }
+
+    private static byte[] Serialize(Rpc rpc, int length, int size)
+    {
+        byte[] bytes = new byte[size];
+        int offset = 0;
+        VarInt.Encode(length, bytes, ref offset);
+        rpc.WriteTo(bytes.AsSpan(offset));
+        return bytes;
     }
 
     // Merges required control for distinct topics into one pending frame. Control for a topic the pending frame

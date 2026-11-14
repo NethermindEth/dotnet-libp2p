@@ -238,6 +238,7 @@ public partial class PubsubRouter
         }
 
         Message publishedMessage = rpc.Publish[0];
+        SharedFrame frame = new(rpc);
         MessageId messageId;
         _messageIdCalculations.Wait();
         try
@@ -270,7 +271,7 @@ public partial class PubsubRouter
             {
                 if (ShouldSendFullMessage(peerId, topicId, messageId))
                 {
-                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                 }
             }
 
@@ -279,7 +280,7 @@ public partial class PubsubRouter
             {
                 if (!directRecipients.Contains(peerId) && ShouldSendFullMessage(peerId, topicId, messageId))
                 {
-                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                 }
             }
 
@@ -293,7 +294,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
@@ -306,7 +307,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
@@ -335,7 +336,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
