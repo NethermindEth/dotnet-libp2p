@@ -205,13 +205,9 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         {
             return _lifetime.IsCancellationRequested ? IOResult.Aborted : IOResult.Cancelled;
         }
-        catch (InvalidOperationException) when ((_finSent || _closing) && _failure is null)
+        catch (WriteRefusedException refused)
         {
-            return _closing ? IOResult.Aborted : IOResult.Ended;
-        }
-        catch (IOException) when (_peerStoppedReading && _failure is null)
-        {
-            return IOResult.Aborted;
+            return refused.Result;
         }
         catch (Exception ex)
         {
@@ -479,14 +475,25 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
 
             if (_finSent || _closing)
             {
-                throw new InvalidOperationException("The write half of the stream is closed.");
+                throw new WriteRefusedException(IOResult.Ended, "The write half of the stream is closed.");
             }
 
             if (_peerStoppedReading)
             {
-                throw new IOException("The peer sent STOP_SENDING and is discarding further data.");
+                throw new WriteRefusedException(IOResult.Aborted,
+                    "The peer sent STOP_SENDING and is discarding further data.");
             }
         }
+    }
+
+    /// <summary>
+    /// The write half is over although the stream has not failed. Carries what the write reports,
+    /// decided under the lock that found it, so the caller does not re-read state that a
+    /// concurrent EOF or close may have moved on.
+    /// </summary>
+    private sealed class WriteRefusedException(IOResult result, string message) : IOException(message)
+    {
+        public IOResult Result { get; } = result;
     }
 
     private void OnMessage(byte[] message)

@@ -101,6 +101,20 @@ public class WebRtcChannelTests
     }
 
     [Test]
+    public async Task WriteAfterCloseAsync_ReportsTheWriteHalfEnded()
+    {
+        (FakeWebRtcDataChannel channelA, FakeWebRtcDataChannel channelB) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel a = new(channelA);
+        await using WebRtcChannel b = new(channelB);
+
+        await a.CloseAsync().AsTask().WaitAsync(TestTimeout);
+
+        // As after WriteEofAsync, and as Core.Channel reports it: the close was orderly, not an abort.
+        Assert.That(await a.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 })), Is.EqualTo(IOResult.Ended));
+        Assert.That(Flags(channelA), Does.Not.Contain(Message.Types.Flag.ResetStream));
+    }
+
+    [Test]
     public async Task WriteEof_IsIdempotent()
     {
         (FakeWebRtcDataChannel channelA, FakeWebRtcDataChannel channelB) = FakeWebRtcDataChannel.CreatePair();
