@@ -300,15 +300,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private Task _loops = Task.CompletedTask;
     private readonly ConcurrentDictionary<Task, byte> _connects = new();
 
-    private record Reconnection(Multiaddress[] Addresses, int AttemptsRemaining, ReconnectionPolicy? Policy);
-    private sealed class OutboundDialAttempt(int attemptsRemaining)
+    private record Reconnection(Multiaddress[] Addresses, ReconnectionPolicy Policy);
+    private sealed class OutboundDialAttempt
     {
-        public int AttemptsRemaining { get; } = attemptsRemaining;
         public PubsubPeer? Owner { get; set; }
         public DeferredReply? Reply { get; set; }
     }
     private sealed record DeferredReply(PubsubPeer Peer, Func<Task> Dial);
-    private enum OutboundRelease { Superseded, Released, ReplyStarted }
 
     private ReconnectionPolicy GetReconnectionPolicy(PeerId peerId)
     {
@@ -508,7 +506,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         finally { if (peerId is not null) pendingDials.TryRemove(peerId, out _); }
     }
 
-    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null, int? attemptsRemaining = null)
+    private async Task Connect(Multiaddress[] addrs, CancellationToken token, bool reconnect = false, ReconnectionPolicy? reconnectingPolicy = null, int? chargedBudget = null)
     {
         PeerId? peerId = addrs.FirstOrDefault()?.GetPeerId();
         OutboundDialAttempt? outbound = null;
@@ -540,7 +538,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 : protocols.Contains(GossipsubProtocolVersionV11) ? session.DialAsync<GossipsubProtocolV11>
                 : protocols.Contains(GossipsubProtocolVersionV10) ? session.DialAsync<GossipsubProtocol>
                 : protocols.Contains(FloodsubProtocolVersion) ? session.DialAsync<FloodsubProtocol> : null;
-            if (dial is not null && (outbound = ReserveOutbound(remotePeer, attemptsRemaining)) is not null)
+            if (dial is not null && (outbound = ReserveOutbound(remotePeer)) is not null)
             {
                 await dial(token);
                 if (policy?.Suppressed == true)
@@ -549,12 +547,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 logger?.LogDebug($"Dialing ended to {session.RemoteAddress}");
             }
-            else if (dial is not null && reconnectingPolicy is not null && attemptsRemaining is int remaining && !token.IsCancellationRequested)
+            else if (dial is not null && reconnectingPolicy is not null && chargedBudget is int remaining && !token.IsCancellationRequested)
             {
                 lock (this)
                 {
                     if (reconnectingPolicy.RemainingRetries == remaining) reconnectingPolicy.RemainingRetries = remaining + 1;
-                    QueueReconnection(remotePeer, addrs, _settings.ReconnectionAttempts, reconnectingPolicy);
+                    QueueReconnection(remotePeer, addrs, reconnectingPolicy);
                 }
             }
         }
@@ -563,14 +561,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             bool retry = true;
             if (outbound is not null)
             {
-                retry = ReleaseOutbound(remotePeer!, outbound) == OutboundRelease.Released;
+                retry = ReleaseOutbound(remotePeer!, outbound);
                 outbound = null;
             }
-            int retries = attemptsRemaining ?? _settings.ReconnectionAttempts;
-            if (retry && reconnect && retries > 0 && !token.IsCancellationRequested && policy?.Suppressed != true)
+            if (retry && reconnect && !token.IsCancellationRequested && policy?.Suppressed != true)
             {
-                logger?.LogDebug($"Adding reconnections for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
-                QueueReconnection(remotePeer ?? peerId, addrs, retries, policy);
+                logger?.LogDebug($"Dial failed for {string.Join(",", addrs.Select(a => a.ToString()))}: {e.Message}");
+                QueueReconnection(remotePeer ?? peerId, addrs, policy);
             }
         }
         finally
@@ -583,37 +580,34 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
     }
 
-    private void QueueReconnection(PeerId? peerId, Multiaddress[] addresses, int attemptsRemaining, ReconnectionPolicy? policy)
+    private void QueueReconnection(PeerId? peerId, Multiaddress[] addresses, ReconnectionPolicy? policy)
     {
         lock (this)
         {
-            if (!_settings.AutoConnect || attemptsRemaining <= 0 || _stopped.IsCancellationRequested ||
+            if (!_settings.AutoConnect || peerId is null || _stopped.IsCancellationRequested ||
                 policy?.Suppressed == true) return;
-            if (peerId is not null && (IsDirectPeer(peerId) || peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter)) return;
-            if (policy is not null)
-            {
-                policy.RemainingRetries ??= _settings.ReconnectionAttempts;
-                attemptsRemaining = policy.RemainingRetries.Value;
-                if (attemptsRemaining == 0 || policy.RetryQueued) return;
-                policy.RetryQueued = true;
-            }
-            reconnections.Add(new Reconnection(addresses, attemptsRemaining, policy));
+            policy ??= GetReconnectionPolicy(peerId);
+            if (policy.Suppressed || IsDirectPeer(peerId) || peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter) return;
+            policy.RemainingRetries ??= _settings.ReconnectionAttempts;
+            if (policy.RemainingRetries <= 0 || policy.RetryQueued) return;
+            policy.RetryQueued = true;
+            reconnections.Add(new Reconnection(addresses, policy));
         }
     }
 
-    private OutboundDialAttempt? ReserveOutbound(PeerId peerId, int? attemptsRemaining = null)
+    private OutboundDialAttempt? ReserveOutbound(PeerId peerId)
     {
         lock (this)
         {
             if (_stopped.IsCancellationRequested || outboundDials.ContainsKey(peerId) ||
                 peerState.TryGetValue(peerId, out PubsubPeer? peer) && (peer.HasWriter || peer.Terminal)) return null;
-            OutboundDialAttempt attempt = new(attemptsRemaining ?? _settings.ReconnectionAttempts);
+            OutboundDialAttempt attempt = new();
             outboundDials.Add(peerId, attempt);
             return attempt;
         }
     }
 
-    private OutboundRelease ReleaseOutbound(PeerId peerId, OutboundDialAttempt attempt, bool failed = false)
+    private bool ReleaseOutbound(PeerId peerId, OutboundDialAttempt attempt, bool failed = false)
     {
         DeferredReply? reply;
         OutboundDialAttempt? outbound;
@@ -621,24 +615,24 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         lock (this)
         {
             if (!outboundDials.TryGetValue(peerId, out OutboundDialAttempt? current) || !ReferenceEquals(current, attempt))
-                return OutboundRelease.Superseded;
+                return false;
             outboundDials.Remove(peerId);
             reply = attempt.Reply;
             attempt.Reply = null;
             if (reply is null || reply.Peer.ReconnectionPolicy.Suppressed ||
                 !peerState.TryGetValue(peerId, out PubsubPeer? peer) || !ReferenceEquals(peer, reply.Peer) ||
-                (outbound = ReserveOutbound(peerId, attempt.AttemptsRemaining)) is null)
+                (outbound = ReserveOutbound(peerId)) is null)
             {
                 if (failed && attempt.Owner is { } owner)
-                    QueueReconnection(peerId, [owner.Address], attempt.AttemptsRemaining, owner.ReconnectionPolicy);
-                return OutboundRelease.Released;
+                    QueueReconnection(peerId, [owner.Address], owner.ReconnectionPolicy);
+                return true;
             }
             outbound.Owner = reply.Peer;
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             Track(completion.Task);
         }
         _ = OpenReplyAsync(reply.Peer, outbound, reply.Dial, completion);
-        return OutboundRelease.ReplyStarted;
+        return false;
     }
 
     /// <summary>
@@ -722,32 +716,30 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 continue;
             }
             Multiaddress[] addresses = rec.Addresses;
-            int remaining = rec.AttemptsRemaining - 1;
+            int remaining;
+            ReconnectionPolicy policy = rec.Policy;
             lock (this)
             {
                 PeerId? peerId = addresses.FirstOrDefault()?.GetPeerId();
                 if (peerId is not null && peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter)
                 {
-                    if (rec.Policy is { } connected) connected.RetryQueued = false;
+                    policy.RetryQueued = false;
                     continue;
                 }
-                if (rec.Policy is { } policy)
+                policy.RetryQueued = false;
+                if (policy.Suppressed || policy.RemainingRetries <= 0) continue;
+                if (policy.Reconnecting || peerId is not null && outboundDials.ContainsKey(peerId))
                 {
-                    policy.RetryQueued = false;
-                    if (policy.Suppressed || policy.RemainingRetries <= 0) continue;
-                    if (policy.Reconnecting || peerId is not null && outboundDials.ContainsKey(peerId))
-                    {
-                        policy.RetryQueued = true;
-                        reconnections.Add(rec);
-                        continue;
-                    }
-                    remaining = (policy.RemainingRetries ?? _settings.ReconnectionAttempts) - 1;
-                    policy.RemainingRetries = remaining;
-                    policy.Reconnecting = true;
-                    if (peerId is not null && _peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? info) && info?.Addrs is { Count: > 0 } advertised)
-                        addresses = [.. advertised];
-                    if (policy.LastSessionAddress is { } last && !addresses.Contains(last)) addresses = [.. addresses, last];
+                    policy.RetryQueued = true;
+                    reconnections.Add(rec);
+                    continue;
                 }
+                remaining = (policy.RemainingRetries ?? _settings.ReconnectionAttempts) - 1;
+                policy.RemainingRetries = remaining;
+                policy.Reconnecting = true;
+                if (peerId is not null && _peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? info) && info?.Addrs is { Count: > 0 } advertised)
+                    addresses = [.. advertised];
+                if (policy.LastSessionAddress is { } last && !addresses.Contains(last)) addresses = [.. addresses, last];
             }
             logger?.LogDebug($"Reconnect to {string.Join(",", addresses.Select(a => a.ToString()))}");
             started++;
@@ -1078,7 +1070,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     }
                 }
                 peer.ReconnectionPolicy.LastSessionAddress = addr;
-                QueueReconnection(peerId, [addr], _settings.ReconnectionAttempts, peer.ReconnectionPolicy);
+                QueueReconnection(peerId, [addr], peer.ReconnectionPolicy);
             }
         }
         StopPeer(peer);
