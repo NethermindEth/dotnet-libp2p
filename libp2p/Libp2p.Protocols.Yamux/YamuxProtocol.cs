@@ -716,10 +716,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         }
     }
 
-    private async Task<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
+    private async ValueTask<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
     {
-        byte[] headerData = (await reader.ReadAsync(HeaderLength, token: token).OrThrow()).ToArray();
-        YamuxHeader header = YamuxHeader.FromBytes(headerData);
+        YamuxHeader header = YamuxHeader.FromBytes(await reader.ReadAsync(HeaderLength, token: token).OrThrow());
         _logger?.LogTrace("Ctx({ctx}), stream {stream id}: Receive type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
         return header;
     }

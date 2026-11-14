@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
@@ -15,7 +16,17 @@ internal struct YamuxHeader
     [FieldOffset(4)] public int StreamID;
     [FieldOffset(8)] public int Length;
 
-    public static YamuxHeader FromBytes(Span<byte> data)
+    public static YamuxHeader FromBytes(in ReadOnlySequence<byte> data)
+    {
+        if (data.IsSingleSegment)
+            return FromBytes(data.FirstSpan);
+
+        Span<byte> header = stackalloc byte[12];
+        data.Slice(0, header.Length).CopyTo(header);
+        return FromBytes(header);
+    }
+
+    public static YamuxHeader FromBytes(ReadOnlySpan<byte> data)
     {
         short flags = BinaryPrimitives.ReadInt16BigEndian(data[2..]);
         int streamId = BinaryPrimitives.ReadInt32BigEndian(data[4..]);
