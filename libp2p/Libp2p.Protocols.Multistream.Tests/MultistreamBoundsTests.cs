@@ -49,14 +49,12 @@ public class MultistreamBoundsTests
         try
         {
             Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(protocol.Id));
-            if (optimistic)
+            // A dialer sends its first proposal together with the hello.
+            if (!listen)
                 Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(selected.Id));
 
             if (stage is NegotiationRead.DialReply or NegotiationRead.ListenProposal or NegotiationRead.OptimisticReply)
                 await remote.WriteLineAsync(protocol.Id).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
-
-            if (stage == NegotiationRead.DialReply)
-                Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(selected.Id));
 
             byte[] prefix = overflow ? [0xff, 0xff, 0xff, 0xff, 0x7f] : [0x81, 0x08];
             // This body cannot be consumed by the rejecting reader. Abort must release its writer.
@@ -127,11 +125,9 @@ public class MultistreamBoundsTests
         async Task Exchange()
         {
             Assert.That(await remote.ReadLineAsync(), Is.EqualTo(protocol.Id));
-            if (mode == NegotiationMode.OptimisticDial)
+            if (mode != NegotiationMode.Listen)
                 Assert.That(await remote.ReadLineAsync(), Is.EqualTo(selected.Id));
             await remote.WriteLineAsync(protocol.Id);
-            if (mode == NegotiationMode.Dial)
-                Assert.That(await remote.ReadLineAsync(), Is.EqualTo(selected.Id));
             await remote.WriteLineAsync(selected.Id);
             if (mode == NegotiationMode.Listen)
                 Assert.That(await remote.ReadLineAsync(), Is.EqualTo(selected.Id));
