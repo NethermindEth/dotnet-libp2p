@@ -73,7 +73,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     private TaskCompletionSource? _drained;
     private Exception? _failure;
     private bool _closing;
-    private bool _writing;
+    private int _pendingWrites;
     private bool _finSent;
     private bool _finReceived;
     private bool _finAckReceived;
@@ -156,17 +156,21 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     {
         try
         {
-            ThrowIfSendingIsOver(callerData: true);
-            using CancellationTokenSource queued = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
-            await _callerSendLock.WaitAsync(queued.Token);
+            lock (_sync)
+            {
+                ThrowIfSendingIsOver(callerData: true);
+                // Counted from acceptance, not from taking the send lock: a write still queued
+                // behind another is just as unfinished when the channel is closed.
+                _pendingWrites++;
+            }
+
+            bool sending = false;
             try
             {
-                lock (_sync)
-                {
-                    ThrowIfSendingIsOver(callerData: true);
-                    _writing = true;
-                }
-
+                using CancellationTokenSource queued = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+                await _callerSendLock.WaitAsync(queued.Token);
+                sending = true;
+                ThrowIfSendingIsOver(callerData: true);
                 int maxChunk = WebRtcFraming.MaxPayloadSize(false);
                 CancellationToken sendingToken = queued.Token;
                 while (!bytes.IsEmpty)
@@ -182,12 +186,17 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             }
             finally
             {
+                // Before the send lock passes on, so a close issued as this write returns does
+                // not find it still counted.
                 lock (_sync)
                 {
-                    _writing = false;
+                    _pendingWrites--;
                 }
 
-                _callerSendLock.Release();
+                if (sending)
+                {
+                    _callerSendLock.Release();
+                }
             }
 
             return IOResult.Ok;
@@ -294,8 +303,9 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         {
             // Only a data write is aborted. A pending EOF holds the same lock and must be left to
             // finish, or closing next to a half-close would reset a stream that ended cleanly.
-            // Concurrent closes share the one FIN handshake.
-            abort = _writing && !_closing;
+            // Once FIN is committed no write can still send, and concurrent closes share the one
+            // FIN handshake.
+            abort = _pendingWrites != 0 && !_finSent && !_closing;
             _closing = true;
         }
 

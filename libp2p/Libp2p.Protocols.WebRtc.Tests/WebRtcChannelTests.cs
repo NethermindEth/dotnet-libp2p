@@ -1145,6 +1145,34 @@ public class WebRtcChannelTests
     }
 
     [Test]
+    public async Task CloseAsync_AbortsAWriteStillQueuedBehindAnother(CancellationToken token)
+    {
+        (FakeWebRtcDataChannel localDataChannel, FakeWebRtcDataChannel remoteDataChannel) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel local = new(localDataChannel);
+        await using WebRtcChannel remote = new(remoteDataChannel);
+        localDataChannel.SetBufferedAmount(WebRtcChannel.MaxBufferedAmount);
+        Task<IOResult> first = local.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 }), token).AsTask();
+        Assert.That(first.IsCompleted, Is.False);
+
+        // The second write is accepted and queued, and resumes only when the test runs it: it has
+        // been handed the application send lock by the first but has sent nothing.
+        DeferredSynchronizationContext resumption = new();
+        Task<IOResult> second = StartOn(resumption, () => local.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 3, 4 })).AsTask());
+        localDataChannel.Drain();
+        Assert.That(await first.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
+        await resumption.Posted.Task.WaitAsync(TestTimeout, token);
+
+        Task closing = local.CloseAsync().AsTask();
+        resumption.RunPosted();
+        await closing.WaitAsync(TestTimeout, token);
+
+        Assert.That(await second.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Aborted));
+        Assert.That(Flags(localDataChannel), Is.EqualTo(new[] { Message.Types.Flag.ResetStream }),
+            "an accepted write was dropped, so the peer must not be told the stream ended cleanly");
+        Assert.That((await remote.ReadAsync(3, token: token)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
     public async Task EofCancelledWhileItsFinWaitsToBeSent_CanBeRetried(CancellationToken token)
     {
         FakeWebRtcDataChannel dataChannel = new();
