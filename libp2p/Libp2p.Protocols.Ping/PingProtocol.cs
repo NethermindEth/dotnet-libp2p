@@ -16,7 +16,6 @@ public class PingProtocol : ISessionProtocol
     private const int PayloadLength = 32;
 
     public string Id => "/ipfs/ping/1.0.0";
-    private readonly Random _random = new();
     private readonly ILogger<PingProtocol>? _logger;
 
     public PingProtocol(ILoggerFactory? loggerFactory = null)
@@ -29,7 +28,7 @@ public class PingProtocol : ISessionProtocol
         ArgumentNullException.ThrowIfNull(context.State.RemoteAddress);
 
         byte[] ping = new byte[PayloadLength];
-        _random.NextBytes(ping.AsSpan(0, PayloadLength));
+        Random.Shared.NextBytes(ping);
         ReadOnlySequence<byte> bytes = new(ping);
 
         _logger?.LogPing(context.State.RemoteAddress);
