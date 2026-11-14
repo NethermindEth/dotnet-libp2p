@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Multiformats.Address;
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.TestsBase;
 
 namespace Nethermind.Libp2p.Core.Tests;
@@ -24,6 +25,25 @@ public class MultiaddressExtensionsTests
             Assert.That(relayOnly.GetPeerId(), Is.Null);
             Assert.That(relayed.GetPeerId(), Is.EqualTo(destination));
             Assert.That(((Multiaddress?)null).GetPeerId(), Is.Null);
+        });
+    }
+
+    [TestCase(KeyType.Ed25519)]
+    [TestCase(KeyType.Rsa)]
+    public void GetPeerId_ReturnsMultihashBytesWithoutSharingThem(KeyType keyType)
+    {
+        PeerId expected = new Identity(keyType: keyType).PeerId;
+        Multiaddress address = $"/ip4/127.0.0.1/tcp/4001/p2p/{expected}";
+
+        PeerId first = address.GetPeerId()!;
+        first.Bytes[^1] ^= 0xFF;
+        PeerId second = address.GetPeerId()!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Bytes, Is.EqualTo(expected.Bytes));
+            Assert.That(second.ToString(), Is.EqualTo(expected.ToString()));
+            Assert.That(address.ToString(), Does.EndWith($"/p2p/{expected}"));
         });
     }
 }
