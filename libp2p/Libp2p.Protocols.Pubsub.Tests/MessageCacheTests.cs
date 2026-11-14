@@ -30,6 +30,23 @@ public class MessageCacheTests
     }
 
     [Test]
+    public void TryGetByBytes_ReturnsTheCachedIdAndMessage()
+    {
+        MessageCache cache = new(gossipWindows: 1, historyWindows: 1, maxEntries: 10, maxBytes: 1024);
+        MessageId id = new([1, 2]);
+        Message message = CreateMessage("topic", [1]);
+        cache.Put(id, message);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cache.TryGet([1, 2], out MessageId cachedId, out Message cached), Is.True);
+            Assert.That(cachedId.Bytes, Is.SameAs(id.Bytes));
+            Assert.That(cached, Is.SameAs(message));
+            Assert.That(cache.TryGet([1, 3], out _, out _), Is.False);
+        });
+    }
+
+    [Test]
     public void Shift_DropsTheOldestHistoryWindow()
     {
         MessageCache cache = new(gossipWindows: 2, historyWindows: 3, maxEntries: 10, maxBytes: 1024);

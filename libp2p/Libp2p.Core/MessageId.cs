@@ -16,7 +16,7 @@ public readonly struct MessageId : IComparable<MessageId>, IComparable, IEquatab
 
     // Message IDs come from remote peers. The hash is seeded per process, so a peer cannot
     // choose IDs that collide in the router's hash tables.
-    private static int ComputeHashCode(ReadOnlySpan<byte> bytes)
+    internal static int ComputeHashCode(ReadOnlySpan<byte> bytes)
     {
         HashCode hash = new();
         hash.AddBytes(bytes);

@@ -582,6 +582,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
 
+    // Control messages carry IDs as bytes. Most advertised IDs are already known, so look them up
+    // before creating a MessageId.
+    private bool IsKnownMessage(ReadOnlySpan<byte> messageId) =>
+        _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>().ContainsKey(messageId) ||
+        _seenMessages.Contains(messageId) || _limboMessageCache.Contains(messageId);
+
     /// <returns><see langword="true"/> if an invalid message delivery was recorded.</returns>
     private bool HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
         ConcurrentDictionary<PeerId, Rpc> peerMessages,
@@ -1038,13 +1044,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            foreach (ByteString idBytes in ihave.MessageIDs.Take(_settings.MaxIHaveLength))
+            int advertised = Math.Min(ihave.MessageIDs.Count, _settings.MaxIHaveLength);
+            for (int i = 0; i < advertised; i++)
             {
-                MessageId messageId = new(idBytes.ToByteArray());
-                if (!_pendingValidations.ContainsKey(messageId) &&
-                    !_seenMessages.Contains(messageId) && !_limboMessageCache.Contains(messageId))
+                ByteString idBytes = ihave.MessageIDs[i];
+                if (!IsKnownMessage(idBytes.Span))
                 {
-                    messageIds.Add(messageId);
+                    messageIds.Add(new MessageId(idBytes.ToByteArray()));
                     if (messageIds.Count == _settings.MaxIHaveLength)
                     {
                         break;
@@ -1080,7 +1086,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        HashSet<MessageId> requested = [];
+        // The cached message found while reading the IDs is kept, so it is looked up once.
+        Dictionary<MessageId, Message?> requested = [];
         foreach (ControlIWant iwant in iwants)
         {
             if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
@@ -1088,14 +1095,23 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            foreach (ByteString idBytes in iwant.MessageIDs)
+            for (int i = 0; i < iwant.MessageIDs.Count; i++)
             {
                 if (requested.Count >= _settings.MaxIwantLength)
                 {
                     break;
                 }
 
-                requested.Add(new MessageId(idBytes.ToByteArray()));
+                // A cached message already has an ID instance; only an unknown ID needs a new one.
+                ByteString idBytes = iwant.MessageIDs[i];
+                if (_messageCache.TryGet(idBytes.Span, out MessageId cachedId, out Message cachedMessage))
+                {
+                    requested.TryAdd(cachedId, cachedMessage);
+                }
+                else
+                {
+                    requested.TryAdd(new MessageId(idBytes.ToByteArray()), null);
+                }
             }
 
             if (requested.Count >= _settings.MaxIwantLength)
@@ -1106,9 +1122,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         List<Message> messages = [];
         long responseBytes = 0;
-        foreach (MessageId messageId in requested)
+        foreach ((MessageId messageId, Message? message) in requested)
         {
-            if (peer.Control.IsUnwanted(messageId) || !_messageCache.TryGet(messageId, out Message message))
+            if (message is null || peer.Control.IsUnwanted(messageId))
             {
                 continue;
             }
@@ -1153,9 +1169,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            foreach (ByteString idBytes in idontwant.MessageIDs.Take(_settings.MaxIdontwantLength))
+            int unwantedIds = Math.Min(idontwant.MessageIDs.Count, _settings.MaxIdontwantLength);
+            for (int i = 0; i < unwantedIds; i++)
             {
-                control.AddUnwanted(new MessageId(idBytes.ToByteArray()), heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
+                control.AddUnwanted(idontwant.MessageIDs[i].Span, heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
             }
         }
     }

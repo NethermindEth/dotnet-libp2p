@@ -10,8 +10,8 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 /// </summary>
 internal sealed class PeerControlState
 {
-    private readonly Dictionary<MessageId, long> unwanted = [];
-    private readonly Dictionary<MessageId, ResponseState> iwantResponses = [];
+    private readonly Dictionary<MessageId, long> unwanted = new(MessageIdComparer.Instance);
+    private readonly Dictionary<MessageId, ResponseState> iwantResponses = new(MessageIdComparer.Instance);
 
     private readonly record struct ResponseState(int Count, long ExpiresAtTick);
 
@@ -73,11 +73,13 @@ internal sealed class PeerControlState
         return true;
     }
 
-    public void AddUnwanted(MessageId id, long expiresAtTick, int maxEntries)
+    // A MessageId is created only for an ID that is not tracked yet.
+    public void AddUnwanted(ReadOnlySpan<byte> id, long expiresAtTick, int maxEntries)
     {
-        if (unwanted.ContainsKey(id) || unwanted.Count < maxEntries)
+        Dictionary<MessageId, long>.AlternateLookup<ReadOnlySpan<byte>> lookup = unwanted.GetAlternateLookup<ReadOnlySpan<byte>>();
+        if (lookup.ContainsKey(id) || unwanted.Count < maxEntries)
         {
-            unwanted[id] = expiresAtTick;
+            lookup[id] = expiresAtTick;
         }
     }
 

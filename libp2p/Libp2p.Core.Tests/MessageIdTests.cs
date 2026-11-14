@@ -27,6 +27,18 @@ public class MessageIdTests
     }
 
     [Test]
+    public void ComparerFindsAnIdByItsBytes()
+    {
+        Dictionary<MessageId, int> ids = new(MessageIdComparer.Instance) { [new MessageId([1, 2, 3])] = 7 };
+        Dictionary<MessageId, int>.AlternateLookup<ReadOnlySpan<byte>> lookup = ids.GetAlternateLookup<ReadOnlySpan<byte>>();
+
+        Assert.That(lookup.TryGetValue([1, 2, 3], out int value), Is.True);
+        Assert.That(value, Is.EqualTo(7));
+        Assert.That(lookup.ContainsKey([1, 2, 4]), Is.False);
+        Assert.That(MessageIdComparer.Instance.GetHashCode([1, 2, 3]), Is.EqualTo(new MessageId([1, 2, 3]).GetHashCode()));
+    }
+
+    [Test]
     public void KnownFixedSeedCollisionDoesNotCollide()
     {
         // "costarring" and "liquid" have the same unseeded 32-bit FNV-1a hash. Remote peers choose

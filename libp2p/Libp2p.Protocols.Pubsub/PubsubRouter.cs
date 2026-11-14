@@ -248,7 +248,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly TtlCache<MessageId> _limboMessageCache;
     private readonly PartialMessageGossipCache partialMessageGossip;
     private readonly IwantPromiseTracker _iwantPromises;
-    private readonly Dictionary<MessageId, PendingValidation> _pendingValidations = [];
+    private readonly Dictionary<MessageId, PendingValidation> _pendingValidations = new(MessageIdComparer.Instance);
     private readonly TimeProvider _timeProvider;
     private int _pendingValidationBytes;
 
@@ -378,8 +378,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ValidateControlSettings(_settings);
         _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
         _messageIdCalculations = new(Math.Max(1, _settings.MaxConcurrentMessageIdCalculations));
-        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
-        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds);
+        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, comparer: MessageIdComparer.Instance);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, comparer: MessageIdComparer.Instance);
         _iwantPromises = new(_settings.MaxIwantPromises);
         partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }

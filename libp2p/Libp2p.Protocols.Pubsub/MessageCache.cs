@@ -24,7 +24,7 @@ internal sealed class MessageCache
     }
 
     private readonly object sync = new();
-    private readonly Dictionary<MessageId, Entry> messages = [];
+    private readonly Dictionary<MessageId, Entry> messages = new(MessageIdComparer.Instance);
     private readonly LinkedList<Entry> insertionOrder = [];
     private readonly LinkedList<Entry>[] history;
     private readonly int gossipWindows;
@@ -99,6 +99,22 @@ internal sealed class MessageCache
         lock (sync)
         {
             if (messages.TryGetValue(id, out Entry? entry))
+            {
+                message = entry.Message;
+                return true;
+            }
+        }
+
+        message = null!;
+        return false;
+    }
+
+    /// <summary>Looks a message up by the bytes of its ID and returns the cached ID instance.</summary>
+    public bool TryGet(ReadOnlySpan<byte> id, out MessageId cachedId, out Message message)
+    {
+        lock (sync)
+        {
+            if (messages.GetAlternateLookup<ReadOnlySpan<byte>>().TryGetValue(id, out cachedId, out Entry? entry))
             {
                 message = entry.Message;
                 return true;
