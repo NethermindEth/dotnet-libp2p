@@ -231,14 +231,14 @@ public class MultistreamProtocolTests
     }
 
     [Test]
-    public async Task Test_FirstListedProtocol_IsProposedBeforeRemoteHello()
+    public async Task Test_FirstListedProtocol_IsProposedBeforeRemoteHello([Values("proto1", "/\u00e9t\u00e9/1.0.0")] string protocolId)
     {
         IChannel downChannel = new TestChannel();
         IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
         IConnectionContext peerContext = Substitute.For<IConnectionContext>();
         peerContext.UpgradeOptions.Returns(new UpgradeOptions());
         IProtocol proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("proto1");
+        proto1.Id.Returns(protocolId);
         peerContext.SubProtocols.Returns([proto1]);
         peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
 
@@ -296,36 +296,6 @@ public class MultistreamProtocolTests
         {
             await downChannel.CloseAsync();
             await Task.WhenAll(dialTask, remoteReplies).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        }
-    }
-
-    [Test]
-    public async Task Test_PipelinedProposal_KeepsNonAsciiProtocolId()
-    {
-        IChannel downChannel = new TestChannel();
-        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
-        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
-        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
-        IProtocol proto1 = Substitute.For<IProtocol>();
-        proto1.Id.Returns("/\u00e9t\u00e9/1.0.0");
-        peerContext.SubProtocols.Returns([proto1]);
-        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
-
-        MultistreamProtocol proto = new();
-        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
-        try
-        {
-            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto.Id));
-            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto1.Id));
-            await downChannel.WriteLineAsync(proto.Id);
-            await downChannel.WriteLineAsync(proto1.Id);
-            await dialTask.WaitAsync(TimeSpan.FromSeconds(2));
-            _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
-        }
-        finally
-        {
-            await downChannel.CloseAsync();
-            await dialTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
 
