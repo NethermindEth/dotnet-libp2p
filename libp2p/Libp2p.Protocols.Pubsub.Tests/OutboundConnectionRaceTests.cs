@@ -250,9 +250,10 @@ public class OutboundConnectionRaceTests
         }
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task ReplyNegotiationCannotSpendABlockedReconnectBudget(bool incomingDuringDial)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task ReplyNegotiationCannotSpendABlockedReconnectBudget(bool incomingDuringDial, bool existingGeneration)
     {
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
@@ -270,6 +271,7 @@ public class OutboundConnectionRaceTests
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource<ISession> pendingDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource firstIncoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource writer = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -290,6 +292,9 @@ public class OutboundConnectionRaceTests
         {
             await router.StartAsync(local);
             store.Discover([address]);
+            if (existingGeneration)
+                router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, firstIncoming.Task,
+                    () => Task.FromException(new IOException("First reply failed")));
             if (incomingDuringDial) router.Reconnect(CancellationToken.None);
             Task dialWork = router.PendingConnections;
             CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12,
@@ -298,13 +303,19 @@ public class OutboundConnectionRaceTests
             if (incomingDuringDial)
             {
                 pendingDial.SetResult(session);
+                if (existingGeneration)
+                {
+                    firstIncoming.SetResult();
+                    incoming.SetResult();
+                    await removed.Task.WaitAsync(token);
+                }
                 await dialWork.WaitAsync(token);
             }
             else router.Reconnect(CancellationToken.None);
             Assert.That(Volatile.Read(ref negotiations), Is.Zero);
 
             reply.SetException(new IOException("Reply failed"));
-            incoming.SetResult();
+            incoming.TrySetResult();
             await removed.Task.WaitAsync(token);
             await router.PendingConnections.WaitAsync(token);
             router.Reconnect(CancellationToken.None);
@@ -316,6 +327,7 @@ public class OutboundConnectionRaceTests
         finally
         {
             pendingDial.TrySetResult(session);
+            firstIncoming.TrySetResult();
             incoming.TrySetResult();
             reply.TrySetResult();
             writer.TrySetResult();
