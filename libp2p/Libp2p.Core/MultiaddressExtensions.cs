@@ -19,7 +19,7 @@ public static class MultiaddressExtensions
         {
             // A circuit starts a new destination; preceding peer IDs identify relays.
             if (protocol is P2PCircuit) peerId = null;
-            else if (protocol is P2P peer) peerId = new PeerId(peer.ToString());
+            else if (protocol is P2P peer) peerId = new PeerId(peer.Value is null ? [] : [.. peer.ToBytes()]);
         }
 
         return peerId;
