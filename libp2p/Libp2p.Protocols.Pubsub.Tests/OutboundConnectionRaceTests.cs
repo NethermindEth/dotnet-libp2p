@@ -14,6 +14,81 @@ public class OutboundConnectionRaceTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public async Task SupersededDialCannotSpendTheNextRecoveryBudget(bool cancelNegotiation)
+    {
+        CancellationToken token = TestContext.CurrentContext.CancellationToken;
+        PeerStore store = new();
+        Multiaddress address = TestPeers.Multiaddr(2);
+        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        await using PubsubRouter router = new(store, new PubsubSettings
+        {
+            ReconnectionAttempts = 2,
+            ReconnectionPeriod = int.MaxValue,
+            HeartbeatInterval = int.MaxValue,
+        });
+        router.GetTopic("topic");
+        ISession session = Substitute.For<ISession>();
+        session.RemoteAddress.Returns(address);
+        ILocalPeer local = CreateLocal(session);
+        TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource firstWriter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource recoveredWriter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken firstClosed = default;
+        List<Rpc> sent = [];
+        int dials = 0;
+        local.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+            Interlocked.Increment(ref dials) is 1 or 3
+                ? Task.FromException<ISession>(new IOException("Peer is unavailable"))
+                : Task.FromResult(session));
+        session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (Volatile.Read(ref dials) == 2)
+            {
+                firstClosed = router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, firstWriter.Task, _ => { });
+                return negotiation.Task;
+            }
+            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, recoveredWriter.Task, sent.Add);
+            return recoveredWriter.Task;
+        });
+        try
+        {
+            await router.StartAsync(local);
+            store.Discover([address]);
+            router.Reconnect(CancellationToken.None);
+            Task oldWork = router.PendingConnections;
+            Assert.That(Volatile.Read(ref dials), Is.EqualTo(2));
+            using CancellationTokenRegistration registration = firstClosed.Register(() => removed.TrySetResult());
+            firstWriter.SetResult();
+            await removed.Task.WaitAsync(token);
+
+            if (cancelNegotiation) negotiation.SetCanceled();
+            else negotiation.SetException(new IOException("Old session failed"));
+            await oldWork.WaitAsync(token);
+            router.Reconnect(CancellationToken.None);
+            await router.PendingConnections.WaitAsync(token);
+            router.Reconnect(CancellationToken.None);
+
+            Assert.That(Volatile.Read(ref dials), Is.EqualTo(4));
+            await router.FlushOutboundAsync();
+            Assert.That(sent.SelectMany(rpc => rpc.Subscriptions)
+                .Any(subscription => subscription.Topicid == "topic" && subscription.Subscribe), Is.True);
+            router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics(["topic"], []));
+            await router.Heartbeat();
+            router.Publish("topic", [42]);
+            await router.FlushOutboundAsync();
+            Assert.That(sent.SelectMany(rpc => rpc.Publish).Any(message => message.Data.Span.SequenceEqual(new byte[] { 42 })), Is.True);
+        }
+        finally
+        {
+            negotiation.TrySetResult();
+            firstWriter.TrySetResult();
+            recoveredWriter.TrySetResult();
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task AnotherIncomingSessionGetsItsDeferredReplyWithoutARetryBudget(bool autoConnect)
     {
         await using PubsubRouter router = new(new PeerStore(), new PubsubSettings

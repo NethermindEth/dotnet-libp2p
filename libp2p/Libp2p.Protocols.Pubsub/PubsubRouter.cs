@@ -551,7 +551,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             bool retry = true;
             if (outbound is not null)
             {
-                retry = ReleaseOutbound(remotePeer!, outbound) != OutboundRelease.ReplyStarted;
+                retry = ReleaseOutbound(remotePeer!, outbound) == OutboundRelease.Released;
                 outbound = null;
             }
             int retries = attemptsRemaining ?? _settings.ReconnectionAttempts;
