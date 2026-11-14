@@ -1,0 +1,57 @@
+name: Pubsub A/B
+
+on:
+  push:
+    branches: [bench/pubsub-ab]
+
+jobs:
+  ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+    steps:
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Runner
+        run: |
+          lscpu | tee lscpu.txt
+          nproc
+      - uses: actions/checkout@v6
+        with:
+          path: cfg
+      - name: Build arms from config
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -e
+          while read -r kind name ref; do
+            [ "$kind" = arm ] || continue
+            git clone -q --depth 1 --branch "$ref" "https://github.com/${GITHUB_REPOSITORY}.git" "arms/$name"
+            dotnet build "arms/$name/libp2p/Libp2p.Protocols.Pubsub.Benchmarks/Libp2p.Protocols.Pubsub.Benchmarks.csproj" -c Release --nologo -v q
+          done < "$GITHUB_WORKSPACE/cfg/abconfig.txt"
+      - name: Run interleaved
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -f
+          rounds=$(sed -n 's/^rounds //p' "$GITHUB_WORKSPACE/cfg/abconfig.txt")
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          for r in $(seq 1 "$rounds"); do
+            while read -r kind name filter; do
+              [ "$kind" = run ] || continue
+              dir="$GITHUB_WORKSPACE/out/$name/round$r"
+              mkdir -p "$dir"
+              echo "== $name round $r $(date +%T) load: $(cut -d' ' -f1-3 /proc/loadavg)" | tee "$dir/load.txt"
+              dotnet "arms/$name/libp2p/Libp2p.Protocols.Pubsub.Benchmarks/bin/Release/net10.0/Nethermind.Libp2p.Protocols.Pubsub.Benchmarks.dll" \
+                --filter $filter --inProcess --warmupCount 5 --iterationCount 15 --artifacts "$dir" > "$dir/stdout.txt" 2>&1 || echo "run failed"
+              grep -h -E "^\|" "$dir"/results/*-report-github.md || tail -30 "$dir/stdout.txt"
+            done < "$GITHUB_WORKSPACE/cfg/abconfig.txt"
+          done
+          lscpu > "$GITHUB_WORKSPACE/out/lscpu.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pubsub-ab
+          path: out

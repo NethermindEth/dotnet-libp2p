@@ -1,0 +1,13 @@
+rounds 2
+arm A perf/pubsub-benchmarks
+arm ser perf/pubsub-serialize-once
+arm top perf/pubsub-topic-dispatch
+arm mid perf/pubsub-messageid-hash
+arm look perf/pubsub-messageid-lookup
+arm sig perf/pubsub-sign-buffer
+run A *
+run ser *Forward* *Publish*
+run top *Delivery* *Forward*
+run mid *Control* *Forward*
+run look *Control*
+run sig *Signature* *Publish*
