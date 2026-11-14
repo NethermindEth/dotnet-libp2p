@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
+using System.Runtime.CompilerServices;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
@@ -226,5 +228,121 @@ public class MultistreamProtocolTests
         await dialTask;
 
         _ = peerContext.DidNotReceiveWithAnyArgs().Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>());
+    }
+
+    [Test]
+    public async Task Test_FirstListedProtocol_IsProposedBeforeRemoteHello()
+    {
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
+        IProtocol proto1 = Substitute.For<IProtocol>();
+        proto1.Id.Returns("proto1");
+        peerContext.SubProtocols.Returns([proto1]);
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
+
+        MultistreamProtocol proto = new();
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
+        try
+        {
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto.Id));
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto1.Id),
+                "The first proposal must not wait a round trip for the remote hello.");
+
+            await downChannel.WriteLineAsync(proto.Id);
+            await downChannel.WriteLineAsync(proto1.Id);
+            await dialTask.WaitAsync(TimeSpan.FromSeconds(2));
+            _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
+        }
+        finally
+        {
+            await downChannel.CloseAsync();
+            await dialTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Test_HelloAndFirstProposal_AreOneWrite(bool selectedUpfront)
+    {
+        IChannel downChannel = new TestChannel();
+        WriteCountingChannel downChannelFromProtocolPov = new(((TestChannel)downChannel).Reverse());
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        IProtocol proto1 = Substitute.For<IProtocol>();
+        proto1.Id.Returns("proto1");
+        peerContext.UpgradeOptions.Returns(selectedUpfront ? new UpgradeOptions { SelectedProtocol = proto1 } : new UpgradeOptions());
+        peerContext.SubProtocols.Returns([proto1]);
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
+
+        MultistreamProtocol proto = new();
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
+        Task remoteReplies = Task.Run(async () =>
+        {
+            await downChannel.WriteLineAsync(proto.Id);
+            await downChannel.WriteLineAsync(proto1.Id);
+        });
+
+        try
+        {
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto.Id));
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto1.Id));
+            await Task.WhenAll(dialTask, remoteReplies).WaitAsync(TimeSpan.FromSeconds(2));
+
+            Assert.That(downChannelFromProtocolPov.Writes, Is.EqualTo(1));
+            _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
+        }
+        finally
+        {
+            await downChannel.CloseAsync();
+            await Task.WhenAll(dialTask, remoteReplies).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [Test]
+    public async Task Test_PipelinedProposal_KeepsNonAsciiProtocolId()
+    {
+        IChannel downChannel = new TestChannel();
+        IChannel downChannelFromProtocolPov = ((TestChannel)downChannel).Reverse();
+        IConnectionContext peerContext = Substitute.For<IConnectionContext>();
+        peerContext.UpgradeOptions.Returns(new UpgradeOptions());
+        IProtocol proto1 = Substitute.For<IProtocol>();
+        proto1.Id.Returns("/\u00e9t\u00e9/1.0.0");
+        peerContext.SubProtocols.Returns([proto1]);
+        peerContext.Upgrade(Arg.Any<IChannel>(), Arg.Any<IProtocol>()).Returns(Task.CompletedTask);
+
+        MultistreamProtocol proto = new();
+        Task dialTask = proto.DialAsync(downChannelFromProtocolPov, peerContext);
+        try
+        {
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto.Id));
+            Assert.That(await downChannel.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(proto1.Id));
+            await downChannel.WriteLineAsync(proto.Id);
+            await downChannel.WriteLineAsync(proto1.Id);
+            await dialTask.WaitAsync(TimeSpan.FromSeconds(2));
+            _ = peerContext.Received().Upgrade(downChannelFromProtocolPov, proto1);
+        }
+        finally
+        {
+            await downChannel.CloseAsync();
+            await dialTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    private sealed class WriteCountingChannel(IChannel inner) : IChannel
+    {
+        private int _writes;
+        public int Writes => Volatile.Read(ref _writes);
+        public TaskAwaiter GetAwaiter() => inner.GetAwaiter();
+        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+            => inner.ReadAsync(length, blockingMode, token);
+        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+        {
+            Interlocked.Increment(ref _writes);
+            return inner.WriteAsync(bytes, token);
+        }
+        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => inner.WriteEofAsync(token);
+        public ValueTask CloseAsync() => inner.CloseAsync();
+        public ValueTask AbortAsync() => inner.AbortAsync();
     }
 }
