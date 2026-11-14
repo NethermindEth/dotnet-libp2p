@@ -301,8 +301,9 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             return;
         }
 
-        await WriteEofAsync();
+        ValueTask<IOResult> eof = WriteEofAsync();
         await CloseReadAsync();
+        await eof;
         await _received.CloseAsync();
     }
 
@@ -336,7 +337,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             // have closed after both FIN handshakes, so there is no STOP_SENDING left to send.
             if (notifyPeer)
             {
-                await SendFlagAsync(Message.Types.Flag.StopSending, CancellationToken.None);
+                await SendFlagAsync(Message.Types.Flag.StopSending, _lifetime.Token);
             }
         }
         catch (Exception ex)
@@ -693,6 +694,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
 
     private void Fail(Exception error)
     {
+        TaskCompletionSource? readClosed;
         lock (_sync)
         {
             if (_failure is not null)
@@ -701,6 +703,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             }
 
             _failure = error;
+            readClosed = _readClosed;
         }
 
         _inbound.Writer.TryComplete();
@@ -716,9 +719,11 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         }
         finally
         {
-            // Last: Core completion can synchronously invoke a caller that disposes this channel.
+            // Core completion can synchronously invoke a caller that disposes this channel.
             // Abort also wakes a delivery pump blocked on unread payload and discards that payload.
             _ = _received.AbortAsync();
+            // Release shared read-close waiters even if the owner is stuck in a native send.
+            readClosed?.TrySetResult();
         }
     }
 }

@@ -789,6 +789,23 @@ public class WebRtcChannelTests
         Assert.That(reads[1].Data.ToArray(), Is.EqualTo(new byte[] { 3, 4 }));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ExactZeroRead_AfterPeerTermination_PreservesResult(bool reset, CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        await using WebRtcChannel channel = new(dataChannel);
+        dataChannel.Deliver(WebRtcFraming.Encode(null, new byte[] { 0 }));
+        IReader reader = channel;
+        Assert.That(await reader.ReadVarintAsync(token), Is.Zero);
+
+        dataChannel.Deliver(WebRtcFraming.Encode(reset ? Message.Types.Flag.ResetStream : Message.Types.Flag.Fin, null));
+        Assert.That((await channel.ReadAsync(1, token: token)).Result, Is.EqualTo(reset ? IOResult.Aborted : IOResult.Ended));
+        ReadResult body = await channel.ReadAsync(0, token: token);
+        Assert.That(body.Result, Is.EqualTo(reset ? IOResult.Aborted : IOResult.Ok));
+        Assert.That(body.Data.IsEmpty, Is.True);
+    }
+
     [Test]
     public async Task ReadWithoutWaiting_ReturnsAvailableBytesAndThenEmpty(CancellationToken token)
     {
@@ -1130,7 +1147,7 @@ public class WebRtcChannelTests
         Task second = channel.CloseAsync().AsTask();
         Assert.That(first.IsCompleted, Is.False);
         Assert.That(second.IsCompleted, Is.False);
-        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin }));
+        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.StopSending }));
 
         dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
         await Task.WhenAll(first, second).WaitAsync(TestTimeout, token);
@@ -1171,6 +1188,72 @@ public class WebRtcChannelTests
         {
             releaseStop.Set();
             await readClose.WaitAsync(TestTimeout, token);
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CloseReadWaiters_AreReleasedWhenChannelFails(bool dispose, CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        await using WebRtcChannel channel = new(dataChannel);
+        TaskCompletionSource sending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim release = new();
+        dataChannel.BeforeSend = _ =>
+        {
+            sending.TrySetResult();
+            release.Wait(token);
+        };
+
+        Task first = Task.Run(async () => await channel.CloseReadAsync(), token);
+        Task? failure = null;
+        try
+        {
+            await sending.Task.WaitAsync(TestTimeout, token);
+            Task second = channel.CloseReadAsync().AsTask();
+            Assert.That(second.IsCompleted, Is.False);
+            failure = (dispose ? channel.DisposeAsync() : channel.AbortAsync()).AsTask();
+
+            await second.WaitAsync(TestTimeout, token);
+            Assert.That((await channel.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(first.IsCompleted, Is.False, "The native send is still held by the test gate.");
+        }
+        finally
+        {
+            release.Set();
+            await first.WaitAsync(TestTimeout, token);
+            if (failure is not null) await failure.WaitAsync(TestTimeout, token);
+        }
+    }
+
+    [Test]
+    public async Task QueuedStopSending_IsCancelledWhenChannelFails(CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        await using WebRtcChannel channel = new(dataChannel);
+        TaskCompletionSource sending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim release = new();
+        dataChannel.BeforeSend = _ =>
+        {
+            sending.TrySetResult();
+            release.Wait(token);
+        };
+
+        Task<IOResult> write = Task.Run(async () => await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), token), token);
+        try
+        {
+            await sending.Task.WaitAsync(TestTimeout, token);
+            Task readClose = channel.CloseReadAsync().AsTask();
+            Assert.That(readClose.IsCompleted, Is.False);
+            await channel.DisposeAsync();
+
+            await readClose.WaitAsync(TestTimeout, token);
+            Assert.That(write.IsCompleted, Is.False, "Cancelling STOP must not require releasing the native data send.");
+        }
+        finally
+        {
+            release.Set();
+            await write.WaitAsync(TestTimeout, token);
         }
     }
 
