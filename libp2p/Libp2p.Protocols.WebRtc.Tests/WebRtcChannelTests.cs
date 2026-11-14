@@ -15,7 +15,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 [CancelAfter(15000)]
 public class WebRtcChannelTests
 {
-    /// <summary>Only guards against a hang: every test here reaches its result without waiting.</summary>
+    /// <summary>Only guards against a hang: no test here needs anywhere near this long.</summary>
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
     [Test]
@@ -355,6 +355,36 @@ public class WebRtcChannelTests
     }
 
     [Test]
+    public async Task PayloadArrivingAfterCloseRead_IsDiscardedWithoutFailingTheChannel(CancellationToken token)
+    {
+        // STOP_SENDING crosses whatever the peer had already sent, so data still arrives after it.
+        FakeWebRtcDataChannel channel = new();
+        await using WebRtcChannel stream = new(channel);
+
+        await stream.CloseReadAsync().AsTask().WaitAsync(TestTimeout, token);
+        channel.Deliver(WebRtcFraming.Encode(null, new byte[] { 9 }));
+
+        Assert.That(channel.IsClosed, Is.False);
+        Assert.That(await stream.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), token), Is.EqualTo(IOResult.Ok),
+            "data in flight when STOP_SENDING left must not fail the still-open write half");
+    }
+
+    [Test]
+    public async Task PayloadCarriedWithFin_IsDeliveredBeforeTheEnd(CancellationToken token)
+    {
+        // One message may carry both, and its bytes precede the end of stream its flag announces.
+        FakeWebRtcDataChannel channel = new();
+        await using WebRtcChannel stream = new(channel);
+
+        channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, new byte[] { 4, 2 }));
+
+        ReadResult payload = await stream.ReadAsync(2, token: token);
+        Assert.That(payload.Result, Is.EqualTo(IOResult.Ok));
+        Assert.That(payload.Data.ToArray(), Is.EqualTo(new byte[] { 4, 2 }));
+        Assert.That((await stream.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Ended));
+    }
+
+    [Test]
     public async Task InboundOverflow_AbortsTheChannel()
     {
         FakeWebRtcDataChannel channel = new();
@@ -481,6 +511,20 @@ public class WebRtcChannelTests
 
         await WaitUntilAsync(() => channel.IsClosed);
         Assert.That(channel.IsClosed, Is.True);
+    }
+
+    [Test]
+    public async Task FinAckTimeoutAfterPeerFin_StillCompletesTheChannel(CancellationToken token)
+    {
+        FakeWebRtcDataChannel channel = new();
+        await using WebRtcChannel stream = new(channel, TimeSpan.FromMilliseconds(50));
+        channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null));
+        Assert.That((await stream.ReadAsync(1, token: token)).Result, Is.EqualTo(IOResult.Ended));
+
+        Assert.That(await stream.WriteEofAsync(token).AsTask().WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
+
+        Assert.That(channel.IsClosed, Is.True);
+        Assert.That(stream.GetAwaiter().IsCompleted, Is.True, "both halves ended, even though the FIN was never acknowledged");
     }
 
     [Test]
@@ -1084,17 +1128,7 @@ public class WebRtcChannelTests
         // The EOF queues behind the write and resumes only when the test runs it, which holds it
         // where it owns the application send lock but has not sent its FIN yet.
         DeferredSynchronizationContext resumption = new();
-        SynchronizationContext? previous = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(resumption);
-        Task<IOResult> eof;
-        try
-        {
-            eof = channel.WriteEofAsync(token).AsTask();
-        }
-        finally
-        {
-            SynchronizationContext.SetSynchronizationContext(previous);
-        }
+        Task<IOResult> eof = StartOn(resumption, () => channel.WriteEofAsync(token).AsTask());
 
         dataChannel.Drain();
         Assert.That(await writing.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
@@ -1108,6 +1142,43 @@ public class WebRtcChannelTests
         Assert.That(await eof.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
         Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.StopSending, Message.Types.Flag.Fin }),
             "a half-close in progress is not an unfinished write, so the close must not reset the stream");
+    }
+
+    [Test]
+    public async Task EofCancelledWhileItsFinWaitsToBeSent_CanBeRetried(CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        await using WebRtcChannel channel = new(dataChannel);
+        TaskCompletionSource sending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim release = new();
+        dataChannel.BeforeSend = _ =>
+        {
+            sending.TrySetResult();
+            release.Wait(token);
+        };
+
+        // The FIN_ACK owed to the peer is held inside the transport, so the local FIN queues behind it.
+        Task acknowledging = Task.Run(() => dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, null)), token);
+        try
+        {
+            await sending.Task.WaitAsync(TestTimeout, token);
+            using CancellationTokenSource cancelled = CancellationTokenSource.CreateLinkedTokenSource(token);
+            Task<IOResult> eof = channel.WriteEofAsync(cancelled.Token).AsTask();
+            Assert.That(eof.IsCompleted, Is.False);
+            cancelled.Cancel();
+            Assert.That(await eof.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Cancelled));
+        }
+        finally
+        {
+            release.Set();
+            await acknowledging.WaitAsync(TestTimeout, token);
+        }
+
+        Task<IOResult> retried = channel.WriteEofAsync(token).AsTask();
+        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.FinAck, Message.Types.Flag.Fin }),
+            "the cancelled attempt sent no FIN, so the retry still owes one");
+        dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
+        Assert.That(await retried.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
     }
 
     [TestCase(false, false)]
@@ -1312,11 +1383,17 @@ public class WebRtcChannelTests
     private static (WebRtcChannel, InlineSynchronizationContext) CreateChannelWithInlineDelivery(FakeWebRtcDataChannel dataChannel)
     {
         InlineSynchronizationContext deliveryContext = new();
+        return (StartOn(deliveryContext, () => new WebRtcChannel(dataChannel)), deliveryContext);
+    }
+
+    /// <summary>Starts work whose first suspended continuation resumes on <paramref name="context"/>.</summary>
+    private static T StartOn<T>(SynchronizationContext context, Func<T> start)
+    {
         SynchronizationContext? previous = SynchronizationContext.Current;
         try
         {
-            SynchronizationContext.SetSynchronizationContext(deliveryContext);
-            return (new(dataChannel), deliveryContext);
+            SynchronizationContext.SetSynchronizationContext(context);
+            return start();
         }
         finally
         {
