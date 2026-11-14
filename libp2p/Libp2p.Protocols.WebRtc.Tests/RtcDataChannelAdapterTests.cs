@@ -132,7 +132,7 @@ public class RtcDataChannelAdapterTests
     }
 
     /// <summary>
-    /// WebRtcStream parks a writer and waits for this event, so an adapter that never raises it
+    /// WebRtcChannel parks a writer and waits for this event, so an adapter that never raises it
     /// deadlocks the first peer that fills the send buffer. SIPSorcery raises no such event of its
     /// own (there is no onbufferedamountlow member on RTCDataChannel in 10.0.14), which is why it
     /// is polled.
@@ -147,7 +147,7 @@ public class RtcDataChannelAdapterTests
 
         await raised.Task.WaitAsync(token);
 
-        Assert.That(adapter.BufferedAmount, Is.LessThan(WebRtcStream.MaxBufferedAmount),
+        Assert.That(adapter.BufferedAmount, Is.LessThan(WebRtcChannel.MaxBufferedAmount),
             "The event must never fire at or above the limit a parked writer re-checks against.");
     }
 
@@ -191,7 +191,7 @@ public class RtcDataChannelAdapterTests
     }
 
     /// <summary>
-    /// The peer closing the channel is the ordinary way a connection ends, and WebRtcStream only
+    /// The peer closing the channel is the ordinary way a connection ends, and WebRtcChannel only
     /// learns about it through <see cref="IWebRtcDataChannel.Closed"/>. Driven through SIPSorcery's
     /// own <c>close()</c> rather than the adapter's, so the <c>onclose</c> subscription itself is
     /// what is under test.
@@ -248,7 +248,7 @@ public class RtcDataChannelAdapterTests
     /// <summary>
     /// RFC 8831 section 6.6 carries an empty message as one zero padding byte under an *_Empty
     /// PPID. Forwarding that byte would desynchronize frame reassembly in
-    /// <see cref="WebRtcStream"/>, and RTCDataChannel.GotData does not strip it.
+    /// <see cref="WebRtcChannel"/>, and RTCDataChannel.GotData does not strip it.
     /// </summary>
     [Test]
     public void EmptyPpidPaddingByte_IsNotForwarded()

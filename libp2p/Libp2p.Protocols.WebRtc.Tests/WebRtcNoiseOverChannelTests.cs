@@ -10,7 +10,7 @@ using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
 /// <summary>
-/// The Noise handshake over the real transport path: two <see cref="WebRtcStream"/>s wired back to
+/// The Noise handshake over the real transport path: two <see cref="WebRtcChannel"/>s wired back to
 /// back, so what crosses the wire is <c>webrtc.pb.Message</c> frames rather than the raw Noise
 /// bytes the dial side used to write.
 /// <para>
@@ -22,7 +22,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 /// </para>
 /// </summary>
 [TestFixture]
-public class WebRtcNoiseOverStreamTests
+public class WebRtcNoiseOverChannelTests
 {
     /// <summary>Noise XX message 1 is "-> e": one X25519 public key, nothing else.</summary>
     private const int NoiseMessageOneLength = 32;
@@ -40,9 +40,9 @@ public class WebRtcNoiseOverStreamTests
 
     [Test]
     [CancelAfter(30_000)]
-    public async Task Handshake_OverFramedStreams_AuthenticatesBothPeers(CancellationToken token)
+    public async Task Handshake_OverFramedChannels_AuthenticatesBothPeers(CancellationToken token)
     {
-        Handshake handshake = Handshake.Start();
+        await using Handshake handshake = Handshake.Start();
 
         PublicKey dialerSaw = await handshake.Dialer.WaitAsync(token);
         PublicKey listenerSaw = await handshake.Listener.WaitAsync(token);
@@ -66,7 +66,7 @@ public class WebRtcNoiseOverStreamTests
     [CancelAfter(30_000)]
     public async Task Handshake_PutsOnlyFramedMessagesOnTheWire(CancellationToken token)
     {
-        Handshake handshake = Handshake.Start();
+        await using Handshake handshake = Handshake.Start();
         await handshake.Dialer.WaitAsync(token);
         await handshake.Listener.WaitAsync(token);
 
@@ -142,7 +142,7 @@ public class WebRtcNoiseOverStreamTests
 
     /// <summary>
     /// Both halves of one conversation: a pair of in-memory data channels, a
-    /// <see cref="WebRtcStream"/> and <see cref="WebRtcStreamChannel"/> on each, and the two
+    /// <see cref="WebRtcChannel"/> on each, and the two
     /// handshakes already running against each other.
     /// </summary>
     private sealed record Handshake(
@@ -151,13 +151,21 @@ public class WebRtcNoiseOverStreamTests
         Identity DialerIdentity,
         Identity ListenerIdentity,
         Task<PublicKey> Dialer,
-        Task<PublicKey> Listener)
+        Task<PublicKey> Listener,
+        WebRtcChannel DialerSide,
+        WebRtcChannel ListenerSide) : IAsyncDisposable
     {
+        public async ValueTask DisposeAsync()
+        {
+            await DialerSide.DisposeAsync();
+            await ListenerSide.DisposeAsync();
+        }
+
         public static Handshake Start()
         {
             (FakeWebRtcDataChannel dialerChannel, FakeWebRtcDataChannel listenerChannel) = FakeWebRtcDataChannel.CreatePair();
-            WebRtcStreamChannel dialerSide = new(new WebRtcStream(dialerChannel));
-            WebRtcStreamChannel listenerSide = new(new WebRtcStream(listenerChannel));
+            WebRtcChannel dialerSide = new(dialerChannel);
+            WebRtcChannel listenerSide = new(listenerChannel);
 
             Identity dialer = new();
             Identity listener = new();
@@ -185,7 +193,8 @@ public class WebRtcNoiseOverStreamTests
                 isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator,
                 CancellationToken.None);
 
-            return new Handshake(dialerChannel, listenerChannel, dialer, listener, dialerHandshake, listenerHandshake);
+            return new Handshake(dialerChannel, listenerChannel, dialer, listener,
+                dialerHandshake, listenerHandshake, dialerSide, listenerSide);
         }
     }
 }

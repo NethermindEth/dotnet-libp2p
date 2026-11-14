@@ -187,6 +187,16 @@ public class Channel : IChannel
         {
             ArgumentOutOfRangeException.ThrowIfNegative(length);
 
+            // An exact read of no bytes needs no data or read lock, even after clean EOF/close.
+            // Abort and caller cancellation still apply; other zero-length modes read available data.
+            if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+            {
+                if (Volatile.Read(ref _aborted) != 0)
+                    return ReadResult.Aborted;
+
+                return token.IsCancellationRequested ? ReadResult.Cancelled : ReadResult.Ok(default);
+            }
+
             using CancellationTokenSource? linked = LinkToken(token);
             CancellationToken waitToken = linked?.Token ?? _closed.Token;
             bool readLockTaken = false;
@@ -204,15 +214,6 @@ public class Channel : IChannel
                 if (canReadTaken && !_canRead.Wait(0))
                 {
                     return _eow ? ClosedReadResult : ReadResult.Empty;
-                }
-
-                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
-                // WriteAsync returns early for zero-length writes without signaling _canRead
-                // Only apply this optimization for WaitAll mode (exact length reads)
-                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
-                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
-                {
-                    return ReadResult.Ok(default);
                 }
 
                 if (!canReadTaken)

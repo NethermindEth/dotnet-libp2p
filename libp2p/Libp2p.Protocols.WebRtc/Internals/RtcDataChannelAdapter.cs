@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 
 /// <summary>
 /// A live SIPSorcery <see cref="RTCDataChannel"/> presented as the <see cref="IWebRtcDataChannel"/>
-/// slice <see cref="WebRtcStream"/> consumes, so what reaches the wire is the spec's
+/// slice <see cref="WebRtcChannel"/> consumes, so what reaches the wire is the spec's
 /// length-prefixed <c>webrtc.pb.Message</c> framing rather than whatever bytes a caller happened to
 /// write. The sibling <see cref="SctpWebRtcDataChannel"/> implements the same seam straight off an
 /// SCTP association; this one is for the channels RTCPeerConnection hands out.
@@ -23,13 +23,13 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
     private static readonly TimeSpan BufferedAmountPollInterval = TimeSpan.FromMilliseconds(20);
 
     /// <summary>
-    /// INVARIANT: strictly below <see cref="WebRtcStream.MaxBufferedAmount"/>. A writer parked in
+    /// INVARIANT: strictly below <see cref="WebRtcChannel.MaxBufferedAmount"/>. A writer parked in
     /// WaitForCapacityAsync wakes on the event, re-checks <see cref="BufferedAmount"/> and parks
     /// again, so a threshold at or above that limit would leave it parked forever. Half the limit
     /// also leaves a frame still queued when the writer is released, so the channel is refilled
     /// before it runs dry.
     /// </summary>
-    private const long BufferedAmountLowThreshold = WebRtcStream.MaxBufferedAmount / 2;
+    private const long BufferedAmountLowThreshold = WebRtcChannel.MaxBufferedAmount / 2;
 
     private readonly RTCDataChannel _channel;
     private readonly Timer _bufferedAmountPoll;
@@ -176,7 +176,7 @@ internal sealed class RtcDataChannelAdapter : IWebRtcDataChannel, IDisposable
         // RFC 8831 section 6.6 carries an empty application message as a single zero padding byte
         // under an *_Empty PPID, and RTCDataChannel.GotData forwards that byte verbatim (verified
         // against SIPSorcery 10.0.14). Passing it on would insert a stray byte into the frame
-        // reassembly buffer in WebRtcStream and desynchronize every frame after it.
+        // reassembly buffer in WebRtcChannel and desynchronize every frame after it.
         if (protocol is DataChannelPayloadProtocols.WebRTC_Binary_Empty or DataChannelPayloadProtocols.WebRTC_String_Empty
             || data is not { Length: > 0 })
         {

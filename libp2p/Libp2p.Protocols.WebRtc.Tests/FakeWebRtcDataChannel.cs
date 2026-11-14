@@ -6,10 +6,11 @@ using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
 /// <summary>
-/// In-memory data channel. Delivery to the paired channel is synchronous, so a test reaches a
-/// quiescent point the moment a send returns and never has to sleep or poll. Buffered amount is
-/// driven by the test rather than by sends, and closing one side does not notify the other, which
-/// keeps the synchronous delivery free of reentrancy.
+/// In-memory data channel. Delivery to the paired channel is synchronous, so every frame and flag
+/// has been handled the moment a send returns; only payload still has to cross the receiving
+/// channel's delivery pump before a read sees it. Buffered amount is driven by the test rather than
+/// by sends, and closing one side does not notify the other, which keeps the synchronous delivery
+/// free of reentrancy.
 /// </summary>
 internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
 {
@@ -43,6 +44,10 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
 
     public bool IsClosed { get; private set; }
 
+    public Action? OnClose { get; set; }
+
+    public Action<byte[]>? BeforeSend { get; set; }
+
     public IReadOnlyList<byte[]> SentFrames
     {
         get
@@ -66,6 +71,7 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
     public ValueTask SendAsync(ReadOnlyMemory<byte> frame, CancellationToken token = default)
     {
         byte[] copy = frame.ToArray();
+        BeforeSend?.Invoke(copy);
         lock (_sent)
         {
             _sent.Add(copy);
@@ -98,6 +104,7 @@ internal sealed class FakeWebRtcDataChannel : IWebRtcDataChannel
         }
 
         IsClosed = true;
+        OnClose?.Invoke();
         Closed?.Invoke();
     }
 }

@@ -382,7 +382,7 @@ public class WebRtcDirectIntegrationTests
             IChannel channel = call.Arg<IChannel>();
             UpgradeOptions? options = call.Arg<UpgradeOptions?>();
             _streams.Writer.TryWrite(new OpenedStream(
-                ((WebRtcStreamChannel)channel).StreamId,
+                ((WebRtcChannel)channel).StreamId,
                 options?.ModeOverride ?? UpgradeModeOverride.None,
                 channel));
             options?.CompletionSource?.TrySetResult(null);
