@@ -180,7 +180,7 @@ public class IdentityTests
 
     [Test]
     [NonParallelizable]
-    public void Test_EcdsaSigningLeavesNoKeyHandleToTheFinalizer()
+    public void Test_EcdsaSigningDisposesItsKeyHandle()
     {
         const int Signatures = 256;
         Identity id = new(keyType: KeyType.Ecdsa);
