@@ -685,11 +685,13 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         Detach();
         Fail(new IOException("The stream was disposed."));
         await _deliveryTask;
-        // Deliberately NOT disposing _sendLock/_callerSendLock. Fail() above cancels _lifetime,
-        // which is what releases anyone queued on them, and disposing a SemaphoreSlim does not
-        // complete an existing WaitAsync -- it just makes the waiter's eventual Release throw.
-        // Neither semaphore's AvailableWaitHandle is ever touched, so there is nothing to leak.
-        _lifetime.Dispose();
+        // Deliberately NOT disposing _lifetime, _sendLock or _callerSendLock. Another caller may
+        // be inside Fail and not yet at its _lifetime.Cancel(): disposing the source under it
+        // makes that call throw before the data channel is closed and the Core channel aborted,
+        // and takes away the cancellation that releases anyone queued on the semaphores.
+        // Disposing a SemaphoreSlim does not complete an existing WaitAsync either -- it just
+        // makes the waiter's eventual Release throw. None of the three ever arms a timer or has
+        // its wait handle touched, so there is nothing to leak.
     }
 
     private void Fail(Exception error)

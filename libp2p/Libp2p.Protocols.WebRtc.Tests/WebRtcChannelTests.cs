@@ -1350,6 +1350,38 @@ public class WebRtcChannelTests
     }
 
     [Test]
+    public async Task Disposal_LeavesTheLifetimeUsableByAWriteItCouldNotInterrupt(CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        WebRtcChannel channel = new(dataChannel);
+        TaskCompletionSource sending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim release = new();
+        dataChannel.BeforeSend = _ =>
+        {
+            sending.TrySetResult();
+            release.Wait(token);
+        };
+
+        Task<IOResult> write = Task.Run(async () => await channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), token), token);
+        try
+        {
+            await sending.Task.WaitAsync(TestTimeout, token);
+            await channel.DisposeAsync().AsTask().WaitAsync(TestTimeout, token);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        // Whatever is still running when disposal returns keeps using the channel's lifetime. A
+        // disposed source would throw under it here, and under a failure that another caller had
+        // started but not finished, before the data channel is closed and the readers released.
+        Assert.That(await write.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok),
+            "its only frame was already inside the transport");
+        Assert.That(dataChannel.SentFrames, Has.Count.EqualTo(1));
+    }
+
+    [Test]
     public async Task QueuedStopSending_IsCancelledWhenChannelFails(CancellationToken token)
     {
         FakeWebRtcDataChannel dataChannel = new();
