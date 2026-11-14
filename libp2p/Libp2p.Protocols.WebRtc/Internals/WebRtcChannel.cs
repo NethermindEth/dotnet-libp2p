@@ -73,6 +73,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     private TaskCompletionSource? _drained;
     private Exception? _failure;
     private bool _closing;
+    private bool _writing;
     private bool _finSent;
     private bool _finReceived;
     private bool _finAckReceived;
@@ -160,7 +161,12 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             await _callerSendLock.WaitAsync(queued.Token);
             try
             {
-                ThrowIfSendingIsOver(callerData: true);
+                lock (_sync)
+                {
+                    ThrowIfSendingIsOver(callerData: true);
+                    _writing = true;
+                }
+
                 int maxChunk = WebRtcFraming.MaxPayloadSize(false);
                 CancellationToken sendingToken = queued.Token;
                 while (!bytes.IsEmpty)
@@ -176,6 +182,11 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             }
             finally
             {
+                lock (_sync)
+                {
+                    _writing = false;
+                }
+
                 _callerSendLock.Release();
             }
 
@@ -281,17 +292,10 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         bool abort;
         lock (_sync)
         {
-            // Concurrent closes share the same FIN handshake without blocking new control frames.
-            abort = false;
-            if (!_closing && !_finSent)
-            {
-                abort = !_callerSendLock.Wait(0);
-                if (!abort)
-                {
-                    _callerSendLock.Release();
-                }
-            }
-
+            // Only a data write is aborted. A pending EOF holds the same lock and must be left to
+            // finish, or closing next to a half-close would reset a stream that ended cleanly.
+            // Concurrent closes share the one FIN handshake.
+            abort = _writing && !_closing;
             _closing = true;
         }
 

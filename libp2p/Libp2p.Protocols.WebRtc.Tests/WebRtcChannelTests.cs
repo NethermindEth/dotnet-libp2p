@@ -5,6 +5,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.WebRtc.Dto;
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using System.Buffers;
+using System.Collections.Concurrent;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
@@ -1071,6 +1072,44 @@ public class WebRtcChannelTests
         }
     }
 
+    [Test]
+    public async Task CloseAsync_DoesNotResetBehindAPendingEof(CancellationToken token)
+    {
+        FakeWebRtcDataChannel dataChannel = new();
+        dataChannel.SetBufferedAmount(WebRtcChannel.MaxBufferedAmount);
+        await using WebRtcChannel channel = new(dataChannel);
+        Task<IOResult> writing = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), token).AsTask();
+        Assert.That(writing.IsCompleted, Is.False);
+
+        // The EOF queues behind the write and resumes only when the test runs it, which holds it
+        // where it owns the application send lock but has not sent its FIN yet.
+        DeferredSynchronizationContext resumption = new();
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(resumption);
+        Task<IOResult> eof;
+        try
+        {
+            eof = channel.WriteEofAsync(token).AsTask();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        dataChannel.Drain();
+        Assert.That(await writing.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
+        await resumption.Posted.Task.WaitAsync(TestTimeout, token);
+
+        Task closing = channel.CloseAsync().AsTask();
+        resumption.RunPosted();
+        dataChannel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.FinAck, null));
+
+        await closing.WaitAsync(TestTimeout, token);
+        Assert.That(await eof.WaitAsync(TestTimeout, token), Is.EqualTo(IOResult.Ok));
+        Assert.That(Flags(dataChannel), Is.EqualTo(new[] { Message.Types.Flag.StopSending, Message.Types.Flag.Fin }),
+            "a half-close in progress is not an unfinished write, so the close must not reset the stream");
+    }
+
     [TestCase(false, false)]
     [TestCase(false, true)]
     [TestCase(true, false)]
@@ -1293,6 +1332,28 @@ public class WebRtcChannelTests
         {
             callback(state);
             ContinuationCompleted.TrySetResult();
+        }
+    }
+
+    /// <summary>Holds posted continuations until the test runs them.</summary>
+    private sealed class DeferredSynchronizationContext : SynchronizationContext
+    {
+        private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> _posted = new();
+
+        public TaskCompletionSource Posted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            _posted.Enqueue((callback, state));
+            Posted.TrySetResult();
+        }
+
+        public void RunPosted()
+        {
+            while (_posted.TryDequeue(out (SendOrPostCallback Callback, object? State) posted))
+            {
+                posted.Callback(posted.State);
+            }
         }
     }
 
