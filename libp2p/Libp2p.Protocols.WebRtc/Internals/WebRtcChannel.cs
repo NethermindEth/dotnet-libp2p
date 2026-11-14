@@ -574,20 +574,16 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             case Message.Types.Flag.StopSending:
                 // Unlike QUIC, a libp2p WebRTC endpoint "SHOULD NOT send a RESET_STREAM frame in
                 // reply", and the read half stays up so later flags are still acted on.
-                bool awaitingFinAck;
                 lock (_sync)
                 {
                     _peerStoppedReading = true;
-                    awaitingFinAck = _finSent;
                 }
 
-                // A peer that has stopped reading will never ack our FIN, so release the waiter
-                // instead of letting WriteEofAsync burn its whole timeout.
-                if (awaitingFinAck)
-                {
-                    _finAck.TrySetResult();
-                }
-
+                // A peer that discards our data has no delivery left to confirm, and one that
+                // closed the whole stream may be gone before our FIN reaches it. Released whether
+                // the FIN is already out or still to come, so WriteEofAsync never burns its whole
+                // timeout on that FIN_ACK.
+                _finAck.TrySetResult();
                 ReleaseWriter();
                 break;
 

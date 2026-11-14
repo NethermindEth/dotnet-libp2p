@@ -416,19 +416,43 @@ public class WebRtcChannelTests
         Assert.That((await stream.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
     }
 
-    [Test]
-    public async Task StopSending_ReleasesAPendingWriteEof()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task StopSending_ReleasesWriteEof(bool beforeFin)
     {
-        // A peer that stopped reading will never ack, so the close must not burn the full timeout.
+        // A peer that stopped reading has no delivery left to confirm, so the close must not burn
+        // the full timeout, whichever of STOP_SENDING and the local FIN comes first.
         FakeWebRtcDataChannel channel = new();
         await using WebRtcChannel stream = new(channel, TimeSpan.FromSeconds(30));
 
-        Task close = stream.WriteEofAsync().AsTask();
+        if (beforeFin) channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.StopSending, null));
+        Task<IOResult> close = stream.WriteEofAsync().AsTask();
         await WaitUntilAsync(() => Flags(channel).Contains(Message.Types.Flag.Fin));
+        if (!beforeFin) channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.StopSending, null));
 
-        channel.Deliver(WebRtcFraming.Encode(Message.Types.Flag.StopSending, null));
+        Assert.That(await close.WaitAsync(TestTimeout), Is.EqualTo(IOResult.Ok));
+        Assert.That(channel.IsClosed, Is.False, "an unacknowledged FIN must not close the data channel early");
+    }
 
-        await close.WaitAsync(TestTimeout);
+    [Test]
+    public async Task CloseAfterThePeerClosedAndWentAway_DoesNotWaitForFinAck(CancellationToken token)
+    {
+        // The usual request/response ending: the peer answers, closes the whole stream and its
+        // owner disposes it, so nothing is left there to acknowledge the FIN sent afterwards.
+        (FakeWebRtcDataChannel localDataChannel, FakeWebRtcDataChannel remoteDataChannel) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel local = new(localDataChannel, TimeSpan.FromSeconds(30));
+        WebRtcChannel remote = new(remoteDataChannel);
+
+        Assert.That(await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 }), token), Is.EqualTo(IOResult.Ok));
+        await remote.CloseAsync().AsTask().WaitAsync(TestTimeout, token);
+        await remote.DisposeAsync();
+
+        ReadResult answer = await local.ReadAsync(2, token: token);
+        Assert.That(answer.Data.ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
+        await local.CloseAsync().AsTask().WaitAsync(TestTimeout, token);
+
+        Assert.That(Flags(localDataChannel), Is.EqualTo(new[] { Message.Types.Flag.FinAck, Message.Types.Flag.Fin }));
+        Assert.That(local.GetAwaiter().IsCompleted, Is.True);
     }
 
     [Test]
