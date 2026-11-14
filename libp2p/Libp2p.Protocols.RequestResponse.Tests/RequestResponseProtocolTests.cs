@@ -89,6 +89,48 @@ public class RequestResponseProtocolTests
     }
 
     [Test]
+    public async Task DialAndListen_WriteVarintLengthPrefixedProtobuf()
+    {
+        StringValue request = new() { Value = new string('q', 300) };
+        StringValue reply = new() { Value = new string('r', 200) };
+        byte[] requestFrame = Frame(request);
+        byte[] replyFrame = Frame(reply);
+        RequestResponseProtocol<StringValue, StringValue> protocol = new(
+            "/test/1.0.0", (_, _) => Task.FromResult(reply));
+        ISessionContext context = Substitute.For<ISessionContext>();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+
+        Channel dialChannel = new();
+        Task<StringValue> dial = protocol.DialAsync(dialChannel, context, request);
+        byte[] dialed = (await dialChannel.Reverse.ReadAsync(requestFrame.Length, ReadBlockingMode.WaitAll, timeout.Token).OrThrow()).ToArray();
+        Assert.That(await dialChannel.Reverse.WriteAsync(new ReadOnlySequence<byte>(replyFrame), timeout.Token), Is.EqualTo(IOResult.Ok));
+        StringValue dialResponse = await dial.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Channel listenChannel = new();
+        Task listen = protocol.ListenAsync(listenChannel.Reverse, context);
+        Assert.That(await listenChannel.WriteAsync(new ReadOnlySequence<byte>(requestFrame), timeout.Token), Is.EqualTo(IOResult.Ok));
+        byte[] replied = (await listenChannel.ReadAsync(replyFrame.Length, ReadBlockingMode.WaitAll, timeout.Token).OrThrow()).ToArray();
+        await listen.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dialed, Is.EqualTo(requestFrame));
+            Assert.That(dialResponse, Is.EqualTo(reply));
+            Assert.That(replied, Is.EqualTo(replyFrame));
+        });
+
+        static byte[] Frame(StringValue message)
+        {
+            byte[] body = message.ToByteArray();
+            byte[] frame = new byte[VarInt.GetSizeInBytes(body.Length) + body.Length];
+            int offset = 0;
+            VarInt.Encode(body.Length, frame, ref offset);
+            body.CopyTo(frame, offset);
+            return frame;
+        }
+    }
+
+    [Test]
     public async Task ReplyRemainsReadableWithTrailingRequestBytes()
     {
         TaskCompletionSource requestParsed = new(TaskCreationOptions.RunContinuationsAsynchronously);
