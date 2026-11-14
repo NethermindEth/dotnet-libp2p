@@ -449,11 +449,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
         {
-            foreach (Delegate handler in OnMessage?.GetInvocationList() ?? [])
+            if (topicState.TryGetValue(topic, out Topic? topicSubscribers))
+            {
+                topicSubscribers.Deliver(receivedFrom, data);
+            }
+
+            Action<string, PeerId, byte[]>? onMessage = OnMessage;
+            if (onMessage is null)
+            {
+                continue;
+            }
+
+            foreach (Action<string, PeerId, byte[]> handler in Delegate.EnumerateInvocationList(onMessage))
             {
                 try
                 {
-                    ((Action<string, PeerId, byte[]>)handler)(topic, receivedFrom, data);
+                    handler(topic, receivedFrom, data);
                 }
                 catch (Exception ex)
                 {
@@ -464,11 +475,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         foreach ((string topic, PeerId receivedFrom, PartialMessage message) in receivedPartialMessages)
         {
-            foreach (Delegate handler in OnPartialMessage?.GetInvocationList() ?? [])
+            if (topicState.TryGetValue(topic, out Topic? topicSubscribers))
+            {
+                topicSubscribers.DeliverPartial(receivedFrom, message);
+            }
+
+            Action<string, PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
+            if (onPartialMessage is null)
+            {
+                continue;
+            }
+
+            foreach (Action<string, PeerId, PartialMessage> handler in Delegate.EnumerateInvocationList(onPartialMessage))
             {
                 try
                 {
-                    ((Action<string, PeerId, PartialMessage>)handler)(topic, receivedFrom, message);
+                    handler(topic, receivedFrom, message);
                 }
                 catch (Exception ex)
                 {
