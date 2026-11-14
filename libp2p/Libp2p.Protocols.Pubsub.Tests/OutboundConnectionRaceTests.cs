@@ -12,6 +12,82 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [CancelAfter(5_000)]
 public class OutboundConnectionRaceTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AnotherIncomingSessionGetsItsDeferredReplyWithoutARetryBudget(bool autoConnect)
+    {
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            AutoConnect = autoConnect,
+            ReconnectionAttempts = 0,
+            ReconnectionPeriod = int.MaxValue,
+        });
+        await router.StartAsync(CreateLocal(Substitute.For<ISession>()));
+        Multiaddress address = TestPeers.Multiaddr(2);
+        TaskCompletionSource firstIncoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource firstReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource secondIncoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource secondReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, firstIncoming.Task, () => firstReply.Task);
+            router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, secondIncoming.Task,
+                () => { secondReply.TrySetResult(); return Task.CompletedTask; });
+            Assert.That(secondReply.Task.IsCompleted, Is.False);
+            firstIncoming.SetResult();
+            firstReply.SetException(new IOException("First session failed"));
+            await secondReply.Task.WaitAsync(TestContext.CurrentContext.CancellationToken);
+        }
+        finally
+        {
+            firstIncoming.TrySetResult();
+            firstReply.TrySetResult();
+            secondIncoming.TrySetResult();
+        }
+    }
+
+    [Test]
+    public async Task WriterAttachmentDiscardsQueuedRecoveryAndResetsItsRetryBudget()
+    {
+        const int retries = 2;
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings
+        {
+            ReconnectionAttempts = retries,
+            ReconnectionPeriod = int.MaxValue,
+        });
+        ILocalPeer local = CreateLocal(Substitute.For<ISession>());
+        int dials = 0;
+        local.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            Interlocked.Increment(ref dials);
+            return Task.FromException<ISession>(new IOException("Connection failed"));
+        });
+        await router.StartAsync(local);
+        Multiaddress address = TestPeers.Multiaddr(2);
+        TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource writer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
+                () => Task.FromException(new IOException("Reply failed"))).Token;
+            using CancellationTokenRegistration registration = closed.Register(() => removed.TrySetResult());
+            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, _ => { });
+            router.Reconnect(CancellationToken.None);
+            Assert.That(Volatile.Read(ref dials), Is.Zero);
+
+            writer.SetResult();
+            await removed.Task.WaitAsync(TestContext.CurrentContext.CancellationToken);
+            for (int tick = 0; tick < retries + 2; tick++) router.Reconnect(CancellationToken.None);
+            Assert.That(Volatile.Read(ref dials), Is.EqualTo(retries));
+        }
+        finally
+        {
+            incoming.TrySetResult();
+            writer.TrySetResult();
+        }
+    }
+
     [Test]
     public async Task DirectLoopRepairsAnIncomingGenerationWithoutAWriter()
     {

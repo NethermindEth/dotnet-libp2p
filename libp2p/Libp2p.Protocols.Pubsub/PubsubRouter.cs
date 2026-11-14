@@ -707,6 +707,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             int remaining = rec.AttemptsRemaining - 1;
             lock (this)
             {
+                PeerId? peerId = addresses.FirstOrDefault()?.GetPeerId();
+                if (peerId is not null && peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.HasWriter)
+                {
+                    if (rec.Policy is { } connected) connected.RetryQueued = false;
+                    continue;
+                }
                 if (rec.Policy is { } policy)
                 {
                     policy.RetryQueued = false;
@@ -1104,7 +1110,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 Track(reply.Task);
             }
-            else if (!peer.HasWriter && outboundDials.TryGetValue(peerId, out OutboundDialAttempt? pending) && !ReferenceEquals(pending.Owner, peer) &&
+            else if (!peer.HasWriter && outboundDials.TryGetValue(peerId, out OutboundDialAttempt? pending) &&
                 (pending.Reply is null || !ReferenceEquals(pending.Reply.Peer, peer)))
             {
                 pending.Reply = new DeferredReply(peer, subDial);
