@@ -248,7 +248,7 @@ public class Identity
                 }
             case KeyType.Ecdsa:
                 {
-                    ECDsa e = ECDsa.Create();
+                    using ECDsa e = ECDsa.Create();
                     e.ImportECPrivateKey(PrivateKey.Data.Span, out _);
                     return e.SignData(message, HashAlgorithmName.SHA256,
                         DSASignatureFormat.Rfc3279DerSequence);
