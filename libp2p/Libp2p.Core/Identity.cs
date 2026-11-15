@@ -24,6 +24,8 @@ public class Identity
 {
     private const KeyType DefaultKeyType = KeyType.Ed25519;
 
+    private byte[]? _peerIdBytes;
+
     public PublicKey PublicKey { get; }
     public PrivateKey? PrivateKey { get; }
 
@@ -277,5 +279,5 @@ public class Identity
         }
     }
 
-    public PeerId PeerId => new(PublicKey);
+    public PeerId PeerId => new([.. _peerIdBytes ??= new PeerId(PublicKey).Bytes]);
 }
