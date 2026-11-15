@@ -26,7 +26,8 @@ public class SessionCancellationTests
 
         Assert.CatchAsync<OperationCanceledException>(async () =>
             await setup.Outgoing.DialAsync<ControlledProtocol, int, int>(1, new(true)));
-        // A successful following stream is a barrier through the same muxer request queue.
+        // The pre-canceled dial is rejected before enqueueing. Complete another stream
+        // before checking invocation counts, and verify the session remains usable.
         Assert.That(await setup.Outgoing.DialAsync<IncrementNumberTestProtocol, int, int>(41).WaitAsync(Timeout), Is.EqualTo(42));
         Assert.That(setup.Dialer.Calls, Is.Zero);
         Assert.That(setup.Listener.Calls, Is.Zero);

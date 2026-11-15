@@ -77,7 +77,8 @@ public partial class LocalPeer
                 if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
                 token.ThrowIfCancellationRequested();
                 connectionToken.ThrowIfCancellationRequested();
-                // Admission and publication must be atomic with respect to disconnect's drain.
+                // Publish before releasing the lock: disconnect sets _disconnection under
+                // this lock, rejecting later dials before draining the queue outside the lock.
                 SubDialRequests.Add(new UpgradeOptions()
                 {
                     CompletionSource = tcs,

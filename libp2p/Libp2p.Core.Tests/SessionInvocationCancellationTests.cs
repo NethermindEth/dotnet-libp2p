@@ -112,17 +112,18 @@ internal class SessionInvocationCancellationTests
         await session.DisconnectAsync();
     }
 
-    [TestCase(false, false)]
-    [TestCase(true, false)]
-    [TestCase(false, true)]
-    public async Task RunningInvocationObservesItsLifetime(bool listener, bool cancelCaller)
+    [TestCase(false, false, false)]
+    [TestCase(true, false, false)]
+    [TestCase(false, true, true)]
+    [TestCase(false, true, false)]
+    public async Task RunningInvocationObservesItsLifetime(bool listener, bool tokenSupplied, bool cancelCaller)
     {
         Probe protocol = new();
         ProtocolRef parent = new(protocol);
         await using LocalPeer peer = CreatePeer(parent, protocol);
         LocalPeer.Session session = new(peer);
         using CancellationTokenSource caller = new();
-        UpgradeOptions? options = cancelCaller ? new() { SelectedProtocol = protocol, CancellationToken = caller.Token } : null;
+        UpgradeOptions? options = tokenSupplied ? new() { SelectedProtocol = protocol, CancellationToken = caller.Token } : null;
         Task work = peer.Upgrade(session, new Channel(), parent, protocol, options, listener, null);
         try
         {
@@ -135,6 +136,7 @@ internal class SessionInvocationCancellationTests
             Assert.CatchAsync<OperationCanceledException>(async () => await work.WaitAsync(Timeout));
             Assert.That(protocol.Token.IsCancellationRequested, Is.True);
             Assert.That(session.Closed.IsCancellationRequested, Is.EqualTo(!cancelCaller));
+            Assert.That(caller.IsCancellationRequested, Is.EqualTo(cancelCaller));
         }
         finally
         {
