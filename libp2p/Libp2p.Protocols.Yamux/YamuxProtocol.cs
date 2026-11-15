@@ -105,12 +105,19 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
         void TrackWorker(Task worker)
         {
+            if (worker.IsCompleted)
+            {
+                _ = worker.Exception;
+                return;
+            }
+
             lock (streamWorkers) streamWorkers.Add(worker);
-            _ = worker.ContinueWith(t =>
+            _ = worker.ContinueWith(static (t, state) =>
             {
                 _ = t.Exception;
-                lock (streamWorkers) streamWorkers.Remove(t);
-            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                HashSet<Task> workers = (HashSet<Task>)state!;
+                lock (workers) workers.Remove(t);
+            }, streamWorkers, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         try
@@ -338,18 +345,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
                                header.StreamID, available, stream.LocalWindow.Available);
 
-                    int dataLength = (int)data.Length;
-                    TrackWorker(stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
-                    {
-                        if (!t.IsCompletedSuccessfully)
-                        {
-                            Exception? failure = t.Exception;
-                            _logger?.LogWarning(failure, "Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
-                            return;
-                        }
-
-                        ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    }));
+                    TrackWorker(DeliverAsync(stream.Channel!, data, session.Id, header.StreamID));
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -372,6 +368,23 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             }
 
             await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
+
+            async Task DeliverAsync(IChannel upChannel, ReadOnlySequence<byte> payload, string sessionId, int streamId)
+            {
+                int length = (int)payload.Length;
+                IOResult result;
+                try
+                {
+                    result = await upChannel.WriteAsync(payload);
+                }
+                catch (Exception e)
+                {
+                    _logger?.LogWarning(e, "Ctx({ctx}), stream {stream id}: Failed to send upstream", sessionId, streamId);
+                    return;
+                }
+
+                ExtendWindow(channel, sessionId, streamId, result, length);
+            }
 
             async Task DiscardPayloadAsync(YamuxHeader discarded)
             {
