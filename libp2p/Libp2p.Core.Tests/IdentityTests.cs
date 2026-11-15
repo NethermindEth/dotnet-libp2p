@@ -43,6 +43,24 @@ public class IdentityTests
     public void Test_KeyGeneration(KeyType keyType)
         => _ = new Identity(keyType: keyType);
 
+    [TestCaseSource(nameof(KeyTypes))]
+    public void Test_PeerIdReadsAreIndependent(KeyType keyType)
+    {
+        Identity identity = new(keyType: keyType);
+        PeerId expected = new(identity.PublicKey);
+
+        PeerId first = identity.PeerId;
+        first.Bytes[^1] ^= 0xFF;
+        PeerId second = identity.PeerId;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second, Is.Not.SameAs(first));
+            Assert.That(second, Is.EqualTo(expected));
+            Assert.That(second.GetHashCode(), Is.EqualTo(expected.GetHashCode()));
+        });
+    }
+
     public static IEnumerable<TestCaseData> KeyTypes()
         => Enum.GetValues<KeyType>().Select(kt => new TestCaseData(kt) { TestName = kt.ToString() });
 
