@@ -145,13 +145,16 @@ public class OpportunisticGraftTests
         router.GetTopic("topic");
         await Open(router, 1, 0, inMesh: true);
         await Open(router, 2, 1, inMesh: true);
-        await Open(router, 3, 10, inMesh: true);
+        Peer third = await Open(router, 3, 10, inMesh: true);
+        DateTime? joinedAt = third.State.Score.GetTopicScore("topic").MeshJoinTime;
         Peer candidate = await Open(router, 4, 2);
 
         await Tick(router);
 
         Assert.That(candidate.Grafts.Select(graft => graft.TopicID), Is.EqualTo(new[] { "topic" }));
         Assert.That(Mesh(router), Has.Member(candidate.Id));
+        Assert.That(third.Grafts, Is.Empty);
+        Assert.That(third.State.Score.GetTopicScore("topic").MeshJoinTime, Is.EqualTo(joinedAt));
     }
 
     [TestCase(0)]
