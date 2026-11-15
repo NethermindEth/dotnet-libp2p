@@ -247,6 +247,49 @@ public class HandshakeFramingTests
         }
     }
 
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task MirrorsSiblingPumpFailure(int message)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        TaskCompletionSource writing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<ReadResult> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<IOResult> write = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        IChannel up = Substitute.For<IChannel>();
+        up.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<ReadResult>(read.Task));
+        up.WriteAsync(Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            writing.TrySetResult();
+            return new ValueTask<IOResult>(write.Task);
+        });
+        up.GetAwaiter().Returns(shutdown.Task.GetAwaiter());
+        up.CloseAsync().Returns(_ => { shutdown.TrySetResult(); return ValueTask.CompletedTask; });
+        up.AbortAsync().Returns(_ => { shutdown.TrySetResult(); return ValueTask.CompletedTask; });
+        using HandshakePeer peer = new(message, upChannel: up);
+        try
+        {
+            await peer.AuthenticateAsync(deadline.Token);
+            // The receive pump decrypts a valid record and blocks delivering it upstream.
+            await peer.SendAsync(peer.DataFrame(), false, deadline.Token);
+            await writing.Task.WaitAsync(deadline.Token);
+            // Let the send pump end normally before faulting its blocked sibling.
+            read.SetResult(ReadResult.Ended);
+            await shutdown.Task.WaitAsync(deadline.Token);
+            Assert.That(peer.Subject.IsCompleted, Is.False);
+            InvalidOperationException siblingFailure = new("Receive pump failed during shutdown.");
+            write.SetException(siblingFailure);
+            Assert.That(Assert.ThrowsAsync<InvalidOperationException>(async () => await peer.Subject.WaitAsync(deadline.Token)), Is.SameAs(siblingFailure));
+        }
+        finally
+        {
+            read.TrySetResult(ReadResult.Aborted);
+            write.TrySetResult(IOResult.Ended);
+            await peer.CloseAsync(allowRejection: true);
+        }
+    }
+
     private sealed class HandshakePeer : IDisposable
     {
         private readonly int _message;
