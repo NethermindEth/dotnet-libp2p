@@ -31,3 +31,10 @@ public class TcpPeerFactoryBuilder(IServiceProvider provider)
 
 Register a derived builder with `services.AddLibp2p<TcpPeerFactoryBuilder>()`.
 The existing `With*` options continue to control the base hook implementations.
+
+WebSockets, WebRTC Direct and Kademlia DHT ship as separate packages and are not
+dependencies of this package. Add `Nethermind.Libp2p.Protocols.WebSockets`,
+`Nethermind.Libp2p.Protocols.WebRtc` or `Nethermind.Libp2p.Protocols.KadDht` to
+use `WithWebSockets()`, `WithWebRtcDirect()` or `AddKadDht()`. Other transport
+packages can plug in through `WithStreamTransport<T>()` and
+`WithDatagramTransport<T>()`.

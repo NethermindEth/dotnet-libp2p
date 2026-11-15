@@ -442,8 +442,8 @@ public class ServiceCollectionExtensionsTests
 
         public ILibp2pPeerFactoryBuilder WithQuic() => this;
 
-        public ILibp2pPeerFactoryBuilder WithWebSockets() => this;
+        public ILibp2pPeerFactoryBuilder WithStreamTransport<TTransport>() where TTransport : ITransportProtocol => this;
 
-        public ILibp2pPeerFactoryBuilder WithWebRtcDirect() => this;
+        public ILibp2pPeerFactoryBuilder WithDatagramTransport<TTransport>() where TTransport : ITransportProtocol => this;
     }
 }

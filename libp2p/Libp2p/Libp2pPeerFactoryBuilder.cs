@@ -6,7 +6,6 @@ using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Tls;
-using Nethermind.Libp2p.Protocols.WebRtc;
 
 namespace Nethermind.Libp2p;
 
@@ -30,10 +29,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(PingProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyPushProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyProtocol))]
-#if LIBP2P_WEBSOCKETS
-    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebSocketProtocol))]
-#endif
-    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebRtcDirectProtocol))]
     private static void PreserveTransportProtocolMetadata() { }
 
     /// <summary>Replace these settings before Build to configure or disable built-in protocol limits.</summary>
@@ -43,10 +38,9 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
-#if LIBP2P_WEBSOCKETS
-    private bool addWebSockets;
-#endif
-    private bool addWebRtcDirect;
+    private readonly List<Type> transportTypes = [];
+    private readonly List<Func<ProtocolRef>> streamTransports = [];
+    private readonly List<Func<ProtocolRef>> datagramTransports = [];
 
     /// <summary>
     /// Exposes the service collection for protocol integration.
@@ -82,22 +76,26 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public ILibp2pPeerFactoryBuilder WithWebSockets()
+    public ILibp2pPeerFactoryBuilder WithStreamTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol
     {
         EnsureConfigurable();
-#if LIBP2P_WEBSOCKETS
-        addWebSockets = true;
+        if (TryAddTransportType(typeof(TTransport))) streamTransports.Add(Get<TTransport>);
         return this;
-#else
-        throw new PlatformNotSupportedException("WebSockets transport is not available on this target runtime.");
-#endif
     }
 
-    public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
+    public ILibp2pPeerFactoryBuilder WithDatagramTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol
     {
         EnsureConfigurable();
-        addWebRtcDirect = true;
+        if (typeof(TTransport) == typeof(QuicProtocol)) addQuic = true;
+        else if (TryAddTransportType(typeof(TTransport))) datagramTransports.Add(Get<TTransport>);
         return this;
+    }
+
+    private bool TryAddTransportType(Type transportType)
+    {
+        if (transportType == typeof(IpTcpProtocol) || transportTypes.Contains(transportType)) return false;
+        transportTypes.Add(transportType);
+        return true;
     }
 
     /// <summary>The default Identify protocol, or null to omit it.</summary>
@@ -112,12 +110,10 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     /// <summary>Stream transports wired through encryption and multiplexing.</summary>
     protected virtual ProtocolRef[] StreamTransports()
     {
-        ProtocolRef tcp = Get<IpTcpProtocol>();
-#if LIBP2P_WEBSOCKETS
-        return addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
-#else
-        return [tcp];
-#endif
+        ProtocolRef[] transports = new ProtocolRef[streamTransports.Count + 1];
+        transports[0] = Get<IpTcpProtocol>();
+        for (int i = 0; i < streamTransports.Count; i++) transports[i + 1] = streamTransports[i]();
+        return transports;
     }
 
     /// <summary>Transports with built-in security and multiplexing, wired directly to applications.</summary>
@@ -125,7 +121,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     {
         List<ProtocolRef> transports = [];
         if (addQuic) transports.Add(Get<QuicProtocol>());
-        if (addWebRtcDirect) transports.Add(Get<WebRtcDirectProtocol>());
+        foreach (Func<ProtocolRef> transport in datagramTransports) transports.Add(transport());
         return [.. transports];
     }
 

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Nethermind.Libp2p.Core;
@@ -17,6 +18,6 @@ public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
     public ILibp2pPeerFactoryBuilder WithPubsub();
     public ILibp2pPeerFactoryBuilder WithRelay();
     public ILibp2pPeerFactoryBuilder WithQuic();
-    public ILibp2pPeerFactoryBuilder WithWebSockets();
-    public ILibp2pPeerFactoryBuilder WithWebRtcDirect();
+    public ILibp2pPeerFactoryBuilder WithStreamTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol;
+    public ILibp2pPeerFactoryBuilder WithDatagramTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol;
 }

@@ -70,6 +70,18 @@ public class StackBuilderTests
         Assert.That(apps.Select(p => p.Id), Is.EqualTo(CoreProtocols));
     }
 
+    [Test]
+    public void RepeatedTransportOptionsAddEachTransportOnce()
+    {
+        using ServiceProvider provider = new ServiceCollection().AddLibp2p(builder => builder
+            .WithWebSockets().WithWebSockets().WithStreamTransport<IpTcpProtocol>()
+            .WithWebRtcDirect().WithWebRtcDirect().WithDatagramTransport<QuicProtocol>().WithQuic())
+            .BuildServiceProvider();
+        _ = provider.GetRequiredService<IPeerFactory>();
+        ProtocolRef[] transports = provider.GetRequiredService<IProtocolStackSettings>().TopProtocols!;
+        Assert.That(transports.Select(p => p.Id), Is.EqualTo(new[] { "ip-tcp", "websocket", "quic-v1", "webrtc-direct" }));
+    }
+
     [TestCaseSource(nameof(StackVariants))]
     public void StandardStackPreservesAllOptionCombinations(int flags)
     {
