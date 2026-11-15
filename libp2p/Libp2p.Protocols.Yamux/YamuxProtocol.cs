@@ -105,12 +105,19 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
         void TrackWorker(Task worker)
         {
+            if (worker.IsCompleted)
+            {
+                _ = worker.Exception;
+                return;
+            }
+
             lock (streamWorkers) streamWorkers.Add(worker);
-            _ = worker.ContinueWith(t =>
+            _ = worker.ContinueWith(static (t, state) =>
             {
                 _ = t.Exception;
-                lock (streamWorkers) streamWorkers.Remove(t);
-            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                HashSet<Task> workers = (HashSet<Task>)state!;
+                lock (workers) workers.Remove(t);
+            }, streamWorkers, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         try
@@ -338,18 +345,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                     _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local spent window, was {available}, became {new}", session.Id,
                                header.StreamID, available, stream.LocalWindow.Available);
 
-                    int dataLength = (int)data.Length;
-                    TrackWorker(stream.Channel!.WriteAsync(data).AsTask().ContinueWith((t) =>
-                    {
-                        if (!t.IsCompletedSuccessfully)
-                        {
-                            Exception? failure = t.Exception;
-                            _logger?.LogWarning(failure, "Ctx({ctx}), stream {stream id}: Failed to send upstream", session.Id, header.StreamID);
-                            return;
-                        }
-
-                        ExtendWindow(channel, session.Id, header.StreamID, t.Result, dataLength);
-                    }));
+                    TrackWorker(DeliverAsync(stream.Channel!, data, session.Id, header.StreamID));
                 }
 
                 if (header.Type == YamuxHeaderType.WindowUpdate && header.Length != 0)
@@ -372,6 +368,23 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             }
 
             await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
+
+            async Task DeliverAsync(IChannel upChannel, ReadOnlySequence<byte> payload, string sessionId, int streamId)
+            {
+                int length = (int)payload.Length;
+                IOResult result;
+                try
+                {
+                    result = await upChannel.WriteAsync(payload);
+                }
+                catch (Exception e)
+                {
+                    _logger?.LogWarning(e, "Ctx({ctx}), stream {stream id}: Failed to send upstream", sessionId, streamId);
+                    return;
+                }
+
+                ExtendWindow(channel, sessionId, streamId, result, length);
+            }
 
             async Task DiscardPayloadAsync(YamuxHeader discarded)
             {
@@ -466,13 +479,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
                                 _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Remote window spend {sendingSize}", contextId, streamId, sendingSize);
 
-                                await WriteHeaderAsync(contextId, channel,
-                                    new YamuxHeader
-                                    {
-                                        Type = YamuxHeaderType.Data,
-                                        Length = sendingSize,
-                                        StreamID = streamId
-                                    }, new ReadOnlySequence<byte>(upData.Slice(i, sendingSize).ToArray()), state.OutboundCancellation);
+                                await WriteDataFrameAsync(contextId, channel, streamId, upData.Slice(i, sendingSize), state.OutboundCancellation);
                                 if (_closedStreamIdleTimeout is not null)
                                     Volatile.Write(ref lastOutboundProgressTimestamp, _timeProvider.GetTimestamp());
                                 i += sendingSize;
@@ -724,18 +731,35 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
         return header;
     }
 
-    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header,
-        ReadOnlySequence<byte> data = default, CancellationToken token = default)
+    private async Task WriteHeaderAsync(string contextId, IWriter writer, YamuxHeader header, CancellationToken token = default)
     {
         byte[] headerBuffer = new byte[HeaderLength];
-        if (header.Type == YamuxHeaderType.Data)
-        {
-            header.Length = (int)data.Length;
-        }
         YamuxHeader.ToBytes(headerBuffer, ref header);
 
         _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
-        await writer.WriteAsync(data.Length == 0 ? new ReadOnlySequence<byte>(headerBuffer) : data.Prepend(headerBuffer), token).OrThrow();
+        await writer.WriteAsync(new ReadOnlySequence<byte>(headerBuffer), token).OrThrow();
+    }
+
+    /// <summary>
+    /// Writes one DATA frame as a single buffer holding the header and a copy of
+    /// <paramref name="payload"/>. The copy is required: the payload still refers to the
+    /// application's buffer, which the stream channel does not protect after the read returns.
+    /// </summary>
+    private ValueTask WriteDataFrameAsync(string contextId, IWriter writer, int streamId,
+        ReadOnlySequence<byte> payload, CancellationToken token)
+    {
+        YamuxHeader header = new()
+        {
+            Type = YamuxHeaderType.Data,
+            StreamID = streamId,
+            Length = (int)payload.Length
+        };
+        byte[] frame = new byte[HeaderLength + header.Length];
+        YamuxHeader.ToBytes(frame, ref header);
+        payload.CopyTo(frame.AsSpan(HeaderLength));
+
+        _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
+        return writer.WriteAsync(new ReadOnlySequence<byte>(frame), token).OrThrow();
     }
 
     private async Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code)
