@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/protocols/">
+    <Project Path="libp2p/Libp2p.Protocols.AutoNat/Libp2p.Protocols.AutoNat.csproj" />
     <Project Path="libp2p/Libp2p.Protocols.AutoTls/Libp2p.Protocols.AutoTls.csproj" />
     <Project Path="libp2p/Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj" />
     <Project Path="libp2p/Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj" />
