@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
@@ -136,7 +137,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
                 _logger?.LogDebug("Handler processed request successfully, response type: {ResponseType}", typeof(TResponse).Name);
                 _logger?.LogTrace("Sending response of type {ResponseType}", typeof(TResponse).Name);
 
-                await channel.WriteSizeAndDataAsync(response.ToByteArray()).OrThrow();
+                await WritePrefixedAsync(channel, response).OrThrow();
 
                 _logger?.LogDebug("Response sent successfully for protocol {ProtocolId}", Id);
             }
@@ -166,7 +167,7 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             _logger?.LogDebug("Starting DialAsync for protocol {ProtocolId} to peer {RemotePeerId}",
                 Id, context.State.RemotePeerId);
 
-            await channel.WriteSizeAndDataAsync(request.ToByteArray()).OrThrow();
+            await WritePrefixedAsync(channel, request).OrThrow();
 
             // One-way messages complete after transmission; there is no wire response.
             if (_expectsResponse?.Invoke(request) == false)
@@ -201,6 +202,17 @@ public class RequestResponseProtocol<TRequest, TResponse> : ISessionProtocol<TRe
             LogFailure(ex, "DialAsync", token.IsCancellationRequested || readToken.IsCancellationRequested);
             throw;
         }
+    }
+
+    private static ValueTask<IOResult> WritePrefixedAsync<T>(IChannel channel, T message) where T : IMessage<T>
+    {
+        int length = message.CalculateSize();
+        byte[] buffer = new byte[VarInt.GetSizeInBytes(length) + length];
+        CodedOutputStream output = new(buffer);
+        output.WriteLength(length);
+        message.WriteTo(output);
+        output.CheckNoSpaceLeft();
+        return channel.WriteAsync(new ReadOnlySequence<byte>(buffer));
     }
 
     private void RecordReadTimeout(string direction)
