@@ -801,6 +801,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private static void ValidateControlSettings(PubsubSettings settings)
     {
+        if (settings.DOut < 0 || settings.DOut > 0 &&
+            (settings.DOut >= settings.LowestDegree || settings.DOut > settings.Degree / 2))
+        {
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.DOut), settings.DOut,
+                "DOut must be zero, or positive, below LowestDegree and at most Degree / 2.");
+        }
+
         if (settings.MaxIHaveMessages <= 0 || settings.MaxIHaveLength <= 0 ||
             settings.MaxIwantMessages <= 0 || settings.MaxIwantLength <= 0 ||
             settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||

@@ -25,9 +25,9 @@ public class OutboundMeshQuotaWiringTests
         PubsubSettings settings = new()
         {
             HeartbeatInterval = int.MaxValue,
-            Degree = 0,
-            LowestDegree = 0,
-            HighestDegree = 0,
+            Degree = 2,
+            LowestDegree = 2,
+            HighestDegree = 2,
             DOut = 1,
             DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
             GetMessageId = message => new MessageId(message.Data.ToByteArray()),
@@ -37,8 +37,15 @@ public class OutboundMeshQuotaWiringTests
         WirePeer wire = new();
         await using ServiceProvider remoteServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(wire)).BuildServiceProvider();
+        WirePeer firstMeshWire = new(), secondMeshWire = new();
+        await using ServiceProvider firstMeshServices = new ServiceCollection()
+            .AddLibp2p(builder => builder.AddProtocol(firstMeshWire)).BuildServiceProvider();
+        await using ServiceProvider secondMeshServices = new ServiceCollection()
+            .AddLibp2p(builder => builder.AddProtocol(secondMeshWire)).BuildServiceProvider();
         await using ILocalPeer local = services.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer remote = remoteServices.GetRequiredService<IPeerFactory>().Create();
+        await using ILocalPeer firstMeshPeer = firstMeshServices.GetRequiredService<IPeerFactory>().Create();
+        await using ILocalPeer secondMeshPeer = secondMeshServices.GetRequiredService<IPeerFactory>().Create();
         await local.StartListenAsync([(Multiaddress)"/ip4/127.0.0.1/tcp/0"], token);
         await remote.StartListenAsync([(Multiaddress)"/ip4/127.0.0.1/tcp/0"], token);
         PubsubRouter router = services.GetRequiredService<PubsubRouter>();
@@ -51,11 +58,38 @@ public class OutboundMeshQuotaWiringTests
             if (topic == "marker") markers.Writer.TryWrite(data[0]);
         };
 
+        async Task Receive(IChannel input, Rpc rpc, byte marker)
+        {
+            await input.WriteSizeAndProtobufAsync(rpc);
+            await input.WriteSizeAndProtobufAsync(new Rpc
+            {
+                Publish = { new Message { Topic = "marker", Data = ByteString.CopyFrom([marker]) } },
+            });
+            Assert.That(await markers.Reader.ReadAsync(token), Is.EqualTo(marker));
+        }
+
         if (outbound) await local.DialAsync(remote.ListenAddresses.First(), token);
         ISession session = await remote.DialAsync(local.ListenAddresses.First(), token);
         Task stream = Task.CompletedTask;
+        List<(ISession Session, Task Stream)> meshStreams = [];
         try
         {
+            // Populate D_lo and D_hi through real inbound connections, with a valid D_out = D / 2.
+            foreach ((ILocalPeer meshPeer, WirePeer meshWire) in new[] { (firstMeshPeer, firstMeshWire), (secondMeshPeer, secondMeshWire) })
+            {
+                ISession meshSession = await meshPeer.DialAsync(local.ListenAddresses.First(), token);
+                Task meshStream = meshSession.DialAsync(meshWire, token);
+                meshStreams.Add((meshSession, meshStream));
+                IChannel meshInput = await meshWire.Dialed.Task.WaitAsync(token);
+                await Receive(meshInput, new Rpc
+                {
+                    Control = new ControlMessage
+                    {
+                        Graft = { new ControlGraft { TopicID = "topic" }, new ControlGraft { TopicID = "graft" } },
+                    },
+                }, (byte)(3 + meshStreams.Count));
+            }
+
             // For outbound connections, the remote opens pubsub first. For inbound connections,
             // discovery opens our writer on the already established inbound session first.
             if (outbound) stream = session.DialAsync(wire, token);
@@ -64,17 +98,7 @@ public class OutboundMeshQuotaWiringTests
             if (!outbound) stream = session.DialAsync(wire, token);
             IChannel input = await wire.Dialed.Task.WaitAsync(token);
 
-            async Task Receive(Rpc rpc, byte marker)
-            {
-                await input.WriteSizeAndProtobufAsync(rpc);
-                await input.WriteSizeAndProtobufAsync(new Rpc
-                {
-                    Publish = { new Message { Topic = "marker", Data = ByteString.CopyFrom([marker]) } },
-                });
-                Assert.That(await markers.Reader.ReadAsync(token), Is.EqualTo(marker));
-            }
-
-            await Receive(new Rpc { Subscriptions = { new Rpc.Types.SubOpts { Topicid = "topic", Subscribe = true } } }, 1);
+            await Receive(input, new Rpc { Subscriptions = { new Rpc.Types.SubOpts { Topicid = "topic", Subscribe = true } } }, 1);
             await router.Heartbeat();
             lock (router)
             {
@@ -87,7 +111,7 @@ public class OutboundMeshQuotaWiringTests
                 Assert.That(graft.Control.Graft.Any(g => g.TopicID == "topic"), Is.True);
             }
 
-            await Receive(new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "graft" } } } }, 2);
+            await Receive(input, new Rpc { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = "graft" } } } }, 2);
             lock (router)
                 Assert.That(((IRoutingStateContainer)router).Mesh["graft"].Contains(remote.Identity.PeerId), Is.EqualTo(outbound),
                     "At D_hi, only a peer on an outbound connection may join.");
@@ -96,10 +120,14 @@ public class OutboundMeshQuotaWiringTests
         }
         finally
         {
+            foreach (var meshStream in meshStreams) await meshStream.Session.DisconnectAsync();
             await session.DisconnectAsync();
             await router.DisposeAsync();
-            try { await stream.WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (OperationCanceledException) when (stream.IsCanceled) { }
+            foreach (Task ownedStream in meshStreams.Select(meshStream => meshStream.Stream).Append(stream))
+            {
+                try { await ownedStream.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (OperationCanceledException) when (ownedStream.IsCanceled) { }
+            }
         }
     }
 

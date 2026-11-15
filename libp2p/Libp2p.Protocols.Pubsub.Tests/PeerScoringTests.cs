@@ -437,6 +437,7 @@ public class PeerScoringTests
             HeartbeatInterval = int.MaxValue,
             Degree = 2,
             LowestDegree = 1,
+            DOut = 0,
             HighestDegree = 3
         };
         settings.TopicScoreParams[TestTopic] = CreateDefaultTopicParams();

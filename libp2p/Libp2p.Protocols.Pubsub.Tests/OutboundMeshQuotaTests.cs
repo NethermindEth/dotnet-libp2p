@@ -10,6 +10,37 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [CancelAfter(20_000)]
 public class OutboundMeshQuotaTests
 {
+    [TestCase(-1, 6, 4)]
+    [TestCase(10, 6, 4)]
+    [TestCase(4, 10, 4)]
+    [TestCase(5, 10, 4)]
+    [TestCase(4, 6, 5)]
+    [TestCase(3, 5, 4)]
+    [TestCase(1, 1, 2)]
+    [TestCase(1, 0, 2)]
+    public void InvalidOutboundQuotaIsRejectedAtConstruction(int quota, int degree, int low)
+    {
+        PubsubSettings settings = new() { DOut = quota, Degree = degree, LowestDegree = low };
+        ArgumentOutOfRangeException? exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            using PubsubRouter router = new(new PeerStore(), settings);
+        });
+        Assert.That(exception!.ParamName, Is.EqualTo(nameof(PubsubSettings.DOut)));
+    }
+
+    [TestCase(0, 0, 0)]
+    [TestCase(0, 1, 0)]
+    [TestCase(1, 2, 2)]
+    [TestCase(2, 4, 3)]
+    [TestCase(2, 5, 3)]
+    [TestCase(3, 6, 4)]
+    [TestCase(2, 6, 4)]
+    [TestCase(int.MaxValue / 2, int.MaxValue, int.MaxValue)]
+    public void DisabledOrSpecCompliantOutboundQuotaIsAccepted(int quota, int degree, int low)
+    {
+        using PubsubRouter router = new(new PeerStore(), new PubsubSettings { DOut = quota, Degree = degree, LowestDegree = low });
+    }
+
     [Test]
     public async Task GraftAtCapacityUsesConnectionDirection(
         [Values(ConnectionDirection.Inbound, ConnectionDirection.Outbound, ConnectionDirection.Unknown)] ConnectionDirection direction,
@@ -86,45 +117,59 @@ public class OutboundMeshQuotaTests
 
         int missing = Math.Max(0, quota - outbound);
         Assert.That(test.Mesh, Has.Count.EqualTo(size + missing));
-        Assert.That(test.Mesh.Except(before), Is.EquivalentTo(new[] { first.PeerId, second.PeerId }.Take(missing)));
+        PeerId[] grafted = test.Mesh.Except(before).ToArray();
+        Assert.That(grafted, Has.Length.EqualTo(missing));
+        Assert.That(grafted, Is.SubsetOf(new[] { first.PeerId, second.PeerId }));
         Assert.That(test.Sent.Values.SelectMany(rpcs => rpcs).SelectMany(rpc => rpc.Control?.Graft ?? []).Count(), Is.EqualTo(missing));
         foreach (var peer in test.Peers.Values.Where(p => !before.Contains(p.PeerId)))
             Assert.That(peer.Score.GetTopicScore("topic").MeshJoinTime is not null, Is.EqualTo(test.Mesh.Contains(peer.PeerId)));
     }
 
-    [Test]
-    public async Task SmallMeshFillsDegreeThenOutboundQuota()
+    [TestCase(3)]
+    [TestCase(6)]
+    public async Task HeartbeatFillsDegreeAndOutboundQuotaForAnyCandidateOrder(int initialSize)
     {
         await using MeshTest test = new();
-        await test.Seed(3);
-        for (int id = 4; id <= 6; id++) await test.Add(id, ConnectionDirection.Inbound);
+        await test.Seed(initialSize);
+        for (int id = initialSize + 1; id <= 6; id++) await test.Add(id, ConnectionDirection.Inbound);
         var first = await test.Add(20, ConnectionDirection.Outbound);
         var second = await test.Add(21, ConnectionDirection.Outbound);
         await test.Heartbeat();
         Assert.Multiple(() =>
         {
-            Assert.That(test.Mesh, Has.Count.EqualTo(8));
+            Assert.That(test.Mesh.Count, Is.InRange(test.Settings.Degree, test.Settings.Degree + test.Settings.DOut));
             Assert.That(test.Mesh, Does.Contain(first.PeerId));
             Assert.That(test.Mesh, Does.Contain(second.PeerId));
         });
+        if (initialSize == test.Settings.Degree) Assert.That(test.Mesh, Has.Count.EqualTo(8));
     }
 
-    [TestCase(0)]
-    [TestCase(1)]
-    [TestCase(2)]
-    [TestCase(5)]
-    public async Task PruningKeepsExactlyDegreeAndAvailableOutboundQuota(int outbound)
+    [TestCase(0, false)]
+    [TestCase(1, false)]
+    [TestCase(2, false)]
+    [TestCase(5, false)]
+    [TestCase(0, true)]
+    [TestCase(1, true)]
+    [TestCase(2, true)]
+    [TestCase(5, true)]
+    public async Task PruningKeepsExactlyDegreeAndAvailableOutboundQuota(int outbound, bool tiedScores)
     {
+        HashSet<string> keptSets = [];
         for (int iteration = 0; iteration < 20; iteration++)
         {
             await using MeshTest test = new();
+            // With every slot protected, tied scores isolate the initial shuffle from the tail shuffle.
+            if (tiedScores) test.Settings.DScore = test.Settings.Degree;
             await test.Seed(9, outbound);
-            foreach ((int id, var peer) in test.Peers) test.Router.SetAppSpecificScore(peer.PeerId, 10 - id);
+            if (tiedScores) Assert.That(test.Peers.Values.All(peer => test.Router.GetPeerScore(peer.PeerId) == 0), Is.True);
+            else foreach ((int id, var peer) in test.Peers) test.Router.SetAppSpecificScore(peer.PeerId, 10 - id);
             await test.Heartbeat();
             Assert.That(test.Mesh, Has.Count.EqualTo(6));
             Assert.That(test.Peers.Values.Count(p => p.Direction == ConnectionDirection.Outbound && test.Mesh.Contains(p.PeerId)),
                 Is.GreaterThanOrEqualTo(Math.Min(2, outbound)));
-            Assert.That(test.Mesh, Is.SupersetOf(Enumerable.Range(1, 4).Select(TestPeers.PeerId)), "D_score survives when it leaves room for D_out.");
+            if (!tiedScores)
+                Assert.That(test.Mesh, Is.SupersetOf(Enumerable.Range(1, 4).Select(TestPeers.PeerId)), "D_score survives when it leaves room for D_out.");
+            keptSets.Add(string.Join(",", Enumerable.Range(1, 9).Where(id => test.Mesh.Contains(TestPeers.PeerId(id)))));
             foreach (var peer in test.Peers.Values)
             {
                 bool pruned = !test.Mesh.Contains(peer.PeerId);
@@ -133,6 +178,8 @@ public class OutboundMeshQuotaTests
                 Assert.That(peer.Score.GetTopicScore("topic").MeshJoinTime is null, Is.EqualTo(pruned));
             }
         }
+        // Distinct scores with no outbound peers isolate random selection after the D_score prefix.
+        if (tiedScores || outbound == 0) Assert.That(keptSets.Count, Is.GreaterThan(1));
     }
 
     [Test]
