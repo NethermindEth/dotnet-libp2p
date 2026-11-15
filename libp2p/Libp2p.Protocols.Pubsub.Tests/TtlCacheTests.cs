@@ -30,6 +30,28 @@ public class TtlCacheTests
         });
     }
 
+    [Test]
+    public void ContainsByBytes_FindsLiveEntriesAndRemovesExpiredOnes()
+    {
+        TestTimeProvider clock = new();
+        using TtlCache<MessageId> cache = new(500, int.MaxValue, clock, MessageIdComparer.Instance);
+        cache.Add(new MessageId([1, 2]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2]), Is.True);
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 3]), Is.False);
+        });
+
+        clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2]), Is.False);
+            Assert.That(cache.Count, Is.Zero);
+        });
+    }
+
     [TestCase("Contains")]
     [TestCase("TryGet")]
     [TestCase("Get")]
