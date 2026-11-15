@@ -61,6 +61,7 @@
   </Folder>
   <Project Path="Libp2p.Core.Benchmarks/Libp2p.Core.Benchmarks.csproj" />
   <Project Path="Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj" />
+  <Project Path="Libp2p.Protocols.Muxer.Benchmarks/Libp2p.Protocols.Muxer.Benchmarks.csproj" />
   <Project Path="Libp2p.Core.Tests/Libp2p.Core.Tests.csproj" />
   <Project Path="Libp2p.Core.TestsBase/Libp2p.Core.TestsBase.csproj" />
   <Project Path="Libp2p.Core/Libp2p.Core.csproj" />
