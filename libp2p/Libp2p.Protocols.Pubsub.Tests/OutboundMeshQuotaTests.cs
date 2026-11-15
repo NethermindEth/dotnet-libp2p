@@ -18,6 +18,12 @@ public class OutboundMeshQuotaTests
     [TestCase(3, 5, 4)]
     [TestCase(1, 1, 2)]
     [TestCase(1, 0, 2)]
+    [TestCase(1, 2, 2)]
+    [TestCase(1, 3, 2)]
+    [TestCase(2, 4, 3)]
+    [TestCase(2, 5, 3)]
+    [TestCase(3, 6, 4)]
+    [TestCase(3, 7, 4)]
     public void InvalidOutboundQuotaIsRejectedAtConstruction(int quota, int degree, int low)
     {
         PubsubSettings settings = new() { DOut = quota, Degree = degree, LowestDegree = low };
@@ -30,13 +36,13 @@ public class OutboundMeshQuotaTests
 
     [TestCase(0, 0, 0)]
     [TestCase(0, 1, 0)]
-    [TestCase(1, 2, 2)]
-    [TestCase(2, 4, 3)]
-    [TestCase(2, 5, 3)]
-    [TestCase(3, 6, 4)]
+    [TestCase(1, 4, 2)]
+    [TestCase(1, 5, 2)]
     [TestCase(2, 6, 4)]
-    [TestCase(int.MaxValue / 2, int.MaxValue, int.MaxValue)]
-    public void DisabledOrSpecCompliantOutboundQuotaIsAccepted(int quota, int degree, int low)
+    [TestCase(2, 7, 4)]
+    [TestCase(3, 8, 4)]
+    [TestCase(int.MaxValue / 2 - 1, int.MaxValue, int.MaxValue)]
+    public void DisabledOrGoCompatibleOutboundQuotaIsAccepted(int quota, int degree, int low)
     {
         using PubsubRouter router = new(new PeerStore(), new PubsubSettings { DOut = quota, Degree = degree, LowestDegree = low });
     }

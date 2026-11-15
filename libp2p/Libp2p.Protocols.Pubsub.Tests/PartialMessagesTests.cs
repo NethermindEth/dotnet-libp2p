@@ -437,7 +437,7 @@ public class PartialMessagesTests
             HeartbeatInterval = int.MaxValue,
             Degree = 3,
             LowestDegree = 3,
-            DOut = 1,
+            DOut = 0,
             HighestDegree = 3,
         });
         IPartialMessagesTopic topic = router.GetPartialMessagesTopic(topicName, new PartialMessagesTopicOptions

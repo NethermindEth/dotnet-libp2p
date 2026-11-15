@@ -12,7 +12,7 @@ namespace Libp2p.Protocols.Pubsub.E2eTests;
 
 public class PubsubE2eTestSetup : E2eTestSetup
 {
-    public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 3, DOut = 1, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200, ReconnectionPeriod = 2_000, PruneBackoff = 5_000 };
+    public PubsubSettings DefaultSettings { get; set; } = new PubsubSettings { LowestDegree = 2, Degree = 4, DOut = 1, LazyDegree = 3, HighestDegree = 4, HeartbeatInterval = 200, ReconnectionPeriod = 2_000, PruneBackoff = 5_000 };
     public Dictionary<int, PubsubRouter> Routers { get; } = [];
 
     /// <summary>

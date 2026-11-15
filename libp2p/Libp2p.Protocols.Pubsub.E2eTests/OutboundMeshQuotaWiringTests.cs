@@ -25,9 +25,9 @@ public class OutboundMeshQuotaWiringTests
         PubsubSettings settings = new()
         {
             HeartbeatInterval = int.MaxValue,
-            Degree = 2,
-            LowestDegree = 2,
-            HighestDegree = 2,
+            Degree = 4,
+            LowestDegree = 4,
+            HighestDegree = 4,
             DOut = 1,
             DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign,
             GetMessageId = message => new MessageId(message.Data.ToByteArray()),
@@ -37,15 +37,21 @@ public class OutboundMeshQuotaWiringTests
         WirePeer wire = new();
         await using ServiceProvider remoteServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(wire)).BuildServiceProvider();
-        WirePeer firstMeshWire = new(), secondMeshWire = new();
+        WirePeer firstMeshWire = new(), secondMeshWire = new(), thirdMeshWire = new(), fourthMeshWire = new();
         await using ServiceProvider firstMeshServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(firstMeshWire)).BuildServiceProvider();
         await using ServiceProvider secondMeshServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(secondMeshWire)).BuildServiceProvider();
+        await using ServiceProvider thirdMeshServices = new ServiceCollection()
+            .AddLibp2p(builder => builder.AddProtocol(thirdMeshWire)).BuildServiceProvider();
+        await using ServiceProvider fourthMeshServices = new ServiceCollection()
+            .AddLibp2p(builder => builder.AddProtocol(fourthMeshWire)).BuildServiceProvider();
         await using ILocalPeer local = services.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer remote = remoteServices.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer firstMeshPeer = firstMeshServices.GetRequiredService<IPeerFactory>().Create();
         await using ILocalPeer secondMeshPeer = secondMeshServices.GetRequiredService<IPeerFactory>().Create();
+        await using ILocalPeer thirdMeshPeer = thirdMeshServices.GetRequiredService<IPeerFactory>().Create();
+        await using ILocalPeer fourthMeshPeer = fourthMeshServices.GetRequiredService<IPeerFactory>().Create();
         await local.StartListenAsync([(Multiaddress)"/ip4/127.0.0.1/tcp/0"], token);
         await remote.StartListenAsync([(Multiaddress)"/ip4/127.0.0.1/tcp/0"], token);
         PubsubRouter router = services.GetRequiredService<PubsubRouter>();
@@ -74,8 +80,12 @@ public class OutboundMeshQuotaWiringTests
         List<(ISession Session, Task Stream)> meshStreams = [];
         try
         {
-            // Populate D_lo and D_hi through real inbound connections, with a valid D_out = D / 2.
-            foreach ((ILocalPeer meshPeer, WirePeer meshWire) in new[] { (firstMeshPeer, firstMeshWire), (secondMeshPeer, secondMeshWire) })
+            // Populate D_lo and D_hi through real inbound connections, with a valid D_out < D / 2.
+            foreach ((ILocalPeer meshPeer, WirePeer meshWire) in new[]
+            {
+                (firstMeshPeer, firstMeshWire), (secondMeshPeer, secondMeshWire),
+                (thirdMeshPeer, thirdMeshWire), (fourthMeshPeer, fourthMeshWire),
+            })
             {
                 ISession meshSession = await meshPeer.DialAsync(local.ListenAddresses.First(), token);
                 Task meshStream = meshSession.DialAsync(meshWire, token);

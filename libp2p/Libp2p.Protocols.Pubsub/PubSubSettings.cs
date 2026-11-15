@@ -219,8 +219,9 @@ public class PubsubSettings
     public int DScore { get; set; } = 5;
     /// <summary>
     /// Minimum outbound transport connections to retain or graft in each mesh when available.
-    /// Zero disables the quota. Positive values must be below LowestDegree and at most Degree / 2,
-    /// inclusive, as required by gossipsub v1.1. These relations are checked when the router is constructed.
+    /// Zero disables the quota. Positive values must be below LowestDegree and strictly below Degree / 2
+    /// (integer division), matching go-libp2p validation. The v1.1 specification permits equality at Degree / 2;
+    /// this router uses the stricter bound. These relations are checked when the router is constructed.
     /// </summary>
     public int DOut { get; set; } = 2;
     public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
