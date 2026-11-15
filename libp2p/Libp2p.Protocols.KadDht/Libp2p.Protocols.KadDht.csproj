@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AssemblyName>Libp2p.Protocols.KadDht</AssemblyName>
+    <PackageId>Nethermind.Libp2p.Protocols.KadDht</PackageId>
     <RootNamespace>Libp2p.Protocols.KadDht</RootNamespace>
   </PropertyGroup>
 
