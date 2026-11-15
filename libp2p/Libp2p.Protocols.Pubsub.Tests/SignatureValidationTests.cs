@@ -28,6 +28,19 @@ public class SignatureValidationTests
         AssertBatchContinuesAfterMalformedMessage(message => message.From = ByteString.CopyFrom(new PeerId(Multiformats.Hash.Multihash.Encode(shortKey.ToByteArray(), Multiformats.Hash.HashType.ID)).Bytes));
     }
 
+    [Test]
+    public void SignatureCoversPrefixAndSerializedMessage()
+    {
+        Identity author = TestPeers.Identity(1);
+        Message message = new Rpc().WithMessages("signed", 7, author.PeerId.Bytes, [1, 2, 3], author).Publish[0];
+        Message unsigned = message.Clone();
+        unsigned.ClearSignature();
+        byte[] expected = [.. "libp2p-pubsub:"u8, .. unsigned.ToByteArray()];
+
+        Assert.That(message.Signature.ToByteArray(), Is.EqualTo(author.Sign(expected)));
+        Assert.That(message.VerifySignature(PubsubSettings.SignaturePolicy.StrictSign), Is.True);
+    }
+
     private static void AssertBatchContinuesAfterMalformedMessage(Action<Message> makeMalformed)
     {
         using PubsubRouter router = new(new PeerStore());

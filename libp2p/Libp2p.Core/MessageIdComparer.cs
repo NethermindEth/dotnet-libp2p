@@ -19,7 +19,7 @@ public sealed class MessageIdComparer : IEqualityComparer<MessageId>, IAlternate
 
     public int GetHashCode(MessageId obj) => obj.GetHashCode();
 
-    public bool Equals(ReadOnlySpan<byte> alternate, MessageId other) => alternate.SequenceEqual(other.Bytes);
+    public bool Equals(ReadOnlySpan<byte> alternate, MessageId other) => other.Bytes is not null && alternate.SequenceEqual(other.Bytes);
 
     public int GetHashCode(ReadOnlySpan<byte> alternate) => MessageId.ComputeHashCode(alternate);
 
