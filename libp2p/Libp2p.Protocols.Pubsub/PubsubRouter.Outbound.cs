@@ -149,6 +149,8 @@ public partial class PubsubRouter
         lock (_outboundLock) return Task.WhenAll(peerState.Values.Where(p => p.HasWriter).Select(p => p.Idle.Task));
     }
 
+    internal Task PendingConnections => Task.WhenAll(_connects.Keys);
+
     private SendResult AdmitOutbound(PubsubPeer peer, Rpc original, SharedFrame? shared)
     {
         SendResult result;
