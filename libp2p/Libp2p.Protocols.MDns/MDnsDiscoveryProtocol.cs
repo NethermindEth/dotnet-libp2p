@@ -96,11 +96,17 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             }
             else
             {
-                service.Resources.Add(new TXTRecord()
+                // One address per record. Makaretu truncates an oversized response by dropping
+                // whole records, so a single record holding every address loses all of them at
+                // once, while separate records lose only the ones that did not fit.
+                foreach (string entry in advertised)
                 {
-                    Name = service.FullyQualifiedName,
-                    Strings = advertised,
-                });
+                    service.Resources.Add(new TXTRecord()
+                    {
+                        Name = service.FullyQualifiedName,
+                        Strings = [entry],
+                    });
+                }
             }
 
             _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
@@ -118,18 +124,26 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     return;
                 }
 
-                Multiaddress[] records = e.Message.AdditionalRecords.OfType<TXTRecord>()
-                    .Select(x => x.Strings.Where(x => x.StartsWith("dnsaddr")))
-                    .SelectMany(x => x).Select(x => Multiaddress.Decode(x.Replace("dnsaddr=", ""))).ToArray();
+                // Decoded one at a time on purpose. A standard peer advertises every transport it
+                // listens on and this build does not know all of them -- go-libp2p enables
+                // WebTransport by default, and decoding that address throws NotSupportedException.
+                // Decoding the set in one expression would lose the peer's usable TCP and QUIC
+                // addresses along with the one that could not be read.
+                List<Multiaddress> records = DecodeAdvertised(
+                    e.Message.AdditionalRecords.OfType<TXTRecord>().SelectMany(record => record.Strings), _logger);
+
                 _logger?.LogTrace("Inst disc {0}, msg: {1}", e.ServiceInstanceName, e.Message);
-                if (records.Length != 0 && !peers.Contains(records[0]) && localPeerId != records[0].Get<P2P>().ToString())
+
+                // Taken from the addresses that decoded, rather than from the first one, which may
+                // have been the unreadable entry or may carry no peer id at all.
+                PeerId? remotePeerId = records.Select(record => record.GetPeerId()).FirstOrDefault(id => id is not null);
+                if (remotePeerId is not null && localPeerId != remotePeerId.ToString() && !peers.Contains(records[0]))
                 {
-                    List<string> peerAddresses = [];
                     foreach (Multiaddress peer in records)
                     {
                         peers.Add(peer);
                     }
-                    peerStore.Discover(records, isTrusted: false);
+                    peerStore.Discover([.. records], isTrusted: false);
                 }
             };
 
@@ -238,10 +252,13 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             yield break;
         }
 
+        int ipIndex = addr.Protocols.FindIndex(protocol => protocol is IP4 or IP6);
         IPEndPoint endpoint = addr.ToEndPoint(out ProtocolType proto);
         if (!endpoint.Address.Equals(IPAddress.Any) && !endpoint.Address.Equals(IPAddress.IPv6Any))
         {
-            yield return addr;
+            // A concrete listener can carry a scope id too, since listen addresses are derived from
+            // interface addresses. The same normalization the wildcard path applies is needed here.
+            yield return WithAddress(addr, ipIndex, WithoutScopeId(endpoint.Address));
             yield break;
         }
 
@@ -252,7 +269,6 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             yield break;
         }
 
-        int ipIndex = addr.Protocols.FindIndex(protocol => protocol is IP4 or IP6);
         foreach (IPAddress hostAddress in hostAddresses)
         {
             if (hostAddress.AddressFamily != endpoint.Address.AddressFamily)
@@ -260,23 +276,62 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 continue;
             }
 
-            // A scope id is this host's own interface index and means nothing to the receiver, so
-            // the address is advertised without it.
-            IPAddress withoutScope = hostAddress.AddressFamily == AddressFamily.InterNetworkV6 && hostAddress.ScopeId != 0
-                ? new IPAddress(hostAddress.GetAddressBytes())
-                : hostAddress;
-
-            // Clone and swap only the IP, so the transport, port, /quic-v1 and /p2p parts survive.
-            // ReplaceOrAdd cannot do this: it mutates its receiver -- which here would rewrite the
-            // caller's own listen addresses -- and for IP6 it drops the existing entry and appends
-            // the replacement at the end, producing an address that is not routable.
-            Multiaddress expanded = addr.Clone();
-            expanded.Protocols[ipIndex] = withoutScope.AddressFamily == AddressFamily.InterNetworkV6
-                ? new IP6(withoutScope)
-                : new IP4(withoutScope);
-
-            yield return expanded;
+            yield return WithAddress(addr, ipIndex, WithoutScopeId(hostAddress));
         }
+    }
+
+    /// <summary>
+    /// The addresses from a peer's TXT strings, decoded one at a time.
+    /// <para>
+    /// A standard peer advertises every transport it listens on and this build does not know all of
+    /// them -- go-libp2p enables WebTransport by default, and decoding that address throws
+    /// <see cref="NotSupportedException"/>. Decoding the set in one expression would lose the peer's
+    /// usable TCP and QUIC addresses along with the one entry that could not be read.
+    /// </para>
+    /// </summary>
+    internal static List<Multiaddress> DecodeAdvertised(IEnumerable<string> txtStrings, ILogger? logger = null)
+    {
+        List<Multiaddress> records = [];
+        foreach (string entry in txtStrings.Where(text => text.StartsWith("dnsaddr=")))
+        {
+            try
+            {
+                records.Add(Multiaddress.Decode(entry["dnsaddr=".Length..]));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogTrace(ex, "Ignoring an mDNS address this build cannot read: {0}", entry);
+            }
+        }
+
+        return records;
+    }
+
+    /// <summary>
+    /// A scope id is this host's own interface index and means nothing to the receiver; go-multiaddr
+    /// rejects a scoped IPv6 string as a multiaddress outright.
+    /// </summary>
+    private static IPAddress WithoutScopeId(IPAddress address) =>
+        address.AddressFamily == AddressFamily.InterNetworkV6 && address.ScopeId != 0
+            ? new IPAddress(address.GetAddressBytes())
+            : address;
+
+    /// <summary>
+    /// Clones the address and swaps only its IP, so the transport, port, <c>/quic-v1</c> and
+    /// <c>/p2p</c> parts survive.
+    /// <para>
+    /// <c>ReplaceOrAdd</c> cannot do this: it mutates its receiver -- which here would rewrite the
+    /// caller's own listen addresses -- and for <c>IP6</c> it drops the existing entry and appends
+    /// the replacement at the end, producing an address that is not routable.
+    /// </para>
+    /// </summary>
+    private static Multiaddress WithAddress(Multiaddress addr, int ipIndex, IPAddress address)
+    {
+        Multiaddress rewritten = addr.Clone();
+        rewritten.Protocols[ipIndex] = address.AddressFamily == AddressFamily.InterNetworkV6
+            ? new IP6(address)
+            : new IP4(address);
+        return rewritten;
     }
 
     /// <summary>

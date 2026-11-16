@@ -4,11 +4,13 @@
 using Makaretu.Dns;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
+using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
 using NUnit.Framework;
 using System.Net;
+using System.Text.RegularExpressions;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -263,6 +265,96 @@ public class MDnsAdvertisementTests
             .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
             .Select(unicast => unicast.Address)
             .Where(a => a.AddressFamily == AddressFamily.InterNetworkV6 && !a.IsIPv6LinkLocal && !IPAddress.IsLoopback(a));
+
+    /// <summary>
+    /// Makaretu truncates an oversized response by dropping whole records, so every address must
+    /// get its own record: one record holding all of them loses all of them at once.
+    /// </summary>
+    [Test]
+    public void OneRecordPerAddressSurvivesTruncationWhereOneGroupedRecordDoesNot()
+    {
+        string[] entries = [.. Enumerable.Range(0, 120)
+            .Select(i => $"dnsaddr=/ip4/192.168.{i / 256}.{i % 256}/tcp/4001/p2p/{Peer}")];
+
+        int grouped = SurvivingAddresses([new TXTRecord { Name = "a.b.local", Strings = [.. entries] }]);
+        int separate = SurvivingAddresses([.. entries.Select(e => new TXTRecord { Name = "a.b.local", Strings = [e] })]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(grouped, Is.Zero, "a single grouped record is dropped whole, losing every address");
+            Assert.That(separate, Is.GreaterThan(0), "separate records must degrade rather than vanish");
+        });
+    }
+
+    [Test]
+    public async Task EveryAdvertisedAddressGetsItsOwnRecord()
+    {
+        Capture capture = new();
+        using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
+        await using MDnsDiscoveryProtocol discovery = new(new PeerStore(), factory);
+
+        string[] listeners = ["/ip4/127.0.0.1/tcp/4001", "/ip4/127.0.0.2/tcp/4002", "/ip6/::1/tcp/4003"];
+        await discovery.StartDiscoveryAsync([.. listeners.Select(a => Multiaddress.Decode($"{a}/p2p/{Peer}"))]);
+        await capture.WaitForAsync(m => m.StartsWith("DNS records to share"), Timeout);
+
+        string records = capture.Snapshot().First(m => m.StartsWith("DNS records to share"));
+        Assert.That(Regex.Matches(records, "dnsaddr=").Count, Is.EqualTo(listeners.Length));
+        // One TXT record each, so truncation can only cost the addresses that did not fit.
+        Assert.That(Regex.Matches(records, @"IN TXT dnsaddr=").Count, Is.EqualTo(listeners.Length));
+    }
+
+    /// <summary>
+    /// A standard peer advertises transports this build cannot decode — go-libp2p enables
+    /// WebTransport by default — and one of those must not cost us the peer's usable addresses.
+    /// </summary>
+    [Test]
+    public void AnUnreadableAdvertisedAddressDoesNotDiscardThePeer()
+    {
+        const string hash = "uEiDDq4_xNyDorZBH3TlGazyJdOWSwvo4PUo5YHFMrvDE8g";
+        string[] advertised =
+        [
+            $"dnsaddr=/ip4/192.0.2.1/udp/4001/quic-v1/webtransport/certhash/{hash}/p2p/{Peer}",
+            $"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}",
+            $"dnsaddr=/ip4/192.0.2.1/udp/4002/quic-v1/p2p/{Peer}",
+            "version=1", // a TXT string that is not an address at all
+        ];
+
+        List<Multiaddress> decoded = MDnsDiscoveryProtocol.DecodeAdvertised(advertised);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decoded.Select(a => a.ToString()), Is.EqualTo(new[]
+            {
+                $"/ip4/192.0.2.1/tcp/4001/p2p/{Peer}",
+                $"/ip4/192.0.2.1/udp/4002/quic-v1/p2p/{Peer}",
+            }));
+            Assert.That(decoded.Select(a => a.GetPeerId()!.ToString()), Has.All.EqualTo(Peer),
+                "the peer identity still has to be recoverable from what did decode");
+        });
+    }
+
+    /// <summary>A concrete listener can carry a scope id, and go-multiaddr rejects a scoped string.</summary>
+    [TestCase("/ip6/fe80::1234%3/tcp/4001", "/ip6/fe80::1234/tcp/4001")]
+    [TestCase("/ip6/fe80::1234/tcp/4001", "/ip6/fe80::1234/tcp/4001")]
+    [TestCase("/ip4/192.0.2.1/tcp/4001", "/ip4/192.0.2.1/tcp/4001")]
+    public void AConcreteAddressIsAdvertisedWithoutItsScopeId(string listener, string expected)
+    {
+        Assert.That(Advertise($"{listener}/p2p/{Peer}"), Is.EqualTo(new[] { $"{expected}/p2p/{Peer}" }));
+    }
+
+    private static int SurvivingAddresses(TXTRecord[] records)
+    {
+        Message message = new();
+        foreach (TXTRecord record in records)
+        {
+            message.AdditionalRecords.Add(record);
+        }
+
+        message.Truncate(8952);
+        return message.AdditionalRecords.OfType<TXTRecord>()
+            .SelectMany(record => record.Strings)
+            .Count(text => text.StartsWith("dnsaddr="));
+    }
 
     private sealed class Capture : ILoggerProvider, ILogger
     {
