@@ -38,9 +38,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
-    private readonly List<Type> transportTypes = [];
-    private readonly List<Func<ProtocolRef>> streamTransports = [];
-    private readonly List<Func<ProtocolRef>> datagramTransports = [];
 
     /// <summary>
     /// Exposes the service collection for protocol integration.
@@ -76,28 +73,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public ILibp2pPeerFactoryBuilder WithStreamTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol
-    {
-        EnsureConfigurable();
-        if (TryAddTransportType(typeof(TTransport))) streamTransports.Add(Get<TTransport>);
-        return this;
-    }
-
-    public ILibp2pPeerFactoryBuilder WithDatagramTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] TTransport>() where TTransport : ITransportProtocol
-    {
-        EnsureConfigurable();
-        if (typeof(TTransport) == typeof(QuicProtocol)) addQuic = true;
-        else if (TryAddTransportType(typeof(TTransport))) datagramTransports.Add(Get<TTransport>);
-        return this;
-    }
-
-    private bool TryAddTransportType(Type transportType)
-    {
-        if (transportType == typeof(IpTcpProtocol) || transportTypes.Contains(transportType)) return false;
-        transportTypes.Add(transportType);
-        return true;
-    }
-
     /// <summary>The default Identify protocol, or null to omit it.</summary>
     protected virtual ProtocolRef? Identify() => Get<IdentifyProtocol>(ProtocolLimits.Identify);
 
@@ -108,22 +83,10 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     protected virtual ProtocolRef? Ping() => Get<PingProtocol>(ProtocolLimits.Ping);
 
     /// <summary>Stream transports wired through encryption and multiplexing.</summary>
-    protected virtual ProtocolRef[] StreamTransports()
-    {
-        ProtocolRef[] transports = new ProtocolRef[streamTransports.Count + 1];
-        transports[0] = Get<IpTcpProtocol>();
-        for (int i = 0; i < streamTransports.Count; i++) transports[i + 1] = streamTransports[i]();
-        return transports;
-    }
+    protected virtual ProtocolRef[] StreamTransports() => [Get<IpTcpProtocol>()];
 
     /// <summary>Transports with built-in security and multiplexing, wired directly to applications.</summary>
-    protected virtual ProtocolRef[] DatagramTransports()
-    {
-        List<ProtocolRef> transports = [];
-        if (addQuic) transports.Add(Get<QuicProtocol>());
-        foreach (Func<ProtocolRef> transport in datagramTransports) transports.Add(transport());
-        return [.. transports];
-    }
+    protected virtual ProtocolRef[] DatagramTransports() => addQuic ? [Get<QuicProtocol>()] : [];
 
     /// <summary>Security protocols offered on stream transports, in negotiation order.</summary>
     protected virtual ProtocolRef[] Encryption() => enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];

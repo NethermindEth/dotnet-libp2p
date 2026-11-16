@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.WebRtc;
 using NUnit.Framework;
 
 namespace Libp2p.E2eTests;
@@ -41,8 +42,6 @@ public class StackBuilderTests
     {
         using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
         LayerBuilder builder = new(provider);
-        builder.WithWebSockets();
-        builder.WithWebRtcDirect();
         builder.WithPubsub();
         builder.AddProtocol(new NamedProtocol("/extra"));
         builder.Build();
@@ -70,29 +69,17 @@ public class StackBuilderTests
         Assert.That(apps.Select(p => p.Id), Is.EqualTo(CoreProtocols));
     }
 
-    [Test]
-    public void RepeatedTransportOptionsAddEachTransportOnce()
-    {
-        using ServiceProvider provider = new ServiceCollection().AddLibp2p(builder => builder
-            .WithWebSockets().WithWebSockets().WithStreamTransport<IpTcpProtocol>()
-            .WithWebRtcDirect().WithWebRtcDirect().WithDatagramTransport<QuicProtocol>().WithQuic())
-            .BuildServiceProvider();
-        _ = provider.GetRequiredService<IPeerFactory>();
-        ProtocolRef[] transports = provider.GetRequiredService<IProtocolStackSettings>().TopProtocols!;
-        Assert.That(transports.Select(p => p.Id), Is.EqualTo(new[] { "ip-tcp", "websocket", "quic-v1", "webrtc-direct" }));
-    }
-
     [TestCaseSource(nameof(StackVariants))]
     public void StandardStackPreservesAllOptionCombinations(int flags)
     {
-        using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
-        Libp2pPeerFactoryBuilder builder = (Libp2pPeerFactoryBuilder)provider.GetRequiredService<IPeerFactoryBuilder>();
+        using ServiceProvider provider = new ServiceCollection().AddLibp2p<OptionalTransportBuilder>().BuildServiceProvider();
+        OptionalTransportBuilder builder = (OptionalTransportBuilder)provider.GetRequiredService<IPeerFactoryBuilder>();
         if ((flags & 1) != 0) builder.WithPlaintextEnforced();
         if ((flags & 2) != 0) builder.WithRelay();
         if ((flags & 4) != 0) builder.WithPubsub();
         if ((flags & 8) != 0) builder.WithQuic();
-        if ((flags & 16) != 0) builder.WithWebSockets();
-        if ((flags & 32) != 0) builder.WithWebRtcDirect();
+        builder.UseWebSockets = (flags & 16) != 0;
+        builder.UseWebRtcDirect = (flags & 32) != 0;
         builder.AddProtocol(new NamedProtocol("/extra"));
         builder.Build();
         IProtocolStackSettings stack = provider.GetRequiredService<IProtocolStackSettings>();
@@ -157,6 +144,14 @@ public class StackBuilderTests
         protected override ProtocolRef[] Muxers() => [new(Muxer)];
         protected override ProtocolRef[] Relay() => [Get<RelayStopProtocol>()];
         protected override ProtocolRef[] Pubsub() => [Get<FloodsubProtocol>()];
+    }
+
+    private sealed class OptionalTransportBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
+    {
+        public bool UseWebSockets { get; set; }
+        public bool UseWebRtcDirect { get; set; }
+        protected override ProtocolRef[] StreamTransports() => UseWebSockets ? [.. base.StreamTransports(), Get<WebSocketProtocol>()] : base.StreamTransports();
+        protected override ProtocolRef[] DatagramTransports() => UseWebRtcDirect ? [.. base.DatagramTransports(), Get<WebRtcDirectProtocol>()] : base.DatagramTransports();
     }
 
     private sealed class DirectBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
