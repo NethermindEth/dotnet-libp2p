@@ -1,0 +1,202 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Microsoft.Extensions.Logging;
+using Multiformats.Address;
+using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.TestsBase;
+using Nethermind.Libp2p.Protocols;
+using NUnit.Framework;
+using System.Net;
+
+namespace Libp2p.E2eTests;
+
+/// <summary>
+/// Advertisement coverage for mDNS discovery. Before this, the only test for this protocol was
+/// about disposal, which is why an IPv6 listener could abort advertisement unnoticed.
+/// </summary>
+[TestFixture]
+[CancelAfter(30_000)]
+public class MDnsAdvertisementTests
+{
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+    private static readonly string Peer = TestPeers.PeerId(0).ToString();
+
+    private static readonly IPAddress[] HostAddresses =
+    [
+        IPAddress.Parse("192.168.1.5"),
+        IPAddress.Parse("10.1.2.3"),
+        IPAddress.Parse("2001:db8::1"),
+        IPAddress.Parse("fe80::9a2a:3ebf:3af8:4b10%3"),
+    ];
+
+    private static string[] Advertise(string listenAddress, params IPAddress[] hostAddresses) =>
+        MDnsDiscoveryProtocol
+            .AddressesToAdvertise(Multiaddress.Decode(listenAddress), hostAddresses.Length == 0 ? HostAddresses : hostAddresses)
+            .Select(a => a.ToString())
+            .ToArray();
+
+    [Test]
+    public void ConcreteAddressesAreAdvertisedUnchanged()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Advertise($"/ip4/192.0.2.1/tcp/4001/p2p/{Peer}"),
+                Is.EqualTo(new[] { $"/ip4/192.0.2.1/tcp/4001/p2p/{Peer}" }));
+            // This shape threw NullReferenceException before: Get<IP4>() returns null for IPv6.
+            Assert.That(Advertise($"/ip6/2001:db8:abcd::1/tcp/4001/p2p/{Peer}"),
+                Is.EqualTo(new[] { $"/ip6/2001:db8:abcd::1/tcp/4001/p2p/{Peer}" }));
+        });
+    }
+
+    [Test]
+    public void AnIpv4WildcardExpandsToIpv4HostAddressesOnly()
+    {
+        Assert.That(Advertise($"/ip4/0.0.0.0/tcp/4001/p2p/{Peer}"), Is.EqualTo(new[]
+        {
+            $"/ip4/192.168.1.5/tcp/4001/p2p/{Peer}",
+            $"/ip4/10.1.2.3/tcp/4001/p2p/{Peer}",
+        }));
+    }
+
+    [Test]
+    public void AnIpv6WildcardExpandsToIpv6HostAddressesWithoutTheScopeId()
+    {
+        // The scope id is this host's interface index; a receiver cannot use it.
+        Assert.That(Advertise($"/ip6/::/tcp/4001/p2p/{Peer}"), Is.EqualTo(new[]
+        {
+            $"/ip6/2001:db8::1/tcp/4001/p2p/{Peer}",
+            $"/ip6/fe80::9a2a:3ebf:3af8:4b10/tcp/4001/p2p/{Peer}",
+        }));
+    }
+
+    [Test]
+    public void AWildcardWithNoHostAddressOfItsFamilyIsDroppedNotAdvertised()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Advertise($"/ip6/::/tcp/4001/p2p/{Peer}", IPAddress.Parse("192.168.1.5")), Is.Empty);
+            Assert.That(Advertise($"/ip4/0.0.0.0/tcp/4001/p2p/{Peer}", IPAddress.Parse("2001:db8::1")), Is.Empty);
+        });
+    }
+
+    /// <summary>
+    /// ToEndPoint reports 0.0.0.0 for a name-based address, so without a check for an IP layer a
+    /// /dns4 listener would be mistaken for a wildcard and advertised as this host's own IPs.
+    /// </summary>
+    [TestCase("/dns4/example.org/tcp/4001")]
+    [TestCase("/dns6/example.org/tcp/4001")]
+    [TestCase("/dnsaddr/example.org")]
+    public void NameBasedAddressesAreNeverExpanded(string listenAddress)
+    {
+        Assert.That(Advertise(listenAddress), Is.Empty);
+    }
+
+    [Test]
+    public void TheTransportLayerSurvivesExpansion()
+    {
+        Assert.That(Advertise($"/ip4/0.0.0.0/udp/4001/quic-v1/p2p/{Peer}", IPAddress.Parse("192.168.1.5")),
+            Is.EqualTo(new[] { $"/ip4/192.168.1.5/udp/4001/quic-v1/p2p/{Peer}" }));
+    }
+
+    [Test]
+    public void AWildcardWithoutATransportLayerIsDropped()
+    {
+        Assert.That(Advertise("/ip4/0.0.0.0"), Is.Empty);
+    }
+
+    [Test]
+    public void TheDefaultServiceNameIsTheLibp2pStandardOne()
+    {
+        Assert.That(new MDnsDiscoverySettings().ServiceName, Is.EqualTo("_p2p._udp.local"));
+        Assert.That(MDnsDiscoverySettings.Libp2pServiceName, Is.EqualTo("_p2p._udp.local"));
+    }
+
+    [TestCase(null, "_p2p._udp.local")]
+    [TestCase("pubsub-chat-example", "pubsub-chat-example")]
+    public async Task TheConfiguredServiceNameIsTheOneAdvertisedAndQueried(string? configured, string expected)
+    {
+        Capture capture = new();
+        using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
+        MDnsDiscoverySettings? settings = configured is null ? null : new() { ServiceName = configured };
+
+        await using MDnsDiscoveryProtocol discovery = new(new PeerStore(), factory, settings);
+        await discovery.StartDiscoveryAsync([Multiaddress.Decode($"/ip4/127.0.0.1/tcp/4001/p2p/{Peer}")]);
+        await capture.WaitForAsync(m => m.StartsWith("Querying "), Timeout);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Started as {Name(capture)} {expected}"));
+            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Querying {expected}"));
+        });
+    }
+
+    /// <summary>
+    /// The regression for the reported bug: any IPv6 listen address used to throw inside the
+    /// setup block, which was caught and logged, so advertisement was skipped while the query
+    /// loop still ran. A mixed listener lost its IPv4 advertisement with it.
+    /// </summary>
+    [TestCase("ipv6 only", new[] { "/ip6/::1/tcp/4001" })]
+    [TestCase("mixed, ipv4 first", new[] { "/ip4/127.0.0.1/tcp/4001", "/ip6/::1/tcp/4002" })]
+    [TestCase("mixed, ipv6 first", new[] { "/ip6/::1/tcp/4002", "/ip4/127.0.0.1/tcp/4001" })]
+    [TestCase("ipv4 only", new[] { "/ip4/127.0.0.1/tcp/4001" })]
+    public async Task ListenersOfEitherFamilyStillAdvertise(string label, string[] listenAddresses)
+    {
+        Capture capture = new();
+        using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
+        await using MDnsDiscoveryProtocol discovery = new(new PeerStore(), factory);
+
+        Multiaddress[] local = listenAddresses.Select(a => Multiaddress.Decode($"{a}/p2p/{Peer}")).ToArray();
+        await discovery.StartDiscoveryAsync(local);
+        await capture.WaitForAsync(m => m.StartsWith("DNS records to share"), Timeout);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(capture.Errors, Is.Empty, $"{label}: setting up mDNS logged an error");
+            string records = capture.Snapshot().First(m => m.StartsWith("DNS records to share"));
+            foreach (string expected in listenAddresses)
+            {
+                Assert.That(records, Does.Contain($"dnsaddr={expected}/p2p/{Peer}"), $"{label}: {expected} was not advertised");
+            }
+        });
+    }
+
+    private sealed class Capture : ILoggerProvider, ILogger
+    {
+        private readonly List<string> _messages = [];
+        private readonly List<string> _errors = [];
+
+        public IReadOnlyList<string> Errors { get { lock (_messages) return _errors.ToArray(); } }
+
+        public string[] Snapshot() { lock (_messages) return _messages.ToArray(); }
+
+        public async Task WaitForAsync(Func<string, bool> predicate, TimeSpan timeout)
+        {
+            for (int i = 0; i < timeout.TotalMilliseconds / 20; i++)
+            {
+                if (Snapshot().Any(predicate)) return;
+                await Task.Delay(20);
+            }
+
+            Assert.Fail($"no log line matched within {timeout}; saw: {string.Join(" | ", Snapshot())}");
+        }
+
+        public ILogger CreateLogger(string categoryName) => this;
+        public void Dispose() { }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? ex, Func<TState, Exception?, string> formatter)
+        {
+            string line = formatter(state, ex);
+            lock (_messages)
+            {
+                _messages.Add(line);
+                if (level >= LogLevel.Error) _errors.Add(line);
+            }
+        }
+    }
+
+    private static string Name(Capture capture) =>
+        capture.Snapshot().First(m => m.StartsWith("Started as ")).Split(' ')[2];
+}

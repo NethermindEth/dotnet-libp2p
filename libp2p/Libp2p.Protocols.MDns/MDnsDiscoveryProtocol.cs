@@ -2,25 +2,30 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
+using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using Nethermind.Libp2p.Core.Discovery;
 using Makaretu.Dns;
 using Multiformats.Address;
+using Multiformats.Address.Net;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("Libp2p.E2eTests")]
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol, IDisposable, IAsyncDisposable
+public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null, MDnsDiscoverySettings? settings = null)
+    : IDiscoveryProtocol, IDisposable, IAsyncDisposable
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();
     private const int MdnsQueryInterval = 5000;
-    private const string ServiceName = "_p2p._udp.local";
 
-    private const string? ServiceNameOverride = "pubsub-chat-example";
+    private readonly MDnsDiscoverySettings _settings = settings ?? new();
 
     private string PeerName = null!;
 
@@ -62,34 +67,35 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         try
         {
             PeerName = RandomString(32);
-            ServiceProfile service = new(PeerName, ServiceNameOverride ?? ServiceName, 0);
+            ServiceProfile service = new(PeerName, _settings.ServiceName, 0);
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
-            foreach (Multiaddress localPeerAddr in localPeerAddrs)
+            IPAddress[] hostAddresses = MulticastService.GetLinkLocalAddresses().ToArray();
+            List<string> advertised = localPeerAddrs
+                .SelectMany(addr => AddressesToAdvertise(addr, hostAddresses))
+                .Select(addr => $"dnsaddr={addr}")
+                .Distinct()
+                .ToList();
+
+            if (advertised.Count == 0)
             {
-                if (localPeerAddr.Get<IP4>().ToString() == "0.0.0.0")
+                // Advertising nothing is indistinguishable from advertising a service with no way
+                // to reach it, and the query loop below would still make this node look healthy.
+                _logger?.LogWarning("No routable address among {0}; this peer will not be discoverable",
+                    string.Join(",", localPeerAddrs));
+            }
+            else
+            {
+                service.Resources.Add(new TXTRecord()
                 {
-                    service.Resources.Add(new TXTRecord()
-                    {
-                        Name = service.FullyQualifiedName,
-                        Strings = new List<string>(MulticastService.GetLinkLocalAddresses()
-                            .Where(x => x.AddressFamily == AddressFamily.InterNetwork)
-                            .Select(item => $"dnsaddr={localPeerAddr.ReplaceOrAdd<IP4>(item.ToString())}")),
-                    });
-                }
-                else
-                {
-                    service.Resources.Add(new TXTRecord()
-                    {
-                        Name = service.FullyQualifiedName,
-                        Strings = [$"dnsaddr={localPeerAddr}"],
-                    });
-                }
+                    Name = service.FullyQualifiedName,
+                    Strings = advertised,
+                });
             }
 
             _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
-            _logger?.LogInformation("Started as {0} {1}", PeerName, ServiceNameOverride ?? ServiceName);
+            _logger?.LogInformation("Started as {0} {1}", PeerName, _settings.ServiceName);
 
             sd.ServiceDiscovered += (s, serviceName) =>
             {
@@ -181,14 +187,69 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         {
             try
             {
-                _logger?.LogTrace("Querying {0}", ServiceNameOverride ?? ServiceName);
-                sd.QueryServiceInstances(ServiceNameOverride ?? ServiceName);
+                _logger?.LogTrace("Querying {0}", _settings.ServiceName);
+                sd.QueryServiceInstances(_settings.ServiceName);
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error querying network");
             }
             await Task.Delay(MdnsQueryInterval, token);
+        }
+    }
+
+    /// <summary>
+    /// The addresses to advertise for one listen address: itself when it names a concrete IP, and
+    /// this host's addresses of the same family when it is a wildcard. Both families are handled,
+    /// and a wildcard that expands to nothing is dropped rather than advertised as-is.
+    /// </summary>
+    internal static IEnumerable<Multiaddress> AddressesToAdvertise(Multiaddress addr, IReadOnlyList<IPAddress> hostAddresses)
+    {
+        // dns*, relay and memory addresses carry no IP layer, and ToEndPoint reports 0.0.0.0 for
+        // them -- which must not be mistaken for a wildcard listener and expanded to our own IPs.
+        if (!addr.Has<IP4>() && !addr.Has<IP6>())
+        {
+            yield break;
+        }
+
+        IPEndPoint endpoint = addr.ToEndPoint(out ProtocolType proto);
+        if (!endpoint.Address.Equals(IPAddress.Any) && !endpoint.Address.Equals(IPAddress.IPv6Any))
+        {
+            yield return addr;
+            yield break;
+        }
+
+        // A wildcard needs a transport layer to be routable once rewritten; /ip4/0.0.0.0 on its own
+        // reports ProtocolType.Unknown and port 0, and swapping its IP would not fix that.
+        if (proto == ProtocolType.Unknown)
+        {
+            yield break;
+        }
+
+        int ipIndex = addr.Protocols.FindIndex(protocol => protocol is IP4 or IP6);
+        foreach (IPAddress hostAddress in hostAddresses)
+        {
+            if (hostAddress.AddressFamily != endpoint.Address.AddressFamily)
+            {
+                continue;
+            }
+
+            // A scope id is this host's own interface index and means nothing to the receiver, so
+            // the address is advertised without it.
+            IPAddress withoutScope = hostAddress.AddressFamily == AddressFamily.InterNetworkV6 && hostAddress.ScopeId != 0
+                ? new IPAddress(hostAddress.GetAddressBytes())
+                : hostAddress;
+
+            // Clone and swap only the IP, so the transport, port, /quic-v1 and /p2p parts survive.
+            // ReplaceOrAdd cannot do this: it mutates its receiver -- which here would rewrite the
+            // caller's own listen addresses -- and for IP6 it drops the existing entry and appends
+            // the replacement at the end, producing an address that is not routable.
+            Multiaddress expanded = addr.Clone();
+            expanded.Protocols[ipIndex] = withoutScope.AddressFamily == AddressFamily.InterNetworkV6
+                ? new IP6(withoutScope)
+                : new IP4(withoutScope);
+
+            yield return expanded;
         }
     }
 
