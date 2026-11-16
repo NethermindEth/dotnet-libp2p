@@ -1173,10 +1173,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        // The cached message found while reading the IDs is kept, so it is looked up once. An ID that is
-        // not cached cannot be answered, so it only counts toward the limit and no MessageId is created for it.
+        // The cached message found while reading the IDs is kept, so it is looked up once. Every listed ID
+        // counts toward the limit, whether it is cached or repeated, so the limit bounds the work of one RPC.
         Dictionary<MessageId, Message> requested = [];
-        int uncached = 0;
+        int read = 0;
         foreach (ControlIWant iwant in iwants)
         {
             if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
@@ -1184,19 +1184,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            for (int i = 0; i < iwant.MessageIDs.Count && requested.Count + uncached < _settings.MaxIwantLength; i++)
+            for (int i = 0; i < iwant.MessageIDs.Count && read < _settings.MaxIwantLength; i++, read++)
             {
                 if (_messageCache.TryGet(iwant.MessageIDs[i].Span, out MessageId cachedId, out Message cachedMessage))
                 {
                     requested.TryAdd(cachedId, cachedMessage);
                 }
-                else
-                {
-                    uncached++;
-                }
             }
 
-            if (requested.Count + uncached >= _settings.MaxIwantLength)
+            if (read >= _settings.MaxIwantLength)
             {
                 break;
             }
