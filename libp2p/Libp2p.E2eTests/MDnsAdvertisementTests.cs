@@ -9,6 +9,8 @@ using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols;
 using NUnit.Framework;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 
 namespace Libp2p.E2eTests;
 
@@ -199,6 +201,68 @@ public class MDnsAdvertisementTests
             }
         });
     }
+
+    /// <summary>
+    /// The production address source, which the injected-address cases above cannot cover. The
+    /// library helper this used to call returns an IPv6 address only when it is link-local, so an
+    /// IPv6 wildcard advertised `fe80::` endpoints alone — and go-libp2p rejects those in
+    /// `Swarm.CanDial` before dialing, leaving an IPv6-only listener unreachable.
+    /// </summary>
+    [Test]
+    public void TheHostAddressSourceIsNotLimitedToLinkLocalIpv6()
+    {
+        IPAddress[] ours = MDnsDiscoveryProtocol.HostAddresses();
+        IPAddress[] libraryHelper = [.. MulticastService.GetLinkLocalAddresses()];
+
+        // Pins the library behavior being worked around, so a change upstream shows up here.
+        Assert.That(libraryHelper.Where(a => a.AddressFamily == AddressFamily.InterNetworkV6),
+            Has.All.Matches<IPAddress>(a => a.IsIPv6LinkLocal),
+            "MulticastService.GetLinkLocalAddresses only yields link-local IPv6");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ours, Is.SupersetOf(libraryHelper), "the source must never offer fewer addresses");
+            Assert.That(ours, Has.None.Matches<IPAddress>(IPAddress.IsLoopback), "loopback cannot be advertised");
+        });
+
+        IPAddress[] routableIpv6 = [.. RoutableIpv6OfThisHost()];
+
+        if (routableIpv6.Length == 0)
+        {
+            Assert.Ignore("this host has no ULA or global IPv6 address, so there is nothing to miss");
+        }
+
+        Assert.That(ours, Is.SupersetOf(routableIpv6),
+            "a ULA or global IPv6 address is exactly what go-libp2p will dial, so it must be offered");
+    }
+
+    /// <summary>End to end: an IPv6 wildcard must advertise more than link-local on such a host.</summary>
+    [Test]
+    public void AnIpv6WildcardAdvertisesRoutableAddressesOfThisHost()
+    {
+        // The expectation comes from the machine, not from HostAddresses, so narrowing that source
+        // fails this test instead of quietly removing its subject.
+        IPAddress[] routableIpv6 = [.. RoutableIpv6OfThisHost()];
+        if (routableIpv6.Length == 0)
+        {
+            Assert.Ignore("this host has no ULA or global IPv6 address");
+        }
+
+        string[] advertised = MDnsDiscoveryProtocol
+            .AddressesToAdvertise(Multiaddress.Decode($"/ip6/::/tcp/4001/p2p/{Peer}"), MDnsDiscoveryProtocol.HostAddresses())
+            .Select(a => a.ToString())
+            .ToArray();
+
+        Assert.That(advertised, Is.SupersetOf(routableIpv6.Select(a => $"/ip6/{a}/tcp/4001/p2p/{Peer}")));
+    }
+
+    /// <summary>Ground truth, read from the operating system rather than from the code under test.</summary>
+    private static IEnumerable<IPAddress> RoutableIpv6OfThisHost() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(nic => nic.OperationalStatus == OperationalStatus.Up && nic.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
+            .Select(unicast => unicast.Address)
+            .Where(a => a.AddressFamily == AddressFamily.InterNetworkV6 && !a.IsIPv6LinkLocal && !IPAddress.IsLoopback(a));
 
     private sealed class Capture : ILoggerProvider, ILogger
     {

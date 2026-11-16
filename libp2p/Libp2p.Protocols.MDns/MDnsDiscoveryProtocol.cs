@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
@@ -79,7 +80,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
-            IPAddress[] hostAddresses = MulticastService.GetLinkLocalAddresses().ToArray();
+            IPAddress[] hostAddresses = HostAddresses();
             List<string> advertised = localPeerAddrs
                 .SelectMany(addr => AddressesToAdvertise(addr, hostAddresses))
                 .Select(addr => $"dnsaddr={addr}")
@@ -205,6 +206,23 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             await Task.Delay(MdnsQueryInterval, token);
         }
     }
+
+    /// <summary>
+    /// This host's usable unicast addresses, for rewriting a wildcard listener.
+    /// <para>
+    /// Not <c>MulticastService.GetLinkLocalAddresses</c>: that returns an IPv6 address only when it
+    /// is link-local, so an IPv6 wildcard would advertise <c>fe80::</c> endpoints alone. go-libp2p
+    /// rejects those in <c>Swarm.CanDial</c> before dialing, which leaves an IPv6-only listener
+    /// unreachable even when its interface has a ULA or global address that works.
+    /// </para>
+    /// </summary>
+    internal static IPAddress[] HostAddresses() =>
+        [.. NetworkInterface.GetAllNetworkInterfaces()
+            .Where(nic => nic.OperationalStatus == OperationalStatus.Up
+                && nic.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
+            .Select(unicast => unicast.Address)
+            .Where(address => !IPAddress.IsLoopback(address))];
 
     /// <summary>
     /// The addresses to advertise for one listen address: itself when it names a concrete IP, and
