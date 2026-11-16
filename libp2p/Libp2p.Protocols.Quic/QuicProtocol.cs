@@ -398,7 +398,7 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         {
             try
             {
-                await upChannel.WriteFromAsync(stream.ReadAsync, 1024, pumpCancellation.Token);
+                await upChannel.WriteFromAsync(stream.ReadAsync, 16 * 1024, pumpCancellation.Token);
                 await upChannel.WriteEofAsync();
             }
             catch (Exception) when (pumpCancellation.IsCancellationRequested)

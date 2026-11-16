@@ -69,7 +69,7 @@ public class OwnedReceiveBufferTests
             QuicProtocol protocol = new();
             OwnedReceiveTestChannel firstChannel = new();
             OwnedReceiveTestChannel secondChannel = new();
-            int[] lengths = [1, 17, 2 * 1024 + 31, 3];
+            int[] lengths = [1, 17, 2 * 16 * 1024 + 31, 3];
             byte[] firstExpected = OwnedReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
             byte[] secondExpected = OwnedReceiveTestChannel.Payload(lengths.Sum() + 1, 29);
             ReadResult[] retained = [];

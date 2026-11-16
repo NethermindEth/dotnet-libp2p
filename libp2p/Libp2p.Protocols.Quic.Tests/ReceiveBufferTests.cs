@@ -94,7 +94,7 @@ public class ReceiveBufferTests
             await using (QuicPump pump = await QuicPump.StartAsync(local, remote, false, new QuicProtocol(), channel, token))
             {
                 TrackingReceivePool.Rental rental = await pool.WaitForRentAsync(token);
-                Assert.That(rental.Capacity, Is.EqualTo(1024));
+                Assert.That(rental.Capacity, Is.EqualTo(16 * 1024));
                 switch (ending)
                 {
                     case "eof": pump.Remote.CompleteWrites(); break;
@@ -120,7 +120,7 @@ public class ReceiveBufferTests
             QuicProtocol protocol = new();
             ReceiveTestChannel firstChannel = new() { ReceivePool = pool };
             ReceiveTestChannel secondChannel = new() { ReceivePool = pool };
-            int[] lengths = [1, 17, 2 * 1024 + 31, 3];
+            int[] lengths = [1, 17, 2 * 16 * 1024 + 31, 3];
             byte[] firstExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 11);
             byte[] secondExpected = ReceiveTestChannel.Payload(lengths.Sum() + 1, 29);
             await using (QuicPump first = await QuicPump.StartAsync(local, remote, false, protocol, firstChannel, token))
