@@ -665,12 +665,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
 
-    // Control messages carry IDs as bytes. Most advertised IDs are already known, so look them up
-    // before creating a MessageId.
-    private bool IsKnownMessage(ReadOnlySpan<byte> messageId) =>
-        _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>().ContainsKey(messageId) ||
-        _seenMessages.Contains(messageId) || _limboMessageCache.Contains(messageId);
-
     /// <returns><see langword="true"/> if an invalid message delivery was recorded.</returns>
     private bool HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
         ConcurrentDictionary<PeerId, Rpc> peerMessages,
@@ -1130,10 +1124,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             int advertised = Math.Min(ihave.MessageIDs.Count, _settings.MaxIHaveLength);
             for (int i = 0; i < advertised; i++)
             {
+                // Most advertised IDs have been seen, so that is checked by the bytes. An ID that has not
+                // been seen needs a MessageId to be requested, and the two small tables are checked with it.
                 ByteString idBytes = ihave.MessageIDs[i];
-                if (!IsKnownMessage(idBytes.Span))
+                if (_seenMessages.Contains(idBytes.Span))
                 {
-                    messageIds.Add(new MessageId(idBytes.ToByteArray()));
+                    continue;
+                }
+
+                MessageId messageId = new(idBytes.ToByteArray());
+                if (!_pendingValidations.ContainsKey(messageId) && !_limboMessageCache.Contains(messageId))
+                {
+                    messageIds.Add(messageId);
                     if (messageIds.Count == _settings.MaxIHaveLength)
                     {
                         break;

@@ -119,6 +119,18 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task Ihave_DoesNotRequestSeenMessages()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        MessageId seen = setup.Publish([1, 2, 3]);
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, seen.Bytes, [9]));
+
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom([9]) }));
+    }
+
+    [Test]
     public async Task Iwant_UsesRetransmissionAndResponseByteLimits()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
