@@ -13,6 +13,73 @@ namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 [CancelAfter(5_000)]
 public class PubsubSessionFailureTests
 {
+    [TestCase("self")]
+    [TestCase("suppressed")]
+    [TestCase("stopped")]
+    public async Task ListenAsync_RejectedPeerResetsItsStream(string reason)
+    {
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings { AutoConnect = false });
+        ILocalPeer local = Substitute.For<ILocalPeer>();
+        local.Identity.Returns(TestPeers.Identity(1));
+        local.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        await router.StartAsync(local);
+        Multiaddress address = TestPeers.Multiaddr(reason == "self" ? 1 : 2);
+        TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (reason == "suppressed")
+            router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
+                () => Task.CompletedTask).SuppressReconnection();
+        if (reason == "stopped") router.Dispose();
+        ISessionContext context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State { RemoteAddress = address });
+        Channel channel = new();
+        try
+        {
+            await new GossipsubProtocolV12(router).ListenAsync(channel, context).WaitAsync(TestContext.CurrentContext.CancellationToken);
+            await channel.CompleteProtocolAsync();
+            ReadResult remote = await channel.Reverse.ReadAsync(1, ReadBlockingMode.DoNotWait);
+            Assert.That(remote.Result, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            incoming.TrySetResult();
+            await channel.AbortAsync();
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ListenAsync_OutboundClosureResetsInboundButRemoteEofStaysGraceful(bool outboundClosed)
+    {
+        await using PubsubRouter router = new(new PeerStore(), new PubsubSettings { AutoConnect = false });
+        ILocalPeer localPeer = Substitute.For<ILocalPeer>();
+        localPeer.Identity.Returns(TestPeers.Identity(1));
+        localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
+        await router.StartAsync(localPeer);
+
+        Multiaddress remoteAddress = TestPeers.Multiaddr(2);
+        TaskCompletionSource writerClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.OutboundConnection(remoteAddress, PubsubRouter.GossipsubProtocolVersionV12, writerClosed.Task, _ => { });
+        ISessionContext context = Substitute.For<ISessionContext>();
+        context.State.Returns(new State { RemoteAddress = remoteAddress });
+        Channel channel = new();
+        try
+        {
+            Task listen = new GossipsubProtocolV12(router).ListenAsync(channel, context);
+            if (outboundClosed) writerClosed.SetResult();
+            else await channel.Reverse.WriteEofAsync(TestContext.CurrentContext.CancellationToken);
+            await listen.WaitAsync(TestContext.CurrentContext.CancellationToken);
+            await channel.CompleteProtocolAsync();
+
+            ReadResult remote = await channel.Reverse.ReadAsync(1, ReadBlockingMode.DoNotWait);
+            Assert.That(remote.Result, Is.EqualTo(outboundClosed ? IOResult.Aborted : IOResult.Ended));
+        }
+        finally
+        {
+            await channel.AbortAsync();
+            writerClosed.TrySetResult();
+        }
+    }
+
     [Test]
     public async Task ListenAsync_RouterShutdown_DoesNotMarkActivityAsError()
     {
@@ -35,6 +102,7 @@ public class PubsubSessionFailureTests
         await listen.WaitAsync(TestContext.CurrentContext.CancellationToken);
 
         Assert.That(activity.Status, Is.EqualTo(ActivityStatusCode.Unset));
+        Assert.That(channel.IsAborted, Is.True);
         await context.DidNotReceive().DisconnectAsync();
     }
 
@@ -45,6 +113,7 @@ public class PubsubSessionFailureTests
 
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task ReadStarted => _readStarted.Task;
+        public bool IsAborted => _closed.Task.IsCompleted;
 
         public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {

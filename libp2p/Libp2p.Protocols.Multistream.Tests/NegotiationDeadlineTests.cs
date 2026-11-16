@@ -115,12 +115,9 @@ public class NegotiationDeadlineTests
         try
         {
             Assert.That(await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(protocol.Id));
-            if (stage >= 4) await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2));
-            if (stage % 2 == 1)
-            {
-                await remote.WriteLineAsync(protocol.Id);
-                if (stage == 3) await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2));
-            }
+            // A dialer sends its first proposal together with the hello.
+            if (stage >= 2) await remote.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            if (stage % 2 == 1) await remote.WriteLineAsync(protocol.Id);
             await remote.WriteVarintAsync(1025);
             await negotiation.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
