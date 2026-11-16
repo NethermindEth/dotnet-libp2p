@@ -111,8 +111,15 @@ public abstract class PubsubProtocol : ISessionProtocol
         }
         finally
         {
-            listTcs.SetResult();
-            context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
+            try
+            {
+                if (token.IsCancellationRequested) await channel.AbortAsync();
+            }
+            finally
+            {
+                listTcs.SetResult();
+                context.Activity?.AddEvent(new ActivityEvent($"Finished({context.Id}) list {context.State.RemoteAddress}"));
+            }
         }
     }
 

@@ -161,7 +161,7 @@ public class DataWindowFuzzTests
                 if (window.Available == 0)
                 {
                     using CancellationTokenSource cancellation = new();
-                    Task<int> pending = window.SpendOrWait(requested, cancellation.Token);
+                    Task<int> pending = window.SpendOrWait(requested, cancellation.Token).AsTask();
                     Assert.That(pending.IsCompleted, Is.False, "No credit must leave the spend pending.");
                     cancellation.Cancel();
                     Assert.CatchAsync<OperationCanceledException>(async () => await pending);

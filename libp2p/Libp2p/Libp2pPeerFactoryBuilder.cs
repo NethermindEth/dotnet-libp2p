@@ -6,7 +6,6 @@ using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Tls;
-using Nethermind.Libp2p.Protocols.WebRtc;
 
 namespace Nethermind.Libp2p;
 
@@ -30,10 +29,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(PingProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyPushProtocol))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(IdentifyProtocol))]
-#if LIBP2P_WEBSOCKETS
-    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebSocketProtocol))]
-#endif
-    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(WebRtcDirectProtocol))]
     private static void PreserveTransportProtocolMetadata() { }
 
     /// <summary>Replace these settings before Build to configure or disable built-in protocol limits.</summary>
@@ -43,10 +38,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     private bool addPubsub;
     private bool addRelay;
     private bool addQuic;
-#if LIBP2P_WEBSOCKETS
-    private bool addWebSockets;
-#endif
-    private bool addWebRtcDirect;
 
     /// <summary>
     /// Exposes the service collection for protocol integration.
@@ -82,24 +73,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
-    public ILibp2pPeerFactoryBuilder WithWebSockets()
-    {
-        EnsureConfigurable();
-#if LIBP2P_WEBSOCKETS
-        addWebSockets = true;
-        return this;
-#else
-        throw new PlatformNotSupportedException("WebSockets transport is not available on this target runtime.");
-#endif
-    }
-
-    public ILibp2pPeerFactoryBuilder WithWebRtcDirect()
-    {
-        EnsureConfigurable();
-        addWebRtcDirect = true;
-        return this;
-    }
-
     /// <summary>The default Identify protocol, or null to omit it.</summary>
     protected virtual ProtocolRef? Identify() => Get<IdentifyProtocol>(ProtocolLimits.Identify);
 
@@ -110,24 +83,10 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     protected virtual ProtocolRef? Ping() => Get<PingProtocol>(ProtocolLimits.Ping);
 
     /// <summary>Stream transports wired through encryption and multiplexing.</summary>
-    protected virtual ProtocolRef[] StreamTransports()
-    {
-        ProtocolRef tcp = Get<IpTcpProtocol>();
-#if LIBP2P_WEBSOCKETS
-        return addWebSockets ? [tcp, Get<WebSocketProtocol>()] : [tcp];
-#else
-        return [tcp];
-#endif
-    }
+    protected virtual ProtocolRef[] StreamTransports() => [Get<IpTcpProtocol>()];
 
     /// <summary>Transports with built-in security and multiplexing, wired directly to applications.</summary>
-    protected virtual ProtocolRef[] DatagramTransports()
-    {
-        List<ProtocolRef> transports = [];
-        if (addQuic) transports.Add(Get<QuicProtocol>());
-        if (addWebRtcDirect) transports.Add(Get<WebRtcDirectProtocol>());
-        return [.. transports];
-    }
+    protected virtual ProtocolRef[] DatagramTransports() => addQuic ? [Get<QuicProtocol>()] : [];
 
     /// <summary>Security protocols offered on stream transports, in negotiation order.</summary>
     protected virtual ProtocolRef[] Encryption() => enforcePlaintext ? [Get<PlainTextProtocol>()] : [Get<NoiseProtocol>(), Get<TlsProtocol>()];

@@ -57,6 +57,14 @@ public class ChannelStream : Stream
         ThrowIfDisposed();
     }
 
+    /// <remarks>Writes are not buffered, so flushing completes synchronously instead of queuing <see cref="Flush"/> to the thread pool.</remarks>
+    public override Task FlushAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+        if (_disposed) return Task.FromException(CreateObjectDisposedException());
+        return Task.CompletedTask;
+    }
+
     public override int Read(byte[] buffer, int offset, int count)
     {
         ArgumentNullException.ThrowIfNull(buffer);

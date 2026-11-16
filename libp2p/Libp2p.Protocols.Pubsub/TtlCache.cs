@@ -9,7 +9,7 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     private readonly int maxEntries;
     private readonly TimeProvider timeProvider;
     private readonly object sync = new();
-    private readonly Dictionary<TKey, CachedItem> items = [];
+    private readonly Dictionary<TKey, CachedItem> items;
     private readonly LinkedList<TKey> insertionOrder = [];
     private readonly CancellationTokenSource sweeperCancellation = new();
     private readonly Task sweeperTask;
@@ -21,10 +21,11 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     {
     }
 
-    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null)
+    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null, IEqualityComparer<TKey>? comparer = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ttl);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
+        items = new Dictionary<TKey, CachedItem>(comparer);
         this.ttl = ttl;
         this.maxEntries = maxEntries;
         this.timeProvider = timeProvider ?? TimeProvider.System;
@@ -45,6 +46,25 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     }
 
     public bool Contains(TKey key) => TryGet(key, out _);
+
+    /// <summary>Looks a key up by an alternate form that the cache comparer supports, without creating the key.</summary>
+    public bool Contains<TAlternate>(TAlternate key) where TAlternate : notnull, allows ref struct
+    {
+        lock (sync)
+        {
+            if (items.GetAlternateLookup<TAlternate>().TryGetValue(key, out TKey? actualKey, out CachedItem cachedItem))
+            {
+                if (cachedItem.ValidTill > timeProvider.GetUtcNow())
+                {
+                    return true;
+                }
+
+                Remove(actualKey, cachedItem);
+            }
+        }
+
+        return false;
+    }
 
     public TItem Get(TKey key) => TryGet(key, out TItem item) ? item : default!;
 
@@ -191,7 +211,8 @@ internal class TtlCache<TKey> : TtlCache<TKey, bool> where TKey : notnull
     {
     }
 
-    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null) : base(ttl, maxEntries, timeProvider)
+    public TtlCache(int ttl, int maxEntries, TimeProvider? timeProvider = null, IEqualityComparer<TKey>? comparer = null)
+        : base(ttl, maxEntries, timeProvider, comparer)
     {
     }
 

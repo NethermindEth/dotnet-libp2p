@@ -62,10 +62,10 @@ public class RegisteredIdentityTests
     {
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(20));
         await using ServiceProvider firstServices = new ServiceCollection()
-            .AddLibp2p(builder => builder.WithWebRtcDirect().AddProtocol<IncrementNumberTestProtocol>())
+            .AddLibp2p<WebRtcDirectBuilder>(builder => builder.AddProtocol<IncrementNumberTestProtocol>())
             .AddLogging(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Debug)).BuildServiceProvider();
         await using ServiceProvider secondServices = new ServiceCollection()
-            .AddLibp2p(builder => builder.WithWebRtcDirect().AddProtocol<IncrementNumberTestProtocol>())
+            .AddLibp2p<WebRtcDirectBuilder>(builder => builder.AddProtocol<IncrementNumberTestProtocol>())
             .AddLogging(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Debug)).BuildServiceProvider();
         await using ILocalPeer first = firstServices.GetRequiredService<IPeerFactory>().Create(
             alternateEncoding ? AlternateIdentity(KeyType.Secp256K1, hybrid: false) : new Identity(keyType: KeyType.Secp256K1));
