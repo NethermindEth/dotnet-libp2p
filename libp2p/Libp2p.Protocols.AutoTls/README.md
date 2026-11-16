@@ -20,12 +20,15 @@ can consume `ITlsCertificateProvider` for `/wss` listeners.
 
 ## Usage
 
+`WebSocketPeerFactoryBuilder` is the derived builder shown in the
+`Nethermind.Libp2p` package README.
+
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Protocols.AutoTls;
 
 services
-    .AddLibp2p(builder => builder.WithWebSockets())
+    .AddLibp2p<WebSocketPeerFactoryBuilder>()
     .AddAutoTls(opts =>
     {
         opts.ContactEmail = "you@example.com";

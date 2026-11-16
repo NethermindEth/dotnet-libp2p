@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
@@ -442,18 +443,26 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             peerState.GetValueOrDefault(recipient)?.Send(idontwant);
         }
 
-        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
-        {
-            peerState.GetValueOrDefault(peerMessage.Key)?.Send(peerMessage.Value);
-        }
+        SendSharingPublishedMessages(peerMessages);
 
         foreach ((string topic, PeerId receivedFrom, byte[] data) in receivedMessages)
         {
-            foreach (Delegate handler in OnMessage?.GetInvocationList() ?? [])
+            if (topicState.TryGetValue(topic, out Topic? topicSubscribers))
+            {
+                topicSubscribers.Deliver(receivedFrom, data);
+            }
+
+            Action<string, PeerId, byte[]>? onMessage = OnMessage;
+            if (onMessage is null)
+            {
+                continue;
+            }
+
+            foreach (Action<string, PeerId, byte[]> handler in Delegate.EnumerateInvocationList(onMessage))
             {
                 try
                 {
-                    ((Action<string, PeerId, byte[]>)handler)(topic, receivedFrom, data);
+                    handler(topic, receivedFrom, data);
                 }
                 catch (Exception ex)
                 {
@@ -464,17 +473,91 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         foreach ((string topic, PeerId receivedFrom, PartialMessage message) in receivedPartialMessages)
         {
-            foreach (Delegate handler in OnPartialMessage?.GetInvocationList() ?? [])
+            if (topicState.TryGetValue(topic, out Topic? topicSubscribers))
+            {
+                topicSubscribers.DeliverPartial(receivedFrom, message);
+            }
+
+            Action<string, PeerId, PartialMessage>? onPartialMessage = OnPartialMessage;
+            if (onPartialMessage is null)
+            {
+                continue;
+            }
+
+            foreach (Action<string, PeerId, PartialMessage> handler in Delegate.EnumerateInvocationList(onPartialMessage))
             {
                 try
                 {
-                    ((Action<string, PeerId, PartialMessage>)handler)(topic, receivedFrom, message);
+                    handler(topic, receivedFrom, message);
                 }
                 catch (Exception ex)
                 {
                     LogSubscriberError(ex, topic);
                 }
             }
+        }
+    }
+
+    // A forwarded message usually goes to several peers in otherwise empty RPCs. Those RPCs serialize
+    // to the same bytes, so each distinct list of message instances is serialized once for all of them.
+    private void SendSharingPublishedMessages(ConcurrentDictionary<PeerId, Rpc> peerMessages)
+    {
+        Dictionary<Rpc, SharedFrame>? sharedFrames = null;
+        foreach (KeyValuePair<PeerId, Rpc> peerMessage in peerMessages)
+        {
+            if (!peerState.TryGetValue(peerMessage.Key, out PubsubPeer? peer))
+            {
+                continue;
+            }
+
+            Rpc rpc = peerMessage.Value;
+            if (peerMessages.Count == 1 || rpc.Subscriptions.Count != 0 || rpc.Control is not null || rpc.Partial is not null)
+            {
+                peer.Send(rpc);
+                continue;
+            }
+
+            sharedFrames ??= new(PublishedMessagesComparer.Instance);
+            if (!sharedFrames.TryGetValue(rpc, out SharedFrame? frame))
+            {
+                frame = new SharedFrame(rpc);
+                sharedFrames.Add(rpc, frame);
+            }
+            peer.SendShared(frame);
+        }
+    }
+
+    private sealed class PublishedMessagesComparer : IEqualityComparer<Rpc>
+    {
+        public static readonly PublishedMessagesComparer Instance = new();
+
+        public bool Equals(Rpc? x, Rpc? y)
+        {
+            if (x is null || y is null || x.Publish.Count != y.Publish.Count)
+            {
+                return ReferenceEquals(x, y);
+            }
+
+            for (int i = 0; i < x.Publish.Count; i++)
+            {
+                if (!ReferenceEquals(x.Publish[i], y.Publish[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public int GetHashCode(Rpc rpc)
+        {
+            HashCode hash = new();
+            for (int i = 0; i < rpc.Publish.Count; i++)
+            {
+                hash.Add(RuntimeHelpers.GetHashCode(rpc.Publish[i]));
+            }
+
+            return hash.ToHashCode();
         }
     }
 
@@ -581,6 +664,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
+
+    // Control messages carry IDs as bytes. Most advertised IDs are already known, so look them up
+    // before creating a MessageId.
+    private bool IsKnownMessage(ReadOnlySpan<byte> messageId) =>
+        _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>().ContainsKey(messageId) ||
+        _seenMessages.Contains(messageId) || _limboMessageCache.Contains(messageId);
 
     /// <returns><see langword="true"/> if an invalid message delivery was recorded.</returns>
     private bool HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
@@ -1038,13 +1127,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            foreach (ByteString idBytes in ihave.MessageIDs.Take(_settings.MaxIHaveLength))
+            int advertised = Math.Min(ihave.MessageIDs.Count, _settings.MaxIHaveLength);
+            for (int i = 0; i < advertised; i++)
             {
-                MessageId messageId = new(idBytes.ToByteArray());
-                if (!_pendingValidations.ContainsKey(messageId) &&
-                    !_seenMessages.Contains(messageId) && !_limboMessageCache.Contains(messageId))
+                ByteString idBytes = ihave.MessageIDs[i];
+                if (!IsKnownMessage(idBytes.Span))
                 {
-                    messageIds.Add(messageId);
+                    messageIds.Add(new MessageId(idBytes.ToByteArray()));
                     if (messageIds.Count == _settings.MaxIHaveLength)
                     {
                         break;
@@ -1080,7 +1169,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        HashSet<MessageId> requested = [];
+        // The cached message found while reading the IDs is kept, so it is looked up once. An ID that is
+        // not cached cannot be answered, so it only counts toward the limit and no MessageId is created for it.
+        Dictionary<MessageId, Message> requested = [];
+        int uncached = 0;
         foreach (ControlIWant iwant in iwants)
         {
             if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
@@ -1088,17 +1180,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            foreach (ByteString idBytes in iwant.MessageIDs)
+            for (int i = 0; i < iwant.MessageIDs.Count && requested.Count + uncached < _settings.MaxIwantLength; i++)
             {
-                if (requested.Count >= _settings.MaxIwantLength)
+                if (_messageCache.TryGet(iwant.MessageIDs[i].Span, out MessageId cachedId, out Message cachedMessage))
                 {
-                    break;
+                    requested.TryAdd(cachedId, cachedMessage);
                 }
-
-                requested.Add(new MessageId(idBytes.ToByteArray()));
+                else
+                {
+                    uncached++;
+                }
             }
 
-            if (requested.Count >= _settings.MaxIwantLength)
+            if (requested.Count + uncached >= _settings.MaxIwantLength)
             {
                 break;
             }
@@ -1106,9 +1200,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
 
         List<Message> messages = [];
         long responseBytes = 0;
-        foreach (MessageId messageId in requested)
+        foreach ((MessageId messageId, Message message) in requested)
         {
-            if (peer.Control.IsUnwanted(messageId) || !_messageCache.TryGet(messageId, out Message message))
+            if (peer.Control.IsUnwanted(messageId))
             {
                 continue;
             }
@@ -1153,9 +1247,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            foreach (ByteString idBytes in idontwant.MessageIDs.Take(_settings.MaxIdontwantLength))
+            int unwantedIds = Math.Min(idontwant.MessageIDs.Count, _settings.MaxIdontwantLength);
+            for (int i = 0; i < unwantedIds; i++)
             {
-                control.AddUnwanted(new MessageId(idBytes.ToByteArray()), heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
+                control.AddUnwanted(idontwant.MessageIDs[i].Span, heartbeatTick + _settings.IdontwantTtlHeartbeats, maxUnwanted);
             }
         }
     }

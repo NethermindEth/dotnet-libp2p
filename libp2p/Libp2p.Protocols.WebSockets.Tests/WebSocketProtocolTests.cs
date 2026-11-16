@@ -32,9 +32,7 @@ public class WebSocketProtocolTests
     public async Task PeersExchangeDataOverWebSocketTransport()
     {
         await using ServiceProvider services = new ServiceCollection()
-            .AddLibp2p(builder => builder
-                .WithWebSockets()
-                .AddProtocol<IncrementNumberProtocol>())
+            .AddLibp2p<WebSocketBuilder>(builder => builder.AddProtocol<IncrementNumberProtocol>())
             .BuildServiceProvider();
 
         IPeerFactory peerFactory = services.GetRequiredService<IPeerFactory>();
@@ -65,5 +63,10 @@ public class WebSocketProtocolTests
             int request = await downChannel.ReadVarintAsync();
             await downChannel.WriteVarintAsync(request + 1);
         }
+    }
+
+    private sealed class WebSocketBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
+    {
+        protected override ProtocolRef[] StreamTransports() => [.. base.StreamTransports(), Get<WebSocketProtocol>()];
     }
 }
