@@ -1114,6 +1114,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         HashSet<MessageId> messageIds = [];
+        // The clock read costs more than the lookup, so one read serves every ID of the RPC.
+        DateTimeOffset now = _seenMessages.Now;
         foreach (ControlIHave ihave in ihaves)
         {
             if (!mesh.ContainsKey(ihave.TopicID))
@@ -1127,7 +1129,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 // Most advertised IDs have been seen, so that is checked by the bytes. An ID that has not
                 // been seen needs a MessageId to be requested, and the two small tables are checked with it.
                 ByteString idBytes = ihave.MessageIDs[i];
-                if (_seenMessages.Contains(idBytes.Span))
+                if (_seenMessages.Contains(idBytes.Span, now))
                 {
                     continue;
                 }
