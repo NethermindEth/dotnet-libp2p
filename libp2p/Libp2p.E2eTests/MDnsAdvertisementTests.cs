@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Makaretu.Dns;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
@@ -112,9 +113,43 @@ public class MDnsAdvertisementTests
         Assert.That(MDnsDiscoverySettings.Libp2pServiceName, Is.EqualTo("_p2p._udp.local"));
     }
 
-    [TestCase(null, "_p2p._udp.local")]
+    /// <summary>
+    /// ServiceProfile and QueryServiceInstances append the mDNS domain themselves, so a setting
+    /// that already carries it must be normalized or the service becomes `_p2p._udp.local.local`,
+    /// which no standard peer queries. Either spelling of a name has to reach the wire the same way.
+    /// </summary>
+    [TestCase("_p2p._udp.local", "_p2p._udp")]
+    [TestCase("_p2p._udp.local.", "_p2p._udp")]
+    [TestCase("_p2p._udp.LOCAL", "_p2p._udp")]
+    [TestCase("_p2p._udp", "_p2p._udp")]
     [TestCase("pubsub-chat-example", "pubsub-chat-example")]
-    public async Task TheConfiguredServiceNameIsTheOneAdvertisedAndQueried(string? configured, string expected)
+    [TestCase("pubsub-chat-example.local", "pubsub-chat-example")]
+    public void TheMDnsDomainIsStrippedBeforeTheLibrarySeesTheName(string configured, string expected)
+    {
+        Assert.That(MDnsDiscoveryProtocol.WithoutMDnsDomain(configured), Is.EqualTo(expected));
+    }
+
+    /// <summary>The names that actually go on the wire, not the configured string.</summary>
+    [TestCase(null, "_p2p._udp.local")]
+    [TestCase("_p2p._udp.local", "_p2p._udp.local")]
+    [TestCase("_p2p._udp", "_p2p._udp.local")]
+    [TestCase("pubsub-chat-example", "pubsub-chat-example.local")]
+    public void TheGeneratedDnsNamesCarryTheMDnsDomainExactlyOnce(string? configured, string expectedService)
+    {
+        string name = MDnsDiscoveryProtocol.WithoutMDnsDomain(configured ?? new MDnsDiscoverySettings().ServiceName);
+        ServiceProfile profile = new("instance", name, 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(profile.QualifiedServiceName.ToString(), Is.EqualTo(expectedService));
+            Assert.That(profile.FullyQualifiedName.ToString(), Is.EqualTo($"instance.{expectedService}"));
+            Assert.That(profile.QualifiedServiceName.ToString(), Does.Not.Contain(".local.local"));
+        });
+    }
+
+    [TestCase(null, "_p2p._udp.local", "_p2p._udp")]
+    [TestCase("pubsub-chat-example", "pubsub-chat-example.local", "pubsub-chat-example")]
+    public async Task TheServiceIsAdvertisedAndQueriedUnderTheSameWireName(string? configured, string expectedService, string expectedQuery)
     {
         Capture capture = new();
         using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
@@ -124,10 +159,14 @@ public class MDnsAdvertisementTests
         await discovery.StartDiscoveryAsync([Multiaddress.Decode($"/ip4/127.0.0.1/tcp/4001/p2p/{Peer}")]);
         await capture.WaitForAsync(m => m.StartsWith("Querying "), Timeout);
 
+        string records = capture.Snapshot().First(m => m.StartsWith("DNS records to share"));
         Assert.Multiple(() =>
         {
-            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Started as {Name(capture)} {expected}"));
-            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Querying {expected}"));
+            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Started as {Name(capture)} {expectedService}"));
+            Assert.That(capture.Snapshot(), Has.Some.EqualTo($"Querying {expectedQuery}"));
+            // The record names are what a remote peer matches on.
+            Assert.That(records, Does.Contain($".{expectedService} "));
+            Assert.That(records, Does.Not.Contain(".local.local"));
         });
     }
 

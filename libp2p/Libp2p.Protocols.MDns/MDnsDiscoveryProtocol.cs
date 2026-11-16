@@ -27,6 +27,14 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
     private readonly MDnsDiscoverySettings _settings = settings ?? new();
 
+    /// <summary>
+    /// The service name as the mDNS library wants it. ServiceProfile and QueryServiceInstances
+    /// append the mDNS domain themselves, so a name that already carries it would be advertised and
+    /// queried as <c>_p2p._udp.local.local</c>, which no standard peer looks for. The setting stays
+    /// in the specification's own form and is normalized here, for both paths.
+    /// </summary>
+    private string ServiceNameForLibrary => WithoutMDnsDomain(_settings.ServiceName);
+
     private string PeerName = null!;
 
     private readonly object _lifecycleLock = new();
@@ -67,7 +75,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         try
         {
             PeerName = RandomString(32);
-            ServiceProfile service = new(PeerName, _settings.ServiceName, 0);
+            ServiceProfile service = new(PeerName, ServiceNameForLibrary, 0);
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
@@ -95,7 +103,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             }
 
             _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
-            _logger?.LogInformation("Started as {0} {1}", PeerName, _settings.ServiceName);
+            _logger?.LogInformation("Started as {0} {1}", PeerName, service.QualifiedServiceName);
 
             sd.ServiceDiscovered += (s, serviceName) =>
             {
@@ -187,8 +195,8 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         {
             try
             {
-                _logger?.LogTrace("Querying {0}", _settings.ServiceName);
-                sd.QueryServiceInstances(_settings.ServiceName);
+                _logger?.LogTrace("Querying {0}", ServiceNameForLibrary);
+                sd.QueryServiceInstances(ServiceNameForLibrary);
             }
             catch (Exception ex)
             {
@@ -251,6 +259,19 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             yield return expanded;
         }
+    }
+
+    /// <summary>
+    /// Strips the mDNS domain, and a root label, from a service name. <c>_p2p._udp.local</c> and
+    /// <c>_p2p._udp</c> both become <c>_p2p._udp</c>, so either form of a configured name reaches
+    /// the wire as the same DNS-SD service.
+    /// </summary>
+    internal static string WithoutMDnsDomain(string serviceName)
+    {
+        string trimmed = serviceName.TrimEnd('.');
+        return trimmed.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[..^".local".Length]
+            : trimmed;
     }
 
     private static string RandomString(int length)
