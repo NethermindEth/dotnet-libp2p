@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 # SPDX-License-Identifier: MIT
 
+import json
 import os
 from pathlib import Path
 import re
@@ -171,6 +172,22 @@ def workflow_step(workflow, name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_library_filter_selects_all_published_projects(self):
+        _, script = workflow_step("publish.yml", "Publish")
+        targets = re.findall(r"^dotnet pack (\S+)", script, re.M)
+        self.assertTrue(targets, "Expected explicit published project paths")
+        published = set()
+        for target in targets:
+            path = REPO / target
+            projects = [path] if path.suffix == ".csproj" else list(path.glob("*.csproj"))
+            self.assertEqual(1, len(projects), target)
+            self.assertTrue(projects[0].is_file(), target)
+            published.add(projects[0].relative_to(REPO).as_posix())
+
+        selected = json.loads((REPO / "solutions/Library.slnf").read_text())["solution"]["projects"]
+        self.assertEqual(len(selected), len(set(selected)), "Duplicate library selection")
+        self.assertEqual(published, set(selected))
+
     def test_both_workflows_use_the_combined_build_inventory(self):
         for workflow in ("test.yml", "publish.yml"):
             with self.subTest(workflow=workflow):
