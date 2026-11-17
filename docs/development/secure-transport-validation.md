@@ -34,8 +34,8 @@ The [TLS peer-authentication specification](https://github.com/libp2p/specs/blob
 requires rejecting multiple **transmitted** certificates, including duplicate
 entries. The [Go validator](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/tls/crypto.go)
 checks the length of the list parsed from the TLS callback's raw certificates.
-See its [reference tests at the same revision](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/tls/crypto_test.go)
-for certificate-list rejection cases.
+The [two-certificate test at the same revision](https://github.com/libp2p/go-libp2p/blob/8ce45df1bd142373cdf0a6f8355a757273258f49/p2p/security/tls/transport_test.go#L585-L591)
+asserts the chain-length error.
 
 `CertificateListProbeTests` uses Bouncy Castle 2.6.2 as a TLS 1.3 sender in both
 directions. It captures and parses the final Certificate serialization hook and
