@@ -401,6 +401,35 @@ public class MDnsAdvertisementTests
         Assert.That(MDnsDiscoveryProtocol.AdvertisedStrings(message, instance), Is.Not.Empty);
     }
 
+    /// <summary>
+    /// The A and AAAA records the specification's "find all response" calls for must describe the
+    /// same host as the dnsaddr entries beside them. Left to itself ServiceProfile fills them from
+    /// the library's link-local-only helper, so the two halves of one response disagreed, and the
+    /// Gotchas section says many tools query those records directly.
+    /// </summary>
+    [Test]
+    public async Task TheAddressRecordsAndTheDnsaddrEntriesDescribeTheSameHost()
+    {
+        Capture capture = new();
+        using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
+        await using MDnsDiscoveryProtocol discovery = new(new PeerStore(), factory);
+
+        await discovery.StartDiscoveryAsync([Multiaddress.Decode($"/ip4/0.0.0.0/tcp/4001/p2p/{Peer}"), Multiaddress.Decode($"/ip6/::/tcp/4001/p2p/{Peer}")]);
+        await capture.WaitForAsync(m => m.StartsWith("DNS records to share"), Timeout);
+        string records = capture.Snapshot().First(m => m.StartsWith("DNS records to share"));
+
+        // Every address this host offers has to appear in an A or AAAA record, scope id stripped.
+        foreach (IPAddress expected in MDnsDiscoveryProtocol.HostAddresses())
+        {
+            string text = (expected.AddressFamily == AddressFamily.InterNetworkV6
+                ? new IPAddress(expected.GetAddressBytes())
+                : expected).ToString();
+            Assert.That(records, Does.Contain(text), $"{text} is advertised as a dnsaddr but missing from the A/AAAA records");
+        }
+
+        Assert.That(records, Does.Not.Contain("%"), "a scope id must not reach the wire");
+    }
+
     private sealed class Capture : ILoggerProvider, ILogger
     {
         private readonly List<string> _messages = [];

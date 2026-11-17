@@ -76,11 +76,19 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         try
         {
             PeerName = RandomString(32);
-            ServiceProfile service = new(PeerName, ServiceNameForLibrary, 0);
+
+            // One address source for both halves of the response. Left to itself, ServiceProfile
+            // fills the A and AAAA records from MulticastService.GetLinkLocalAddresses, which omits
+            // every ULA and global IPv6 address -- so the records the specification's "find all
+            // response" calls for would advertise a narrower set than the dnsaddr entries beside
+            // them, and a tool that queries <host-name> AAAA directly, as the Gotchas section says
+            // many do, would only ever learn a link-local address.
+            IPAddress[] hostAddresses = HostAddresses();
+            ServiceProfile service = new(PeerName, ServiceNameForLibrary, 0,
+                [.. hostAddresses.Select(WithoutScopeId).Distinct()]);
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
-            IPAddress[] hostAddresses = HostAddresses();
             List<string> advertised = localPeerAddrs
                 .SelectMany(addr => AddressesToAdvertise(addr, hostAddresses))
                 .Select(addr => $"dnsaddr={addr}")
