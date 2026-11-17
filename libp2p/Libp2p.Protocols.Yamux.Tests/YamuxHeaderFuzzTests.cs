@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Buffers;
 using System.Buffers.Binary;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Yamux;
@@ -109,6 +110,43 @@ public class YamuxHeaderFuzzTests
         // The exact exception type (ArgumentOutOfRangeException from the range operator)
         // is incidental; what matters is that it fails loudly instead of decoding garbage.
         Assert.That(() => YamuxHeader.FromBytes(new byte[length]), Throws.Exception);
+    }
+
+    [Test]
+    public void Header_FromSequence_DecodesSingleSegmentAndEverySegmentSplit()
+    {
+        YamuxHeader original = new()
+        {
+            Version = 7,
+            Type = YamuxHeaderType.WindowUpdate,
+            Flags = YamuxHeaderFlags.Syn | YamuxHeaderFlags.Fin,
+            StreamID = 0x01020304,
+            Length = -5
+        };
+        byte[] bytes = new byte[16];
+        YamuxHeader copy = original;
+        YamuxHeader.ToBytes(bytes, ref copy);
+
+        AssertDecoded(new ReadOnlySequence<byte>(bytes), "single segment");
+        for (int split = 1; split < 12; split++)
+        {
+            MemorySegment<byte> first = new(bytes.AsMemory(0, split));
+            MemorySegment<byte> last = first.Append(bytes.AsMemory(split));
+            AssertDecoded(new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length), $"split at {split}");
+        }
+
+        void AssertDecoded(ReadOnlySequence<byte> data, string layout)
+        {
+            YamuxHeader decoded = YamuxHeader.FromBytes(data);
+            Assert.Multiple(() =>
+            {
+                Assert.That(decoded.Version, Is.EqualTo(original.Version), layout);
+                Assert.That(decoded.Type, Is.EqualTo(original.Type), layout);
+                Assert.That(decoded.Flags, Is.EqualTo(original.Flags), layout);
+                Assert.That(decoded.StreamID, Is.EqualTo(original.StreamID), layout);
+                Assert.That(decoded.Length, Is.EqualTo(original.Length), layout);
+            });
+        }
     }
 
     [TestCase(0)]

@@ -126,11 +126,11 @@ public class ConnectionSnapshotTests
         internal int Reads { get; private set; }
         internal bool ReadUnderLock { get; private set; }
 
-        public override string ToString()
+        public override byte[] ToBytes()
         {
             Reads++;
             ReadUnderLock |= Monitor.IsEntered(sessionLock);
-            return base.ToString();
+            return base.ToBytes();
         }
     }
 }

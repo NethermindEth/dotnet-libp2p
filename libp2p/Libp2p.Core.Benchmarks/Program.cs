@@ -1,9 +1,17 @@
 // SPDX-FileCopyrightText: 2023 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using BenchmarkDotNet.Running;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Benchmarks;
 using System.Buffers;
 using System.Diagnostics;
+
+if (args.Length > 0)
+{
+    BenchmarkSwitcher.FromAssembly(typeof(ChannelsBenchmark).Assembly).Run(args);
+    return;
+}
 
 Channel chan = new();
 IChannel revChan = chan.Reverse;

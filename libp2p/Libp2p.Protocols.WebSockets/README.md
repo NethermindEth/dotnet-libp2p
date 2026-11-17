@@ -2,6 +2,7 @@
 
 WebSocket and Secure WebSocket transport support for dotnet-libp2p.
 
-Use `WithWebSockets()` when building a libp2p peer to enable `/ws` and `/wss`
-multiaddrs. Secure WebSocket listeners require an `ITlsCertificateProvider`,
+Add `WebSocketProtocol` to `StreamTransports` of a builder derived from
+`Libp2pPeerFactoryBuilder` to enable `/ws` and `/wss` multiaddrs. The
+`Nethermind.Libp2p` package README shows an example. Secure WebSocket listeners require an `ITlsCertificateProvider`,
 which can be supplied by `Libp2p.Protocols.AutoTls`.
