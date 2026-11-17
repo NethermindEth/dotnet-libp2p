@@ -24,6 +24,9 @@ internal static class IpColocation
             (ip.AddressFamily == AddressFamily.InterNetworkV6 && ip.ScopeId != 0) ||
             whitelist.Any(network => network.Contains(ip)))
         {
+            // A whitelisted address is exempt under both keys. go-libp2p checks the whitelist per key and never
+            // matches its /64 key, so a whitelisted IPv6 peer still pays the subnet penalty there; that is
+            // deliberately not reproduced.
             return (null, null);
         }
 
