@@ -356,6 +356,51 @@ public class MDnsAdvertisementTests
             .Count(text => text.StartsWith("dnsaddr="));
     }
 
+    /// <summary>
+    /// Implementations differ on which section carries the TXT records. This one and go-libp2p use
+    /// the additional section; js-libp2p puts the PTR and every dnsaddr TXT in the answer section.
+    /// Reading one section only discovers such a peer and then drops it with an empty address list.
+    /// </summary>
+    [TestCase("answers", false)]
+    [TestCase("additional", true)]
+    public void AdvertisedStringsAreReadFromEitherRecordSection(string label, bool additional)
+    {
+        DomainName instance = new($"peer._p2p._udp.local");
+        Message message = new();
+        message.Answers.Add(new PTRRecord { Name = new DomainName("_p2p._udp.local"), DomainName = instance });
+        TXTRecord txt = new() { Name = instance, Strings = [$"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}"] };
+        (additional ? message.AdditionalRecords : message.Answers).Add(txt);
+
+        IEnumerable<string> strings = MDnsDiscoveryProtocol.AdvertisedStrings(message, instance);
+
+        Assert.That(strings, Is.EqualTo(new[] { $"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}" }), label);
+    }
+
+    [Test]
+    public void RecordsOfAnotherInstanceInTheSameMessageAreIgnored()
+    {
+        DomainName mine = new("wanted._p2p._udp.local");
+        DomainName other = new("other._p2p._udp.local");
+        Message message = new();
+        message.Answers.Add(new TXTRecord { Name = other, Strings = [$"dnsaddr=/ip4/198.51.100.9/tcp/9/p2p/{Peer}"] });
+        message.AdditionalRecords.Add(new TXTRecord { Name = mine, Strings = [$"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}"] });
+
+        Assert.That(MDnsDiscoveryProtocol.AdvertisedStrings(message, mine),
+            Is.EqualTo(new[] { $"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}" }));
+    }
+
+    /// <summary>A root label and a different case name the same DNS record.</summary>
+    [TestCase("peer._p2p._udp.local.")]
+    [TestCase("PEER._P2P._UDP.LOCAL")]
+    public void TheInstanceNameIsMatchedAsADnsName(string advertisedAs)
+    {
+        DomainName instance = new("peer._p2p._udp.local");
+        Message message = new();
+        message.Answers.Add(new TXTRecord { Name = new DomainName(advertisedAs), Strings = [$"dnsaddr=/ip4/192.0.2.1/tcp/4001/p2p/{Peer}"] });
+
+        Assert.That(MDnsDiscoveryProtocol.AdvertisedStrings(message, instance), Is.Not.Empty);
+    }
+
     private sealed class Capture : ILoggerProvider, ILogger
     {
         private readonly List<string> _messages = [];

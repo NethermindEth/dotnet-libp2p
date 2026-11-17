@@ -130,7 +130,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 // Decoding the set in one expression would lose the peer's usable TCP and QUIC
                 // addresses along with the one that could not be read.
                 List<Multiaddress> records = DecodeAdvertised(
-                    e.Message.AdditionalRecords.OfType<TXTRecord>().SelectMany(record => record.Strings), _logger);
+                    AdvertisedStrings(e.Message, e.ServiceInstanceName), _logger);
 
                 _logger?.LogTrace("Inst disc {0}, msg: {1}", e.ServiceInstanceName, e.Message);
 
@@ -279,6 +279,30 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             yield return WithAddress(addr, ipIndex, WithoutScopeId(hostAddress));
         }
     }
+
+    /// <summary>
+    /// The TXT strings a peer advertised for one service instance, from both record sections.
+    /// <para>
+    /// Implementations differ on where they put them: this one and go-libp2p answer with the TXT
+    /// records in the additional section, while js-libp2p puts the PTR and every <c>dnsaddr</c> TXT
+    /// record in the answer section. Reading only one section discovers such a peer and then drops
+    /// it, because the decoded address list comes back empty.
+    /// </para>
+    /// <para>
+    /// Restricted to the discovered instance, since one message can carry records for several.
+    /// </para>
+    /// </summary>
+    internal static IEnumerable<string> AdvertisedStrings(Message message, DomainName instanceName)
+    {
+        return message.Answers.Concat(message.AdditionalRecords)
+            .OfType<TXTRecord>()
+            .Where(record => IsSameName(record.Name, instanceName))
+            .SelectMany(record => record.Strings);
+    }
+
+    /// <summary>DNS names are case-insensitive, and a root label does not change which name it is.</summary>
+    private static bool IsSameName(DomainName? left, DomainName? right) =>
+        string.Equals(left?.ToString().TrimEnd('.'), right?.ToString().TrimEnd('.'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The addresses from a peer's TXT strings, decoded one at a time.
