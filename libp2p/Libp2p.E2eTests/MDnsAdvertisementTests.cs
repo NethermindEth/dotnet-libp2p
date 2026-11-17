@@ -267,27 +267,14 @@ public class MDnsAdvertisementTests
             .Where(a => a.AddressFamily == AddressFamily.InterNetworkV6 && !a.IsIPv6LinkLocal && !IPAddress.IsLoopback(a));
 
     /// <summary>
-    /// Makaretu truncates an oversized response by dropping whole records, so every address must
-    /// get its own record: one record holding all of them loses all of them at once.
+    /// Both constraints at once. go-libp2p's resolver reads its addresses from its mDNS client, which
+    /// assigns the instance's text per TXT record rather than appending
+    /// (<c>entries[rr.Hdr.Name].Text = rr.Txt</c>), so separate records leave a Go peer with only
+    /// the last address; and a single record that overflows the response is dropped whole by the
+    /// sender. One record, bounded.
     /// </summary>
     [Test]
-    public void OneRecordPerAddressSurvivesTruncationWhereOneGroupedRecordDoesNot()
-    {
-        string[] entries = [.. Enumerable.Range(0, 120)
-            .Select(i => $"dnsaddr=/ip4/192.168.{i / 256}.{i % 256}/tcp/4001/p2p/{Peer}")];
-
-        int grouped = SurvivingAddresses([new TXTRecord { Name = "a.b.local", Strings = [.. entries] }]);
-        int separate = SurvivingAddresses([.. entries.Select(e => new TXTRecord { Name = "a.b.local", Strings = [e] })]);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(grouped, Is.Zero, "a single grouped record is dropped whole, losing every address");
-            Assert.That(separate, Is.GreaterThan(0), "separate records must degrade rather than vanish");
-        });
-    }
-
-    [Test]
-    public async Task EveryAdvertisedAddressGetsItsOwnRecord()
+    public async Task EveryAddressGoesInOneRecordSoAGoPeerSeesThemAll()
     {
         Capture capture = new();
         using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(capture).SetMinimumLevel(LogLevel.Trace));
@@ -298,9 +285,75 @@ public class MDnsAdvertisementTests
         await capture.WaitForAsync(m => m.StartsWith("DNS records to share"), Timeout);
 
         string records = capture.Snapshot().First(m => m.StartsWith("DNS records to share"));
-        Assert.That(Regex.Matches(records, "dnsaddr=").Count, Is.EqualTo(listeners.Length));
-        // One TXT record each, so truncation can only cost the addresses that did not fit.
-        Assert.That(Regex.Matches(records, @"IN TXT dnsaddr=").Count, Is.EqualTo(listeners.Length));
+        Assert.Multiple(() =>
+        {
+            Assert.That(Regex.Matches(records, "dnsaddr=").Count, Is.EqualTo(listeners.Length), "every address advertised");
+            Assert.That(Regex.Matches(records, "IN TXT").Count, Is.EqualTo(1), "all of them in one TXT record");
+        });
+    }
+
+    /// <summary>The bound exists so a grouped record can never overflow the response.</summary>
+    [Test]
+    public void TheAdvertisementIsBoundedAndFitsTheResponse()
+    {
+        Multiaddress[] many = [.. Enumerable.Range(0, 400).Select(i =>
+            Multiaddress.Decode($"/ip6/2409:4090:b093:{i:x4}:3567:1626:4242:45fc/udp/4001/webrtc-direct/certhash/uEiDDq4_xNyDorZBH3TlGazyJdOWSwvo4PUo5YHFMrvDE8g/p2p/{Peer}"))];
+
+        List<string> advertised = MDnsDiscoveryProtocol.BoundedAdvertisement(many);
+
+        ServiceProfile profile = new("abcdefghijklmnopqrstuvwxyz012345", "_p2p._udp", 0,
+            [IPAddress.Parse("192.168.31.129"), IPAddress.Parse("2409:4090:b093:6601::45fc")]);
+        profile.Resources.RemoveAll(r => r is TXTRecord);
+        profile.Resources.Add(new TXTRecord { Name = profile.FullyQualifiedName, Strings = advertised });
+        Message message = new();
+        foreach (ResourceRecord record in profile.Resources)
+        {
+            message.AdditionalRecords.Add(record);
+        }
+
+        int bytes = message.ToByteArray().Length;
+        Assert.Multiple(() =>
+        {
+            Assert.That(advertised, Is.Not.Empty.And.Count.LessThan(many.Length), "the bound has to bite here");
+            Assert.That(bytes, Is.LessThanOrEqualTo(8952), $"the response must fit, was {bytes}");
+            message.Truncate(8952);
+            Assert.That(message.AdditionalRecords.OfType<TXTRecord>().SelectMany(r => r.Strings).Count(),
+                Is.EqualTo(advertised.Count), "and so must survive truncation untouched");
+        });
+    }
+
+    /// <summary>If the bound ever bites it must drop what a peer is least likely to reach.</summary>
+    [Test]
+    public void RoutableAddressesAreOfferedBeforeLinkLocalOnes()
+    {
+        Multiaddress[] mixed =
+        [
+            Multiaddress.Decode($"/ip6/fe80::1/tcp/4001/p2p/{Peer}"),
+            Multiaddress.Decode($"/ip4/169.254.3.4/tcp/4002/p2p/{Peer}"),
+            Multiaddress.Decode($"/ip4/192.168.1.5/tcp/4003/p2p/{Peer}"),
+            Multiaddress.Decode($"/ip6/2001:db8::1/tcp/4004/p2p/{Peer}"),
+        ];
+
+        Assert.That(MDnsDiscoveryProtocol.BoundedAdvertisement(mixed), Is.EqualTo(new[]
+        {
+            $"dnsaddr=/ip4/192.168.1.5/tcp/4003/p2p/{Peer}",
+            $"dnsaddr=/ip6/2001:db8::1/tcp/4004/p2p/{Peer}",
+            $"dnsaddr=/ip6/fe80::1/tcp/4001/p2p/{Peer}",
+            $"dnsaddr=/ip4/169.254.3.4/tcp/4002/p2p/{Peer}",
+        }));
+    }
+
+    /// <summary>RFC 6763 section 6.1 caps one TXT string at 255 bytes.</summary>
+    [Test]
+    public void AnOversizedEntryIsNotAdvertised()
+    {
+        string relays = string.Concat(Enumerable.Repeat($"/p2p/{Peer}/p2p-circuit", 4));
+        Multiaddress huge = Multiaddress.Decode($"/ip4/192.0.2.1/tcp/4001{relays}/p2p/{Peer}");
+        Multiaddress fine = Multiaddress.Decode($"/ip4/192.0.2.2/tcp/4002/p2p/{Peer}");
+
+        Assert.That($"dnsaddr={huge}".Length, Is.GreaterThan(255), "the fixture has to exceed the limit");
+        Assert.That(MDnsDiscoveryProtocol.BoundedAdvertisement([huge, fine]),
+            Is.EqualTo(new[] { $"dnsaddr={fine}" }));
     }
 
     /// <summary>

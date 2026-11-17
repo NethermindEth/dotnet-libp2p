@@ -89,11 +89,8 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
-            List<string> advertised = localPeerAddrs
-                .SelectMany(addr => AddressesToAdvertise(addr, hostAddresses))
-                .Select(addr => $"dnsaddr={addr}")
-                .Distinct()
-                .ToList();
+            List<string> advertised = BoundedAdvertisement(
+                localPeerAddrs.SelectMany(addr => AddressesToAdvertise(addr, hostAddresses)), _logger);
 
             if (advertised.Count == 0)
             {
@@ -104,17 +101,16 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             }
             else
             {
-                // One address per record. Makaretu truncates an oversized response by dropping
-                // whole records, so a single record holding every address loses all of them at
-                // once, while separate records lose only the ones that did not fit.
-                foreach (string entry in advertised)
+                // One record holding every address. go-libp2p's resolver reads its addresses from
+                // go-libp2p's mDNS client, which assigns rather than appends per TXT record
+                // (`entries[rr.Hdr.Name].Text = rr.Txt`), so separate records leave a Go peer with
+                // only the last one. Grouping is safe because BoundedAdvertisement keeps the set
+                // inside the response size limit, which is what made grouping lossy before.
+                service.Resources.Add(new TXTRecord()
                 {
-                    service.Resources.Add(new TXTRecord()
-                    {
-                        Name = service.FullyQualifiedName,
-                        Strings = [entry],
-                    });
-                }
+                    Name = service.FullyQualifiedName,
+                    Strings = advertised,
+                });
             }
 
             _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
@@ -286,6 +282,75 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
 
             yield return WithAddress(addr, ipIndex, WithoutScopeId(hostAddress));
         }
+    }
+
+    /// <summary>A TXT string may not exceed 255 bytes; RFC 6763 section 6.1.</summary>
+    private const int MaxTxtStringLength = 255;
+
+    /// <summary>
+    /// Byte budget for the dnsaddr strings of one response, with headroom under the 8,952-byte
+    /// limit for the SRV, A, AAAA and PTR records sharing the message. Measured: 93 typical
+    /// entries or 46 webrtc-direct ones fit in a response, so this bound is never reached by a
+    /// real host and exists so that it cannot be.
+    /// </summary>
+    private const int MaxAdvertisedBytes = 7000;
+
+    /// <summary>
+    /// The dnsaddr strings to advertise, in one record and within the response size limit.
+    /// <para>
+    /// Both constraints have to hold at once. Separate records lose all but one address at a Go
+    /// peer, because that client assigns the instance's text per record rather than appending to it;
+    /// a single record that overflows the response is dropped whole by the sender, losing all of
+    /// them. So they go in one record and the set is bounded.
+    /// </para>
+    /// <para>
+    /// Routable addresses are offered before link-local ones, so that if the bound ever does bite
+    /// it drops the addresses a peer is least likely to reach: go-libp2p rejects link-local in
+    /// <c>Swarm.CanDial</c>, while js-libp2p advertises nothing else.
+    /// </para>
+    /// </summary>
+    internal static List<string> BoundedAdvertisement(IEnumerable<Multiaddress> addresses, ILogger? logger = null)
+    {
+        List<string> entries = [];
+        int used = 0;
+        int dropped = 0;
+
+        // OrderBy is stable, so listen order survives inside each group.
+        foreach (Multiaddress address in addresses.OrderBy(IsLinkLocal))
+        {
+            string entry = $"dnsaddr={address}";
+            if (entries.Contains(entry))
+            {
+                continue;
+            }
+
+            if (entry.Length > MaxTxtStringLength || used + entry.Length > MaxAdvertisedBytes)
+            {
+                dropped++;
+                continue;
+            }
+
+            entries.Add(entry);
+            used += entry.Length;
+        }
+
+        if (dropped != 0)
+        {
+            logger?.LogWarning("{0} of this peer's addresses did not fit the mDNS response and are not advertised", dropped);
+        }
+
+        return entries;
+    }
+
+    private static bool IsLinkLocal(Multiaddress address)
+    {
+        if (address.Protocols.FirstOrDefault(protocol => protocol is IP4 or IP6)?.Value is not IPAddress ip)
+        {
+            return false;
+        }
+
+        return ip.IsIPv6LinkLocal || (ip.AddressFamily == AddressFamily.InterNetwork
+            && ip.GetAddressBytes() is [169, 254, ..]);
     }
 
     /// <summary>
