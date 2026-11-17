@@ -3,6 +3,7 @@
 
 using Google.Protobuf;
 using Nethermind.Libp2p.Core.Dto;
+using System.Runtime;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -42,6 +43,24 @@ public class IdentityTests
     [TestCaseSource(nameof(KeyTypes))]
     public void Test_KeyGeneration(KeyType keyType)
         => _ = new Identity(keyType: keyType);
+
+    [TestCaseSource(nameof(KeyTypes))]
+    public void Test_PeerIdReadsAreIndependent(KeyType keyType)
+    {
+        Identity identity = new(keyType: keyType);
+        PeerId expected = new(identity.PublicKey);
+
+        PeerId first = identity.PeerId;
+        first.Bytes[^1] ^= 0xFF;
+        PeerId second = identity.PeerId;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second, Is.Not.SameAs(first));
+            Assert.That(second, Is.EqualTo(expected));
+            Assert.That(second.GetHashCode(), Is.EqualTo(expected.GetHashCode()));
+        });
+    }
 
     public static IEnumerable<TestCaseData> KeyTypes()
         => Enum.GetValues<KeyType>().Select(kt => new TestCaseData(kt) { TestName = kt.ToString() });
@@ -175,6 +194,42 @@ public class IdentityTests
             Identity id = new(keyType: KeyType.Secp256K1);
             Assert.That(id.VerifySignature(message, id.Sign(message)), Is.True, $"Generated key {i}");
         }
+    }
+
+    [Test]
+    [NonParallelizable]
+    public void Test_EcdsaSigningDisposesItsKeyHandle()
+    {
+        const int Signatures = 256;
+        Identity id = new(keyType: KeyType.Ecdsa);
+        byte[] message = [1, 2, 3];
+        id.Sign(message);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        Assert.That(GC.TryStartNoGCRegion(16 * 1024 * 1024), Is.True);
+        try
+        {
+            for (int i = 0; i < Signatures; i++)
+            {
+                id.Sign(message);
+            }
+
+            Assert.That(GCSettings.LatencyMode, Is.EqualTo(GCLatencyMode.NoGCRegion), "a GC ran while signing");
+        }
+        finally
+        {
+            if (GCSettings.LatencyMode == GCLatencyMode.NoGCRegion)
+            {
+                GC.EndNoGCRegion();
+            }
+        }
+
+        GC.Collect();
+        long pendingFinalizers = GC.GetGCMemoryInfo(GCKind.FullBlocking).FinalizationPendingCount;
+        GC.WaitForPendingFinalizers();
+
+        Assert.That(pendingFinalizers, Is.LessThan(Signatures / 2));
     }
 
     [Test]

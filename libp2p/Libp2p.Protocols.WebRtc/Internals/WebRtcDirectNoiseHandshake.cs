@@ -19,7 +19,18 @@ internal static class WebRtcDirectNoiseHandshake
     private static readonly Protocol NoiseProt = new(HandshakePattern.XX, CipherFunction.ChaChaPoly, HashFunction.Sha256);
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
-    public static async Task<(IChannel Encrypted, PublicKey RemoteKey)> HandshakeAsync(
+    /// <summary>
+    /// Runs Noise XX over <paramref name="channel"/> and returns the peer's identity key, which is
+    /// the whole of what this handshake is for.
+    /// <para>
+    /// webrtc-direct authenticates with Noise but encrypts with DTLS, so the transport keys the
+    /// handshake derives are thrown away rather than wrapped around the channel, and the caller
+    /// closes the channel once this returns (webrtc-direct.md, Connection Security (3)). A second
+    /// layer of encryption here would be invisible to a self-dial and would interoperate with
+    /// nothing.
+    /// </para>
+    /// </summary>
+    public static async Task<PublicKey> HandshakeAsync(
         IChannel channel,
         Identity localIdentity,
         byte[] prologue,
@@ -67,7 +78,10 @@ internal static class WebRtcDirectNoiseHandshake
             transport = t;
         }
 
-        return (new NoiseEncryptedChannel(channel, transport), remoteKey);
+        // Disposed, not returned: it only holds the two cipher states nothing will ever use, and
+        // disposing zeroes the keys the handshake just derived.
+        transport.Dispose();
+        return remoteKey;
     }
 
     private static byte[] BuildIdentityPayload(Identity identity, ReadOnlySpan<byte> staticPublicKey)

@@ -16,7 +16,7 @@ public partial class PubsubRouter
 
     public ITopic GetTopic(string topicId, bool subscribe = true)
     {
-        Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
+        Topic topic = topicState.GetOrAdd(topicId, static (id, router) => new(router, id), this);
 
         if (subscribe)
         {
@@ -41,7 +41,7 @@ public partial class PubsubRouter
 
         lock (this)
         {
-            Topic topic = topicState.GetOrAdd(topicId, (tId) => new(this, tId));
+            Topic topic = topicState.GetOrAdd(topicId, static (id, router) => new(router, id), this);
             bool wasSubscribed = topic.IsSubscribed;
             IPartialMessagesTopic partialMessagesTopic = topic.ConfigurePartialMessages(options);
 
@@ -100,7 +100,7 @@ public partial class PubsubRouter
     {
         lock (this)
         {
-            Topic topic = topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
+            Topic topic = topicState.GetOrAdd(topicId, static (id, router) => new Topic(router, id), this);
             if (topic.IsSubscribed)
             {
                 return;
@@ -238,6 +238,7 @@ public partial class PubsubRouter
         }
 
         Message publishedMessage = rpc.Publish[0];
+        SharedFrame frame = new(rpc);
         MessageId messageId;
         _messageIdCalculations.Wait();
         try
@@ -251,7 +252,7 @@ public partial class PubsubRouter
 
         lock (this)
         {
-            topicState.GetOrAdd(topicId, (id) => new Topic(this, topicId));
+            topicState.GetOrAdd(topicId, static (id, router) => new Topic(router, id), this);
             _seenMessages.Add(messageId);
             _messageCache.Put(messageId, publishedMessage);
 
@@ -270,7 +271,7 @@ public partial class PubsubRouter
             {
                 if (ShouldSendFullMessage(peerId, topicId, messageId))
                 {
-                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                 }
             }
 
@@ -279,7 +280,7 @@ public partial class PubsubRouter
             {
                 if (!directRecipients.Contains(peerId) && ShouldSendFullMessage(peerId, topicId, messageId))
                 {
-                    peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                    peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                 }
             }
 
@@ -293,7 +294,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
@@ -306,7 +307,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
@@ -335,7 +336,7 @@ public partial class PubsubRouter
                         GetPeerScore(peerId) >= _settings.PublishThreshold &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
-                        peerState.GetValueOrDefault(peerId)?.Send(rpc);
+                        peerState.GetValueOrDefault(peerId)?.SendShared(frame);
                     }
                 }
             }
