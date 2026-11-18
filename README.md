@@ -30,12 +30,42 @@ dotnet add package Nethermind.Libp2p
 
 ```sh
 git clone https://github.com/NethermindEth/dotnet-libp2p.git
-cd ./dotnet-libp2p/libp2p/
+cd ./dotnet-libp2p/
 dotnet build
 dotnet test
 ```
 
-The MAUI chat sample is visible in the solution but excluded from its default restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
+The root solution builds the shipping libraries and Core unit tests. Other test runners,
+sample applications, and benchmarks have separate solutions so they do not load or build
+with the default entry point. CI combines all three solutions before restore, build, and
+test discovery.
+
+The MAUI chat sample is visible in the samples solution but excluded from its default
+restore and build. Only building [that sample](./samples/maui-chat/README.md) requires the MAUI workload.
+
+For focused development, choose a solution or filter:
+
+| Entry point | Scope |
+|-------------|-------|
+| [Libp2p.slnx](Libp2p.slnx) | Shipping libraries and Core unit tests |
+| [Tests.slnx](solutions/Tests.slnx) | Protocol, integration, and sample protocol tests |
+| [Samples.slnx](solutions/Samples.slnx) | Sample applications and benchmarks |
+| [Core.slnf](solutions/Core.slnf) | Core library and its unit tests |
+| [Library.slnf](solutions/Library.slnf) | Shipping libraries, excluding tests, samples, and benchmarks |
+
+The filters reference the root solution. Every solution or filter includes its selected
+projects' dependencies through their project references.
+Run these commands from the repository root:
+
+```sh
+dotnet build solutions/Core.slnf
+dotnet test --project libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj
+dotnet build solutions/Library.slnf
+dotnet build solutions/Tests.slnx
+dotnet build solutions/Samples.slnx
+```
+
+See the [CI helper commands](.github/scripts/README.md) for the complete build and test inventories.
 
 ## Roadmap
 
@@ -44,38 +74,40 @@ The current implementation supports the protocols marked ✅ below. The roadmap 
 The target is to provide a performant well-tested implementation of a wide range of protocols that works on multiple platforms, with high throughput and low memory profile.
 
 
-| Protocol           | Version            | Status          |
-|--------------------|--------------------|-----------------|
-| TCP                | tcp                | ✅             |
-| QUIC               | quic-v1            | ✅             |
-| multistream-select | /multistream/1.0.0 | ✅             |
-| plaintext          | /plaintext/2.0.0   | ✅             |
-| noise              | /noise             | ✅             |
-| yamux              | /yamux/1.0.0       | ✅             |
-| [mplex](./libp2p/Libp2p.Protocols.Mplex/README.md) | /mplex/6.7.0 | ✅ |
-| tls                | /tls/1.0.0         | ✅             |
-| WebSockets         | /ws, /wss          | ✅             |
-| WebRTC Direct      | /webrtc-direct     | 🚧             |
-| Circuit Relay      | /libp2p/circuit/relay/0.2.0/* | 🚧  |
-| WebTransport       |                    | ⬜ help wanted |
-| hole punching      |                    | ⬜ help wanted |
-| auto-tls           |                    | 🚧             |
-| **Application layer** |                 |                 |
-| Identify           | /ipfs/id/1.0.0     | ✅             |
-| ping               | /ipfs/ping/1.0.0   | ✅             |
-| Identify push      | /ipfs/id/push/1.0.0 | ✅            |
-| pubsub             | /floodsub/1.0.0    | ✅             |
-|                    | /meshsub/1.0.0     | ✅             |
-|                    | /meshsub/1.1.0     | ✅             |
-|                    | /meshsub/1.2.0     | ✅             |
-|                    | /meshsub/1.3.0     | ✅             |
-|                    | /meshsub/2.0.0     | ⬜ help wanted |
-| request-response   |                    | ✅             |
-| perf               | /perf/1.0.0        | ✅             |
-| **Discovery**      |                    |                 |
-| mDns               | basic w/o DNS-SD   | ✅             |
-| pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery)             | ✅             |
-| Kademlia DHT       | /ipfs/kad/1.0.0    | ✅             |
+| Protocol | Version | Status | Package |
+| -------------------- | -------------------- | ----------------- | ------- |
+| TCP | tcp | ✅ | included |
+| QUIC | quic-v1 | ✅ | included |
+| multistream-select | /multistream/1.0.0 | ✅ | included |
+| plaintext | /plaintext/2.0.0 | ✅ | included |
+| noise | /noise | ✅ | included |
+| yamux | /yamux/1.0.0 | ✅ | included |
+| [mplex](./libp2p/Libp2p.Protocols.Mplex/README.md) | /mplex/6.7.0 | ✅ | `Nethermind.Libp2p.Protocols.Mplex` |
+| tls | /tls/1.0.0 | ✅ | included |
+| WebSockets | /ws, /wss | ✅ | `Nethermind.Libp2p.Protocols.WebSockets` |
+| WebRTC Direct | /webrtc-direct | 🚧 | `Nethermind.Libp2p.Protocols.WebRtc` |
+| Circuit Relay | /libp2p/circuit/relay/0.2.0/* | 🚧 | included |
+| WebTransport |  | ⬜ help wanted |  |
+| hole punching |  | ⬜ help wanted |  |
+| auto-tls |  | 🚧 | `Nethermind.Libp2p.Protocols.AutoTls` |
+| **Application layer** |  |  |  |
+| Identify | /ipfs/id/1.0.0 | ✅ | included |
+| ping | /ipfs/ping/1.0.0 | ✅ | included |
+| Identify push | /ipfs/id/push/1.0.0 | ✅ | included |
+| pubsub | /floodsub/1.0.0 | ✅ | included |
+|  | /meshsub/1.0.0 | ✅ |  |
+|  | /meshsub/1.1.0 | ✅ |  |
+|  | /meshsub/1.2.0 | ✅ |  |
+|  | /meshsub/1.3.0 | ✅ |  |
+|  | /meshsub/2.0.0 | ⬜ help wanted |  |
+| request-response |  | ✅ | included |
+| perf | /perf/1.0.0 | ✅ | [sample](./samples/perf-benchmarks) |
+| **Discovery** |  |  |  |
+| mDns | basic w/o DNS-SD | ✅ | included |
+| pubsub peer discovery | [pubsub-peer-discovery](https://github.com/libp2p/js-libp2p-pubsub-peer-discovery) | ✅ | included |
+| Kademlia DHT | /ipfs/kad/1.0.0 | ✅ | `Nethermind.Libp2p.Protocols.KadDht` |
+
+"included" protocols ship in the `Nethermind.Libp2p` package. Add the named package to use the other protocols.
 
 ⬜ - not yet implemented<br>
 🚧 - work in progress<br>

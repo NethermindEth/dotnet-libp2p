@@ -301,7 +301,7 @@ public class WebRtcDirectFingerprintEnforcementTests
         private static ServiceProvider Services(Observation observation)
         {
             IServiceCollection services = new ServiceCollection()
-                .AddLibp2p(builder => builder.WithWebRtcDirect())
+                .AddLibp2p<WebRtcDirectBuilder>()
                 .AddSingleton<ILoggerFactory>(new FailureLoggerFactory(observation));
 
             // A half with nothing to inject is left entirely to the builder and the public
@@ -468,5 +468,10 @@ public class WebRtcDirectFingerprintEnforcementTests
                 observation.Failed.TrySetResult(exception);
             }
         }
+    }
+
+    private sealed class WebRtcDirectBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
+    {
+        protected override ProtocolRef[] DatagramTransports() => [.. base.DatagramTransports(), Get<WebRtcDirectProtocol>()];
     }
 }
