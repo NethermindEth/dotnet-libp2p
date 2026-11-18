@@ -131,6 +131,32 @@ public class OutboundMeshQuotaTests
             Assert.That(peer.Score.GetTopicScore("topic").MeshJoinTime is not null, Is.EqualTo(test.Mesh.Contains(peer.PeerId)));
     }
 
+    [Test]
+    public async Task HeartbeatSkipsScoringNonOutboundQuotaCandidates()
+    {
+        const string historyTopic = "history";
+        var comparer = Substitute.For<IEqualityComparer<string>>();
+        comparer.GetHashCode(Arg.Any<string>()).Returns(call => StringComparer.Ordinal.GetHashCode(call.Arg<string>()));
+        comparer.Equals(Arg.Any<string>(), Arg.Any<string>()).Returns(call => StringComparer.Ordinal.Equals(call.ArgAt<string>(0), call.ArgAt<string>(1)));
+        await using MeshTest test = new(new PubsubSettings
+        {
+            TopicScoreParams = new(comparer) { [historyTopic] = new() },
+        });
+        // The mesh meets D_lo, so only the outbound quota search considers these candidates.
+        await test.Seed(test.Settings.LowestDegree);
+        var inbound = await test.Add(10, ConnectionDirection.Inbound);
+        var unknown = await test.Add(11, ConnectionDirection.Unknown);
+        inbound.Score.GetTopicScore(historyTopic).RecordFirstMessageDelivery();
+        unknown.Score.GetTopicScore(historyTopic).RecordFirstMessageDelivery();
+        var outbound = await test.Add(20, ConnectionDirection.Outbound);
+        comparer.ClearReceivedCalls();
+
+        await test.Heartbeat();
+
+        _ = comparer.DidNotReceive().GetHashCode(historyTopic);
+        Assert.That(test.Mesh, Does.Contain(outbound.PeerId));
+    }
+
     [TestCase(3)]
     [TestCase(6)]
     public async Task HeartbeatFillsDegreeAndOutboundQuotaForAnyCandidateOrder(int initialSize)

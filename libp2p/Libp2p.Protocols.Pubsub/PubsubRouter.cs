@@ -779,11 +779,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.Direction == ConnectionDirection.Outbound;
 
-    private IEnumerable<PeerId> GetGraftCandidates(string topic, HashSet<PeerId> meshPeers)
+    private IEnumerable<PeerId> GetGraftCandidates(string topic, HashSet<PeerId> meshPeers, bool outboundOnly = false)
     {
         return (gPeers.GetValueOrDefault(topic) ?? [])
             .Where(p => !meshPeers.Contains(p)
                 && !IsDirectPeer(p)
+                && (!outboundOnly || IsOutbound(p))
                 && GetPeerScore(p) >= 0
                 && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime));
     }
@@ -942,7 +943,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 if (_settings.DOut > 0 && meshPeers.Count >= _settings.LowestDegree)
                 {
                     int missingOutbound = _settings.DOut - meshPeers.Count(IsOutbound);
-                    foreach (PeerId peerId in GetGraftCandidates(topic, meshPeers).Where(IsOutbound).Take(missingOutbound).ToArray())
+                    foreach (PeerId peerId in GetGraftCandidates(topic, meshPeers, outboundOnly: true).Take(missingOutbound).ToArray())
                     {
                         meshPeers.Add(peerId);
                         RecordPeerJoinMesh(peerId, topic);

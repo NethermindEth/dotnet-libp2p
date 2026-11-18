@@ -29,13 +29,14 @@ public class MeshBackoffTests
         AppSpecificWeight = 1,
     };
 
-    private static PubsubRouter.PubsubPeer Open(PubsubRouter router, int id, List<Rpc> sent, string protocol = PubsubRouter.GossipsubProtocolVersionV11) =>
+    private static PubsubRouter.PubsubPeer Open(PubsubRouter router, int id, List<Rpc> sent,
+        string protocol = PubsubRouter.GossipsubProtocolVersionV11, ConnectionDirection direction = ConnectionDirection.Unknown) =>
         router.OutboundConnection(TestPeers.Multiaddr(id), protocol, new TaskCompletionSource().Task,
             (bytes, _) =>
             {
                 sent.Add(RouterTestExtensions.Decode(bytes));
                 return ValueTask.FromResult(IOResult.Ok);
-            }, () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+            }, () => ValueTask.CompletedTask, () => Task.CompletedTask, direction)!;
 
     private static Rpc Graft(string topic = "topic") => new() { Control = new ControlMessage { Graft = { new ControlGraft { TopicID = topic } } } };
     private static async Task Receive(PubsubRouter router, PeerId peer, Rpc rpc)
@@ -135,6 +136,31 @@ public class MeshBackoffTests
         await Receive(router, source.PeerId, new Rpc { Publish = { new Message { Topic = "topic", Data = ByteString.CopyFrom([1, 2, 3]) } } });
         Assert.That(admittedSent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(1));
         Assert.That(candidateSent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(score >= 0 ? 1 : 0));
+    }
+
+    [TestCase(ConnectionDirection.Outbound)]
+    [TestCase(ConnectionDirection.Inbound)]
+    [TestCase(ConnectionDirection.Unknown)]
+    public async Task ZeroDegreeRouterPrunesGraftWithoutForwardingFullMessages(ConnectionDirection direction)
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = settings.LowestDegree = settings.HighestDegree = settings.DOut = 0;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("topic");
+        List<Rpc> sent = [];
+        var candidate = Open(router, 1, sent, direction: direction);
+        var source = Open(router, 2, []);
+
+        await Receive(router, candidate.PeerId, Graft());
+        await Receive(router, source.PeerId, new Rpc { Publish = { new Message { Topic = "topic", Data = ByteString.CopyFrom([1, 2, 3]) } } });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(((IRoutingStateContainer)router).Mesh["topic"], Is.Empty);
+            Assert.That(sent.SelectMany(rpc => rpc.Control?.Prune ?? []).Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
+            Assert.That(candidate.Backoff.ContainsKey("topic"), Is.True);
+            Assert.That(sent.SelectMany(rpc => rpc.Publish), Is.Empty);
+        });
     }
 
     [Test]
