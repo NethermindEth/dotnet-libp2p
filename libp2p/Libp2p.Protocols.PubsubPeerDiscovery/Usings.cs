@@ -8,3 +8,4 @@ global using Microsoft.Extensions.Logging;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Tests")]
+[assembly: InternalsVisibleTo("Libp2p.Protocols.PubsubPeerDiscovery.E2eTests")]
