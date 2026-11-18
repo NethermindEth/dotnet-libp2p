@@ -435,11 +435,11 @@ public class MDnsAdvertisementTests
     public void OnlyInstancesOfTheConfiguredServiceAreAccepted()
     {
         DomainName configured = new("_p2p._udp.local");
-        DomainName instance = new("somepeer._p2p._udp.local");
+        DomainName instance = new("alpha._p2p._udp.local");
         DomainName other = new("pubsub-chat-example._udp.local");
 
         Message ours = Reply(configured, instance, TimeSpan.FromMinutes(1));
-        Message theirs = Reply(other, new DomainName("somepeer.pubsub-chat-example._udp.local"), TimeSpan.FromMinutes(1));
+        Message theirs = Reply(other, new DomainName("alpha.pubsub-chat-example._udp.local"), TimeSpan.FromMinutes(1));
         Message goodbye = Reply(configured, instance, TimeSpan.Zero);
 
         Assert.Multiple(() =>
@@ -447,7 +447,7 @@ public class MDnsAdvertisementTests
             Assert.That(MDnsDiscoveryProtocol.IsFromService(ours, configured, instance), Is.True,
                 "an instance of the configured service is ours");
             Assert.That(MDnsDiscoveryProtocol.IsFromService(theirs, configured,
-                new DomainName("somepeer.pubsub-chat-example._udp.local")), Is.False,
+                new DomainName("alpha.pubsub-chat-example._udp.local")), Is.False,
                 "another service's instance must be ignored");
             Assert.That(MDnsDiscoveryProtocol.IsFromService(goodbye, configured, instance), Is.False,
                 "a goodbye must not import a departing peer");
@@ -477,7 +477,7 @@ public class MDnsAdvertisementTests
 
     /// <summary>
     /// Covers the expansion half of the loopback case: given a loopback-only address source, a
-    /// wildcard listener still yields an advertisable address.
+    /// wildcard listener still yields a usable address.
     /// <para>
     /// The source half -- that <see cref="MDnsDiscoveryProtocol.HostAddresses"/> returns loopback on
     /// a host with no operational non-loopback interface -- is delegated to Makaretu's own interface
