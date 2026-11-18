@@ -177,7 +177,10 @@ public class DirectPeersTests
             foreach (Multiaddress address in new[] { directAddress, otherAddress })
             {
                 router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, connection.Task, _ => { });
-                router.OnRpc(address.GetPeerId()!, new Rpc().WithTopics([topic], []));
+                Rpc subscription = new Rpc().WithTopics([topic], []);
+                subscription.Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } };
+                subscription.Subscriptions[0].RequestsPartial = true;
+                router.OnRpc(address.GetPeerId()!, subscription);
             }
 
             router.PublishPartial(topic, [1], partialMessage: [2]);

@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet restore "$RUNNER_TEMP/ci.slnx" --configfile "$PWD/nuget.config"
+          dotnet restore "$RUNNER_TEMP/ci.slnx" -p:RestoreConfigFile="$PWD/nuget.config"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}

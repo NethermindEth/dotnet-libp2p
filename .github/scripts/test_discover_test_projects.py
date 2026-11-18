@@ -201,7 +201,7 @@ class WorkflowTests(unittest.TestCase):
                 _, restore = workflow_step(workflow, "Install dependencies")
                 _, build = workflow_step(workflow, "Build")
                 self.assertIn('python3 .github/scripts/discover_test_projects.py --ci-solution > "$RUNNER_TEMP/ci.slnx"', generation)
-                self.assertIn('dotnet restore "$RUNNER_TEMP/ci.slnx" --configfile "$PWD/nuget.config"', restore)
+                self.assertIn('dotnet restore "$RUNNER_TEMP/ci.slnx" -p:RestoreConfigFile="$PWD/nuget.config"', restore)
                 self.assertIn('dotnet build "$RUNNER_TEMP/ci.slnx" -c ${{ env.BUILD_CONFIG }} --no-restore', build)
                 for script in (generation, restore, build):
                     subprocess.run(["bash", "-n"], input=script, text=True, check=True)
@@ -320,6 +320,7 @@ class WorkflowTests(unittest.TestCase):
         for workflow in ("test.yml", "publish.yml"):
             with self.subTest(workflow=workflow):
                 content = (REPO / ".github/workflows" / workflow).read_text()
+                self.assertIn("BUILD_CONFIG: Release", content)
                 self.assertIn('python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"', content)
                 step, script = workflow_step(workflow, "Test")
                 self.assertIn("timeout-minutes: 30", step)

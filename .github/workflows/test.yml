@@ -11,7 +11,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     env:
-      BUILD_CONFIG: release
+      BUILD_CONFIG: Release
       WORKING_DIR: .
     steps:
 
@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet restore "$RUNNER_TEMP/ci.slnx" --configfile "$PWD/nuget.config"
+          dotnet restore "$RUNNER_TEMP/ci.slnx" -p:RestoreConfigFile="$PWD/nuget.config"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}

@@ -25,8 +25,10 @@ Writes use checked unsigned conversions. The responder reserves two additional
 bytes for its framing prefix. The incoming-frame regressions do not exercise
 the responder's output-buffer capacity boundary.
 
-Short encrypted transport records are a separate concern tracked in
-[issue #431](https://github.com/NethermindEth/dotnet-libp2p/issues/431).
+Noise rejects encrypted transport records shorter than the authentication tag
+and propagates pump faults during shutdown. The
+[transport-record follow-up](noise-transport-follow-up.md) records the behavior
+fixed in [PR #435](https://github.com/NethermindEth/dotnet-libp2p/pull/435).
 
 ## Received TLS certificate lists
 
