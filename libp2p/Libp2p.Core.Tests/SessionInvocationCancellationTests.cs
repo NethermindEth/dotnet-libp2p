@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using System.Diagnostics;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 
@@ -221,8 +222,70 @@ internal class SessionInvocationCancellationTests
         }
     }
 
-    private static LocalPeer CreatePeer(ProtocolRef parent, IProtocol protocol) => new(TestPeers.Identity(1), null,
-        new ProtocolStackSettings { Protocols = new() { [parent] = [new(protocol)] } });
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CancellationAfterUpgradeTokenIsUnlinkedCancelsTheDial(bool cancelCaller)
+    {
+        ResultProtocol protocol = new();
+        ProtocolRef parent = new(protocol);
+        using ActivitySource activitySource = new(nameof(CancellationAfterUpgradeTokenIsUnlinkedCancelsTheDial));
+        await using LocalPeer peer = CreatePeer(parent, protocol, activitySource);
+        LocalPeer.Session session = new(peer);
+        using CancellationTokenSource caller = new();
+        CancellationToken source = cancelCaller ? caller.Token : session.Closed;
+        Task<int> dial = session.DialAsync<ResultProtocol, int>(caller.Token);
+        UpgradeOptions request = session.GetRequestQueue().First();
+        TaskCompletionSource cancellationStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseCallbacks = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? cancel = null;
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = candidate => candidate == activitySource,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                if (!Equals(activity.GetTagItem("proto"), protocol.Id)) return;
+                // Cleanup disposes the linked source before stopping the upgrade activity.
+                cancel = cancelCaller ? caller.CancelAsync() : Task.Run(session.DisconnectAsync);
+                cancellationStarted.Task.WaitAsync(Timeout).GetAwaiter().GetResult();
+            }
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        Channel channel = new();
+        Task upgrade = peer.Upgrade(session, channel.Reverse, parent, protocol, request, false, null);
+        // The last registered callback runs first. Hold the dial's source registration
+        // behind it until the upgrade has tried to publish the result.
+        using CancellationTokenRegistration pause = source.Register(() =>
+        {
+            cancellationStarted.TrySetResult();
+            releaseCallbacks.Task.WaitAsync(Timeout).GetAwaiter().GetResult();
+        });
+        try
+        {
+            protocol.Response.SetResult(42);
+            await upgrade.WaitAsync(Timeout);
+
+            Assert.That(source.IsCancellationRequested, Is.True);
+            Assert.That(protocol.Token.IsCancellationRequested, Is.False);
+            Assert.That(cancel?.IsCompleted, Is.False);
+            Assert.That(request.CompletionSource!.Task.IsCanceled, Is.True);
+            releaseCallbacks.TrySetResult();
+            OperationCanceledException? failure = Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
+            Assert.That(failure!.CancellationToken, Is.EqualTo(source));
+            Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
+        }
+        finally
+        {
+            releaseCallbacks.TrySetResult();
+            if (cancel is not null) await cancel.WaitAsync(Timeout);
+            await session.DisconnectAsync();
+            await Task.WhenAll(upgrade, dial).WaitAsync(Timeout).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    private static LocalPeer CreatePeer(ProtocolRef parent, IProtocol protocol, ActivitySource? activitySource = null) => new(
+        TestPeers.Identity(1), null, new ProtocolStackSettings { Protocols = new() { [parent] = [new(protocol)] } }, activitySource);
 
     private sealed class Probe : SymmetricSessionProtocol, ISessionProtocol
     {
