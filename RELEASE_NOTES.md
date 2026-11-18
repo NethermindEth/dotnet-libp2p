@@ -7,11 +7,13 @@
 
 ### Noise transport failure propagation (#431)
 
-Noise now rejects transport records shorter than the 16-byte authentication tag
-before reading their bodies. After authentication, malformed or tampered records
-fault `NoiseProtocol.DialAsync` and `ListenAsync` after both forwarding pumps shut
-down, rather than appearing to complete successfully. Valid empty encrypted
-records and orderly EOF remain supported.
+Noise rejects a declared transport ciphertext length below the 16-byte
+authentication tag before reading the body. That rejection and record
+authentication failures fault `NoiseProtocol.DialAsync` or `ListenAsync` after
+both forwarding pumps shut down. If EOF cuts a record short after a valid length
+prefix, Noise aborts the channels and the protocol task completes successfully
+if neither pump faults. Valid empty encrypted records and orderly EOF remain
+supported.
 
 ### Kademlia custom builder compatibility (PR #420)
 
