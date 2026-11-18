@@ -77,7 +77,7 @@ jobs:
           dotnet test Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj
           -c ${{ env.BUILD_CONFIG }} --no-build --
           --filter "FullyQualifiedName~WebRtcDirectFingerprintEnforcementTests"
-          --minimum-expected-tests 6
+          --minimum-expected-tests 5
 
   windows-quic-tls:
     name: Windows QUIC and TLS

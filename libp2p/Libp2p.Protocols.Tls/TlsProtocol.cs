@@ -23,6 +23,7 @@ public class TlsProtocol : IConnectionProtocol
 
     // libp2p TLS spec requires "libp2p" as ALPN protocol
     private static readonly SslApplicationProtocol Libp2pProtocol = new("libp2p");
+    private const int MaxTlsRecordPlaintext = 16 * 1024;
     public static List<SslApplicationProtocol> ApplicationProtocols => [Libp2pProtocol];
     public SslApplicationProtocol? LastNegotiatedApplicationProtocol { get; private set; }
     public string Id => "/tls/1.0.0";
@@ -232,7 +233,25 @@ public class TlsProtocol : IConnectionProtocol
         {
             await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
             {
-                await sslStream.WriteAsync(data.ToArray(), token);
+                if (data.IsSingleSegment)
+                {
+                    await sslStream.WriteAsync(data.First, token);
+                }
+                else
+                {
+                    // SslStream encrypts the input before WriteAsync completes, so the scratch is free afterwards.
+                    int length = checked((int)data.Length);
+                    byte[] scratch = ArrayPool<byte>.Shared.Rent(length);
+                    try
+                    {
+                        data.CopyTo(scratch);
+                        await sslStream.WriteAsync(scratch.AsMemory(0, length), token);
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(scratch);
+                    }
+                }
                 await sslStream.FlushAsync(token);
             }
             await sslStream.ShutdownAsync();
@@ -241,16 +260,17 @@ public class TlsProtocol : IConnectionProtocol
 
         async Task<bool> ReadAsync()
         {
+            byte[] scratch = new byte[MaxTlsRecordPlaintext];
             while (true)
             {
-                byte[] data = new byte[1024];
-                int length = await sslStream.ReadAsync(data, token);
+                int length = await sslStream.ReadAsync(scratch, token);
                 if (length == 0)
                 {
                     await upChannel.WriteEofAsync(token);
                     return true;
                 }
-                IOResult result = await upChannel.WriteAsync(new ReadOnlySequence<byte>(data, 0, length), token);
+                // Channel readers may keep the published bytes, so publish an owned exact-length copy.
+                IOResult result = await upChannel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), token);
                 if (result != IOResult.Ok) return result == IOResult.Ended;
             }
         }
