@@ -780,33 +780,35 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
-                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
-
-                    // Randomize score ties and outbound picks.
+                    // HighestDegree triggers pruning. Degree is the survivor target, capped
+                    // by HighestDegree for configurations with inverted bounds.
+                    int targetDegree = Math.Clamp(_settings.Degree, 0, Math.Max(0, _settings.HighestDegree));
                     PeerId[] shuffledPeers = Sample(meshPeers, meshPeers.Count, _random);
+                    List<PeerId> kept = GetBestScoringPeers(shuffledPeers, Math.Min(_settings.DScore, targetDegree));
 
-                    // Get D_score best peers
-                    var bestPeers = GetBestScoringPeers(shuffledPeers, _settings.DScore).ToHashSet();
-
-                    // Ensure we have D_out outbound connections
-                    var outboundPeers = shuffledPeers
-                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
-                        .Take(_settings.DOut)
-                        .ToHashSet();
-
-                    // Peers to keep: best scores + outbound quota + random
-                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
-
-                    // Draw independently of the shuffle used to select the reserved peers.
-                    int remaining = _settings.HighestDegree - peersToKeep.Count;
+                    // Draw independently of the shuffle used to break score ties.
+                    int remaining = targetDegree - kept.Count;
                     if (remaining > 0)
                     {
-                        peersToKeep.UnionWith(Sample(meshPeers.Except(peersToKeep), remaining, _random));
+                        kept.AddRange(Sample(meshPeers.Except(kept), remaining, _random));
+                    }
+
+                    bool IsOutbound(PeerId p) => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local;
+
+                    int missingOutbound = Math.Clamp(_settings.DOut, 0, kept.Count) - kept.Count(IsOutbound);
+                    if (missingOutbound > 0)
+                    {
+                        // Replace random picks before the lowest-scoring protected peers.
+                        int replaceIndex = kept.Count - 1;
+                        foreach (PeerId outbound in Sample(meshPeers.Where(IsOutbound).Except(kept), missingOutbound, _random))
+                        {
+                            while (IsOutbound(kept[replaceIndex])) replaceIndex--;
+                            kept[replaceIndex--] = outbound;
+                        }
                     }
 
                     // Prune the rest
-                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
+                    var peersToPrune = meshPeers.Except(kept).ToList();
 
                     foreach (PeerId peerId in peersToPrune)
                     {

@@ -105,13 +105,18 @@ public class PeerSelectionTests
         });
     }
 
-    private static async Task<HashSet<PeerId>> OpenOversizedMesh(PubsubRouter router, int peerCount)
+    private static async Task<HashSet<PeerId>> OpenOversizedMesh(PubsubRouter router, int peerCount, int? soleOutboundId = null)
     {
         router.Subscribe(Topic);
         HashSet<PeerId> mesh = ((IRoutingStateContainer)router).Mesh[Topic];
         // Seed an oversized mesh directly; GRAFT admission caps it at HighestDegree.
         foreach (int id in Enumerable.Range(10, peerCount))
         {
+            if (soleOutboundId.HasValue && id != soleOutboundId)
+            {
+                router.InboundConnection(TestPeers.Multiaddr(id), PubsubRouter.GossipsubProtocolVersionV11,
+                    new TaskCompletionSource().Task, () => Task.CompletedTask);
+            }
             var peer = await Open(router, id);
             mesh.Add(peer.PeerId);
             peer.Score.GetTopicScore(Topic).JoinMesh();
@@ -427,7 +432,7 @@ public class PeerSelectionTests
     [TestCase(0, 0)]
     [TestCase(4, 0)]
     [TestCase(0, 2)]
-    public async Task HeartbeatPrune_ShufflesBeforeQuotaSelection(int scoreCount, int outboundCount)
+    public async Task HeartbeatPrune_ShufflesScoreTiesAndSamplesRemainingPeers(int scoreCount, int outboundCount)
     {
         PeerId[] eligible = Eligible();
         HashSet<PeerId> reached = [];
@@ -439,7 +444,7 @@ public class PeerSelectionTests
             settings.DOut = outboundCount;
             settings.LowestDegree = 3;
             settings.Degree = 4;
-            settings.HighestDegree = 4;
+            settings.HighestDegree = 5;
             settings.TopicScoreParams[Topic] = new TopicScoreParams { TimeInMeshWeight = 0 };
             await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), random);
             HashSet<PeerId> selected = await OpenOversizedMesh(router, eligible.Length);
@@ -447,16 +452,50 @@ public class PeerSelectionTests
 
             await router.Heartbeat();
 
-            Assert.That(selected, Has.Count.EqualTo(settings.HighestDegree));
+            Assert.That(selected, Has.Count.EqualTo(settings.Degree));
             Assert.That(selected, Is.SubsetOf(eligible));
-            int reservedCount = scoreCount + outboundCount; // Each case enables at most one quota.
             var shuffleDraws = Enumerable.Range(0, eligible.Length - 1).Select(i => (i, eligible.Length));
-            var remainingDraws = Enumerable.Range(0, settings.HighestDegree - reservedCount)
-                .Select(i => (i, eligible.Length - reservedCount));
+            // All peers are outbound in this fixture, so no quota repair draws are needed.
+            var remainingDraws = Enumerable.Range(0, settings.Degree - scoreCount)
+                .Select(i => (i, eligible.Length - scoreCount));
             Assert.That(random.Calls, Is.EqualTo(shuffleDraws.Concat(remainingDraws)));
             reached.UnionWith(selected);
         }
         Assert.That(reached, Is.EquivalentTo(eligible));
+    }
+
+    [TestCase(4, 1, 1)]
+    [TestCase(5, 2, 0)]
+    [TestCase(5, 1, 1)]
+    [TestCase(5, 2, 1)]
+    public async Task HeartbeatPrune_TrimsToDegreeOnlyAboveHighestDegree(int peerCount, int scoreQuota, int outboundQuota)
+    {
+        PeerId[] eligible = Eligible(peerCount);
+        ScriptedRandom random = new(0);
+        PubsubSettings settings = Settings();
+        settings.Degree = 2;
+        settings.HighestDegree = 4;
+        settings.DScore = scoreQuota;
+        settings.DOut = outboundQuota;
+        settings.TopicScoreParams[Topic] = new TopicScoreParams { TimeInMeshWeight = 0 };
+        await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), random);
+        HashSet<PeerId> mesh = await OpenOversizedMesh(router, peerCount, soleOutboundId: 10 + peerCount - 1);
+        router.SetAppSpecificScore(eligible[0], 20);
+        router.SetAppSpecificScore(eligible[1], 10);
+        Assert.That(mesh, Is.EquivalentTo(eligible));
+
+        await router.Heartbeat();
+
+        if (peerCount == settings.HighestDegree)
+        {
+            Assert.That(mesh, Is.EquivalentTo(eligible));
+            Assert.That(random.Calls, Is.Empty);
+        }
+        else
+        {
+            PeerId nextSurvivor = outboundQuota > 0 ? eligible[^1] : eligible[1];
+            Assert.That(mesh, Is.EquivalentTo(new[] { eligible[0], nextSurvivor }));
+        }
     }
 
     [Test]
