@@ -1039,7 +1039,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         // Session protocols receive a per-invocation lifetime. Connection protocols retain
         // the original options when forwarding a request through negotiation and multiplexing.
         SessionContext CreateSessionContext() => new(this, session, top, isListener,
-            (options ?? new UpgradeOptions()) with { CancellationToken = upgradeToken }, activitySource, upgradeActivity);
+            options is null ? new UpgradeOptions { CancellationToken = upgradeToken }
+                : options with { CancellationToken = upgradeToken },
+            activitySource, upgradeActivity);
         CancellationTokenRegistration cancellationRegistration = upgradeToken.Register(() =>
         {
             options?.CompletionSource?.TrySetCanceled(upgradeToken);
