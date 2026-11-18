@@ -835,7 +835,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
                 string topic = meshEntry.Key;
-                var negativePeers = meshEntry.Value.Where(p => GetPeerScore(p) < 0).ToList();
+                var negativePeers = meshEntry.Value.Where(p => GetPeerScoreUnderLock(p) < 0).ToList();
                 foreach (var peerId in negativePeers)
                 {
                     logger?.LogDebug("Pruning peer {peerId} from mesh for topic {topic} due to negative score", peerId, topic);
@@ -861,7 +861,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
                             && !IsDirectPeer(p)
-                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
+                            && GetPeerScoreUnderLock(p) >= 0  // Only graft non-negative scoring peers
                             && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
                         .Take(_settings.Degree - meshPeers.Count).ToArray();
 
@@ -914,10 +914,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
 
                         // Only include PX if peer has non-negative score
-                        if (peerState.GetValueOrDefault(peerId)?.SupportsPeerExchange is true && GetPeerScore(peerId) >= 0)
+                        if (peerState.GetValueOrDefault(peerId)?.SupportsPeerExchange is true && GetPeerScoreUnderLock(peerId) >= 0)
                         {
                             prune.Peers.AddRange(meshPeers
-                                .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
+                                .Where(pid => GetPeerScoreUnderLock(pid) >= 0)  // Only exchange peers with non-negative scores
                                 .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
                                 .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
                                 .Where(pid => pid.Record is not null)
@@ -982,7 +982,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     .Where(p => !topicMesh.Contains(p)
                         && !fanoutPeers.Contains(p)
                         && !IsDirectPeer(p)
-                        && GetPeerScore(p) >= _settings.GossipThreshold)
+                        && GetPeerScoreUnderLock(p) >= _settings.GossipThreshold)
                     .ToArray();
 
                 // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy).

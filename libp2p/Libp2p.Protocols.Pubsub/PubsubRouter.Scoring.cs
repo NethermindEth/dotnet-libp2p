@@ -61,9 +61,12 @@ public partial class PubsubRouter
     {
         lock (this)
         {
-            return peerState.TryGetValue(peerId, out PubsubPeer? peer) ? ScoreOf(peer) : 0;
+            return GetPeerScoreUnderLock(peerId);
         }
     }
+
+    private double GetPeerScoreUnderLock(PeerId peerId)
+        => peerState.TryGetValue(peerId, out PubsubPeer? peer) ? ScoreOf(peer) : 0;
 
     private double ScoreOf(PubsubPeer peer)
     {
@@ -299,7 +302,7 @@ public partial class PubsubRouter
     private List<PeerId> GetBestScoringPeers(IEnumerable<PeerId> peers, int count)
     {
         return peers
-            .OrderByDescending(p => GetPeerScore(p))
+            .OrderByDescending(GetPeerScoreUnderLock)
             .Take(count)
             .ToList();
     }
