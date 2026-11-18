@@ -50,7 +50,6 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
     /// </summary>
     public Task StartDiscoveryAsync(IReadOnlyList<Multiaddress> localPeerAddrs, CancellationToken token = default)
     {
-        ObservableCollection<Multiaddress> peers = [];
         string? localPeerId = localPeerAddrs.First().GetPeerId()?.ToString();
 
         if (localPeerId is null)
@@ -160,12 +159,13 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 // Taken from the addresses that decoded, rather than from the first one, which may
                 // have been the unreadable entry or may carry no peer id at all.
                 PeerId? remotePeerId = records.Select(record => record.GetPeerId()).FirstOrDefault(id => id is not null);
-                if (remotePeerId is not null && localPeerId != remotePeerId.ToString() && !peers.Contains(records[0]))
+                if (remotePeerId is not null && localPeerId != remotePeerId.ToString())
                 {
-                    foreach (Multiaddress peer in records)
-                    {
-                        peers.Add(peer);
-                    }
+                    // No local seen-set: it used to key on records[0] alone, so a peer that kept its
+                    // first address and added another -- a node that starts listening on QUIC beside
+                    // its TCP port -- had the whole update dropped. PeerStore.Discover compares the
+                    // full set and returns early when it is unchanged, so it is the right place for
+                    // this and the only place that can get it right.
                     peerStore.Discover([.. records], isTrusted: false);
                 }
             };
