@@ -155,12 +155,19 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     }
 
     /// <summary>
-    /// The peer an announcement proves it is for, or <c>null</c> when it proves nothing.
+    /// The peer an announcement is internally consistent about, or <c>null</c> when it is not.
     /// <para>
-    /// The identity comes from the advertised public key, as in the reference implementation, not
-    /// from an address suffix: a suffix is a claim the announcer writes about itself, so trusting
-    /// the first one let any peer publish addresses under someone else's id. Every suffix that is
-    /// present must then agree with the derived id, because one announcement carrying two
+    /// <b>This does not authenticate the announcer.</b> A public key is public, so anyone can put
+    /// another peer's key in an announcement and have every check here pass; what this establishes
+    /// is that one announcement describes one peer, not that the sender is that peer. Authenticating
+    /// it needs the signed pubsub author, which subscribers are not currently given — see #242.
+    /// Addresses from here therefore stay <c>isTrusted: false</c>.
+    /// </para>
+    /// <para>
+    /// The identity is taken from the advertised public key, as in the reference implementation,
+    /// rather than from an address suffix. Both are self-asserted, but reading only the first
+    /// suffix meant the rest of the announcement was never checked against anything at all. Every
+    /// suffix present must now agree with the derived id, because one announcement carrying two
     /// identities is not a thing an honest peer sends.
     /// </para>
     /// <para>
