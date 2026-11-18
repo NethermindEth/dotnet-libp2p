@@ -322,6 +322,87 @@ public class MDnsAdvertisementTests
         });
     }
 
+    /// <summary>
+    /// The response has two halves and only one of them was bounded. ServiceProfile turns every
+    /// host address into an A or AAAA record, so a host with many addresses overflows the response
+    /// even when the TXT set is inside its own budget -- and MulticastService drops whole records
+    /// to truncate, taking the grouped TXT record with the dial addresses in it.
+    /// </summary>
+    [Test]
+    public void TheHostAddressRecordsShareTheResponseBudget()
+    {
+        IPAddress[] many =
+        [
+            .. Enumerable.Range(0, 150).Select(i => IPAddress.Parse($"10.{i / 256}.{i % 256}.7")),
+            .. Enumerable.Range(0, 150).Select(i => IPAddress.Parse($"2001:db8:{i:x4}::7")),
+        ];
+        Multiaddress[] listeners = [.. Enumerable.Range(0, 40).Select(i =>
+            Multiaddress.Decode($"/ip4/10.0.0.7/tcp/{4001 + i}/p2p/{Peer}"))];
+
+        Message message = Advertisement(many, listeners);
+        int bytes = message.ToByteArray().Length;
+        message.Truncate(8952);
+        int survived = message.AdditionalRecords.OfType<TXTRecord>().SelectMany(r => r.Strings).Count();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytes, Is.LessThanOrEqualTo(8952), $"the whole response must fit, was {bytes}");
+            Assert.That(survived, Is.GreaterThan(0), "a truncated response must still carry dial addresses");
+        });
+    }
+
+    /// <summary>
+    /// When the host-address records have to be trimmed, the ones a peer cannot reach go first:
+    /// go-libp2p rejects link-local in Swarm.CanDial, so a surviving link-local record would have
+    /// displaced a usable one.
+    /// </summary>
+    [Test]
+    public void TrimmingDropsLinkLocalHostRecordsBeforeRoutableOnes()
+    {
+        IPAddress[] routable =
+            [IPAddress.Parse("192.168.31.129"), IPAddress.Parse("2001:db8::7"), IPAddress.Parse("fd00::9")];
+        IPAddress[] many =
+        [
+            .. Enumerable.Range(0, 150).Select(i => IPAddress.Parse($"169.254.{i / 256}.{i % 256 | 1}")),
+            .. routable,
+            .. Enumerable.Range(0, 150).Select(i => IPAddress.Parse($"fe80::{i:x4}")),
+        ];
+        Multiaddress[] listeners = [.. Enumerable.Range(0, 40).Select(i =>
+            Multiaddress.Decode($"/ip4/192.168.31.129/tcp/{4001 + i}/p2p/{Peer}"))];
+
+        Message message = Advertisement(many, listeners);
+        List<IPAddress> kept = [.. message.AdditionalRecords.OfType<AddressRecord>().Select(r => r.Address)];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(kept, Is.Not.Empty.And.Count.LessThan(many.Length), "trimming has to bite here");
+            // Trimming stops as soon as the response fits, so link-local records may well survive.
+            // What must never happen is a routable one being dropped while any of them is kept.
+            Assert.That(kept, Is.SupersetOf(routable),
+                "every reachable address must outlive every link-local one");
+        });
+    }
+
+    /// <summary>Builds the response exactly as StartDiscoveryAsync does.</summary>
+    private static Message Advertisement(IPAddress[] hostAddresses, Multiaddress[] listeners)
+    {
+        List<string> advertised = MDnsDiscoveryProtocol.BoundedAdvertisement(
+            listeners.SelectMany(addr => MDnsDiscoveryProtocol.AddressesToAdvertise(addr, hostAddresses)));
+        ServiceProfile profile = new("abcdefghijklmnopqrstuvwxyz012345", "_p2p._udp", 0, hostAddresses);
+        profile.Resources.RemoveAll(r => r is TXTRecord);
+        if (advertised.Count != 0)
+        {
+            profile.Resources.Add(new TXTRecord { Name = profile.FullyQualifiedName, Strings = advertised });
+        }
+        MDnsDiscoveryProtocol.TrimToResponseLimit(profile);
+        Message message = new();
+        foreach (ResourceRecord record in profile.Resources)
+        {
+            message.AdditionalRecords.Add(record);
+        }
+        return message;
+    }
+
     /// <summary>If the bound ever bites it must drop what a peer is least likely to reach.</summary>
     [Test]
     public void RoutableAddressesAreOfferedBeforeLinkLocalOnes()

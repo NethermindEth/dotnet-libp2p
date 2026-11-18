@@ -113,6 +113,9 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                 });
             }
 
+            // Both halves are in now, so the whole response can be brought inside the limit.
+            TrimToResponseLimit(service, _logger);
+
             _logger?.LogTrace("DNS records to share: {0}", string.Join(",", service.Resources));
             _logger?.LogInformation("Started as {0} {1}", PeerName, service.QualifiedServiceName);
 
@@ -296,6 +299,64 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
     private const int MaxAdvertisedBytes = 7000;
 
     /// <summary>
+    /// The response size MulticastService truncates at, by dropping whole records.
+    /// </summary>
+    private const int MaxResponseBytes = 8952;
+
+    /// <summary>
+    /// Drops the least reachable host-address records until the whole response fits.
+    /// <para>
+    /// The response has two halves and bounding only the TXT strings is not enough.
+    /// <c>ServiceProfile</c> turns every host address into an A or AAAA record, so a host with many
+    /// addresses overflows the response even when the dnsaddr set is inside its own budget -- and
+    /// the sender truncates by dropping whole records, taking the grouped TXT record, the only part
+    /// carrying dial addresses, with it.
+    /// </para>
+    /// <para>
+    /// Measured on the assembled message rather than estimated per record, because name
+    /// compression makes a record's cost depend on the rest of the message -- the fixed headroom
+    /// this replaces was an estimate, and that is exactly how it went wrong. Link-local records go
+    /// first, matching the order the dnsaddr entries are offered in.
+    /// </para>
+    /// </summary>
+    internal static void TrimToResponseLimit(ServiceProfile service, ILogger? logger = null)
+    {
+        int dropped = 0;
+        while (ResponseBytes(service) > MaxResponseBytes)
+        {
+            AddressRecord? least = service.Resources
+                .OfType<AddressRecord>()
+                .OrderByDescending(record => IsLinkLocal(record.Address))
+                .FirstOrDefault();
+
+            if (least is null)
+            {
+                break;
+            }
+
+            service.Resources.Remove(least);
+            dropped++;
+        }
+
+        if (dropped != 0)
+        {
+            logger?.LogWarning("{0} of this host's address records did not fit the mDNS response; " +
+                "the dnsaddr entries peers dial from were kept", dropped);
+        }
+    }
+
+    private static int ResponseBytes(ServiceProfile service)
+    {
+        Message message = new();
+        foreach (ResourceRecord record in service.Resources)
+        {
+            message.AdditionalRecords.Add(record);
+        }
+
+        return message.ToByteArray().Length;
+    }
+
+    /// <summary>
     /// The dnsaddr strings to advertise, in one record and within the response size limit.
     /// <para>
     /// Both constraints have to hold at once. Separate records lose all but one address at a Go
@@ -342,16 +403,13 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         return entries;
     }
 
-    private static bool IsLinkLocal(Multiaddress address)
-    {
-        if (address.Protocols.FirstOrDefault(protocol => protocol is IP4 or IP6)?.Value is not IPAddress ip)
-        {
-            return false;
-        }
+    private static bool IsLinkLocal(Multiaddress address) =>
+        address.Protocols.FirstOrDefault(protocol => protocol is IP4 or IP6)?.Value is IPAddress ip
+        && IsLinkLocal(ip);
 
-        return ip.IsIPv6LinkLocal || (ip.AddressFamily == AddressFamily.InterNetwork
+    private static bool IsLinkLocal(IPAddress ip) =>
+        ip.IsIPv6LinkLocal || (ip.AddressFamily == AddressFamily.InterNetwork
             && ip.GetAddressBytes() is [169, 254, ..]);
-    }
 
     /// <summary>
     /// The TXT strings a peer advertised for one service instance, from both record sections.
