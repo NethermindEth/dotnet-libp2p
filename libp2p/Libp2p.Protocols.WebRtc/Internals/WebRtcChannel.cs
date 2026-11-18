@@ -36,10 +36,10 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
 
     private readonly IWebRtcDataChannel _channel;
     private readonly TimeSpan _finAckTimeout;
-    private readonly Nethermind.Libp2p.Core.Channel _received = new();
+    private readonly Nethermind.Libp2p.Core.Channel _received = new(countInboundWritesAsSent: false);
     private readonly IChannel _delivery;
     private readonly Task _deliveryTask;
-    private readonly Channel<byte[]> _inbound = System.Threading.Channels.Channel.CreateBounded<byte[]>(
+    private readonly Channel<ReadOnlyMemory<byte>> _inbound = System.Threading.Channels.Channel.CreateBounded<ReadOnlyMemory<byte>>(
         new BoundedChannelOptions(MaxBufferedInboundFrames)
         {
             SingleReader = true,
@@ -76,6 +76,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     private int _pendingWrites;
     private bool _finSent;
     private bool _finReceived;
+    private bool _receiveEofCommitted;
     private bool _finAckReceived;
     private TaskCompletionSource? _readClosed;
     private bool _peerStoppedReading;
@@ -115,10 +116,10 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         {
             // Application reads may stall. Only this pump waits for them, so the receive callback
             // can still process FIN_ACK, STOP_SENDING and RESET_STREAM behind unread payload.
-            await foreach (byte[] payload in _inbound.Reader.ReadAllAsync(_lifetime.Token))
+            await foreach (ReadOnlyMemory<byte> payload in _inbound.Reader.ReadAllAsync(_lifetime.Token))
             {
-                // Core.Channel may return slices of this array to a reader after WriteAsync
-                // completes. Each payload owns its array; it must not be pooled or reused here.
+                // Core.Channel can return slices after WriteAsync completes. The parsed
+                // ByteString's immutable backing storage stays alive through those slices.
                 if (await _delivery.WriteAsync(new ReadOnlySequence<byte>(payload), _lifetime.Token) != IOResult.Ok)
                 {
                     return;
@@ -133,6 +134,10 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
                 {
                     return;
                 }
+
+                // Every queued write has been consumed. Whole-channel close can now let this
+                // pump publish EOF instead of shutting down the reader and discarding data.
+                _receiveEofCommitted = true;
             }
 
             await _delivery.WriteEofAsync();
@@ -279,7 +284,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
             MaybeCloseChannel();
             return IOResult.Ok;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested || _lifetime.IsCancellationRequested)
         {
             return _lifetime.IsCancellationRequested ? IOResult.Aborted : IOResult.Cancelled;
         }
@@ -312,9 +317,9 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
         }
 
         ValueTask<IOResult> eof = WriteEofAsync();
-        await CloseReadAsync();
+        await CloseReadAsync(preserveEof: true);
         await eof;
-        await _received.CloseAsync();
+        await _received;
     }
 
     /// <summary>
@@ -322,13 +327,20 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
     /// node has previously sent a STOP_SENDING flag to the remote node, it MUST continue to act on
     /// any flags present in received messages in order to successfully process an incoming FIN_ACK."
     /// </summary>
-    public async ValueTask CloseReadAsync()
+    public ValueTask CloseReadAsync() => CloseReadAsync(preserveEof: false);
+
+    private async ValueTask CloseReadAsync(bool preserveEof)
     {
         bool notifyPeer;
         bool closing;
         TaskCompletionSource completion;
         lock (_sync)
         {
+            if (preserveEof && _receiveEofCommitted && _readClosed is null)
+            {
+                return;
+            }
+
             closing = _readClosed is null;
             completion = _readClosed ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
             notifyPeer = !_finReceived;
@@ -530,7 +542,7 @@ internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
                 // misreported as an overflow.
                 if (_readClosed is null && !_finReceived && _failure is null)
                 {
-                    overflowed = !_inbound.Writer.TryWrite(message.Message_.ToByteArray());
+                    overflowed = !_inbound.Writer.TryWrite(message.Message_.Memory);
                 }
             }
 

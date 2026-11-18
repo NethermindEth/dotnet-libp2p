@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Metrics;
 using Nethermind.Libp2p.Protocols.WebRtc.Dto;
 using Nethermind.Libp2p.Protocols.WebRtc.Internals;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 
 namespace Nethermind.Libp2p.Protocols.WebRtc.Tests;
 
@@ -625,11 +627,78 @@ public class WebRtcChannelTests
         await using WebRtcChannel remote = new(channelB);
 
         await remote.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
+        Assert.That((await channel.ReadAsync(1).AsTask().WaitAsync(TestTimeout)).Result, Is.EqualTo(IOResult.Ended));
         await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
 
+        Assert.That((await channel.ReadAsync(0)).Result, Is.EqualTo(IOResult.Ok));
+        Assert.That((await channel.ReadAsync(1).AsTask().WaitAsync(TestTimeout)).Result, Is.EqualTo(IOResult.Ended));
         Assert.That(channelA.IsClosed, Is.True);
         Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.FinAck, Message.Types.Flag.Fin }));
         Assert.That(Flags(channelB), Is.EqualTo(new[] { Message.Types.Flag.Fin, Message.Types.Flag.FinAck }));
+    }
+
+    [Test]
+    public async Task CloseAfterPeerFin_AbortsWhenDiscardingUnreadPayload()
+    {
+        (FakeWebRtcDataChannel channelA, FakeWebRtcDataChannel channelB) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel channel = new(channelA);
+        await using WebRtcChannel remote = new(channelB);
+
+        await remote.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1, 2 }));
+        await remote.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
+        await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
+
+        Assert.That((await channel.ReadAsync(0)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That((await channel.ReadAsync(1).AsTask().WaitAsync(TestTimeout)).Result, Is.EqualTo(IOResult.Aborted));
+        Assert.That(Flags(channelA), Is.EqualTo(new[] { Message.Types.Flag.FinAck, Message.Types.Flag.Fin }));
+    }
+
+    [Test]
+    public async Task CloseAfterPeerFin_AbortsIfFinWriteUnexpectedlyCancels()
+    {
+        (FakeWebRtcDataChannel channelA, FakeWebRtcDataChannel channelB) = FakeWebRtcDataChannel.CreatePair();
+        await using WebRtcChannel channel = new(channelA);
+        await using WebRtcChannel remote = new(channelB);
+
+        await remote.WriteEofAsync().AsTask().WaitAsync(TestTimeout);
+        Assert.That((await channel.ReadAsync(1).AsTask().WaitAsync(TestTimeout)).Result, Is.EqualTo(IOResult.Ended));
+        channelA.BeforeSend = _ => throw new OperationCanceledException();
+
+        await channel.CloseAsync().AsTask().WaitAsync(TestTimeout);
+
+        Assert.That(channelA.IsClosed, Is.True);
+        Assert.That((await channel.ReadAsync(0)).Result, Is.EqualTo(IOResult.Aborted));
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task IncomingPayload_IsCountedOnlyAsReceived()
+    {
+        using MeterListener listener = new();
+        Instrument[] counters = [Libp2pMetrics.DataReceivedBytes, Libp2pMetrics.DataReceivedPackets, Libp2pMetrics.DataSentBytes, Libp2pMetrics.DataSentPackets];
+        ConcurrentDictionary<Instrument, long> counts = new();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (counters.Contains(instrument))
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+            counts.AddOrUpdate(instrument, value, (_, total) => total + value));
+        listener.Start();
+
+        FakeWebRtcDataChannel transport = new();
+        await using WebRtcChannel channel = new(transport);
+        byte[] payload = [1, 2, 3];
+        transport.Deliver(WebRtcFraming.Encode(Message.Types.Flag.Fin, payload));
+
+        Assert.That(await ReadPayload(channel), Is.EqualTo(payload));
+        Assert.That((await channel.ReadAsync(1).AsTask().WaitAsync(TestTimeout)).Result, Is.EqualTo(IOResult.Ended));
+        Assert.That(counts.GetValueOrDefault(Libp2pMetrics.DataReceivedBytes), Is.EqualTo(payload.Length));
+        Assert.That(counts.GetValueOrDefault(Libp2pMetrics.DataReceivedPackets), Is.EqualTo(1));
+        Assert.That(counts.GetValueOrDefault(Libp2pMetrics.DataSentBytes), Is.Zero);
+        Assert.That(counts.GetValueOrDefault(Libp2pMetrics.DataSentPackets), Is.Zero);
     }
 
     [Test]
