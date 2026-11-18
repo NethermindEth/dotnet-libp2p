@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="../samples/ai-server/AIServer.csproj" />
+    <Project Path="../samples/chat/Chat.csproj" />
+    <Project Path="../samples/maui-chat/MauiChat.csproj">
+      <Build Project="false" />
+    </Project>
+    <Project Path="../samples/perf-benchmarks/PerfBenchmarks.csproj" />
+    <Project Path="../samples/pubsub-chat/PubsubChat.csproj" />
+    <Project Path="../samples/transport-interop/TransportInterop.csproj" />
+  </Folder>
+  <Project Path="../libp2p/Libp2p.Core.Benchmarks/Libp2p.Core.Benchmarks.csproj" />
+  <Project Path="../libp2p/Libp2p.Transport.Benchmarks/Libp2p.Transport.Benchmarks.csproj" />
+  <Project Path="../libp2p/Libp2p.Protocols.Pubsub.Benchmarks/Libp2p.Protocols.Pubsub.Benchmarks.csproj" />
+  <Project Path="../libp2p/Libp2p.Transport.MicroBenchmarks/Libp2p.Transport.MicroBenchmarks.csproj" />
+  <Project Path="../libp2p/Libp2p.Protocols.Muxer.Benchmarks/Libp2p.Protocols.Muxer.Benchmarks.csproj" />
+</Solution>

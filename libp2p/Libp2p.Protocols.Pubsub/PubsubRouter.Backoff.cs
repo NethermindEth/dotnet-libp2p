@@ -20,6 +20,10 @@ public partial class PubsubRouter
     private static DateTime BackoffDeadline(DateTime now, TimeSpan duration) =>
         now.AddTicks(Math.Min(duration.Ticks, DateTime.MaxValue.Ticks - now.Ticks));
 
+    private bool IsInBackoff(PeerId peerId, string topic) =>
+        peerState.GetValueOrDefault(peerId)?.Backoff.TryGetValue(topic, out DateTime until) is true &&
+        until > _timeProvider.GetUtcNow().UtcDateTime;
+
     // All backoff state is owned by the router lock and uses the injected UTC clock.
     private void RefreshBackoff(PeerId peerId, string topic, TimeSpan duration)
     {
