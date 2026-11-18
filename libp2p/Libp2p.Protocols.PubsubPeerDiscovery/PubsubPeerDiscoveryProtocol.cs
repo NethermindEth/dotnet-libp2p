@@ -214,7 +214,7 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
             if (address.Protocols.Count == 0)
             {
                 // Decoding is lenient: bytes it cannot place come back as an address with nothing
-                // in it rather than as an exception. Undialable either way, so it goes the same way.
+                // in it rather than as an exception. Not dialable either way, so it goes the same way.
                 logger?.LogDebug("Skipping an empty address of {peerId}", derived);
                 continue;
             }

@@ -93,7 +93,7 @@ public class AnnouncementIdentityTests
     /// one address we cannot make sense of must not cost us the rest. That is tolerance, not trust:
     /// it differs from an address naming another peer, which is evidence and rejects the whole
     /// announcement. Note the decoder does not throw on these bytes — it yields an address with no
-    /// protocols in it, which is just as undialable and has to be dropped the same way.
+    /// protocols in it, which is just as unusable and has to be dropped the same way.
     /// </summary>
     [Test]
     public void AnUnusableAddressIsSkippedWithoutLosingTheOthers()
