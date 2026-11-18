@@ -357,6 +357,7 @@ public class NoiseProtocol : IConnectionProtocol
             }
         });
 
+        Task pumps = Task.WhenAll((Task)upToDown, downToUp);
         bool orderly = false;
         try
         {
@@ -381,11 +382,11 @@ public class NoiseProtocol : IConnectionProtocol
             finally
             {
                 lifetime.Cancel();
-                await ((Task)Task.WhenAll(upToDown, downToUp)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                await pumps.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
         }
 
         // A sibling can fault during shutdown even if the first pump ended normally.
-        await Task.WhenAll(upToDown, downToUp);
+        await pumps;
     }
 }
