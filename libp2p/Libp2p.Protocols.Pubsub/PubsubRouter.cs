@@ -811,10 +811,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     internal int IwantPromiseCount => _iwantPromises.Count;
 
-    // Partial Fisher-Yates: choose a uniform subset without replacement in bounded time.
     internal static T[] Sample<T>(IEnumerable<T> candidates, int count, Random random)
+        => SampleOwned(candidates.ToArray(), count, random);
+
+    // Partial Fisher-Yates: choose a uniform subset by shuffling the owned array in place.
+    private static T[] SampleOwned<T>(T[] pool, int count, Random random)
     {
-        T[] pool = candidates.ToArray();
         int take = Math.Clamp(count, 0, pool.Length);
         // The final candidate is forced, so a full shuffle needs only n - 1 draws.
         for (int i = 0; i < take && i < pool.Length - 1; i++)
@@ -1010,7 +1012,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
                 // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy).
                 int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Length * _settings.GossipFactor));
-                PeerId[] gossipPeers = Sample(eligiblePeers, gossipCount, _random);
+                PeerId[] gossipPeers = SampleOwned(eligiblePeers, gossipCount, _random);
 
                 if (partialMessageGroupIds.Count > 0)
                 {
