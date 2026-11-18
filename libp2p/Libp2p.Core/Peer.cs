@@ -1166,7 +1166,11 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             }
             catch (Exception ex)
             {
-                CancellationToken? cancellation = ex is OperationCanceledException ? GetRequestedCancellation() : null;
+                // Channel helpers can turn canceled I/O into ChannelClosedException
+                // before the upgrade's cancellation callback settles the dial.
+                CancellationToken? cancellation = ex is OperationCanceledException or ChannelClosedException
+                    ? GetRequestedCancellation()
+                    : null;
                 if (cancellation is { } token)
                 {
                     options?.CompletionSource?.TrySetCanceled(token);

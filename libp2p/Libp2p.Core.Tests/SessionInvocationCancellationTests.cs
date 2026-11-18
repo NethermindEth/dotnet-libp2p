@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Core.TestsBase;
 using NSubstitute;
 
@@ -284,6 +285,58 @@ internal class SessionInvocationCancellationTests
         }
     }
 
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task ChannelReadFailureCancelsDialOnlyWhenLifetimeIsCanceled(bool cancelCaller, bool closeOnly)
+    {
+        TaskCompletionSource releaseCallbacks = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ReadingProtocol protocol = new(releaseCallbacks.Task);
+        ProtocolRef parent = new(protocol);
+        await using LocalPeer peer = CreatePeer(parent, protocol);
+        LocalPeer.Session session = new(peer);
+        using CancellationTokenSource caller = new();
+        Task<int> dial = session.DialAsync<ReadingProtocol, int>(caller.Token);
+        UpgradeOptions request = session.GetRequestQueue().First();
+        Channel channel = new();
+        Task upgrade = peer.Upgrade(session, channel.Reverse, parent, protocol, request, false, null);
+        using CancellationTokenRegistration pause = protocol.Pause;
+        Task? cancel = null;
+        try
+        {
+            Assert.That(protocol.Read.IsCompleted, Is.False);
+            if (closeOnly)
+            {
+                await channel.CloseAsync();
+                ChannelClosedException? failure = Assert.ThrowsAsync<ChannelClosedException>(async () => await dial.WaitAsync(Timeout));
+                Assert.That(failure, Is.SameAs(protocol.Read.Exception!.InnerException));
+                Assert.That(protocol.Token.IsCancellationRequested, Is.False);
+            }
+            else
+            {
+                cancel = cancelCaller ? caller.CancelAsync() : Task.Run(session.DisconnectAsync);
+                // Observe publication before releasing the core and session callbacks.
+                OperationCanceledException? failure = Assert.CatchAsync<OperationCanceledException>(
+                    async () => await request.CompletionSource!.Task.WaitAsync(Timeout));
+                Assert.That(request.CompletionSource!.Task.IsCanceled, Is.True);
+                Assert.That(failure!.CancellationToken, Is.EqualTo(protocol.Token));
+                releaseCallbacks.TrySetResult();
+                Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
+                Assert.That(dial.IsCanceled, Is.True);
+            }
+
+            ChannelClosedException? diagnostic = Assert.ThrowsAsync<ChannelClosedException>(async () => await upgrade.WaitAsync(Timeout));
+            Assert.That(diagnostic, Is.SameAs(protocol.Read.Exception!.InnerException));
+        }
+        finally
+        {
+            releaseCallbacks.TrySetResult();
+            if (cancel is not null) await cancel.WaitAsync(Timeout);
+            await session.DisconnectAsync();
+            await Task.WhenAll(upgrade, dial).WaitAsync(Timeout).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     private static LocalPeer CreatePeer(ProtocolRef parent, IProtocol protocol, ActivitySource? activitySource = null) => new(
         TestPeers.Identity(1), null, new ProtocolStackSettings { Protocols = new() { [parent] = [new(protocol)] } }, activitySource);
 
@@ -319,6 +372,25 @@ internal class SessionInvocationCancellationTests
         {
             Token = context.UpgradeOptions!.CancellationToken;
             return Response.Task;
+        }
+
+        public Task ListenAsync(IChannel channel, ISessionContext context) => throw new NotSupportedException();
+    }
+
+    private sealed class ReadingProtocol(Task releaseCallbacks) : ISessionProtocol<int>
+    {
+        public string Id => "/test/read-cancellation/1.0.0";
+        public CancellationToken Token { get; private set; }
+        public CancellationTokenRegistration Pause { get; private set; }
+        public Task<int> Read { get; private set; } = null!;
+
+        public Task<int> DialAsync(IChannel channel, ISessionContext context)
+        {
+            Token = context.UpgradeOptions!.CancellationToken;
+            // Register before the real read so it can fail while the earlier
+            // upgrade cancellation callback is still waiting to run.
+            Pause = Token.Register(() => releaseCallbacks.WaitAsync(Timeout).GetAwaiter().GetResult());
+            return Read = channel.ReadVarintAsync(Token);
         }
 
         public Task ListenAsync(IChannel channel, ISessionContext context) => throw new NotSupportedException();
