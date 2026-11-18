@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "../Libp2p.slnx",
+    "projects": [
+      "libp2p/Libp2p.Core/Libp2p.Core.csproj",
+      "libp2p/Libp2p.Core.Tests/Libp2p.Core.Tests.csproj"
+    ]
+  }
+}
