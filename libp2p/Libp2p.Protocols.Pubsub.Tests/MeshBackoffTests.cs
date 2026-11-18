@@ -138,13 +138,13 @@ public class MeshBackoffTests
         Assert.That(candidateSent.SelectMany(rpc => rpc.Publish).Count(), Is.EqualTo(score >= 0 ? 1 : 0));
     }
 
-    [TestCase(ConnectionDirection.Outbound)]
-    [TestCase(ConnectionDirection.Inbound)]
-    [TestCase(ConnectionDirection.Unknown)]
-    public async Task ZeroDegreeRouterPrunesGraftWithoutForwardingFullMessages(ConnectionDirection direction)
+    [Test]
+    public async Task NonPositiveMeshLimitPrunesGraftWithoutForwardingFullMessages(
+        [Values(0, -1)] int highestDegree, [Values] ConnectionDirection direction)
     {
         PubsubSettings settings = Settings();
-        settings.Degree = settings.LowestDegree = settings.HighestDegree = settings.DOut = 0;
+        settings.Degree = settings.LowestDegree = settings.DOut = 0;
+        settings.HighestDegree = highestDegree;
         await using PubsubRouter router = new(new PeerStore(), settings);
         router.GetTopic("topic");
         List<Rpc> sent = [];
