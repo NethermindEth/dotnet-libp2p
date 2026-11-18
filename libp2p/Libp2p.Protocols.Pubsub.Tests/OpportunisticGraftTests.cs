@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 
@@ -38,10 +39,11 @@ public class OpportunisticGraftTests
     };
 
     private static async Task<Peer> Open(PubsubRouter router, int id, double score,
-        bool inMesh = false, string? topic = "topic", string protocol = PubsubRouter.GossipsubProtocolVersionV11, bool inbound = false)
+        bool inMesh = false, string? topic = "topic", string protocol = PubsubRouter.GossipsubProtocolVersionV11,
+        bool inbound = false, string? ipAddress = null)
     {
         List<Rpc> sent = [];
-        var address = TestPeers.Multiaddr(id);
+        Multiaddress address = ipAddress is null ? TestPeers.Multiaddr(id) : $"/ip4/{ipAddress}/p2p/{TestPeers.Identity(id).PeerId}";
         Task closed = new TaskCompletionSource().Task;
         if (inbound) router.InboundConnection(address, protocol, closed, () => Task.CompletedTask, () => Task.CompletedTask);
         PubsubRouter.PubsubPeer state = router.OutboundConnection(address, protocol,
@@ -294,9 +296,9 @@ public class OpportunisticGraftTests
         router.GetTopic("topic");
         Peer first = await Open(router, 1, 1, inMesh: true);
         Peer second = await Open(router, 2, 1, inMesh: true);
-        Peer candidate = await Open(router, 3, 10);
-        Peer collocated = await Open(router, 4, 10, topic: null);
-        candidate.State.Score.IPAddress = collocated.State.Score.IPAddress = "127.0.0.1";
+        const string address = "192.0.2.3";
+        Peer candidate = await Open(router, 3, 10, ipAddress: address);
+        await Open(router, 4, 10, topic: null, ipAddress: address);
         Assert.That(router.GetPeerScore(candidate.Id), Is.LessThan(0));
 
         await Tick(router);

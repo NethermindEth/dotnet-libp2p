@@ -4,6 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using Multiformats.Address;
+using System.Net;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -20,7 +21,7 @@ public class PubsubSettings
     /// </summary>
     public bool AutoConnect { get; set; } = true;
 
-    /// <summary>Automatic retries after a failed discovery dial or closed pubsub stream. Zero disables retries; direct peers have a separate reconnect loop.</summary>
+    /// <summary>Shared automatic retry budget per peer, reset by fresh discovery, a new peer generation or an attached writer. Zero disables retries; direct peers use a separate reconnect loop.</summary>
     public int ReconnectionAttempts { get; set; } = 10;
     public int ReconnectionPeriod { get; set; } = 15_000;
 
@@ -239,6 +240,12 @@ public class PubsubSettings
     public double AppSpecificWeight { get; set; } = 10;
     public double IPColocationFactorWeight { get; set; } = -35;
     public double IPColocationFactorThreshold { get; set; } = 10;
+    /// <summary>
+    /// IP networks exempt from colocation counting and penalties. Configure before connecting peers.
+    /// Private addresses count unless exempted; IPv4-mapped IPv6 addresses use IPv4 networks.
+    /// Use <see cref="AddIPColocationWhitelist"/> to configure entries from CIDR strings.
+    /// </summary>
+    public List<IPNetwork> IPColocationFactorWhitelist { get; set; } = [];
     public double BehaviorPenaltyWeight { get; set; } = -15;
     public double BehaviorPenaltyDecay { get; set; } = 0.99;
 
@@ -248,6 +255,13 @@ public class PubsubSettings
     public Dictionary<string, TopicScoreParams> TopicScoreParams { get; set; } = new();
 
     public double TopicScoreCap { get; set; } = 3600;
+
+    /// <summary>
+    /// Parses and adds a CIDR network, such as <c>10.0.0.0/8</c>, to
+    /// <see cref="IPColocationFactorWhitelist"/>. Configure before connecting peers.
+    /// </summary>
+    /// <exception cref="FormatException">The string is not a valid CIDR network.</exception>
+    public void AddIPColocationWhitelist(string cidr) => IPColocationFactorWhitelist.Add(IPNetwork.Parse(cidr));
 
     public static MessageId ConcatFromAndSeqno(Message message) => new([.. message.From, .. message.Seqno]);
 }
