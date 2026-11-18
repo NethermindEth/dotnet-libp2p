@@ -47,31 +47,26 @@ jobs:
           python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"
           cat "$RUNNER_TEMP/test-projects.txt"
 
-      - name: List CI projects
+      - name: Generate CI solution
         working-directory: ${{ env.WORKING_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/discover_test_projects.py --all-projects > "$RUNNER_TEMP/ci-projects.txt"
-          cat "$RUNNER_TEMP/ci-projects.txt"
+          python3 .github/scripts/discover_test_projects.py --ci-solution > "$RUNNER_TEMP/ci.slnx"
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r project; do
-            dotnet restore "$project"
-          done < "$RUNNER_TEMP/ci-projects.txt"
+          dotnet restore "$RUNNER_TEMP/ci.slnx" --configfile "$PWD/nuget.config"
 
       - name: Build
         working-directory: ${{ env.WORKING_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r project; do
-            dotnet build "$project" -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
-          done < "$RUNNER_TEMP/ci-projects.txt"
+          dotnet build "$RUNNER_TEMP/ci.slnx" -c ${{ env.BUILD_CONFIG }} --no-restore -p:Version=${{ inputs.version }}
 
       - name: Test
         timeout-minutes: 30

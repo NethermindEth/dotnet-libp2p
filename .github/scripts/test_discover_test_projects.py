@@ -11,7 +11,7 @@ import textwrap
 import unittest
 import xml.etree.ElementTree as ET
 
-from discover_test_projects import DiscoveryError, ci_projects, discover
+from discover_test_projects import DiscoveryError, ci_projects, ci_solution, discover
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -77,6 +77,12 @@ class DiscoveryTests(unittest.TestCase):
         self.solution_with()
         with self.assertRaisesRegex(DiscoveryError, "missing from Libp2p.slnx.*Future.Tests"):
             ci_projects(self.repo)
+
+    def test_ci_solution_matches_build_inventory(self):
+        paths = [Path(project.attrib["Path"])
+                 for project in ET.fromstring(ci_solution(REPO)).iter("Project")]
+        self.assertTrue(all(path.is_absolute() for path in paths))
+        self.assertEqual(ci_projects(REPO), [path.relative_to(REPO).as_posix() for path in paths])
 
     def test_split_solutions_reject_missing_members_and_unlisted_runners(self):
         suite = self.project()
@@ -191,33 +197,36 @@ class WorkflowTests(unittest.TestCase):
     def test_both_workflows_use_the_combined_build_inventory(self):
         for workflow in ("test.yml", "publish.yml"):
             with self.subTest(workflow=workflow):
-                _, listing = workflow_step(workflow, "List CI projects")
-                self.assertIn('python3 .github/scripts/discover_test_projects.py --all-projects > "$RUNNER_TEMP/ci-projects.txt"', listing)
-                for stage in ("Install dependencies", "Build"):
-                    _, script = workflow_step(workflow, stage)
-                    self.assertIn('done < "$RUNNER_TEMP/ci-projects.txt"', script)
+                _, generation = workflow_step(workflow, "Generate CI solution")
+                _, restore = workflow_step(workflow, "Install dependencies")
+                _, build = workflow_step(workflow, "Build")
+                self.assertIn('python3 .github/scripts/discover_test_projects.py --ci-solution > "$RUNNER_TEMP/ci.slnx"', generation)
+                self.assertIn('dotnet restore "$RUNNER_TEMP/ci.slnx" --configfile "$PWD/nuget.config"', restore)
+                self.assertIn('dotnet build "$RUNNER_TEMP/ci.slnx" -c ${{ env.BUILD_CONFIG }} --no-restore', build)
+                for script in (generation, restore, build):
                     subprocess.run(["bash", "-n"], input=script, text=True, check=True)
                 if workflow == "publish.yml":
-                    self.assertIn("-p:Version=${{ inputs.version }}", workflow_step(workflow, "Build")[1])
+                    self.assertIn("-p:Version=${{ inputs.version }}", build)
 
-    def test_restore_and_build_failures_stop_before_later_projects(self):
+    def test_restore_and_build_failures_stop_the_workflow(self):
         for workflow in ("test.yml", "publish.yml"):
             for stage in ("Install dependencies", "Build"):
-                for fail in ("first project.csproj", ""):
-                    with self.subTest(workflow=workflow, stage=stage, fail=fail), tempfile.TemporaryDirectory() as directory:
+                for code in ("23", "0"):
+                    with self.subTest(workflow=workflow, stage=stage, code=code), tempfile.TemporaryDirectory() as directory:
                         root = Path(directory)
-                        (root / "ci-projects.txt").write_text("first project.csproj\nsecond.csproj\n")
                         command = root / "dotnet"
-                        command.write_text('#!/bin/bash\nprintf "%s\\n" "$2" >> "$RUNNER_TEMP/trace"\nif [[ "$2" == "$FAIL_PROJECT" ]]; then exit 23; fi\n')
+                        command.write_text('#!/bin/bash\nprintf "%s\\n" "$2" >> "$RUNNER_TEMP/trace"\nexit "$DOTNET_STATUS"\n')
                         command.chmod(0o755)
                         script = workflow_step(workflow, stage)[1]
                         script = script.replace("${{ env.BUILD_CONFIG }}", "Release").replace("${{ inputs.version }}", "1.2.3")
                         script += '\necho next >> "$RUNNER_TEMP/trace"\n'
-                        env = dict(os.environ, RUNNER_TEMP=directory, FAIL_PROJECT=fail,
+                        env = dict(os.environ, RUNNER_TEMP=directory, DOTNET_STATUS=code,
                                    PATH=directory + os.pathsep + os.environ["PATH"])
                         result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
-                        self.assertEqual(23 if fail else 0, result.returncode, result.stderr)
-                        expected = ["first project.csproj"] if fail else ["first project.csproj", "second.csproj", "next"]
+                        self.assertEqual(int(code), result.returncode, result.stderr)
+                        expected = [f"{directory}/ci.slnx"]
+                        if code == "0":
+                            expected.append("next")
                         self.assertEqual(expected, (root / "trace").read_text().splitlines())
 
     def test_failed_build_inventory_stops_before_restore(self):
@@ -227,7 +236,7 @@ class WorkflowTests(unittest.TestCase):
                 command = root / "python3"
                 command.write_text("#!/bin/bash\nexit 17\n")
                 command.chmod(0o755)
-                script = workflow_step(workflow, "List CI projects")[1] + '\ntouch "$RUNNER_TEMP/restore"\n'
+                script = workflow_step(workflow, "Generate CI solution")[1] + '\ntouch "$RUNNER_TEMP/restore"\n'
                 env = dict(os.environ, RUNNER_TEMP=directory, PATH=directory + os.pathsep + os.environ["PATH"])
                 result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
                 self.assertEqual(17, result.returncode)

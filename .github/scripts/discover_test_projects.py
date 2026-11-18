@@ -126,20 +126,37 @@ def ci_projects(repo, solutions=None):
                   if path.relative_to(repo).as_posix() != "samples/maui-chat/MauiChat.csproj")
 
 
+def ci_solution(repo, solutions=None):
+    repo = repo.resolve()
+    root = ET.Element("Solution")
+    for path in ci_projects(repo, solutions):
+        # The generated solution lives in the runner's temporary directory.
+        ET.SubElement(root, "Project", Path=(repo / path).as_posix())
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="unicode")
+
+
 def main():
     repo = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("solution", nargs="*", type=Path,
                         help="Solutions to inspect; defaults to Libp2p.slnx and solutions/*.slnx")
-    parser.add_argument("--all-projects", action="store_true",
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--all-projects", action="store_true",
                         help="List CI build projects (excluding MAUI) instead of test runners")
+    output.add_argument("--ci-solution", action="store_true",
+                        help="Emit a solution for the CI build projects")
     args = parser.parse_args()
     try:
-        projects = (ci_projects if args.all_projects else discover)(repo, args.solution or None)
+        solutions = args.solution or None
+        if args.ci_solution:
+            print(ci_solution(repo, solutions))
+        else:
+            projects = (ci_projects if args.all_projects else discover)(repo, solutions)
+            print("\n".join(projects))
     except DiscoveryError as error:
         print(error, file=sys.stderr)
         return 1
-    print("\n".join(projects))
     return 0
 
 

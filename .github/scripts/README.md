@@ -5,7 +5,9 @@ for test runners, or add `--all-projects` for the complete CI build inventory.
 Both commands combine `Libp2p.slnx` and `solutions/*.slnx`, deduplicate their members,
 and emit repository-relative paths. The build inventory excludes the MAUI application,
 as before; its protocol boundary tests still run without MAUI workloads.
-Both Linux workflows validate these inventories before restore/build, then invoke
+Both Linux workflows use `--ci-solution` to generate a temporary solution from the
+validated build inventory. They restore once with the repository NuGet configuration
+and build the complete graph in Release, then invoke
 `bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"`.
 Test steps have a 30-minute deadline, including any retry.
 
