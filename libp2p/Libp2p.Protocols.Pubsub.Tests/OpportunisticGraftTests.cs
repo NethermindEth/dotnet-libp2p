@@ -439,6 +439,47 @@ public class OpportunisticGraftTests
         Assert.That(secondTrimmed.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
     }
 
+    [TestCase(4, 1, 1)]
+    [TestCase(5, 2, 0)]
+    [TestCase(5, 1, 1)]
+    [TestCase(5, 2, 1)]
+    public async Task HeartbeatTrimsToDegreeOnlyAboveHighestDegree(int peerCount, int scoreQuota, int outboundQuota)
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = 2;
+        settings.HighestDegree = peerCount;
+        settings.DScore = scoreQuota;
+        settings.DOut = outboundQuota;
+        settings.OpportunisticGraftPeers = 0;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("topic");
+        List<Peer> peers = [];
+        for (int id = 1; id <= peerCount; id++)
+        {
+            peers.Add(await Open(router, id, peerCount - id, inMesh: true, inbound: id != peerCount));
+        }
+        settings.HighestDegree = 4;
+        Assert.That(Mesh(router), Is.EquivalentTo(peers.Select(peer => peer.Id)));
+
+        await Tick(router);
+
+        if (peerCount == settings.HighestDegree)
+        {
+            Assert.That(Mesh(router), Is.EquivalentTo(peers.Select(peer => peer.Id)));
+            Assert.That(peers.SelectMany(peer => peer.Prunes), Is.Empty);
+        }
+        else
+        {
+            Peer secondSurvivor = outboundQuota > 0 ? peers[^1] : peers[1];
+            Peer[] survivors = [peers[0], secondSurvivor];
+            Assert.That(Mesh(router), Is.EquivalentTo(survivors.Select(peer => peer.Id)));
+            foreach (Peer peer in peers.Except(survivors))
+            {
+                Assert.That(peer.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
+            }
+        }
+    }
+
     [Test]
     public async Task ZeroPeersDisablesOpportunisticGrafting()
     {
