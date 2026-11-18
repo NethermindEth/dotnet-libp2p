@@ -715,6 +715,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 logger?.LogDebug("Applied behavioral penalty {penalty} to peer {peerId}", brokenPromises, peerId);
             }
+
+            HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat = null;
+            void QueuePrune(PeerId peerId, ControlPrune prune)
+            {
+                (prunedThisHeartbeat ??= []).Add((prune.TopicID, peerId));
+                peerMessages.GetOrAdd(peerId, _ => new Rpc()).Ensure(r => r.Control.Prune).Add(prune);
+            }
+
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
@@ -727,16 +735,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     RecordPeerLeaveMesh(peerId, topic);
 
                     RefreshBackoff(peerId, topic, LocalBackoff(_settings.PruneBackoff));
-                    ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
-                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                         .Ensure(r => r.Control.Prune)
-                         .Add(prune);
+                    QueuePrune(peerId, CreatePrune(peerId, topic, _settings.PruneBackoff));
                 }
             }
 
-            bool opportunisticGraft = _settings.OpportunisticGraftPeers > 0 &&
-                (heartbeatTick + 1) % _settings.OpportunisticGraftTicks == 0;
-            Dictionary<PeerId, double>? opportunisticScores = null;
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
                 string topic = meshEntry.Key;
@@ -747,6 +749,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
+                            && prunedThisHeartbeat?.Contains((topic, p)) != true
                             && !IsDirectPeer(p)
                             && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
                             && !IsInBackoff(p, topic))
@@ -763,36 +766,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
-                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
-
-                    // Get D_score best peers
-                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
-
-                    // Ensure we have D_out outbound connections
-                    var outboundPeers = meshPeers
-                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
-                        .Take(_settings.DOut)
-                        .ToHashSet();
-
-                    // Peers to keep: best scores + outbound quota + random
-                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
-
-                    // Fill remaining spots randomly
-                    int remaining = _settings.HighestDegree - peersToKeep.Count;
-                    if (remaining > 0)
-                    {
-                        var candidates = meshPeers.Except(peersToKeep).ToList();
-                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
-                        {
-                            peersToKeep.Add(peer);
-                        }
-                    }
-
-                    // Prune the rest
-                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
-
-                    foreach (PeerId peerId in peersToPrune)
+                    foreach (PeerId peerId in meshPeers.Except(GetMeshSurvivors(meshPeers)).ToArray())
                     {
                         meshPeers.Remove(peerId);
                         RecordPeerLeaveMesh(peerId, topic);
@@ -815,25 +789,29 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                                 }));
                         }
 
-                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                             .Ensure(r => r.Control.Prune)
-                             .Add(prune);
+                        QueuePrune(peerId, prune);
                     }
                 }
+            }
 
-                if (opportunisticGraft && meshPeers.Count > 1)
+            if (_settings.OpportunisticGraftPeers > 0 && (heartbeatTick + 1) % _settings.OpportunisticGraftTicks == 0)
+            {
+                // Pruning on any topic can lower a peer's total score through its mesh failure penalty.
+                // Take the first score snapshot only after all topics have finished routine maintenance.
+                Dictionary<string, int>? ipCounts = null;
+                Dictionary<PeerId, double>? opportunisticScores = null;
+                foreach ((string topic, HashSet<PeerId> meshPeers) in mesh)
                 {
-                    // Share one score snapshot across topics, including the IP colocation counts.
-                    if (opportunisticScores is null)
-                    {
-                        Dictionary<string, int> ipCounts = CountIpColocation();
-                        opportunisticScores = peerState.ToDictionary(p => p.Key, p => p.Value.Score.GetScore(ipCounts));
-                    }
+                    if (meshPeers.Count <= 1) continue;
 
-                    foreach (PeerId peerId in GetOpportunisticGraftPeers(topic, opportunisticScores))
+                    ipCounts ??= CountIpColocation();
+                    opportunisticScores ??= peerState.ToDictionary(p => p.Key, p => p.Value.Score.GetScore(ipCounts));
+
+                    foreach (PeerId peerId in GetOpportunisticGraftPeers(topic, opportunisticScores, prunedThisHeartbeat))
                     {
                         meshPeers.Add(peerId);
                         RecordPeerJoinMesh(peerId, topic);
+                        opportunisticScores[peerId] = peerState[peerId].Score.GetScore(ipCounts);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
                             .Ensure(r => r.Control.Graft)
                             .Add(new ControlGraft { TopicID = topic });

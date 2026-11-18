@@ -22,6 +22,7 @@ public class OpportunisticGraftTests
     {
         public PeerId Id => State.PeerId;
         public IEnumerable<ControlGraft> Grafts => Sent.SelectMany(rpc => rpc.Control?.Graft ?? []);
+        public IEnumerable<ControlPrune> Prunes => Sent.SelectMany(rpc => rpc.Control?.Prune ?? []);
     }
 
     private static PubsubSettings Settings() => new()
@@ -37,11 +38,14 @@ public class OpportunisticGraftTests
     };
 
     private static async Task<Peer> Open(PubsubRouter router, int id, double score,
-        bool inMesh = false, string? topic = "topic", string protocol = PubsubRouter.GossipsubProtocolVersionV11)
+        bool inMesh = false, string? topic = "topic", string protocol = PubsubRouter.GossipsubProtocolVersionV11, bool inbound = false)
     {
         List<Rpc> sent = [];
-        PubsubRouter.PubsubPeer state = router.OutboundConnection(TestPeers.Multiaddr(id), protocol,
-            new TaskCompletionSource().Task, (bytes, _) =>
+        var address = TestPeers.Multiaddr(id);
+        Task closed = new TaskCompletionSource().Task;
+        if (inbound) router.InboundConnection(address, protocol, closed, () => Task.CompletedTask, () => Task.CompletedTask);
+        PubsubRouter.PubsubPeer state = router.OutboundConnection(address, protocol,
+            closed, (bytes, _) =>
             {
                 sent.Add(RouterTestExtensions.Decode(bytes));
                 return ValueTask.FromResult(IOResult.Ok);
@@ -324,6 +328,113 @@ public class OpportunisticGraftTests
         Assert.That(first.State.Score.GetTopicScore("topic").MeshJoinTime, Is.Null);
         Assert.That(second.State.Score.GetTopicScore("topic").MeshJoinTime, Is.Null);
         Assert.That(first.Sent.Concat(second.Sent).SelectMany(rpc => rpc.Control?.Prune ?? []).Count(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task PruningOnAnotherTopicUpdatesGraftEligibility()
+    {
+        PubsubSettings settings = Settings();
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        foreach (string topic in new[] { "one", "two", "three" }) router.GetTopic(topic);
+        var meshes = ((IRoutingStateContainer)router).Mesh;
+        // Use the heartbeat's enumeration order so trimming happens between the two checks.
+        string[] topics = meshes.Select(entry => entry.Key).ToArray();
+        string firstTopic = topics[0], trimmedTopic = topics[1], targetTopic = topics[2];
+        settings.TopicScoreParams[trimmedTopic] = new TopicScoreParams
+        {
+            TopicWeight = 1,
+            TimeInMeshWeight = 0,
+            MeshMessageDeliveriesWeight = 0,
+            MeshMessageDeliveriesActivation = 1000,
+            MeshMessageDeliveriesThreshold = 3,
+            MeshFailurePenaltyWeight = -1,
+        };
+        Peer first = await Open(router, 1, 10, inMesh: true, topic: firstTopic);
+        Peer second = await Open(router, 2, 11, inMesh: true, topic: firstTopic);
+        foreach (Peer peer in new[] { first, second })
+        {
+            await router.OnRpcAsync(peer.Id, new Rpc
+            {
+                Control = new ControlMessage { Graft = { new ControlGraft { TopicID = trimmedTopic } } },
+            });
+        }
+        Peer penalized = await Open(router, 3, 4, inMesh: true, topic: trimmedTopic);
+        TopicScore trimmedScore = penalized.State.Score.GetTopicScore(trimmedTopic);
+        trimmedScore.MeshJoinTime = DateTime.UtcNow.AddMinutes(-1);
+        await router.OnRpcAsync(penalized.Id, new Rpc().WithTopics([targetTopic], []));
+        await Open(router, 4, 0, inMesh: true, topic: targetTopic);
+        await Open(router, 5, 0, inMesh: true, topic: targetTopic);
+        Peer eligible = await Open(router, 6, 3, topic: targetTopic);
+        settings.HighestDegree = 2;
+        Assert.That(router.GetPeerScore(penalized.Id), Is.EqualTo(4));
+
+        await Tick(router);
+
+        Assert.That(penalized.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { trimmedTopic }));
+        Assert.That(router.GetPeerScore(penalized.Id), Is.EqualTo(-5));
+        Assert.That(meshes[targetTopic], Does.Not.Contain(penalized.Id));
+        Assert.That(penalized.Grafts, Is.Empty);
+        Assert.That(eligible.Grafts.Select(graft => graft.TopicID), Is.EqualTo(new[] { targetTopic }));
+    }
+
+    [Test]
+    public async Task TrimmedPeersWithZeroBackoffCanOnlyBeGraftedOnALaterHeartbeat()
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = settings.HighestDegree = 4;
+        settings.DOut = 2;
+        settings.PruneBackoff = 0;
+        await using PubsubRouter router = new(new PeerStore(), settings, timeProvider: new Clock());
+        router.GetTopic("topic");
+        Peer[] outbound = [await Open(router, 1, 0, inMesh: true), await Open(router, 2, 1, inMesh: true)];
+        Peer[] trimmed = [await Open(router, 3, 5, inMesh: true, inbound: true), await Open(router, 4, 6, inMesh: true, inbound: true)];
+        Peer[] better = [await Open(router, 5, 8, inbound: true), await Open(router, 6, 9, inbound: true)];
+
+        await Tick(router);
+        Assert.That(Mesh(router), Has.Count.EqualTo(6));
+        await Tick(router);
+
+        Assert.That(Mesh(router), Is.EquivalentTo(outbound.Concat(better).Select(peer => peer.Id)));
+        foreach (Peer peer in trimmed)
+        {
+            Assert.That(peer.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
+            Assert.That(peer.Grafts, Is.Empty);
+        }
+
+        await Tick(router);
+
+        Assert.That(Mesh(router), Has.Count.EqualTo(6));
+        foreach (Peer peer in trimmed)
+        {
+            Assert.That(peer.Grafts.Select(graft => graft.TopicID), Is.EqualTo(new[] { "topic" }));
+        }
+    }
+
+    [Test]
+    public async Task TrimmingFitsOutboundQuotaWithinHighestDegree()
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = settings.HighestDegree = 7;
+        settings.DScore = 5;
+        settings.DOut = 3;
+        settings.OpportunisticGraftTicks = 2;
+        await using PubsubRouter router = new(new PeerStore(), settings);
+        router.GetTopic("topic");
+        Peer[] outbound = [await Open(router, 1, 0, inMesh: true), await Open(router, 2, 1, inMesh: true), await Open(router, 3, 2, inMesh: true)];
+        Peer firstTrimmed = await Open(router, 4, 3, inMesh: true, inbound: true);
+        Peer secondTrimmed = await Open(router, 5, 4, inMesh: true, inbound: true);
+        Peer[] retained = [await Open(router, 6, 5, inMesh: true, inbound: true), await Open(router, 7, 6, inMesh: true, inbound: true),
+            await Open(router, 8, 8, inbound: true), await Open(router, 9, 9, inbound: true)];
+
+        await Tick(router);
+        Assert.That(Mesh(router), Has.Count.EqualTo(7));
+        await Tick(router);
+        Assert.That(Mesh(router), Has.Count.EqualTo(9));
+        await Tick(router);
+
+        Assert.That(Mesh(router), Is.EquivalentTo(outbound.Concat(retained).Select(peer => peer.Id)));
+        Assert.That(firstTrimmed.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
+        Assert.That(secondTrimmed.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
     }
 
     [Test]

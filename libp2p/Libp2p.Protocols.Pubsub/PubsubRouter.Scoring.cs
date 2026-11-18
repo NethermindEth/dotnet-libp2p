@@ -302,15 +302,32 @@ public partial class PubsubRouter
         return peers.Where(p => IsPeerAboveThreshold(p, threshold));
     }
 
-    /// <summary>
-    /// Gets the best scoring peers from a collection
-    /// </summary>
-    private List<PeerId> GetBestScoringPeers(IEnumerable<PeerId> peers, int count)
+    private List<PeerId> GetMeshSurvivors(HashSet<PeerId> meshPeers)
     {
-        return peers
-            .OrderByDescending(p => GetPeerScore(p))
-            .Take(count)
+        int limit = Math.Max(0, _settings.HighestDegree);
+        List<PeerId> survivors = meshPeers
+            .OrderByDescending(GetPeerScore)
+            .Take(Math.Min(limit, _settings.DScore))
             .ToList();
+        survivors.AddRange(meshPeers.Except(survivors)
+            .OrderBy(_ => Random.Shared.Next())
+            .Take(limit - survivors.Count));
+
+        bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.InitiatedBy == ConnectionInitiation.Local;
+
+        int outboundNeeded = Math.Clamp(_settings.DOut, 0, limit) - survivors.Count(IsOutbound);
+        if (outboundNeeded > 0)
+        {
+            // Replace randomly chosen inbound survivors first, then the lowest-ranked scored ones.
+            int replaceIndex = survivors.Count - 1;
+            foreach (PeerId peerId in meshPeers.Except(survivors).Where(IsOutbound).Take(outboundNeeded))
+            {
+                while (IsOutbound(survivors[replaceIndex])) replaceIndex--;
+                survivors[replaceIndex--] = peerId;
+            }
+        }
+
+        return survivors;
     }
 
     /// <summary>
@@ -348,7 +365,8 @@ public partial class PubsubRouter
         }
     }
 
-    private PeerId[] GetOpportunisticGraftPeers(string topic, IReadOnlyDictionary<PeerId, double> peerScores)
+    private PeerId[] GetOpportunisticGraftPeers(string topic, IReadOnlyDictionary<PeerId, double> peerScores,
+        HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat)
     {
         double median = GetMedianMeshScore(topic, peerScores);
         if (median >= _settings.OpportunisticGraftThreshold)
@@ -356,11 +374,10 @@ public partial class PubsubRouter
             return [];
         }
 
-        // Normal maintenance has already run, so this also excludes peers just grafted and
-        // respects backoff for peers just pruned. Temporary growth past HighestDegree lets
-        // even a full, poorly performing mesh improve; the next heartbeat trims it as usual.
+        // Exclude peers pruned for this topic even if their backoff has already expired.
         return (gPeers.GetValueOrDefault(topic) ?? [])
-            .Where(p => !mesh[topic].Contains(p) && !IsDirectPeer(p) && !IsInBackoff(p, topic) &&
+            .Where(p => !mesh[topic].Contains(p) && prunedThisHeartbeat?.Contains((topic, p)) != true &&
+                !IsDirectPeer(p) && !IsInBackoff(p, topic) &&
                 peerScores.TryGetValue(p, out double score) && score >= 0 && score > median)
             .OrderBy(_ => Random.Shared.Next())
             .Take(_settings.OpportunisticGraftPeers)
