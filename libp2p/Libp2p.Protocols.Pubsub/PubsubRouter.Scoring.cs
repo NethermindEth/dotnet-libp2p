@@ -315,7 +315,8 @@ public partial class PubsubRouter
 
         bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.InitiatedBy == ConnectionInitiation.Local;
 
-        int outboundNeeded = Math.Clamp(_settings.DOut, 0, target) - survivors.Count(IsOutbound);
+        // Cap the quota at the actual list size so each requested replacement has an inbound slot.
+        int outboundNeeded = Math.Clamp(_settings.DOut, 0, survivors.Count) - survivors.Count(IsOutbound);
         if (outboundNeeded > 0)
         {
             // Replace randomly chosen inbound survivors first, then the lowest-ranked scored ones.
