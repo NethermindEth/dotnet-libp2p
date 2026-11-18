@@ -1031,7 +1031,9 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
         upgradeActivity?.SetTag("parent", activity?.DisplayName);
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
-        CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(session.ConnectionToken, options?.CancellationToken ?? default);
+        CancellationToken connectionToken = session.ConnectionToken;
+        CancellationToken callerToken = options?.CancellationToken ?? default;
+        CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(connectionToken, callerToken);
         CancellationToken upgradeToken = upgradeCancellation.Token;
         // Session protocols receive a per-invocation lifetime. Connection protocols retain
         // the original options when forwarding a request through negotiation and multiplexing.
@@ -1154,14 +1156,24 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             try
             {
                 await task;
+                // A protocol callback can resume this continuation inline before the core
+                // cancellation callback gets to cancel the dial or abort the channel.
+                GetRequestedCancellation()?.ThrowIfCancellationRequested();
                 if (downChannel is Channel completedChannel) await completedChannel.CompleteProtocolAsync();
                 else await downChannel.CloseAsync();
             }
             catch (Exception ex)
             {
-                if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                    MapToTaskCompletionSource(task, options.CompletionSource);
-                if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, ex);
+                if (ex is OperationCanceledException && GetRequestedCancellation() is { } cancellation)
+                {
+                    options?.CompletionSource?.TrySetCanceled(cancellation);
+                }
+                else if (options?.CompletionSource is { } completion)
+                {
+                    if (!task.IsCompletedSuccessfully && options.SelectedProtocol == top.Protocol)
+                        MapToTaskCompletionSource(task, completion);
+                    SetTaskCompletionSourceException(completion, ex);
+                }
                 await downChannel.AbortAsync();
                 if (task.IsFaulted)
                 {
@@ -1179,9 +1191,25 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, failure);
                     throw;
                 }
-                if (task.IsCompletedSuccessfully && options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                    MapToTaskCompletionSource(task, options.CompletionSource);
             }
+
+            if (GetRequestedCancellation() is { } canceled)
+            {
+                options?.CompletionSource?.TrySetCanceled(canceled);
+                await downChannel.AbortAsync();
+                throw new OperationCanceledException(canceled);
+            }
+            if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
+                MapToTaskCompletionSource(task, options.CompletionSource);
+        }
+
+        CancellationToken? GetRequestedCancellation()
+        {
+            if (upgradeToken.IsCancellationRequested) return upgradeToken;
+            // Cleanup unlinks the upgrade token from these sources before result publication.
+            if (connectionToken.IsCancellationRequested) return connectionToken;
+            if (callerToken.IsCancellationRequested) return callerToken;
+            return null;
         }
 
         void Cleanup()

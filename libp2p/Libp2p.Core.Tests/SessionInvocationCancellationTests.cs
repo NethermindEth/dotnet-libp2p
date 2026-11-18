@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -146,6 +147,77 @@ internal class SessionInvocationCancellationTests
         }
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CancellationWinsWhenProtocolReturnsFromTokenCallback(bool cancelCaller)
+    {
+        ResultProtocol protocol = new();
+        ProtocolRef parent = new(protocol);
+        await using LocalPeer peer = CreatePeer(parent, protocol);
+        LocalPeer.Session session = new(peer);
+        using CancellationTokenSource caller = new();
+        Task<int> dial = session.DialAsync<ResultProtocol, int>(caller.Token);
+        UpgradeOptions request = session.GetRequestQueue().First();
+        Channel channel = new();
+        Task upgrade = peer.Upgrade(session, channel.Reverse, parent, protocol, request, false, null);
+        using CancellationTokenRegistration release = protocol.Token.Register(() => protocol.Response.TrySetResult(42));
+        try
+        {
+            Assert.That(upgrade.IsCompleted, Is.False);
+            if (cancelCaller) caller.Cancel();
+            else await session.DisconnectAsync();
+
+            Assert.That(protocol.Response.Task.IsCompletedSuccessfully, Is.True);
+            Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
+            Assert.That(dial.IsCanceled, Is.True);
+            Assert.CatchAsync<OperationCanceledException>(async () => await upgrade.WaitAsync(Timeout));
+            Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+            Assert.That(session.Closed.IsCancellationRequested, Is.EqualTo(!cancelCaller));
+        }
+        finally
+        {
+            protocol.Response.TrySetResult(42);
+            await session.DisconnectAsync();
+            await Task.WhenAll(upgrade, dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    [Test]
+    public async Task CancellationWinsWhenChannelCloseFinishesFromTokenCallback()
+    {
+        ResultProtocol protocol = new();
+        ProtocolRef parent = new(protocol);
+        await using LocalPeer peer = CreatePeer(parent, protocol);
+        LocalPeer.Session session = new(peer);
+        Task<int> dial = session.DialAsync<ResultProtocol, int>();
+        UpgradeOptions request = session.GetRequestQueue().First();
+        IChannel channel = Substitute.For<IChannel>();
+        TaskCompletionSource close = new();
+        channel.CloseAsync().Returns(new ValueTask(close.Task));
+        channel.GetAwaiter().Returns(close.Task.GetAwaiter());
+        Task upgrade = peer.Upgrade(session, channel, parent, protocol, request, false, null);
+        using CancellationTokenRegistration release = protocol.Token.Register(() => close.TrySetResult());
+        try
+        {
+            Assert.That(protocol.Response.TrySetResult(42), Is.True);
+            _ = channel.Received(1).CloseAsync();
+            Assert.That(upgrade.IsCompleted, Is.False);
+
+            await session.DisconnectAsync();
+
+            Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
+            Assert.That(dial.IsCanceled, Is.True);
+            Assert.CatchAsync<OperationCanceledException>(async () => await upgrade.WaitAsync(Timeout));
+            await channel.Received(1).AbortAsync();
+        }
+        finally
+        {
+            close.TrySetResult();
+            await session.DisconnectAsync();
+            await Task.WhenAll(upgrade, dial).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     private static LocalPeer CreatePeer(ProtocolRef parent, IProtocol protocol) => new(TestPeers.Identity(1), null,
         new ProtocolStackSettings { Protocols = new() { [parent] = [new(protocol)] } });
 
@@ -168,5 +240,21 @@ internal class SessionInvocationCancellationTests
                 throw;
             }
         }
+    }
+
+    private sealed class ResultProtocol : ISessionProtocol<int>
+    {
+        public string Id => "/test/callback-completion/1.0.0";
+        public CancellationToken Token { get; private set; }
+        // Allow the upgrade continuation to run inside the callback that sets this result.
+        public TaskCompletionSource<int> Response { get; } = new();
+
+        public Task<int> DialAsync(IChannel channel, ISessionContext context)
+        {
+            Token = context.UpgradeOptions!.CancellationToken;
+            return Response.Task;
+        }
+
+        public Task ListenAsync(IChannel channel, ISessionContext context) => throw new NotSupportedException();
     }
 }
