@@ -873,8 +873,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 string topic = meshEntry.Key;
                 HashSet<PeerId> meshPeers = meshEntry.Value;
+                bool meshEnabled = _settings.HighestDegree > 0;
 
-                if (meshPeers.Count < _settings.LowestDegree)
+                if (meshEnabled && meshPeers.Count < _settings.LowestDegree)
                 {
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = GetGraftCandidates(topic, meshPeers)
@@ -896,11 +897,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     Random.Shared.Shuffle(candidates);
                     candidates = candidates.OrderByDescending(GetPeerScore).ToArray();
                     Random.Shared.Shuffle(candidates.AsSpan(Math.Clamp(_settings.DScore, 0, candidates.Length)));
-                    List<PeerId> kept = candidates.Take(_settings.Degree).ToList();
+                    int targetDegree = Math.Clamp(_settings.Degree, 0, Math.Max(0, _settings.HighestDegree));
+                    List<PeerId> kept = candidates.Take(targetDegree).ToList();
                     int missingOutbound = Math.Min(_settings.DOut, kept.Count) - kept.Count(IsOutbound);
-                    foreach (PeerId outbound in candidates.Skip(kept.Count).Where(IsOutbound))
+                    for (int i = kept.Count; missingOutbound > 0 && i < candidates.Length; i++)
                     {
-                        if (missingOutbound <= 0) break;
+                        PeerId outbound = candidates[i];
+                        if (!IsOutbound(outbound)) continue;
                         // Replace random picks before the lowest scoring protected peers.
                         int replace = kept.FindLastIndex(p => !IsOutbound(p));
                         kept[replace] = outbound;
@@ -940,7 +943,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     }
                 }
 
-                if (_settings.DOut > 0 && meshPeers.Count >= _settings.LowestDegree)
+                if (meshEnabled && _settings.DOut > 0 && meshPeers.Count >= _settings.LowestDegree)
                 {
                     int missingOutbound = _settings.DOut - meshPeers.Count(IsOutbound);
                     foreach (PeerId peerId in GetGraftCandidates(topic, meshPeers, outboundOnly: true).Take(missingOutbound).ToArray())
