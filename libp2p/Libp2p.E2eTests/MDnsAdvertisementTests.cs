@@ -383,8 +383,85 @@ public class MDnsAdvertisementTests
         });
     }
 
-    /// <summary>Builds the response exactly as StartDiscoveryAsync does.</summary>
-    private static Message Advertisement(IPAddress[] hostAddresses, Multiaddress[] listeners)
+    /// <summary>
+    /// The sizing has to cover the reply a browsing peer actually receives. ServiceDiscovery
+    /// catalogues a service-to-instance PTR of its own, so measuring only the profile's resources
+    /// under-counts the reply and lets Makaretu truncate a response this code called a fit.
+    /// <para>
+    /// Swept rather than measured at one host-address count. Trimming stops at the first size that
+    /// fits, so where it lands relative to the limit depends on the size of the last record it
+    /// removed -- a single fixture can miss the shortfall by luck.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task TheActualPtrReplyFitsTheResponseLimit()
+    {
+        Multiaddress[] listeners = [.. Enumerable.Range(0, 40).Select(i =>
+            Multiaddress.Decode($"/ip4/10.0.0.7/tcp/{4001 + i}/p2p/{Peer}"))];
+        List<string> oversized = [];
+
+        for (int n = 120; n <= 200; n += 4)
+        {
+            IPAddress[] many =
+            [
+                .. Enumerable.Range(0, n).Select(i => IPAddress.Parse($"10.{i / 256}.{i % 256}.7")),
+                .. Enumerable.Range(0, n).Select(i => IPAddress.Parse($"2001:db8:{i:x4}::7")),
+            ];
+
+            ServiceProfile profile = Profile(many, listeners);
+            using ServiceDiscovery sd = new();
+            sd.Advertise(profile);
+
+            Message query = new();
+            query.Questions.Add(new Question { Name = profile.QualifiedServiceName, Type = DnsType.PTR });
+            Message reply = await sd.NameServer.ResolveAsync(query);
+            reply.Questions.Clear();
+
+            int bytes = reply.ToByteArray().Length;
+            if (bytes > 8952)
+            {
+                oversized.Add($"{2 * n} host addresses -> {bytes} bytes");
+            }
+
+            Assert.That(reply.Answers.Concat(reply.AdditionalRecords).OfType<TXTRecord>()
+                .SelectMany(record => record.Strings), Is.Not.Empty, "the reply must carry dial addresses");
+        }
+
+        Assert.That(oversized, Is.Empty, "every reply a peer receives must fit the response limit");
+    }
+
+    /// <summary>A peer offered under another service name must not enter discovery.</summary>
+    [Test]
+    public void OnlyInstancesOfTheConfiguredServiceAreAccepted()
+    {
+        DomainName configured = new("_p2p._udp.local");
+        DomainName instance = new("somepeer._p2p._udp.local");
+        DomainName other = new("pubsub-chat-example._udp.local");
+
+        Message ours = Reply(configured, instance, TimeSpan.FromMinutes(1));
+        Message theirs = Reply(other, new DomainName("somepeer.pubsub-chat-example._udp.local"), TimeSpan.FromMinutes(1));
+        Message goodbye = Reply(configured, instance, TimeSpan.Zero);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(MDnsDiscoveryProtocol.IsFromService(ours, configured, instance), Is.True,
+                "an instance of the configured service is ours");
+            Assert.That(MDnsDiscoveryProtocol.IsFromService(theirs, configured,
+                new DomainName("somepeer.pubsub-chat-example._udp.local")), Is.False,
+                "another service's instance must be ignored");
+            Assert.That(MDnsDiscoveryProtocol.IsFromService(goodbye, configured, instance), Is.False,
+                "a goodbye must not import a departing peer");
+        });
+    }
+
+    private static Message Reply(DomainName service, DomainName instance, TimeSpan ttl)
+    {
+        Message message = new();
+        message.Answers.Add(new PTRRecord { Name = service, DomainName = instance, TTL = ttl });
+        return message;
+    }
+
+    private static ServiceProfile Profile(IPAddress[] hostAddresses, Multiaddress[] listeners)
     {
         List<string> advertised = MDnsDiscoveryProtocol.BoundedAdvertisement(
             listeners.SelectMany(addr => MDnsDiscoveryProtocol.AddressesToAdvertise(addr, hostAddresses)));
@@ -395,6 +472,38 @@ public class MDnsAdvertisementTests
             profile.Resources.Add(new TXTRecord { Name = profile.FullyQualifiedName, Strings = advertised });
         }
         MDnsDiscoveryProtocol.TrimToResponseLimit(profile);
+        return profile;
+    }
+
+    /// <summary>
+    /// Covers the expansion half of the loopback case: given a loopback-only address source, a
+    /// wildcard listener still yields an advertisable address.
+    /// <para>
+    /// The source half -- that <see cref="MDnsDiscoveryProtocol.HostAddresses"/> returns loopback on
+    /// a host with no operational non-loopback interface -- is delegated to Makaretu's own interface
+    /// selection and is not asserted here: this machine has non-loopback interfaces, so both the old
+    /// and the new source return the same set and no test run here can tell them apart.
+    /// </para>
+    /// </summary>
+    [Test]
+    public void ALoopbackOnlyAddressSourceStillAdvertisesAWildcardListener()
+    {
+        Multiaddress wildcard = Multiaddress.Decode($"/ip4/0.0.0.0/tcp/4001/p2p/{Peer}");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(MDnsDiscoveryProtocol.AddressesToAdvertise(wildcard, [IPAddress.Loopback])
+                .Select(address => address.ToString()),
+                Is.EqualTo(new[] { $"/ip4/127.0.0.1/tcp/4001/p2p/{Peer}" }));
+            Assert.That(MDnsDiscoveryProtocol.HostAddresses(), Is.Not.Empty,
+                "the address source must never be empty on a host with any operational interface");
+        });
+    }
+
+    /// <summary>Builds the response exactly as StartDiscoveryAsync does.</summary>
+    private static Message Advertisement(IPAddress[] hostAddresses, Multiaddress[] listeners)
+    {
+        ServiceProfile profile = Profile(hostAddresses, listeners);
         Message message = new();
         foreach (ResourceRecord record in profile.Resources)
         {

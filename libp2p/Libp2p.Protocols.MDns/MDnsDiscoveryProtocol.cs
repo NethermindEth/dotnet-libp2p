@@ -73,6 +73,10 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             lifetime = _lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         }
 
+        // Normalized once, so the profile, the receive filter and the query loop all talk about the
+        // same service even if the setting is mutated afterwards.
+        string serviceName = ServiceNameForLibrary;
+
         try
         {
             PeerName = RandomString(32);
@@ -84,8 +88,9 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             // them, and a tool that queries <host-name> AAAA directly, as the Gotchas section says
             // many do, would only ever learn a link-local address.
             IPAddress[] hostAddresses = HostAddresses();
-            ServiceProfile service = new(PeerName, ServiceNameForLibrary, 0,
+            ServiceProfile service = new(PeerName, serviceName, 0,
                 [.. hostAddresses.Select(WithoutScopeId).Distinct()]);
+            DomainName qualifiedServiceName = service.QualifiedServiceName;
 
             service.Resources.RemoveAll(r => r is TXTRecord);
 
@@ -131,6 +136,17 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
                     return;
                 }
 
+                // ServiceName promises that a custom name confines discovery to peers using it, and
+                // nothing upstream enforces that: Makaretu raises this event for any local-domain
+                // service PTR without matching it against the query. Reading dnsaddr records from
+                // the answer section made that reachable, because a standard peer's answer-section
+                // records would otherwise be accepted by a node configured for its own group.
+                if (!IsFromService(e.Message, qualifiedServiceName, e.ServiceInstanceName))
+                {
+                    _logger?.LogTrace("Ignoring {0}, not an instance of {1}", e.ServiceInstanceName, qualifiedServiceName);
+                    return;
+                }
+
                 // Decoded one at a time on purpose. A standard peer advertises every transport it
                 // listens on and this build does not know all of them -- go-libp2p enables
                 // WebTransport by default, and decoding that address throws NotSupportedException.
@@ -161,7 +177,7 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
             _logger?.LogError(ex, "Error setting up mDNS");
         }
 
-        _run = RunAsync(sd, lifetime.Token);
+        _run = RunAsync(sd, serviceName, lifetime.Token);
         return Task.CompletedTask;
     }
 
@@ -211,14 +227,14 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         await _run.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
-    private async Task RunAsync(ServiceDiscovery sd, CancellationToken token)
+    private async Task RunAsync(ServiceDiscovery sd, string serviceName, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
-                _logger?.LogTrace("Querying {0}", ServiceNameForLibrary);
-                sd.QueryServiceInstances(ServiceNameForLibrary);
+                _logger?.LogTrace("Querying {0}", serviceName);
+                sd.QueryServiceInstances(serviceName);
             }
             catch (Exception ex)
             {
@@ -237,13 +253,15 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
     /// unreachable even when its interface has a ULA or global address that works.
     /// </para>
     /// </summary>
-    internal static IPAddress[] HostAddresses() =>
-        [.. NetworkInterface.GetAllNetworkInterfaces()
-            .Where(nic => nic.OperationalStatus == OperationalStatus.Up
-                && nic.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
-            .Select(unicast => unicast.Address)
-            .Where(address => !IPAddress.IsLoopback(address))];
+    /// <remarks>
+    /// Makaretu's own selection, so this follows the interfaces it actually sends on. That matters
+    /// in both directions: it enumerates every unicast address of the chosen interfaces, including
+    /// the ULA and global IPv6 ones <c>GetLinkLocalAddresses</c> omits, and it falls back to the
+    /// operational loopback interfaces when the host has no operational non-loopback one. Filtering
+    /// loopback out unconditionally left such a host advertising nothing, while Makaretu still
+    /// selected loopback for multicast, so local peers could reach it but never learn how.
+    /// </remarks>
+    internal static IPAddress[] HostAddresses() => [.. MulticastService.GetIPAddresses()];
 
     /// <summary>
     /// The addresses to advertise for one listen address: itself when it names a concrete IP, and
@@ -345,9 +363,21 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
         }
     }
 
+    /// <remarks>
+    /// The reply carries more than the profile's own resources: <c>ServiceDiscovery.Advertise</c>
+    /// catalogues a service-to-instance PTR of its own, and that is the record a browsing peer's
+    /// query is answered with. Leaving it out of the sizing under-counts the reply, which measured
+    /// 8,959 bytes against the 8,952-byte limit on a response this method called a fit.
+    /// </remarks>
     private static int ResponseBytes(ServiceProfile service)
     {
         Message message = new();
+        message.Answers.Add(new PTRRecord
+        {
+            Name = service.QualifiedServiceName,
+            DomainName = service.FullyQualifiedName,
+        });
+
         foreach (ResourceRecord record in service.Resources)
         {
             message.AdditionalRecords.Add(record);
@@ -410,6 +440,20 @@ public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFa
     private static bool IsLinkLocal(IPAddress ip) =>
         ip.IsIPv6LinkLocal || (ip.AddressFamily == AddressFamily.InterNetwork
             && ip.GetAddressBytes() is [169, 254, ..]);
+
+    /// <summary>
+    /// Whether the message actually offers this instance under the service we are configured for.
+    /// <para>
+    /// A positive TTL is required because a goodbye packet announces the same instance with TTL
+    /// zero, and importing a peer from its own withdrawal would keep a departed peer discoverable.
+    /// </para>
+    /// </summary>
+    internal static bool IsFromService(Message message, DomainName serviceName, DomainName instanceName) =>
+        message.Answers.Concat(message.AdditionalRecords)
+            .OfType<PTRRecord>()
+            .Any(ptr => ptr.TTL > TimeSpan.Zero
+                && ptr.Name == serviceName
+                && ptr.DomainName == instanceName);
 
     /// <summary>
     /// The TXT strings a peer advertised for one service instance, from both record sections.
