@@ -130,6 +130,52 @@ public class GossipsubControlLimitsTests
         Assert.That(GetIwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom([9]) }));
     }
 
+    [TestCase(MessageValidity.Ignored)]
+    [TestCase(MessageValidity.Deferred)]
+    public async Task Ihave_DoesNotCopyIgnoredOrPendingIds(MessageValidity validity)
+    {
+        const int messageCount = 1_024;
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxPendingValidationMessages = messageCount,
+            PendingValidationTimeout = TimeSpan.FromMinutes(5),
+        });
+        int validated = 0;
+        setup.Router.VerifyMessage = (_, _) =>
+        {
+            validated++;
+            return validity;
+        };
+        TaskCompletionSource validationWork = new();
+        setup.Router.OnDeferredMessage = (_, _) => validationWork.Task;
+        Identity author = TestPeers.Identity(3);
+        Rpc incoming = new();
+        for (ulong sequence = 1; sequence <= messageCount; sequence++)
+        {
+            incoming.WithMessages(setup.Topic, sequence, author.PeerId.Bytes, [1], author);
+        }
+
+        setup.Router.OnRpc(setup.RemotePeerId, incoming);
+        int pendingCount = setup.Router.PendingValidationCount;
+        byte[][] ids = incoming.Publish.Select(message => PubsubSettings.ConcatFromAndSeqno(message).Bytes).ToArray();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, ids[0]));
+
+        byte[] unknownId = [9];
+        Rpc ihave = CreateIhave(setup.Topic, [.. ids, unknownId]);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        setup.Router.OnRpcAsync(setup.RemotePeerId, ihave).GetAwaiter().GetResult();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        await setup.Router.FlushOutboundAsync();
+        validationWork.SetResult();
+
+        Assert.That(validated, Is.EqualTo(messageCount));
+        Assert.That(pendingCount, Is.EqualTo(validity == MessageValidity.Deferred ? messageCount : 0));
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom(unknownId) }));
+        // Allow RPC and single-response overhead, but catch an array allocation for each known ID.
+        Assert.That(allocated, Is.LessThan(16 * 1024));
+    }
+
     [Test]
     public async Task Iwant_UsesRetransmissionAndResponseByteLimits()
     {
