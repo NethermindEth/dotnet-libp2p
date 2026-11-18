@@ -1035,6 +1035,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         CancellationToken callerToken = options?.CancellationToken ?? default;
         CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(connectionToken, callerToken);
         CancellationToken upgradeToken = upgradeCancellation.Token;
+        TaskCompletionSource<object?>? dialCompletion = options?.SelectedProtocol == top.Protocol ? options.CompletionSource : null;
         // Session protocols receive a per-invocation lifetime. Connection protocols retain
         // the original options when forwarding a request through negotiation and multiplexing.
         SessionContext CreateSessionContext() => new(this, session, top, isListener,
@@ -1158,23 +1159,26 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 await task;
                 // A protocol callback can resume this continuation inline before the core
                 // cancellation callback gets to cancel the dial or abort the channel.
-                GetRequestedCancellation()?.ThrowIfCancellationRequested();
+                if (dialCompletion is not null && GetRequestedCancellation() is { } canceled && !downChannel.GetAwaiter().IsCompleted)
+                    throw new OperationCanceledException(canceled);
                 if (downChannel is Channel completedChannel) await completedChannel.CompleteProtocolAsync();
                 else await downChannel.CloseAsync();
             }
             catch (Exception ex)
             {
-                if (ex is OperationCanceledException && GetRequestedCancellation() is { } cancellation)
+                CancellationToken? cancellation = ex is OperationCanceledException ? GetRequestedCancellation() : null;
+                if (cancellation is { } token)
                 {
-                    options?.CompletionSource?.TrySetCanceled(cancellation);
+                    options?.CompletionSource?.TrySetCanceled(token);
                 }
                 else if (options?.CompletionSource is { } completion)
                 {
-                    if (!task.IsCompletedSuccessfully && options.SelectedProtocol == top.Protocol)
-                        MapToTaskCompletionSource(task, completion);
+                    if (!task.IsCompletedSuccessfully && dialCompletion is not null)
+                        MapToTaskCompletionSource(task, dialCompletion);
                     SetTaskCompletionSourceException(completion, ex);
                 }
-                await downChannel.AbortAsync();
+                if (cancellation is null || !downChannel.GetAwaiter().IsCompleted)
+                    await downChannel.AbortAsync();
                 if (task.IsFaulted)
                 {
                     if (task.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
@@ -1193,14 +1197,15 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 }
             }
 
-            if (GetRequestedCancellation() is { } canceled)
+            // After graceful close, cancellation can still settle the pending dial result.
+            // Returning normally lets any enclosing upgrade preserve the channel's close.
+            if (dialCompletion is not null)
             {
-                options?.CompletionSource?.TrySetCanceled(canceled);
-                await downChannel.AbortAsync();
-                throw new OperationCanceledException(canceled);
+                if (GetRequestedCancellation() is { } canceled)
+                    dialCompletion.TrySetCanceled(canceled);
+                else
+                    MapToTaskCompletionSource(task, dialCompletion);
             }
-            if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                MapToTaskCompletionSource(task, options.CompletionSource);
         }
 
         CancellationToken? GetRequestedCancellation()

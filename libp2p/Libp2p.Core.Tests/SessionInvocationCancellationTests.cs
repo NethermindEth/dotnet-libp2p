@@ -147,9 +147,10 @@ internal class SessionInvocationCancellationTests
         }
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task CancellationWinsWhenProtocolReturnsFromTokenCallback(bool cancelCaller)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task CancellationWinsWhenProtocolReturnsFromTokenCallback(bool cancelCaller, bool closeBeforeCancel)
     {
         ResultProtocol protocol = new();
         ProtocolRef parent = new(protocol);
@@ -164,14 +165,16 @@ internal class SessionInvocationCancellationTests
         try
         {
             Assert.That(upgrade.IsCompleted, Is.False);
+            if (closeBeforeCancel) await channel.CloseAsync();
             if (cancelCaller) caller.Cancel();
             else await session.DisconnectAsync();
 
             Assert.That(protocol.Response.Task.IsCompletedSuccessfully, Is.True);
             Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
             Assert.That(dial.IsCanceled, Is.True);
-            Assert.CatchAsync<OperationCanceledException>(async () => await upgrade.WaitAsync(Timeout));
-            Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+            if (closeBeforeCancel) await upgrade.WaitAsync(Timeout);
+            else Assert.CatchAsync<OperationCanceledException>(async () => await upgrade.WaitAsync(Timeout));
+            Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(closeBeforeCancel ? IOResult.Ended : IOResult.Aborted));
             Assert.That(session.Closed.IsCancellationRequested, Is.EqualTo(!cancelCaller));
         }
         finally
@@ -183,7 +186,7 @@ internal class SessionInvocationCancellationTests
     }
 
     [Test]
-    public async Task CancellationWinsWhenChannelCloseFinishesFromTokenCallback()
+    public async Task CancellationCancelsDialWithoutAbortingChannelThatFinishedClosing()
     {
         ResultProtocol protocol = new();
         ProtocolRef parent = new(protocol);
@@ -207,8 +210,8 @@ internal class SessionInvocationCancellationTests
 
             Assert.CatchAsync<OperationCanceledException>(async () => await dial.WaitAsync(Timeout));
             Assert.That(dial.IsCanceled, Is.True);
-            Assert.CatchAsync<OperationCanceledException>(async () => await upgrade.WaitAsync(Timeout));
-            await channel.Received(1).AbortAsync();
+            await upgrade.WaitAsync(Timeout);
+            await channel.DidNotReceive().AbortAsync();
         }
         finally
         {
