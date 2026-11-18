@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 # SPDX-License-Identifier: MIT
 
+import json
 import os
 from pathlib import Path
 import re
@@ -8,8 +9,9 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import xml.etree.ElementTree as ET
 
-from discover_test_projects import DiscoveryError, discover
+from discover_test_projects import DiscoveryError, ci_projects, ci_solution, discover
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -20,8 +22,7 @@ class DiscoveryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
-        self.solution = self.repo / "libp2p/Libp2p.slnx"
-        self.solution.parent.mkdir()
+        self.solution = self.repo / "Libp2p.slnx"
 
     def project(self, name="Future.Tests", declaration="<EnableNUnitRunner>true</EnableNUnitRunner>"):
         path = self.solution.parent / name / (name + ".csproj")
@@ -32,8 +33,26 @@ class DiscoveryTests(unittest.TestCase):
     def solution_with(self, *projects):
         self.solution.write_text("<Solution>" + "".join(f'<Project Path="{p}" />' for p in projects) + "</Solution>")
 
+    def test_root_solution_has_only_libraries_and_core_tests(self):
+        paths = {project.attrib["Path"] for project in ET.parse(REPO / "Libp2p.slnx").getroot().iter("Project")}
+        outside_scope = {path for path in paths
+                         if path.startswith("samples/") or ".Benchmarks/" in path
+                         or (path.endswith((".Tests.csproj", ".E2eTests.csproj"))
+                             and Path(path).name != "Libp2p.Core.Tests.csproj")}
+        self.assertFalse(outside_scope, sorted(outside_scope))
+
+    def test_default_discovery_combines_split_solutions(self):
+        first = self.project()
+        second = self.project("Other.E2eTests")
+        self.solution_with(first)
+        directory = self.repo / "solutions"
+        directory.mkdir()
+        (directory / "Tests.slnx").write_text(
+            f'<Solution><Project Path="../{second}" /><Project Path="../{first}" /></Solution>')
+        self.assertEqual(sorted([first, second]), discover(self.repo))
+
     def test_current_inventory_and_support_library_exclusion(self):
-        paths = discover(REPO, REPO / "libp2p/Libp2p.slnx")
+        paths = discover(REPO)
         self.assertEqual(sorted(set(paths)), paths)
         self.assertFalse(any("TestsBase" in p for p in paths))
         # Pin today's twenty-one suites while allowing additional suites to be discovered automatically.
@@ -42,9 +61,42 @@ class DiscoveryTests(unittest.TestCase):
             "AutoTls", "IpTcp", "KadDht", "Mplex", "Multistream", "Noise", "Ping", "Plaintext",
             "Pubsub", "Quic", "RequestResponse", "Tls", "WebRtc", "WebSockets", "Yamux")]
         names += ["Protocols.Pubsub.E2eTests", "Protocols.PubsubPeerDiscovery.E2eTests"]
-        expected = {f"Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
+        expected = {f"libp2p/Libp2p.{name}/Libp2p.{name}.csproj" for name in names}
         self.assertEqual(21, len(expected))
         self.assertTrue(expected.issubset(paths), expected - set(paths))
+
+    def test_ci_build_inventory_preserves_all_library_projects_and_samples(self):
+        expected = {path.relative_to(REPO).as_posix() for path in (REPO / "libp2p").glob("*/*.csproj")}
+        expected.update(f"samples/{folder}/{name}.csproj" for folder, name in (
+            ("ai-server", "AIServer"), ("chat", "Chat"), ("perf-benchmarks", "PerfBenchmarks"),
+            ("pubsub-chat", "PubsubChat"), ("transport-interop", "TransportInterop")))
+        self.assertEqual(sorted(expected), ci_projects(REPO))
+
+    def test_build_inventory_uses_the_same_omission_guard(self):
+        self.project()
+        self.solution_with()
+        with self.assertRaisesRegex(DiscoveryError, "missing from Libp2p.slnx.*Future.Tests"):
+            ci_projects(self.repo)
+
+    def test_ci_solution_matches_build_inventory(self):
+        paths = [Path(project.attrib["Path"])
+                 for project in ET.fromstring(ci_solution(REPO)).iter("Project")]
+        self.assertTrue(all(path.is_absolute() for path in paths))
+        self.assertEqual(ci_projects(REPO), [path.relative_to(REPO).as_posix() for path in paths])
+
+    def test_split_solutions_reject_missing_members_and_unlisted_runners(self):
+        suite = self.project()
+        self.solution_with(suite)
+        directory = self.repo / "solutions"
+        directory.mkdir()
+        partition = directory / "Tests.slnx"
+        partition.write_text('<Solution><Project Path="../Missing.Tests.csproj" /></Solution>')
+        with self.assertRaisesRegex(DiscoveryError, "missing.*Missing.Tests.csproj"):
+            discover(self.repo)
+        partition.write_text("<Solution />")
+        self.project("Unlisted.Tests")
+        with self.assertRaisesRegex(DiscoveryError, "missing from.*Unlisted.Tests"):
+            discover(self.repo)
 
     def test_future_suite_spaces_duplicate_and_sorted_paths(self):
         second = self.project("Z suite.E2eTests", "<IsTestProject>True</IsTestProject>")
@@ -126,6 +178,70 @@ def workflow_step(workflow, name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_library_filter_selects_all_published_projects(self):
+        _, script = workflow_step("publish.yml", "Publish")
+        targets = re.findall(r"^dotnet pack (\S+)", script, re.M)
+        self.assertTrue(targets, "Expected explicit published project paths")
+        published = set()
+        for target in targets:
+            path = REPO / target
+            projects = [path] if path.suffix == ".csproj" else list(path.glob("*.csproj"))
+            self.assertEqual(1, len(projects), target)
+            self.assertTrue(projects[0].is_file(), target)
+            published.add(projects[0].relative_to(REPO).as_posix())
+
+        selected = json.loads((REPO / "solutions/Library.slnf").read_text())["solution"]["projects"]
+        self.assertEqual(len(selected), len(set(selected)), "Duplicate library selection")
+        self.assertEqual(published, set(selected))
+
+    def test_both_workflows_use_the_combined_build_inventory(self):
+        for workflow in ("test.yml", "publish.yml"):
+            with self.subTest(workflow=workflow):
+                _, generation = workflow_step(workflow, "Generate CI solution")
+                _, restore = workflow_step(workflow, "Install dependencies")
+                _, build = workflow_step(workflow, "Build")
+                self.assertIn('python3 .github/scripts/discover_test_projects.py --ci-solution > "$RUNNER_TEMP/ci.slnx"', generation)
+                self.assertIn('dotnet restore "$RUNNER_TEMP/ci.slnx" -p:RestoreConfigFile="$PWD/nuget.config"', restore)
+                self.assertIn('dotnet build "$RUNNER_TEMP/ci.slnx" -c ${{ env.BUILD_CONFIG }} --no-restore', build)
+                for script in (generation, restore, build):
+                    subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+                if workflow == "publish.yml":
+                    self.assertIn("-p:Version=${{ inputs.version }}", build)
+
+    def test_restore_and_build_failures_stop_the_workflow(self):
+        for workflow in ("test.yml", "publish.yml"):
+            for stage in ("Install dependencies", "Build"):
+                for code in ("23", "0"):
+                    with self.subTest(workflow=workflow, stage=stage, code=code), tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        command = root / "dotnet"
+                        command.write_text('#!/bin/bash\nprintf "%s\\n" "$2" >> "$RUNNER_TEMP/trace"\nexit "$DOTNET_STATUS"\n')
+                        command.chmod(0o755)
+                        script = workflow_step(workflow, stage)[1]
+                        script = script.replace("${{ env.BUILD_CONFIG }}", "Release").replace("${{ inputs.version }}", "1.2.3")
+                        script += '\necho next >> "$RUNNER_TEMP/trace"\n'
+                        env = dict(os.environ, RUNNER_TEMP=directory, DOTNET_STATUS=code,
+                                   PATH=directory + os.pathsep + os.environ["PATH"])
+                        result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                        self.assertEqual(int(code), result.returncode, result.stderr)
+                        expected = [f"{directory}/ci.slnx"]
+                        if code == "0":
+                            expected.append("next")
+                        self.assertEqual(expected, (root / "trace").read_text().splitlines())
+
+    def test_failed_build_inventory_stops_before_restore(self):
+        for workflow in ("test.yml", "publish.yml"):
+            with self.subTest(workflow=workflow), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                command = root / "python3"
+                command.write_text("#!/bin/bash\nexit 17\n")
+                command.chmod(0o755)
+                script = workflow_step(workflow, "Generate CI solution")[1] + '\ntouch "$RUNNER_TEMP/restore"\n'
+                env = dict(os.environ, RUNNER_TEMP=directory, PATH=directory + os.pathsep + os.environ["PATH"])
+                result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                self.assertEqual(17, result.returncode)
+                self.assertFalse((root / "restore").exists())
+
     def run_suites(self, workflow, project, exits):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -152,7 +268,7 @@ class WorkflowTests(unittest.TestCase):
             env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release",
                        EXIT_CODES=",".join(map(str, exits)), GITHUB_STEP_SUMMARY=str(root / "summary"),
                        PATH=directory + os.pathsep + os.environ["PATH"])
-            result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+            result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                     capture_output=True, text=True)
             trace = (root / "trace").read_text().splitlines()
             logs = {p.relative_to(root).as_posix(): p.read_text() for p in root.rglob("*.log")}
@@ -204,10 +320,11 @@ class WorkflowTests(unittest.TestCase):
         for workflow in ("test.yml", "publish.yml"):
             with self.subTest(workflow=workflow):
                 content = (REPO / ".github/workflows" / workflow).read_text()
-                self.assertIn('python3 ../.github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"', content)
+                self.assertIn("BUILD_CONFIG: Release", content)
+                self.assertIn('python3 .github/scripts/discover_test_projects.py > "$RUNNER_TEMP/test-projects.txt"', content)
                 step, script = workflow_step(workflow, "Test")
                 self.assertIn("timeout-minutes: 30", step)
-                self.assertIn('bash ../.github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"', script)
+                self.assertIn('bash .github/scripts/run_test_projects.sh "$RUNNER_TEMP/test-projects.txt"', script)
                 runner = (REPO / ".github/scripts/run_test_projects.sh").read_text()
                 self.assertIn("--minimum-expected-tests 1", runner)
                 self.assertIn("Zero tests already fail with exit 8", runner)
@@ -236,7 +353,7 @@ class WorkflowTests(unittest.TestCase):
                     script = workflow_step(workflow, "Test")[1] + '\necho publish >> "$RUNNER_TEMP/trace"\n'
                     env = dict(os.environ, RUNNER_TEMP=directory, BUILD_CONFIG="Release", FAIL_PROJECT=fail,
                                PATH=directory + os.pathsep + os.environ["PATH"])
-                    result = subprocess.run(["bash", "-c", script], cwd=REPO / "libp2p", env=env,
+                    result = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
                                             capture_output=True, text=True)
                     self.assertEqual(23 if fail else 0, result.returncode, result.stderr)
                     expected = ["first suite.Tests.csproj"] if fail else ["first suite.Tests.csproj", "second.Tests.csproj", "publish"]
