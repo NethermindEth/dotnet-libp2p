@@ -410,11 +410,13 @@ public class OpportunisticGraftTests
         }
     }
 
-    [Test]
-    public async Task TrimmingFitsOutboundQuotaWithinHighestDegree()
+    [TestCase(7)]
+    [TestCase(8)]
+    public async Task TrimmingReturnsToDegreeAndPreservesOutboundQuota(int highestDegree)
     {
         PubsubSettings settings = Settings();
-        settings.Degree = settings.HighestDegree = 7;
+        settings.Degree = 7;
+        settings.HighestDegree = highestDegree;
         settings.DScore = 5;
         settings.DOut = 3;
         settings.OpportunisticGraftTicks = 2;

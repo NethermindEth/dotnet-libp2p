@@ -304,18 +304,18 @@ public partial class PubsubRouter
 
     private List<PeerId> GetMeshSurvivors(HashSet<PeerId> meshPeers)
     {
-        int limit = Math.Max(0, _settings.HighestDegree);
+        int target = Math.Max(0, Math.Min(_settings.Degree, _settings.HighestDegree));
         List<PeerId> survivors = meshPeers
             .OrderByDescending(GetPeerScore)
-            .Take(Math.Min(limit, _settings.DScore))
+            .Take(Math.Min(target, _settings.DScore))
             .ToList();
         survivors.AddRange(meshPeers.Except(survivors)
             .OrderBy(_ => Random.Shared.Next())
-            .Take(limit - survivors.Count));
+            .Take(target - survivors.Count));
 
         bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.InitiatedBy == ConnectionInitiation.Local;
 
-        int outboundNeeded = Math.Clamp(_settings.DOut, 0, limit) - survivors.Count(IsOutbound);
+        int outboundNeeded = Math.Clamp(_settings.DOut, 0, target) - survivors.Count(IsOutbound);
         if (outboundNeeded > 0)
         {
             // Replace randomly chosen inbound survivors first, then the lowest-ranked scored ones.

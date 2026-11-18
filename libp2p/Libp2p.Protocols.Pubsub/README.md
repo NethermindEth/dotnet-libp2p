@@ -151,8 +151,8 @@ middle scores. In comparison, [go-libp2p](https://github.com/libp2p/go-libp2p-pu
 and [js-libp2p](https://github.com/ChainSafe/js-libp2p-gossipsub/blob/afc85eeaaa401fe74de694b43ef79ac96936e672/src/index.ts#L3018-L3019)
 use the upper middle score. This router deliberately uses the average, which can trigger
 grafting more often and admit more candidates above the lower median. Opportunistic grafting
-can temporarily exceed `HighestDegree`. Trimming on the next heartbeat fits the outbound
-quota within the mesh limit.
+can temporarily exceed `HighestDegree`. The next heartbeat trims an oversubscribed mesh
+to `Degree`, capped at `HighestDegree`, and counts the outbound quota within that target.
 
 Received nonzero PRUNE backoff is capped at **24 hours**, before converting its wire
 `uint64` seconds or calculating a deadline. This is a local defensive policy, not a
