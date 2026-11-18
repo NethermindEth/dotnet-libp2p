@@ -140,6 +140,20 @@ GRAFTs receive PRUNE without peer exchange (PX); both refresh the local backoff.
 Heartbeat pruning also records backoff, including pruning for excess mesh degree.
 Gossipsub v1.0 receives topic-only PRUNE; v1.1–v1.3 also receive the backoff duration.
 
+Every `OpportunisticGraftTicks` heartbeats (default **60**, or one minute at the default
+heartbeat interval), meshes with more than one peer and median score below
+`OpportunisticGraftThreshold` graft up to `OpportunisticGraftPeers` additional peers
+(default **2**; zero disables this check). Candidates are randomly selected gossipsub topic
+subscribers with nonnegative scores strictly above the median. Existing mesh peers, direct
+peers and peers in prune backoff are excluded. A peer pruned from a topic is also excluded
+from that topic for the rest of the heartbeat. Even-sized meshes use the average of the two
+middle scores. In comparison, [go-libp2p](https://github.com/libp2p/go-libp2p-pubsub/blob/3f89e4331c981a6b60206b762a10d015c04875a8/gossipsub.go#L1631-L1632)
+and [js-libp2p](https://github.com/ChainSafe/js-libp2p-gossipsub/blob/afc85eeaaa401fe74de694b43ef79ac96936e672/src/index.ts#L3018-L3019)
+use the upper middle score. This router deliberately uses the average, which can trigger
+grafting more often and admit more candidates above the lower median. Opportunistic grafting
+can temporarily exceed `HighestDegree`. The next heartbeat trims an oversubscribed mesh
+to `Degree`, capped at `HighestDegree`, and counts the outbound quota within that target.
+
 Received nonzero PRUNE backoff is capped at **24 hours**, before converting its wire
 `uint64` seconds or calculating a deadline. This is a local defensive policy, not a
 protocol maximum. An omitted or zero duration uses configured `PruneBackoff`.
@@ -273,6 +287,36 @@ The `dotnet-libp2p` meter reports `libp2p.pubsub.outbound.dropped` and
 `libp2p.pubsub.overload.disconnects`, with bounded `reason` labels (`capacity`, `serialization` or `timeout`),
 and `libp2p.pubsub.incoming.skipped` with `reason` `capacity` (router-wide) or `peer-capacity`.
 None carry peer or topic labels.
+
+## IP colocation scoring
+
+Gossipsub counts each connected peer once using the remote address of its first pubsub
+stream on the established session, rather than addresses advertised by Identify or the peer
+store. IPv4-mapped IPv6 addresses count as IPv4. Native IPv6 addresses count in both
+an exact-address bucket and a /64 subnet bucket, as in go-libp2p.
+Above `IPColocationFactorThreshold` (default 10), the squared surplus is multiplied by
+`IPColocationFactorWeight` (default -35) for each bucket and the penalties are added.
+Peers sharing one exact IPv6 address can therefore receive both penalties; peers at
+different addresses within the same /64 share only the subnet penalty.
+
+Unresolved DNS, relay paths, scoped IPv6, loopback and unspecified addresses are excluded;
+DNS is never resolved for scoring. Private addresses count. Call
+`PubsubSettings.AddIPColocationWhitelist` with CIDR strings before connecting peers to
+exempt trusted gateways or private networks:
+
+```csharp
+PubsubSettings settings = new();
+settings.AddIPColocationWhitelist("10.0.0.0/8");
+settings.AddIPColocationWhitelist("2001:db8::/32");
+```
+
+The helper parses and validates each network once during configuration; invalid CIDR
+strings throw `FormatException`. Exempt addresses neither count toward a bucket nor
+receive its penalty. IPv4-mapped addresses use IPv4 whitelist entries.
+
+Additional streams keep the existing peer's buckets. Disconnecting removes the peer from
+its buckets, including when its other score penalties are retained. A reconnect uses the
+new session address, so changing an address cannot preserve stale bucket assignments.
 
 ## Stopping the router
 

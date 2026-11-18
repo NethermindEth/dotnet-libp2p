@@ -15,15 +15,25 @@ public class ResourceDeadlineTests
     [Test]
     public async Task DisconnectDoesNotReclassifyAnAlreadyClosedUpgradeAsAborted()
     {
-        BlockingProtocol protocol = new();
+        TaskCompletionSource finish = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        BlockingProtocol protocol = new(finish.Task);
         ProtocolRef root = new(protocol);
         ProtocolStackSettings stack = new() { Protocols = new() { [root] = [new(protocol)] } };
         await using LocalPeer peer = new(new Identity(), null, stack);
         using INewConnectionContext connection = peer.CreateConnection(root, null, false, null);
         IChannel channel = connection.Upgrade();
-        await protocol.Entered.Task;
-        await channel.CloseAsync();
-        connection.Dispose();
+        try
+        {
+            await protocol.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await channel.CloseAsync();
+            Assert.That(channel.GetAwaiter().IsCompleted, Is.True);
+            connection.Dispose();
+            Assert.That(connection.Token.IsCancellationRequested, Is.True);
+        }
+        finally
+        {
+            finish.TrySetResult();
+        }
         await connection.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That((await channel.ReadAsync(1)).Result, Is.EqualTo(IOResult.Ended));
     }
@@ -306,7 +316,7 @@ public class ResourceDeadlineTests
         }
     }
 
-    private sealed class BlockingProtocol : IConnectionProtocol
+    private sealed class BlockingProtocol(Task? finish = null) : IConnectionProtocol
     {
         public string Id => "/blocked";
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -316,6 +326,7 @@ public class ResourceDeadlineTests
             Task<ReadResult> read = channel.ReadAsync(1, token: context.Token).AsTask();
             Entered.SetResult();
             await read;
+            if (finish is not null) await finish;
             Stopped = true;
         }
         public Task DialAsync(IChannel channel, IConnectionContext context) => ListenAsync(channel, context);

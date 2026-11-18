@@ -4,6 +4,8 @@
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
+using System.Buffers;
+using System.Text;
 
 namespace Nethermind.Libp2p.Protocols;
 
@@ -68,7 +70,11 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
             return;
         }
 
-        if (!await SendHello(channel, token))
+        using IEnumerator<IProtocol> proposals = context.SubProtocols.GetEnumerator();
+        IProtocol? selector = proposals.MoveNext() ? proposals.Current : null;
+
+        // The first proposal goes out with the hello, so it does not wait a round trip for the remote hello.
+        if (!await SendHello(channel, selector?.Id, token))
         {
             await channel.CloseAsync();
             _logger?.LogTrace("Hello failed");
@@ -76,12 +82,15 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
         }
         _logger?.LogTrace("Hello passed");
 
-        async Task<bool?> DialProtocol(IProtocol selector)
+        async Task<bool?> DialProtocol(IProtocol selector, bool proposed)
         {
             try
             {
-                _logger?.LogTrace("DialProtocol: proposing {Id}", selector.Id);
-                await channel.WriteLineAsync(selector.Id, token);
+                if (!proposed)
+                {
+                    _logger?.LogTrace("DialProtocol: proposing {Id}", selector.Id);
+                    await channel.WriteLineAsync(selector.Id, token);
+                }
                 string selectorLine = await channel.ReadLineAsync(MaxMessageLength, token);
                 _logger?.LogTrace("Proposed {Id}, answer: {Answer}", selector.Id, selectorLine ?? "(null)");
                 if (selectorLine == selector.Id)
@@ -115,10 +124,12 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
         }
 
         IProtocol? selected = null;
+        bool proposed = true;
 
-        foreach (IProtocol selector in context!.SubProtocols)
+        for (; selector is not null; selector = proposals.MoveNext() ? proposals.Current : null)
         {
-            bool? dialResult = await DialProtocol(selector);
+            bool? dialResult = await DialProtocol(selector, proposed);
+            proposed = false;
             if (dialResult == true)
             {
                 selected = selector;
@@ -145,7 +156,7 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
     {
         using Deadline deadline = StartDeadline(channel, context);
         CancellationToken token = deadline.Token;
-        if (!await SendHello(channel, token))
+        if (!await SendHello(channel, null, token))
         {
             await channel.CloseAsync();
             return;
@@ -200,12 +211,14 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
         await context.Upgrade(channel, selected);
     }
 
-    private async Task<bool> SendHello(IChannel channel, CancellationToken token)
+    /// <summary>Sends the hello, followed in the same write by <paramref name="proposal"/> when given, and reads the remote hello.</summary>
+    private async Task<bool> SendHello(IChannel channel, string? proposal, CancellationToken token)
     {
         try
         {
             _logger?.LogTrace("SendHello: sending multistream id");
-            await channel.WriteLineAsync(Id, token);
+            if (proposal is not null) _logger?.LogTrace("SendHello: proposing {Id} with the hello", proposal);
+            await channel.WriteAsync(EncodeLines(Id, proposal), token);
             string line = await channel.ReadLineAsync(MaxMessageLength, token);
             _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
             return line == Id;
@@ -233,9 +246,8 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
         try
         {
             _logger?.LogTrace("SendHello: sending multistream id");
-            await channel.WriteLineAsync(Id, token);
             _logger?.LogTrace("DialProtocol: optimistically proposing {Id}", selectedProtocol.Id);
-            await channel.WriteLineAsync(selectedProtocol.Id, token);
+            await channel.WriteAsync(EncodeLines(Id, selectedProtocol.Id), token);
 
             string line = await channel.ReadLineAsync(MaxMessageLength, token);
             _logger?.LogTrace("SendHello: received {Line}", line ?? "(null)");
@@ -264,5 +276,25 @@ public class MultistreamProtocol(ILoggerFactory? loggerFactory = null, TimeProvi
             _logger?.LogDebug("Optimistic protocol negotiation canceled (dial, selector {Id}).", selectedProtocol.Id);
             return false;
         }
+    }
+
+    /// <summary>Encodes one or two multistream messages, each a varint length, the UTF-8 text and a newline, into one buffer.</summary>
+    private static ReadOnlySequence<byte> EncodeLines(string first, string? second)
+    {
+        int firstLength = Encoding.UTF8.GetByteCount(first) + 1;
+        int secondLength = second is null ? 0 : Encoding.UTF8.GetByteCount(second) + 1;
+        byte[] buffer = new byte[VarInt.GetSizeInBytes(firstLength) + firstLength +
+            (second is null ? 0 : VarInt.GetSizeInBytes(secondLength) + secondLength)];
+        int offset = 0;
+        EncodeLine(buffer, ref offset, first, firstLength);
+        if (second is not null) EncodeLine(buffer, ref offset, second, secondLength);
+        return new ReadOnlySequence<byte>(buffer);
+    }
+
+    private static void EncodeLine(Span<byte> buffer, ref int offset, string line, int length)
+    {
+        VarInt.Encode(length, buffer, ref offset);
+        offset += Encoding.UTF8.GetBytes(line, buffer[offset..]);
+        buffer[offset++] = (byte)'\n';
     }
 }

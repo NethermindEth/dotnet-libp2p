@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/protocols/">
+    <Project Path="../libp2p/Libp2p.Protocols.AutoTls.Tests/Libp2p.Protocols.AutoTls.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.IpTcp.Tests/Libp2p.Protocols.IpTcp.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.KadDht.Tests/Libp2p.Protocols.KadDht.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Mplex.Tests/Libp2p.Protocols.Mplex.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Multistream.Tests/Libp2p.Protocols.Multistream.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Noise.Tests/Libp2p.Protocols.Noise.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Ping.Tests/Libp2p.Protocols.Ping.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Plaintext.Tests/Libp2p.Protocols.Plaintext.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Pubsub.E2eTests/Libp2p.Protocols.Pubsub.E2eTests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Pubsub.Tests/Libp2p.Protocols.Pubsub.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests/Libp2p.Protocols.PubsubPeerDiscovery.E2eTests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Quic.Tests/Libp2p.Protocols.Quic.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.RequestResponse.Tests/Libp2p.Protocols.RequestResponse.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Tls.Tests/Libp2p.Protocols.Tls.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.WebRtc.Tests/Libp2p.Protocols.WebRtc.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.WebSockets.Tests/Libp2p.Protocols.WebSockets.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Protocols.Yamux.Tests/Libp2p.Protocols.Yamux.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="../libp2p/Libp2p.Samples.Chat.Tests/Libp2p.Samples.Chat.Tests.csproj" />
+    <Project Path="../libp2p/Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj" />
+  </Folder>
+  <Project Path="../libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj" />
+</Solution>

@@ -26,6 +26,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Libp2p.Core.TestsBase\Libp2p.Core.TestsBase.csproj" />
     <ProjectReference Include="..\Libp2p\Libp2p.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.KadDht\Libp2p.Protocols.KadDht.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.WebRtc\Libp2p.Protocols.WebRtc.csproj" />
+    <ProjectReference Include="..\Libp2p.Protocols.WebSockets\Libp2p.Protocols.WebSockets.csproj" />
     <ProjectReference Include="..\Libp2p.OpenTelemetry\Libp2p.OpenTelemetry.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.Mplex\Libp2p.Protocols.Mplex.csproj" />
     <ProjectReference Include="..\Libp2p.Protocols.PubsubPeerDiscovery\Libp2p.Protocols.PubsubPeerDiscovery.csproj" />

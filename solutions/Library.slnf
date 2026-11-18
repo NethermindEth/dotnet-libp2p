@@ -1,0 +1,30 @@
+{
+  "solution": {
+    "path": "../Libp2p.slnx",
+    "projects": [
+      "libp2p/Libp2p/Libp2p.csproj",
+      "libp2p/Libp2p.Core/Libp2p.Core.csproj",
+      "libp2p/Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj",
+      "libp2p/Libp2p.OpenTelemetry/Libp2p.OpenTelemetry.csproj",
+      "libp2p/Libp2p.Protocols.AutoTls/Libp2p.Protocols.AutoTls.csproj",
+      "libp2p/Libp2p.Protocols.Identify/Libp2p.Protocols.Identify.csproj",
+      "libp2p/Libp2p.Protocols.IpTcp/Libp2p.Protocols.IpTcp.csproj",
+      "libp2p/Libp2p.Protocols.KadDht/Libp2p.Protocols.KadDht.csproj",
+      "libp2p/Libp2p.Protocols.MDns/Libp2p.Protocols.MDns.csproj",
+      "libp2p/Libp2p.Protocols.Mplex/Libp2p.Protocols.Mplex.csproj",
+      "libp2p/Libp2p.Protocols.Multistream/Libp2p.Protocols.Multistream.csproj",
+      "libp2p/Libp2p.Protocols.Noise/Libp2p.Protocols.Noise.csproj",
+      "libp2p/Libp2p.Protocols.Ping/Libp2p.Protocols.Ping.csproj",
+      "libp2p/Libp2p.Protocols.Plaintext/Libp2p.Protocols.Plaintext.csproj",
+      "libp2p/Libp2p.Protocols.Pubsub/Libp2p.Protocols.Pubsub.csproj",
+      "libp2p/Libp2p.Protocols.PubsubPeerDiscovery/Libp2p.Protocols.PubsubPeerDiscovery.csproj",
+      "libp2p/Libp2p.Protocols.Quic/Libp2p.Protocols.Quic.csproj",
+      "libp2p/Libp2p.Protocols.Relay/Libp2p.Protocols.Relay.csproj",
+      "libp2p/Libp2p.Protocols.RequestResponse/Libp2p.Protocols.RequestResponse.csproj",
+      "libp2p/Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj",
+      "libp2p/Libp2p.Protocols.WebRtc/Libp2p.Protocols.WebRtc.csproj",
+      "libp2p/Libp2p.Protocols.WebSockets/Libp2p.Protocols.WebSockets.csproj",
+      "libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj"
+    ]
+  }
+}

@@ -1031,8 +1031,17 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         Activity? upgradeActivity = activitySource?.StartActivity($"Upgrade to {top.Protocol.Id}, {(isListener ? "listen" : "dial")}", ActivityKind.Internal, activity?.Id);
         upgradeActivity?.SetTag("parent", activity?.DisplayName);
         upgradeActivity?.SetTag("proto", top.Protocol.Id);
-        CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(session.ConnectionToken, options?.CancellationToken ?? default);
+        CancellationToken connectionToken = session.ConnectionToken;
+        CancellationToken callerToken = options?.CancellationToken ?? default;
+        CancellationTokenSource upgradeCancellation = CancellationTokenSource.CreateLinkedTokenSource(connectionToken, callerToken);
         CancellationToken upgradeToken = upgradeCancellation.Token;
+        TaskCompletionSource<object?>? dialCompletion = options?.SelectedProtocol == top.Protocol ? options.CompletionSource : null;
+        // Session protocols receive a per-invocation lifetime. Connection protocols retain
+        // the original options when forwarding a request through negotiation and multiplexing.
+        SessionContext CreateSessionContext() => new(this, session, top, isListener,
+            options is null ? new UpgradeOptions { CancellationToken = upgradeToken }
+                : options with { CancellationToken = upgradeToken },
+            activitySource, upgradeActivity);
         CancellationTokenRegistration cancellationRegistration = upgradeToken.Register(() =>
         {
             options?.CompletionSource?.TrySetCanceled(upgradeToken);
@@ -1094,14 +1103,14 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     }
                 case ISessionProtocol sProto:
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        SessionContext ctx = CreateSessionContext();
                         upgradeTask = isListener ? sProto.ListenAsync(downChannel, ctx) : sProto.DialAsync(downChannel, ctx);
                         break;
                     }
                 default:
                     if (isListener && top.Protocol is ISessionListenerProtocol listenerProtocol)
                     {
-                        SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                        SessionContext ctx = CreateSessionContext();
                         upgradeTask = listenerProtocol.ListenAsync(downChannel, ctx);
                         break;
                     }
@@ -1124,7 +1133,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                         System.Reflection.MethodInfo? dialAsyncMethod = genericInterface.GetMethod("DialAsync");
                         if (dialAsyncMethod != null)
                         {
-                            SessionContext ctx = new(this, session, top, isListener, options, activitySource, upgradeActivity);
+                            SessionContext ctx = CreateSessionContext();
                             upgradeTask = (Task)dialAsyncMethod.Invoke(top.Protocol, [downChannel, ctx, options?.Argument])!;
                             break;
                         }
@@ -1150,15 +1159,32 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
             try
             {
                 await task;
+                // A protocol callback can resume this continuation inline before the core
+                // cancellation callback gets to cancel the dial or abort the channel.
+                if (dialCompletion is not null && GetRequestedCancellation() is { } canceled && !downChannel.GetAwaiter().IsCompleted)
+                    throw new OperationCanceledException(canceled);
                 if (downChannel is Channel completedChannel) await completedChannel.CompleteProtocolAsync();
                 else await downChannel.CloseAsync();
             }
             catch (Exception ex)
             {
-                if (options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                    MapToTaskCompletionSource(task, options.CompletionSource);
-                if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, ex);
-                await downChannel.AbortAsync();
+                // Channel helpers can turn canceled I/O into ChannelClosedException
+                // before the upgrade's cancellation callback settles the dial.
+                CancellationToken? cancellation = ex is OperationCanceledException or ChannelClosedException
+                    ? GetRequestedCancellation()
+                    : null;
+                if (cancellation is { } token)
+                {
+                    options?.CompletionSource?.TrySetCanceled(token);
+                }
+                else if (options?.CompletionSource is { } completion)
+                {
+                    if (!task.IsCompletedSuccessfully && dialCompletion is not null)
+                        MapToTaskCompletionSource(task, dialCompletion);
+                    SetTaskCompletionSourceException(completion, ex);
+                }
+                if (cancellation is null || !downChannel.GetAwaiter().IsCompleted)
+                    await downChannel.AbortAsync();
                 if (task.IsFaulted)
                 {
                     if (task.Exception?.GetBaseException() is { } failure && IsRoutineConnectionFailure(failure))
@@ -1175,9 +1201,26 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                     if (options?.CompletionSource is not null) SetTaskCompletionSourceException(options.CompletionSource, failure);
                     throw;
                 }
-                if (task.IsCompletedSuccessfully && options?.SelectedProtocol == top.Protocol && options.CompletionSource is not null)
-                    MapToTaskCompletionSource(task, options.CompletionSource);
             }
+
+            // After graceful close, cancellation can still settle the pending dial result.
+            // Returning normally lets any enclosing upgrade preserve the channel's close.
+            if (dialCompletion is not null)
+            {
+                if (GetRequestedCancellation() is { } canceled)
+                    dialCompletion.TrySetCanceled(canceled);
+                else
+                    MapToTaskCompletionSource(task, dialCompletion);
+            }
+        }
+
+        CancellationToken? GetRequestedCancellation()
+        {
+            if (upgradeToken.IsCancellationRequested) return upgradeToken;
+            // Cleanup unlinks the upgrade token from these sources before result publication.
+            if (connectionToken.IsCancellationRequested) return connectionToken;
+            if (callerToken.IsCancellationRequested) return callerToken;
+            return null;
         }
 
         void Cleanup()

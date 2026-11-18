@@ -24,6 +24,8 @@ public class Identity
 {
     private const KeyType DefaultKeyType = KeyType.Ed25519;
 
+    private byte[]? _peerIdBytes;
+
     public PublicKey PublicKey { get; }
     public PrivateKey? PrivateKey { get; }
 
@@ -246,7 +248,7 @@ public class Identity
                 }
             case KeyType.Ecdsa:
                 {
-                    ECDsa e = ECDsa.Create();
+                    using ECDsa e = ECDsa.Create();
                     e.ImportECPrivateKey(PrivateKey.Data.Span, out _);
                     return e.SignData(message, HashAlgorithmName.SHA256,
                         DSASignatureFormat.Rfc3279DerSequence);
@@ -277,5 +279,5 @@ public class Identity
         }
     }
 
-    public PeerId PeerId => new(PublicKey);
+    public PeerId PeerId => new([.. _peerIdBytes ??= new PeerId(PublicKey).Bytes]);
 }

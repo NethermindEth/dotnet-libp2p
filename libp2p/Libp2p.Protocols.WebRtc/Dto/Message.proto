@@ -1,0 +1,19 @@
+syntax = "proto2";
+
+option csharp_namespace = "Nethermind.Libp2p.Protocols.WebRtc.Dto";
+
+message Message {
+  enum Flag {
+    // The sender will send no further data on this stream.
+    FIN = 0;
+    // The sender will no longer read from this stream.
+    STOP_SENDING = 1;
+    // The sender abruptly terminates the sending part of the stream.
+    RESET_STREAM = 2;
+    // Acknowledges a FIN; the peer may now consider its write half closed.
+    FIN_ACK = 3;
+  }
+
+  optional Flag flag = 1;
+  optional bytes message = 2;
+}

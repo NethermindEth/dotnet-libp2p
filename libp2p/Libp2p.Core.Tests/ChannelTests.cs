@@ -631,6 +631,34 @@ public class ChannelTests
     }
 
     [Test]
+    public void Test_AsStream_FlushAsyncCompletesSynchronously()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.That(stream.FlushAsync().IsCompletedSuccessfully, Is.True);
+    }
+
+    [Test]
+    public void Test_AsStream_FlushAsyncHonoursCancellation()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+
+        Assert.CatchAsync<OperationCanceledException>(async () => await stream.FlushAsync(new CancellationToken(true)));
+    }
+
+    [Test]
+    public void Test_AsStream_FlushAsyncAfterDisposeThrows()
+    {
+        Channel channel = new();
+        using Stream stream = channel.AsStream();
+        stream.Dispose();
+
+        Assert.CatchAsync<ObjectDisposedException>(async () => await stream.FlushAsync(CancellationToken.None));
+    }
+
+    [Test]
     public void Test_AsStream_NonSeekableMembersThrow()
     {
         Channel channel = new();
