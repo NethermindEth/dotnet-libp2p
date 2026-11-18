@@ -1114,8 +1114,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         HashSet<MessageId> messageIds = [];
-        // The clock read costs more than the lookup, so one read serves every ID of the RPC.
+        // Both caches use the system clock, so one read serves every ID of the RPC.
         DateTimeOffset now = _seenMessages.Now;
+        var pending = _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>();
         foreach (ControlIHave ihave in ihaves)
         {
             if (!mesh.ContainsKey(ihave.TopicID))
@@ -1126,22 +1127,19 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             int advertised = Math.Min(ihave.MessageIDs.Count, _settings.MaxIHaveLength);
             for (int i = 0; i < advertised; i++)
             {
-                // Most advertised IDs have been seen, so that is checked by the bytes. An ID that has not
-                // been seen needs a MessageId to be requested, and the two small tables are checked with it.
                 ByteString idBytes = ihave.MessageIDs[i];
-                if (_seenMessages.Contains(idBytes.Span, now))
+                ReadOnlySpan<byte> id = idBytes.Span;
+                if (_seenMessages.Contains(id, now) ||
+                    pending.ContainsKey(id) ||
+                    _limboMessageCache.Contains(id, now))
                 {
                     continue;
                 }
 
-                MessageId messageId = new(idBytes.ToByteArray());
-                if (!_pendingValidations.ContainsKey(messageId) && !_limboMessageCache.Contains(messageId))
+                messageIds.Add(new MessageId(id.ToArray()));
+                if (messageIds.Count == _settings.MaxIHaveLength)
                 {
-                    messageIds.Add(messageId);
-                    if (messageIds.Count == _settings.MaxIHaveLength)
-                    {
-                        break;
-                    }
+                    break;
                 }
             }
 

@@ -27,6 +27,7 @@ public class ControlBenchmarks
     private PubsubRouter.PubsubPeer peer = null!;
     private PeerId peerId = null!;
     private Rpc ihaveKnown = null!;
+    private Rpc ihaveIgnored = null!;
     private Rpc ihaveUnknown = null!;
     private Rpc iwantKnown = null!;
     private Rpc iwantUnknown = null!;
@@ -62,6 +63,18 @@ public class ControlBenchmarks
         }
         router.FlushOutboundAsync().GetAwaiter().GetResult();
 
+        ControlIHave ihaveLimbo = new() { TopicID = Topic };
+        router.VerifyMessage = static (_, _) => MessageValidity.Ignored;
+        for (int i = 0; i < Ids; i++)
+        {
+            ByteString ignored = Id(2 * Ids + i);
+            Rpc message = new();
+            message.Publish.Add(new Message { Topic = Topic, Data = ignored });
+            router.OnRpcAsync(sourceIdentity.PeerId, message, PubsubRouter.GossipsubProtocolVersionV12).GetAwaiter().GetResult();
+            ihaveLimbo.MessageIDs.Add(ignored);
+        }
+        router.VerifyMessage = null;
+
         ControlIWant iwantOneId = new();
         for (int i = 0; i < RepeatedIds; i++)
         {
@@ -69,6 +82,7 @@ public class ControlBenchmarks
         }
 
         ihaveKnown = new Rpc { Control = new ControlMessage { Ihave = { ihave } } };
+        ihaveIgnored = new Rpc { Control = new ControlMessage { Ihave = { ihaveLimbo } } };
         ihaveUnknown = new Rpc { Control = new ControlMessage { Ihave = { ihaveNew } } };
         iwantKnown = new Rpc { Control = new ControlMessage { Iwant = { iwantCached } } };
         iwantUnknown = new Rpc { Control = new ControlMessage { Iwant = { iwant } } };
@@ -91,6 +105,13 @@ public class ControlBenchmarks
     {
         peer.Control.ResetHeartbeatCounters(0);
         return router.OnRpcAsync(peerId, ihaveKnown, PubsubRouter.GossipsubProtocolVersionV12);
+    }
+
+    [Benchmark]
+    public Task IhaveIgnoredIds()
+    {
+        peer.Control.ResetHeartbeatCounters(0);
+        return router.OnRpcAsync(peerId, ihaveIgnored, PubsubRouter.GossipsubProtocolVersionV12);
     }
 
     // All but one request of the heartbeat budget is spent, so the router reads and collects every
