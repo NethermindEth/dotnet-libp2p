@@ -16,7 +16,6 @@
 		<OutputType>Exe</OutputType>
 		<RootNamespace>MauiChat</RootNamespace>
 		<UseMaui>true</UseMaui>
-    <MauiVersion>$(MauiWorkloadVersion)</MauiVersion>
 		<SingleProject>true</SingleProject>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
@@ -87,9 +86,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />
+		<PackageReference Include="Microsoft.Maui.Controls" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Core\Libp2p.Core.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.Identify\Libp2p.Protocols.Identify.csproj" />
     <ProjectReference Include="..\..\libp2p\Libp2p.Protocols.IpTcp\Libp2p.Protocols.IpTcp.csproj" />

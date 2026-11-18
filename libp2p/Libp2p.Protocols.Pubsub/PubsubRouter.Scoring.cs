@@ -42,21 +42,16 @@ public partial class PubsubRouter
         }
     }
 
+    // Counts connected peer generations, not streams or retained scores. Only used under the router lock.
+    private readonly Dictionary<string, int> _ipColocationCounts = [];
     private static readonly Dictionary<string, int> NoIpColocationCounts = [];
 
-    private Dictionary<string, int> CountIpColocation()
+    private void UpdateIpColocationCount(string? key, int delta)
     {
-        Dictionary<string, int> ipCounts = [];
-        foreach (PubsubPeer p in peerState.Values)
-        {
-            if (p.Score.IPAddress is not null)
-            {
-                ipCounts.TryGetValue(p.Score.IPAddress, out int count);
-                ipCounts[p.Score.IPAddress] = count + 1;
-            }
-        }
-
-        return ipCounts;
+        if (key is null) return;
+        int count = (delta > 0 ? _ipColocationCounts.GetValueOrDefault(key) : _ipColocationCounts[key]) + delta;
+        if (count == 0) _ipColocationCounts.Remove(key);
+        else _ipColocationCounts[key] = count;
     }
 
     /// <summary>
@@ -64,20 +59,18 @@ public partial class PubsubRouter
     /// </summary>
     internal double GetPeerScore(PeerId peerId)
     {
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
+        lock (this)
         {
-            return 0;
+            return GetPeerScoreUnderLock(peerId);
         }
-
-        return ScoreOf(peer);
     }
+
+    private double GetPeerScoreUnderLock(PeerId peerId)
+        => peerState.TryGetValue(peerId, out PubsubPeer? peer) ? ScoreOf(peer) : 0;
 
     private double ScoreOf(PubsubPeer peer)
     {
-        // Only this peer's own address can contribute to P6, so the colocation counts are worth
-        // building only when it has one. This runs for every scored peer on the receive and
-        // publish paths, where counting every peer and allocating per call would dominate it.
-        return peer.Score.GetScore(peer.Score.IPAddress is null ? NoIpColocationCounts : CountIpColocation());
+        return peer.Score.GetScore(_ipColocationCounts);
     }
 
     /// <summary>
@@ -135,6 +128,7 @@ public partial class PubsubRouter
         {
             // Colocation is about the address this connection uses, not the last one.
             restored.Score.IPAddress = peer.Score.IPAddress;
+            restored.Score.IPColocationSubnet = peer.Score.IPColocationSubnet;
             peer.Score = restored.Score;
         }
 
@@ -308,7 +302,7 @@ public partial class PubsubRouter
     private List<PeerId> GetBestScoringPeers(IEnumerable<PeerId> peers, int count)
     {
         return peers
-            .OrderByDescending(p => GetPeerScore(p))
+            .OrderByDescending(GetPeerScoreUnderLock)
             .Take(count)
             .ToList();
     }
@@ -322,30 +316,39 @@ public partial class PubsubRouter
         return score < _settings.GraylistThreshold;
     }
 
-    /// <summary>
-    /// Gets median score of peers in mesh for a topic
-    /// </summary>
-    private double GetMedianMeshScore(string topic)
+    private PeerId[] GetOpportunisticGraftPeers(string topic, HashSet<PeerId> meshPeers,
+        Dictionary<PeerId, double> peerScores, HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat)
     {
-        if (!mesh.TryGetValue(topic, out HashSet<PeerId>? meshPeers) || meshPeers.Count == 0)
+        double? GetScore(PeerId peerId)
         {
-            return 0;
+            if (peerScores.TryGetValue(peerId, out double score)) return score;
+            if (!peerState.TryGetValue(peerId, out PubsubPeer? peer)) return null;
+
+            score = ScoreOf(peer);
+            peerScores.Add(peerId, score);
+            return score;
         }
 
-        var scores = meshPeers.Select(p => GetPeerScore(p)).OrderBy(s => s).ToList();
-        int count = scores.Count;
-
-        if (count == 0)
-            return 0;
-
-        if (count % 2 == 0)
+        double[] scores = meshPeers.Select(p => GetScore(p).GetValueOrDefault()).Order().ToArray();
+        int middle = scores.Length / 2;
+        double median = scores.Length % 2 == 0
+            ? (scores[middle - 1] + scores[middle]) / 2
+            : scores[middle];
+        if (median >= _settings.OpportunisticGraftThreshold || !gPeers.TryGetValue(topic, out HashSet<PeerId>? subscribers))
         {
-            return (scores[count / 2 - 1] + scores[count / 2]) / 2.0;
+            return [];
         }
-        else
-        {
-            return scores[count / 2];
-        }
+
+        // Size for a candidate pass only after the mesh has fallen below the threshold.
+        peerScores.EnsureCapacity(subscribers.Count);
+        // Exclude peers pruned for this topic even if their backoff has already expired.
+        return subscribers
+            .Where(p => !meshPeers.Contains(p) && prunedThisHeartbeat?.Contains((topic, p)) != true &&
+                !IsDirectPeer(p) && !IsInBackoff(p, topic) &&
+                GetScore(p) is double score && score >= 0 && score > median)
+            .OrderBy(_ => Random.Shared.Next())
+            .Take(_settings.OpportunisticGraftPeers)
+            .ToArray();
     }
 
     /// <summary>
@@ -357,17 +360,6 @@ public partial class PubsubRouter
         {
             peer.Score.AppSpecificScore = score;
             logger?.LogDebug("Set app-specific score for {peerId} to {score}", peerId, score);
-        }
-    }
-
-    /// <summary>
-    /// Sets IP address for IP colocation tracking (P6)
-    /// </summary>
-    private void SetPeerIPAddress(PeerId peerId, string ipAddress)
-    {
-        if (peerState.TryGetValue(peerId, out PubsubPeer? peer))
-        {
-            peer.Score.IPAddress = ipAddress;
         }
     }
 }

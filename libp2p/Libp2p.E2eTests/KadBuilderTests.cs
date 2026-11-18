@@ -11,7 +11,6 @@ using NSubstitute;
 using Multiformats.Address;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.WebRtc;
-using Nethermind.Libp2p.Protocols.WebRtc.Extensions;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using NUnit.Framework;
@@ -272,7 +271,7 @@ public class KadBuilderTests
     public async Task BuilderServicesResolveNestedDependenciesAndFreeze(bool supplied)
     {
         await using var provider = new ServiceCollection().AddLibp2p().AddSingleton<Dependency>().BuildServiceProvider();
-        await using var builder = new Libp2pPeerFactoryBuilder(supplied ? provider : null);
+        await using var builder = new WebRtcDirectBuilder(supplied ? provider : null);
         Dependency dependency = supplied ? provider.GetRequiredService<Dependency>() : new Dependency();
         if (!supplied) builder.Services.AddSingleton(dependency);
         builder.Services.AddSingleton<Dependent>();
@@ -285,7 +284,7 @@ public class KadBuilderTests
         var explicitProtocol = new ExplicitProtocol();
         var limit = new InboundStreamLimit(2);
         builder.AddProtocol(explicitProtocol, false, limit);
-        builder.AddWebRtcDirect();
+        builder.Services.AddSingleton<WebRtcDirectProtocol>();
         var factory = builder.Build();
         Assert.That(builder.Build(), Is.SameAs(factory));
         Assert.That(builder.ServiceProvider.GetRequiredService<Dependent>().Dependency, Is.SameAs(dependency));
