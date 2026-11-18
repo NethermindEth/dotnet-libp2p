@@ -111,8 +111,8 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     {
         while (!token.IsCancellationRequested)
         {
-            await Task.Delay(_settings.Interval, token);
             BroadcastPeerInfo();
+            await Task.Delay(_settings.Interval, token);
         }
     }
 
