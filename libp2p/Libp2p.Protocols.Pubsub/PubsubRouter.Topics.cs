@@ -119,8 +119,8 @@ public partial class PubsubRouter
                     if (!IsDirectPeer(peerId) &&
                         gPeers.TryGetValue(topicId, out HashSet<PeerId>? remotePeers) && remotePeers.Contains(peerId) &&
                         peerState.TryGetValue(peerId, out PubsubPeer? peer) &&
-                        GetPeerScore(peerId) >= 0 &&
-                        (!peer.Backoff.TryGetValue(topicId, out DateTime backoff) || backoff <= _timeProvider.GetUtcNow().UtcDateTime) &&
+                        ScoreOf(peer) >= 0 &&
+                        !IsInBackoff(peerId, topicId) &&
                         meshPeers.Add(peerId))
                     {
                         RecordPeerJoinMesh(peerId, topicId);

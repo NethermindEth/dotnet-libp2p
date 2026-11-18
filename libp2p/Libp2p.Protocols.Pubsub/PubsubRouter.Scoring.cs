@@ -316,30 +316,39 @@ public partial class PubsubRouter
         return score < _settings.GraylistThreshold;
     }
 
-    /// <summary>
-    /// Gets median score of peers in mesh for a topic
-    /// </summary>
-    private double GetMedianMeshScore(string topic)
+    private PeerId[] GetOpportunisticGraftPeers(string topic, HashSet<PeerId> meshPeers,
+        Dictionary<PeerId, double> peerScores, HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat)
     {
-        if (!mesh.TryGetValue(topic, out HashSet<PeerId>? meshPeers) || meshPeers.Count == 0)
+        double? GetScore(PeerId peerId)
         {
-            return 0;
+            if (peerScores.TryGetValue(peerId, out double score)) return score;
+            if (!peerState.TryGetValue(peerId, out PubsubPeer? peer)) return null;
+
+            score = ScoreOf(peer);
+            peerScores.Add(peerId, score);
+            return score;
         }
 
-        var scores = meshPeers.Select(p => GetPeerScore(p)).OrderBy(s => s).ToList();
-        int count = scores.Count;
-
-        if (count == 0)
-            return 0;
-
-        if (count % 2 == 0)
+        double[] scores = meshPeers.Select(p => GetScore(p).GetValueOrDefault()).Order().ToArray();
+        int middle = scores.Length / 2;
+        double median = scores.Length % 2 == 0
+            ? (scores[middle - 1] + scores[middle]) / 2
+            : scores[middle];
+        if (median >= _settings.OpportunisticGraftThreshold || !gPeers.TryGetValue(topic, out HashSet<PeerId>? subscribers))
         {
-            return (scores[count / 2 - 1] + scores[count / 2]) / 2.0;
+            return [];
         }
-        else
-        {
-            return scores[count / 2];
-        }
+
+        // Size for a candidate pass only after the mesh has fallen below the threshold.
+        peerScores.EnsureCapacity(subscribers.Count);
+        // Exclude peers pruned for this topic even if their backoff has already expired.
+        return subscribers
+            .Where(p => !meshPeers.Contains(p) && prunedThisHeartbeat?.Contains((topic, p)) != true &&
+                !IsDirectPeer(p) && !IsInBackoff(p, topic) &&
+                GetScore(p) is double score && score >= 0 && score > median)
+            .OrderBy(_ => Random.Shared.Next())
+            .Take(_settings.OpportunisticGraftPeers)
+            .ToArray();
     }
 
     /// <summary>

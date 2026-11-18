@@ -355,6 +355,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.OpportunisticGraftTicks);
+        ArgumentOutOfRangeException.ThrowIfNegative(_settings.OpportunisticGraftPeers);
         _random = random;
         _outboundLimits = new(_settings);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntries);
@@ -855,6 +857,14 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 logger?.LogDebug("Applied behavioral penalty {penalty} to peer {peerId}", brokenPromises, peerId);
             }
+
+            HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat = null;
+            void QueuePrune(PeerId peerId, ControlPrune prune)
+            {
+                (prunedThisHeartbeat ??= []).Add((prune.TopicID, peerId));
+                peerMessages.GetOrAdd(peerId, _ => new Rpc()).Ensure(r => r.Control.Prune).Add(prune);
+            }
+
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
@@ -867,10 +877,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     RecordPeerLeaveMesh(peerId, topic);
 
                     RefreshBackoff(peerId, topic, LocalBackoff(_settings.PruneBackoff));
-                    ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
-                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                         .Ensure(r => r.Control.Prune)
-                         .Add(prune);
+                    QueuePrune(peerId, CreatePrune(peerId, topic, _settings.PruneBackoff));
                 }
             }
 
@@ -884,9 +891,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to graft more peers - exclude peers with negative scores
                     PeerId[] peersToGraft = Sample((gPeers.GetValueOrDefault(topic) ?? [])
                         .Where(p => !meshPeers.Contains(p)
+                            && prunedThisHeartbeat?.Contains((topic, p)) != true
                             && !IsDirectPeer(p)
                             && GetPeerScoreUnderLock(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime)),
+                            && !IsInBackoff(p, topic)),
                         _settings.Degree - meshPeers.Count, _random);
 
                     foreach (PeerId peerId in peersToGraft)
@@ -953,9 +961,31 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                                 }));
                         }
 
+                        QueuePrune(peerId, prune);
+                    }
+                }
+            }
+
+            if (_settings.OpportunisticGraftPeers > 0 && (heartbeatTick + 1) % _settings.OpportunisticGraftTicks == 0)
+            {
+                // Pruning on any topic can lower a peer's total score through its mesh failure penalty.
+                // Score peers only after every topic has finished routine maintenance.
+                Dictionary<PeerId, double>? opportunisticScores = null;
+                foreach ((string topic, HashSet<PeerId> meshPeers) in mesh)
+                {
+                    if (meshPeers.Count <= 1) continue;
+
+                    opportunisticScores ??= [];
+
+                    foreach (PeerId peerId in GetOpportunisticGraftPeers(topic, meshPeers, opportunisticScores, prunedThisHeartbeat))
+                    {
+                        meshPeers.Add(peerId);
+                        RecordPeerJoinMesh(peerId, topic);
+                        // Joining can change the score used by a later topic.
+                        opportunisticScores.Remove(peerId);
                         peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                             .Ensure(r => r.Control.Prune)
-                             .Add(prune);
+                            .Ensure(r => r.Control.Graft)
+                            .Add(new ControlGraft { TopicID = topic });
                     }
                 }
             }
