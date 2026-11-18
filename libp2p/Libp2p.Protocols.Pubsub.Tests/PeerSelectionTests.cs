@@ -22,15 +22,16 @@ public class PeerSelectionTests
         public override DateTimeOffset GetUtcNow() => new(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
     }
 
-    private sealed class ScriptedRandom(int offset) : Random
+    private sealed class ScriptedRandom(int offset, params int[] initialOffsets) : Random
     {
         public List<(int Min, int Max)> Calls { get; } = [];
 
         public override int Next(int minValue, int maxValue)
         {
             Assert.That(maxValue, Is.GreaterThan(minValue));
+            int currentOffset = Calls.Count < initialOffsets.Length ? initialOffsets[Calls.Count] : offset;
             Calls.Add((minValue, maxValue));
-            return minValue + offset % (maxValue - minValue);
+            return minValue + currentOffset % (maxValue - minValue);
         }
     }
 
@@ -101,6 +102,20 @@ public class PeerSelectionTests
             Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, Math.Min(count, Math.Max(0, eligible.Length - 1))).Select(i => (i, eligible.Length))),
                 "Filter before sampling and use one bounded draw per non-forced choice.");
         });
+    }
+
+    private static async Task<HashSet<PeerId>> OpenOversizedMesh(PubsubRouter router, int peerCount)
+    {
+        router.Subscribe(Topic);
+        HashSet<PeerId> mesh = ((IRoutingStateContainer)router).Mesh[Topic];
+        // Seed an oversized mesh directly; GRAFT admission caps it at HighestDegree.
+        foreach (int id in Enumerable.Range(10, peerCount))
+        {
+            var peer = await Open(router, id);
+            mesh.Add(peer.PeerId);
+            peer.Score.GetTopicScore(Topic).JoinMesh();
+        }
+        return mesh;
     }
 
     [TestCase(-1, 0)]
@@ -319,24 +334,50 @@ public class PeerSelectionTests
             settings.HighestDegree = 4;
             settings.TopicScoreParams[Topic] = new TopicScoreParams { TimeInMeshWeight = 0 };
             await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), random);
-            router.Subscribe(Topic);
-            HashSet<PeerId> selected = ((IRoutingStateContainer)router).Mesh[Topic];
-            // Seed an oversized mesh directly; GRAFT admission caps it at HighestDegree.
-            foreach (int id in Enumerable.Range(10, eligible.Length))
-            {
-                var peer = await Open(router, id);
-                selected.Add(peer.PeerId);
-                peer.Score.GetTopicScore(Topic).JoinMesh();
-            }
+            HashSet<PeerId> selected = await OpenOversizedMesh(router, eligible.Length);
             Assert.That(selected, Is.EquivalentTo(eligible));
 
             await router.Heartbeat();
 
             Assert.That(selected, Has.Count.EqualTo(settings.HighestDegree));
             Assert.That(selected, Is.SubsetOf(eligible));
-            Assert.That(random.Calls, Is.EqualTo(Enumerable.Range(0, eligible.Length - 1).Select(i => (i, eligible.Length))));
+            int reservedCount = scoreCount + outboundCount; // Each case enables at most one quota.
+            var shuffleDraws = Enumerable.Range(0, eligible.Length - 1).Select(i => (i, eligible.Length));
+            var remainingDraws = Enumerable.Range(0, settings.HighestDegree - reservedCount)
+                .Select(i => (i, eligible.Length - reservedCount));
+            Assert.That(random.Calls, Is.EqualTo(shuffleDraws.Concat(remainingDraws)));
             reached.UnionWith(selected);
         }
         Assert.That(reached, Is.EquivalentTo(eligible));
+    }
+
+    [Test]
+    public async Task HeartbeatPrune_SamplesRemainingPeersIndependentlyOfScoreTies()
+    {
+        PeerId[] eligible = Eligible(4);
+        HashSet<PeerId> topScoringPeers = [eligible[0], eligible[1]];
+        List<PeerId> pruned = [];
+        for (int offset = 0; offset < 6; offset++)
+        {
+            // Fix the score tie-break order, then exhaust all 3 * 2 choices for two open slots.
+            ScriptedRandom random = new(offset, 0, 0, 0);
+            PubsubSettings settings = Settings();
+            settings.DScore = 1;
+            settings.DOut = 0;
+            settings.HighestDegree = 3;
+            settings.TopicScoreParams[Topic] = new TopicScoreParams { TimeInMeshWeight = 0 };
+            await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), random);
+            HashSet<PeerId> mesh = await OpenOversizedMesh(router, eligible.Length);
+            foreach (PeerId peer in topScoringPeers) router.SetAppSpecificScore(peer, 10);
+            PeerId reserved = mesh.First(topScoringPeers.Contains);
+
+            await router.Heartbeat();
+
+            Assert.That(mesh, Does.Contain(reserved));
+            pruned.Add(eligible.Except(mesh).Single());
+        }
+
+        // Each of the three peers outside the score quota has an equal chance of being pruned.
+        Assert.That(pruned.GroupBy(peer => peer).Select(group => group.Count()), Is.EquivalentTo(new[] { 2, 2, 2 }));
     }
 }

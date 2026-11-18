@@ -783,7 +783,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Need to prune - keep best scoring peers (Gossipsub v1.1)
                     int numToPrune = meshPeers.Count - _settings.HighestDegree;
 
-                    // Randomize score ties, outbound picks and the remaining peers uniformly.
+                    // Randomize score ties and outbound picks.
                     PeerId[] shuffledPeers = Sample(meshPeers, meshPeers.Count, _random);
 
                     // Get D_score best peers
@@ -798,14 +798,11 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     // Peers to keep: best scores + outbound quota + random
                     var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
 
-                    // Fill remaining spots randomly
+                    // Draw independently of the shuffle used to select the reserved peers.
                     int remaining = _settings.HighestDegree - peersToKeep.Count;
                     if (remaining > 0)
                     {
-                        foreach (var peer in shuffledPeers.Except(peersToKeep).Take(remaining))
-                        {
-                            peersToKeep.Add(peer);
-                        }
+                        peersToKeep.UnionWith(Sample(meshPeers.Except(peersToKeep), remaining, _random));
                     }
 
                     // Prune the rest
