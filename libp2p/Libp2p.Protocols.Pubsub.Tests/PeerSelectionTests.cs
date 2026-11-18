@@ -60,19 +60,20 @@ public class PeerSelectionTests
     }
 
     private static async Task<PubsubRouter.PubsubPeer> Open(PubsubRouter router, int id,
-        ConcurrentQueue<Rpc>? sent = null, bool partial = false)
+        ConcurrentQueue<Rpc>? sent = null, bool partial = false, bool supportsSendingPartial = false)
     {
         PubsubRouter.PubsubPeer peer = router.OutboundConnection(TestPeers.Multiaddr(id),
-            partial ? PubsubRouter.GossipsubProtocolVersionV13 : PubsubRouter.GossipsubProtocolVersionV11,
+            partial || supportsSendingPartial ? PubsubRouter.GossipsubProtocolVersionV13 : PubsubRouter.GossipsubProtocolVersionV11,
             new TaskCompletionSource().Task, (bytes, _) =>
             {
                 sent?.Enqueue(RouterTestExtensions.Decode(bytes));
                 return ValueTask.FromResult(IOResult.Ok);
             }, () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
         Rpc subscription = new Rpc().WithTopics([Topic], []);
-        if (partial)
+        if (partial || supportsSendingPartial)
         {
-            subscription.Subscriptions[0].RequestsPartial = true;
+            subscription.Subscriptions[0].RequestsPartial = partial;
+            subscription.Subscriptions[0].SupportsSendingPartial = supportsSendingPartial;
             subscription.Control = new ControlMessage { Extensions = new ControlExtensions { PartialMessages = true } };
         }
         await router.OnRpcAsync(peer.PeerId, subscription);
@@ -265,6 +266,113 @@ public class PeerSelectionTests
             reached.UnionWith(selected);
         }
         Assert.That(reached, Is.EquivalentTo(eligible));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task HeartbeatFanout_ExcludesPeersBelowPublishThreshold(bool alreadyInFanout)
+    {
+        PubsubSettings settings = Settings();
+        settings.Degree = 1;
+        settings.LowestDegree = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), new ScriptedRandom(1));
+        await Start(router);
+        ConcurrentQueue<Rpc> lowScoreRpcs = [];
+        ConcurrentQueue<Rpc> eligibleRpcs = [];
+        IRoutingStateContainer state = router;
+
+        if (alreadyInFanout) await Open(router, 3, lowScoreRpcs);
+        router.Publish(Topic, [1]);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+        Assert.That(state.Fanout[Topic], Is.EquivalentTo(alreadyInFanout ? new[] { TestPeers.PeerId(3) } : []));
+
+        var eligible = await Open(router, 2, eligibleRpcs);
+        router.SetAppSpecificScore(eligible.PeerId, settings.PublishThreshold);
+        if (!alreadyInFanout) await Open(router, 3, lowScoreRpcs);
+        router.SetAppSpecificScore(TestPeers.PeerId(3), settings.PublishThreshold - 10);
+        lowScoreRpcs.Clear();
+
+        await router.Heartbeat();
+        router.Publish(Topic, [2]);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.Fanout[Topic], Is.EquivalentTo(new[] { eligible.PeerId }));
+            Assert.That(eligibleRpcs.SelectMany(rpc => rpc.Publish).Select(message => message.Data), Is.EqualTo(new[] { ByteString.CopyFrom([2]) }));
+            Assert.That(lowScoreRpcs.SelectMany(rpc => rpc.Publish), Is.Empty);
+        });
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task PublishPartialFanout_SamplesPeersThatAcceptTheSuppliedField(bool sharedFanout, bool metadataOnly)
+    {
+        PubsubSettings settings = Settings();
+        settings.EnablePartialMessages = true;
+        settings.Degree = 1;
+        settings.LowestDegree = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), new ScriptedRandom(1));
+        await Start(router);
+        router.GetPartialMessagesTopic(Topic, new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }, subscribe: false);
+        ConcurrentQueue<Rpc> eligibleRpcs = [];
+        ConcurrentQueue<Rpc> incompatibleRpcs = [];
+        var eligible = await Open(router, 2, eligibleRpcs, partial: !metadataOnly, supportsSendingPartial: metadataOnly);
+        var legacy = await Open(router, 3, incompatibleRpcs);
+        // Can receive metadata but must not occupy the data-only slot.
+        if (!metadataOnly) await Open(router, 4, incompatibleRpcs, supportsSendingPartial: true);
+        IRoutingStateContainer state = router;
+        if (sharedFanout)
+        {
+            // Seed the shared fanout through ordinary publishing with only the legacy peer eligible.
+            router.SetAppSpecificScore(eligible.PeerId, settings.PublishThreshold - 10);
+            if (!metadataOnly) router.SetAppSpecificScore(TestPeers.PeerId(4), settings.PublishThreshold - 10);
+            router.Publish(Topic, [1]);
+            router.SetAppSpecificScore(eligible.PeerId, 0);
+            if (!metadataOnly) router.SetAppSpecificScore(TestPeers.PeerId(4), 0);
+            Assert.That(state.Fanout[Topic], Is.EquivalentTo(new[] { legacy.PeerId }));
+        }
+
+        router.PublishPartial(Topic, [1], partialMessage: metadataOnly ? null : [2], partsMetadata: metadataOnly ? [3] : null);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+
+        PartialMessagesExtension? sent = eligibleRpcs.Select(rpc => rpc.Partial).SingleOrDefault(partial => partial is not null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(sent?.HasPartialMessage, Is.EqualTo(!metadataOnly));
+            Assert.That(sent?.HasPartsMetadata, Is.EqualTo(metadataOnly));
+            Assert.That(incompatibleRpcs.Select(rpc => rpc.Partial).OfType<PartialMessagesExtension>(), Is.Empty);
+            Assert.That(state.Fanout[Topic], Is.EquivalentTo(new[] { sharedFanout ? legacy.PeerId : eligible.PeerId }));
+        });
+    }
+
+    [Test]
+    public async Task PublishFanout_ReachesFullMessagePeerAfterPartialPublish()
+    {
+        PubsubSettings settings = Settings();
+        settings.EnablePartialMessages = true;
+        settings.Degree = 1;
+        settings.LowestDegree = 1;
+        await using PubsubRouter router = new(new PeerStore(), settings, null, new Clock(), new ScriptedRandom(0));
+        await Start(router);
+        router.GetPartialMessagesTopic(Topic, new PartialMessagesTopicOptions { SupportsSendingPartialMessages = true }, subscribe: false);
+        ConcurrentQueue<Rpc> partialRpcs = [];
+        ConcurrentQueue<Rpc> fullRpcs = [];
+        var requester = await Open(router, 2, partialRpcs, partial: true);
+        router.PublishPartial(Topic, [1], partialMessage: [2]);
+        Assert.That(((IRoutingStateContainer)router).Fanout[Topic], Is.EquivalentTo(new[] { requester.PeerId }));
+        await Open(router, 3, fullRpcs);
+
+        router.Publish(Topic, [3]);
+        await router.FlushOutboundAsync().WaitAsync(Deadline);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fullRpcs.SelectMany(rpc => rpc.Publish).Select(message => message.Data), Is.EqualTo(new[] { ByteString.CopyFrom([3]) }));
+            Assert.That(partialRpcs.SelectMany(rpc => rpc.Publish), Is.Empty);
+        });
     }
 
     [TestCase(2, 0, true)]

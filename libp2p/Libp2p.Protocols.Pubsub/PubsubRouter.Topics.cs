@@ -312,27 +312,13 @@ public partial class PubsubRouter
             }
             else
             {
-                fanoutLastPublished[topicId] = DateTime.Now;
-                HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
-
-                if (topicFanout.Count == 0)
-                {
-                    HashSet<PeerId>? topicPeers = gPeers.GetValueOrDefault(topicId);
-                    if (topicPeers is { Count: > 0 })
-                    {
-                        // Select peers with non-negative scores
-                        var eligiblePeers = topicPeers.Where(p => !IsDirectPeer(p) && GetPeerScore(p) >= 0);
-                        foreach (PeerId peer in Sample(eligiblePeers, _settings.Degree, _random))
-                        {
-                            topicFanout.Add(peer);
-                        }
-                    }
-                }
-
-                foreach (PeerId peerId in topicFanout)
+                Func<PeerId, bool>? acceptsFullMessage = CanPublishPartial(topicId)
+                    ? peerId => !PeerRequestsPartial(peerId, topicId)
+                    : null;
+                foreach (PeerId peerId in SelectFanoutRecipients(topicId, acceptsFullMessage))
                 {
                     if (!directRecipients.Contains(peerId) &&
-                        GetPeerScore(peerId) >= _settings.PublishThreshold &&
+                        MeetsPublishThreshold(peerId) &&
                         ShouldSendFullMessage(peerId, topicId, messageId))
                     {
                         peerState.GetValueOrDefault(peerId)?.Send(rpc);
@@ -341,6 +327,36 @@ public partial class PubsubRouter
             }
         }
     }
+
+    // Called under the router lock. Compatible fanout members are preferred, with extra
+    // recipients sampled for this payload without evicting peers useful for other payloads.
+    private IEnumerable<PeerId> SelectFanoutRecipients(string topicId, Func<PeerId, bool>? acceptsPayload)
+    {
+        fanoutLastPublished[topicId] = DateTime.Now;
+        HashSet<PeerId> topicFanout = fanout.GetOrAdd(topicId, _ => []);
+        if (acceptsPayload is null && topicFanout.Count != 0)
+        {
+            return topicFanout;
+        }
+
+        PeerId[] preferred = acceptsPayload is null ? [] : topicFanout
+            .Where(peerId => MeetsPublishThreshold(peerId) && acceptsPayload(peerId)).ToArray();
+        int remaining = _settings.Degree - preferred.Length;
+        if (remaining <= 0 || !gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
+        {
+            return preferred;
+        }
+
+        // Keep the nonnegative score policy for seeding a new fanout.
+        double minimumScore = topicFanout.Count == 0 ? Math.Max(0, _settings.PublishThreshold) : _settings.PublishThreshold;
+        PeerId[] additional = Sample(topicPeers.Where(peerId => !topicFanout.Contains(peerId) &&
+            !IsDirectPeer(peerId) && GetPeerScore(peerId) >= minimumScore &&
+            (acceptsPayload is null || acceptsPayload(peerId))), remaining, _random);
+        topicFanout.UnionWith(additional.Take(_settings.Degree - topicFanout.Count));
+        return preferred.Length == 0 ? additional : preferred.Concat(additional);
+    }
+
+    private bool MeetsPublishThreshold(PeerId peerId) => GetPeerScore(peerId) >= _settings.PublishThreshold;
 
     /// <summary>
     /// Sends application-defined partial data to partial-message-capable mesh or fanout peers.
@@ -367,17 +383,8 @@ public partial class PubsubRouter
             }
             else
             {
-                fanoutLastPublished[topicId] = DateTime.Now;
-                HashSet<PeerId> fanoutPeers = fanout.GetOrAdd(topicId, _ => []);
-                if (fanoutPeers.Count == 0 && gPeers.TryGetValue(topicId, out HashSet<PeerId>? topicPeers))
-                {
-                    foreach (PeerId peerId in Sample(topicPeers.Where(peerId => !IsDirectPeer(peerId) && GetPeerScore(peerId) >= 0), _settings.Degree, _random))
-                    {
-                        fanoutPeers.Add(peerId);
-                    }
-                }
-
-                recipients = fanoutPeers.Where(peerId => GetPeerScore(peerId) >= _settings.PublishThreshold).ToArray();
+                recipients = SelectFanoutRecipients(topicId, peerId =>
+                    CanReceivePartial(peerId, topicId, partialMessage is not null, partsMetadata is not null)).ToArray();
             }
         }
 
@@ -395,14 +402,13 @@ public partial class PubsubRouter
         EnsurePartialMessagesEnabled(topicId);
         ValidatePartialMessage(groupId, partialMessage, partsMetadata);
 
-        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer) || !peer.SupportsPartialMessagesExtension)
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer))
         {
             return;
         }
 
-        bool sendPartialData = peer.RequestsPartialMessages(topicId);
-        bool sendPartsMetadata = peer.SupportsSendingPartialMessages(topicId);
-        if (!sendPartialData && !sendPartsMetadata)
+        (bool sendPartialData, bool sendPartsMetadata) = GetPartialCapabilities(peer, topicId);
+        if ((!sendPartialData || partialMessage is null) && (!sendPartsMetadata || partsMetadata is null))
         {
             return;
         }
@@ -422,33 +428,38 @@ public partial class PubsubRouter
             partial.PartsMetadata = Google.Protobuf.ByteString.CopyFrom(partsMetadata);
         }
 
-        if (partial.HasPartialMessage || partial.HasPartsMetadata)
-        {
-            peer.Send(new Rpc { Partial = partial });
-        }
+        peer.Send(new Rpc { Partial = partial });
     }
 
     private void EnsurePartialMessagesEnabled(string topicId)
     {
         ArgumentNullException.ThrowIfNull(topicId);
-        if (!_settings.EnablePartialMessages ||
-            !topicState.TryGetValue(topicId, out Topic? topic) ||
-            !topic.SupportsSendingPartialMessages)
+        if (!CanPublishPartial(topicId))
         {
             throw new InvalidOperationException($"Partial messages are not enabled for topic '{topicId}'.");
         }
     }
 
-    private bool ShouldSendFullMessage(PeerId peerId, string topicId, MessageId messageId)
+    private bool CanPublishPartial(string topicId) => _settings.EnablePartialMessages &&
+        topicState.TryGetValue(topicId, out Topic? topic) && topic.SupportsSendingPartialMessages;
+
+    private static (bool Data, bool Metadata) GetPartialCapabilities(PubsubPeer peer, string topicId) =>
+        peer.SupportsPartialMessagesExtension
+            ? (peer.RequestsPartialMessages(topicId), peer.SupportsSendingPartialMessages(topicId))
+            : (false, false);
+
+    private bool CanReceivePartial(PeerId peerId, string topicId, bool hasData, bool hasMetadata)
     {
-        return !IsUnwantedBy(peerId, messageId) &&
-            (!_settings.EnablePartialMessages ||
-            !topicState.TryGetValue(topicId, out Topic? topic) ||
-            !topic.SupportsSendingPartialMessages ||
-            !peerState.TryGetValue(peerId, out PubsubPeer? peer) ||
-            !peer.SupportsPartialMessagesExtension ||
-            !peer.RequestsPartialMessages(topicId));
+        if (!peerState.TryGetValue(peerId, out PubsubPeer? peer)) return false;
+        (bool data, bool metadata) = GetPartialCapabilities(peer, topicId);
+        return (hasData && data) || (hasMetadata && metadata);
     }
+
+    private bool PeerRequestsPartial(PeerId peerId, string topicId) =>
+        peerState.TryGetValue(peerId, out PubsubPeer? peer) && peer.SupportsPartialMessagesExtension && peer.RequestsPartialMessages(topicId);
+
+    private bool ShouldSendFullMessage(PeerId peerId, string topicId, MessageId messageId) =>
+        !IsUnwantedBy(peerId, messageId) && (!CanPublishPartial(topicId) || !PeerRequestsPartial(peerId, topicId));
 
     private static void ValidatePartialMessage(byte[] groupId, byte[]? partialMessage, byte[]? partsMetadata)
     {

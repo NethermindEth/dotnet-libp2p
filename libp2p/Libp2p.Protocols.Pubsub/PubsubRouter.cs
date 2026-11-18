@@ -847,15 +847,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else
                 {
-                    int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
+                    HashSet<PeerId> fanoutPeers = fanout[fanoutTopic];
+                    HashSet<PeerId> topicPeers = gPeers.GetValueOrDefault(fanoutTopic) ?? [];
+                    fanoutPeers.RemoveWhere(p => !topicPeers.Contains(p) || IsDirectPeer(p) || !MeetsPublishThreshold(p));
+
+                    int peerCountToAdd = _settings.Degree - fanoutPeers.Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in Sample((gPeers.GetValueOrDefault(fanoutTopic) ?? [])
-                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p)),
-                            peerCountToAdd, _random))
-                        {
-                            fanout[fanoutTopic].Add(peerId);
-                        }
+                        fanoutPeers.UnionWith(Sample(topicPeers.Where(p =>
+                            !fanoutPeers.Contains(p) && !IsDirectPeer(p) && MeetsPublishThreshold(p)), peerCountToAdd, _random));
                     }
                 }
             }
