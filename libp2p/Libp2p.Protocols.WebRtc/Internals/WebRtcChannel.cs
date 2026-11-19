@@ -1,0 +1,748 @@
+// SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
+// SPDX-License-Identifier: MIT
+
+using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols.WebRtc.Dto;
+using System.Buffers;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
+using System.Threading.Channels;
+
+namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
+
+/// <summary>
+/// A libp2p channel over a single WebRTC data channel: length-prefixed <see cref="Message"/> framing
+/// plus the FIN/FIN_ACK half-close handshake, which the spec adds because closing an RTCDataChannel
+/// closes both directions at once and drops in-flight data.
+/// </summary>
+internal sealed class WebRtcChannel : IChannel, IAsyncDisposable
+{
+    /// <summary>
+    /// Stop feeding the channel once two full frames are queued in it, and resume on
+    /// <see cref="IWebRtcDataChannel.BufferedAmountLow"/>. Two frames keeps the channel busy while
+    /// bounding how much a slow peer can make us hold; it matches go-libp2p's WebRTC transport.
+    /// </summary>
+    public const int MaxBufferedAmount = 2 * WebRtcFraming.MaxFrameSize;
+
+    /// <summary>
+    /// How long <see cref="WriteEofAsync"/> waits for the FIN_ACK that lets it consider the write
+    /// half closed. The spec sets no value, it only permits giving up ("The node MAY close the
+    /// datachannel without receiving a FIN_ACK, for example in the case of a timeout"), so this is
+    /// the go-libp2p convention rather than a normative limit.
+    /// </summary>
+    public static readonly TimeSpan DefaultFinAckTimeout = TimeSpan.FromSeconds(10);
+
+    private const int MaxBufferedInboundFrames = 256;
+
+    private readonly IWebRtcDataChannel _channel;
+    private readonly TimeSpan _finAckTimeout;
+    private readonly Nethermind.Libp2p.Core.Channel _received = new(countInboundWritesAsSent: false);
+    private readonly IChannel _delivery;
+    private readonly Task _deliveryTask;
+    private readonly Channel<ReadOnlyMemory<byte>> _inbound = System.Threading.Channels.Channel.CreateBounded<ReadOnlyMemory<byte>>(
+        new BoundedChannelOptions(MaxBufferedInboundFrames)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+
+    /// <summary>
+    /// Serializes complete application writes and their EOF around the congestion wait. There is one
+    /// <see cref="_drained"/> slot, so two writers parking on a full send buffer would have the
+    /// second overwrite the first's completion source and leave it with nothing left to wake it: the drain releases
+    /// only the last registration, and neither a later drain nor <see cref="Fail"/> can find the
+    /// one that was replaced. Control replies and aborts never take this, which keeps a FIN_ACK from
+    /// queueing behind a writer parked on a peer that is not reading.
+    /// </summary>
+    private readonly SemaphoreSlim _callerSendLock = new(1, 1);
+
+    /// <summary>
+    /// Cancelled when the stream dies, so a writer queued on <see cref="_callerSendLock"/> stops
+    /// waiting. <c>SemaphoreSlim.Dispose</c> does not complete an existing <c>WaitAsync</c>, so
+    /// disposing the semaphore under a queued writer left it pending for ever; the wait has to
+    /// observe the stream's lifetime instead.
+    /// </summary>
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Lock _sync = new();
+    private readonly Lock _receiveLock = new();
+    private readonly TaskCompletionSource _finAck = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private byte[] _partialFrame = [];
+    private TaskCompletionSource? _drained;
+    private Exception? _failure;
+    private bool _closing;
+    private int _pendingWrites;
+    private bool _finSent;
+    private bool _finReceived;
+    private bool _receiveEofCommitted;
+    private bool _finAckReceived;
+    private TaskCompletionSource? _readClosed;
+    private bool _peerStoppedReading;
+    private bool _finAckSent;
+    private int _detached;
+
+    public WebRtcChannel(IWebRtcDataChannel channel, TimeSpan? finAckTimeout = null)
+    {
+        _channel = channel;
+        _finAckTimeout = finAckTimeout ?? DefaultFinAckTimeout;
+        _delivery = _received.Reverse;
+        _deliveryTask = DeliverIncomingAsync();
+        _channel.MessageReceived += OnMessage;
+        _channel.BufferedAmountLow += ReleaseWriter;
+        _channel.Closed += OnChannelClosed;
+
+        // The Closed event may already have fired: an accepted stream can sit queued for the
+        // session loop, and the channel can die in the meantime. Subscribing after that point sees
+        // nothing, so the state is read once here.
+        if (_channel.IsClosed)
+        {
+            OnChannelClosed();
+        }
+    }
+
+    public TaskAwaiter GetAwaiter() => _received.GetAwaiter();
+
+    internal ushort StreamId => _channel.StreamId;
+
+    public ValueTask<ReadResult> ReadAsync(int length,
+        ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
+        CancellationToken token = default) => _received.ReadAsync(length, blockingMode, token);
+
+    private async Task DeliverIncomingAsync()
+    {
+        try
+        {
+            // Application reads may stall. Only this pump waits for them, so the receive callback
+            // can still process FIN_ACK, STOP_SENDING and RESET_STREAM behind unread payload.
+            await foreach (ReadOnlyMemory<byte> payload in _inbound.Reader.ReadAllAsync(_lifetime.Token))
+            {
+                // Core.Channel can return slices after WriteAsync completes. The parsed
+                // ByteString's immutable backing storage stays alive through those slices.
+                if (await _delivery.WriteAsync(new ReadOnlySequence<byte>(payload), _lifetime.Token) != IOResult.Ok)
+                {
+                    return;
+                }
+            }
+
+            lock (_sync)
+            {
+                // Queue completion also wakes this pump during failure or local read shutdown.
+                // Those paths abort the Core reader; publishing EOF first could hide a reset.
+                if (_failure is not null || _readClosed is not null)
+                {
+                    return;
+                }
+
+                // Every queued write has been consumed. Whole-channel close can now let this
+                // pump publish EOF instead of shutting down the reader and discarding data.
+                _receiveEofCommitted = true;
+            }
+
+            await _delivery.WriteEofAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Fail(ex);
+        }
+        finally
+        {
+            while (_inbound.Reader.TryRead(out _))
+            {
+            }
+        }
+    }
+
+    public async ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
+    {
+        try
+        {
+            lock (_sync)
+            {
+                ThrowIfSendingIsOver(callerData: true);
+                // Counted from acceptance, not from taking the send lock: a write still queued
+                // behind another is just as unfinished when the channel is closed.
+                _pendingWrites++;
+            }
+
+            bool sending = false;
+            try
+            {
+                using CancellationTokenSource queued = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+                await _callerSendLock.WaitAsync(queued.Token);
+                sending = true;
+                ThrowIfSendingIsOver(callerData: true);
+                int maxChunk = WebRtcFraming.MaxPayloadSize(false);
+                CancellationToken sendingToken = queued.Token;
+                while (!bytes.IsEmpty)
+                {
+                    await WaitForCapacityAsync(sendingToken);
+                    ReadOnlySequence<byte> chunk = bytes.Slice(0, Math.Min(bytes.Length, maxChunk));
+                    await SendRawAsync(WebRtcFraming.Encode(null, chunk.IsSingleSegment ? chunk.First : chunk.ToArray()), sendingToken);
+                    bytes = bytes.Slice(chunk.Length);
+                    // As in Core.Channel, a partially delivered write owes the rest of its bytes.
+                    // Reporting caller cancellation now would invite a retry of the sent prefix.
+                    sendingToken = _lifetime.Token;
+                }
+            }
+            finally
+            {
+                // Before the send lock passes on, so a close issued as this write returns does
+                // not find it still counted.
+                lock (_sync)
+                {
+                    _pendingWrites--;
+                }
+
+                if (sending)
+                {
+                    _callerSendLock.Release();
+                }
+            }
+
+            return IOResult.Ok;
+        }
+        catch (OperationCanceledException)
+        {
+            return _lifetime.IsCancellationRequested ? IOResult.Aborted : IOResult.Cancelled;
+        }
+        catch (WriteRefusedException refused)
+        {
+            return refused.Result;
+        }
+        catch (Exception ex)
+        {
+            Fail(ex);
+            return IOResult.Aborted;
+        }
+    }
+
+    /// <summary>
+    /// "When a node wishes to close a stream for writing, it MUST send a message with the FIN flag
+    /// set" and "SHOULD only consider its write-half closed once it has received a FIN_ACK".
+    /// Sends FIN once; cancellation before it is sent leaves a later caller free to retry.
+    /// </summary>
+    public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)
+    {
+        try
+        {
+            using CancellationTokenSource queued = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+            await _callerSendLock.WaitAsync(queued.Token);
+            try
+            {
+                ThrowIfSendingIsOver(callerData: false);
+                if (!_finSent)
+                {
+                    lock (_sync)
+                    {
+                        _finSent = true;
+                    }
+
+                    try
+                    {
+                        await SendFlagAsync(Message.Types.Flag.Fin, queued.Token);
+                    }
+                    catch
+                    {
+                        lock (_sync)
+                        {
+                            _finSent = false;
+                        }
+
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                _callerSendLock.Release();
+            }
+
+            try
+            {
+                // FIN commits the write half. Caller cancellation must not abandon its ACK and
+                // leave Core completion pending after the peer has acknowledged the final bytes.
+                await _finAck.Task.WaitAsync(_finAckTimeout, _lifetime.Token);
+            }
+            catch (TimeoutException)
+            {
+                // The spec permits closing without an ACK after a timeout, but delivery is no
+                // longer guaranteed. The channel cannot stay open waiting for that missing ACK.
+                _channel.Close();
+                await _received.WriteEofAsync();
+                return IOResult.Ok;
+            }
+
+            ThrowIfSendingIsOver(callerData: false);
+            // Core owns read assembly and completion. Its otherwise unused write half ends only
+            // after the transport has finished writing; inbound EOF follows all delivered payload.
+            await _received.WriteEofAsync();
+            MaybeCloseChannel();
+            return IOResult.Ok;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || _lifetime.IsCancellationRequested)
+        {
+            return _lifetime.IsCancellationRequested ? IOResult.Aborted : IOResult.Cancelled;
+        }
+        catch (Exception ex)
+        {
+            Fail(ex);
+            return IOResult.Aborted;
+        }
+    }
+
+    public async ValueTask CloseAsync()
+    {
+        // Whole-channel close aborts unfinished writes, as Core.Channel.CloseAsync does. Waiting
+        // for their EOF here could otherwise hang forever behind a peer that never drains SCTP.
+        bool abort;
+        lock (_sync)
+        {
+            // Only a data write is aborted. A pending EOF holds the same lock and must be left to
+            // finish, or closing next to a half-close would reset a stream that ended cleanly.
+            // Once FIN is committed no write can still send, and concurrent closes share the one
+            // FIN handshake.
+            abort = _pendingWrites != 0 && !_finSent && !_closing;
+            _closing = true;
+        }
+
+        if (abort)
+        {
+            await AbortAsync();
+            return;
+        }
+
+        ValueTask<IOResult> eof = WriteEofAsync();
+        await CloseReadAsync(preserveEof: true);
+        await eof;
+        await _received;
+    }
+
+    /// <summary>
+    /// Sends STOP_SENDING and discards further inbound payload. Flags keep being processed: "If a
+    /// node has previously sent a STOP_SENDING flag to the remote node, it MUST continue to act on
+    /// any flags present in received messages in order to successfully process an incoming FIN_ACK."
+    /// </summary>
+    public ValueTask CloseReadAsync() => CloseReadAsync(preserveEof: false);
+
+    private async ValueTask CloseReadAsync(bool preserveEof)
+    {
+        bool notifyPeer;
+        bool closing;
+        TaskCompletionSource completion;
+        lock (_sync)
+        {
+            if (preserveEof && _receiveEofCommitted && _readClosed is null)
+            {
+                return;
+            }
+
+            closing = _readClosed is null;
+            completion = _readClosed ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            notifyPeer = !_finReceived;
+        }
+
+        if (!closing)
+        {
+            await completion.Task;
+            return;
+        }
+
+        _inbound.Writer.TryComplete();
+        try
+        {
+            // A peer that already sent FIN has ended its writes. The data channel may also
+            // have closed after both FIN handshakes, so there is no STOP_SENDING left to send.
+            if (notifyPeer)
+            {
+                await SendFlagAsync(Message.Types.Flag.StopSending, _lifetime.Token);
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_sync)
+            {
+                // FIN can arrive while STOP_SENDING waits for the send lock and close the
+                // transport first. The peer has already stopped, so that send is now redundant.
+                if (CanCloseChannel)
+                {
+                    return;
+                }
+            }
+
+            Fail(ex);
+        }
+        finally
+        {
+            await _received.CloseReadAsync();
+            completion.TrySetResult();
+        }
+    }
+
+    public async ValueTask AbortAsync()
+    {
+        // Fail before sending: the reset frame can queue behind a send that is still in flight,
+        // and nothing waiting on this channel may have to wait for that.
+        Fail(new IOException("The stream was reset locally."));
+
+        try
+        {
+            await SendRawAsync(WebRtcFraming.Encode(Message.Types.Flag.ResetStream, null), CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            // A reset tears the stream down whether or not the flag can still reach the peer.
+        }
+    }
+
+    private async ValueTask SendFlagAsync(Message.Types.Flag flag, CancellationToken token)
+    {
+        // Only caller data waits for capacity, and it waits BEFORE taking the send lock. Flag
+        // frames are a few bytes and bounded in number per stream, so gating them on congestion
+        // would withhold the FIN_ACK a peer is blocked on; and waiting inside the lock would let a
+        // parked writer block every teardown path behind it.
+        ThrowIfSendingIsOver(callerData: false);
+        await SendRawAsync(WebRtcFraming.Encode(flag, null), token);
+    }
+
+    /// <summary>
+    /// Sends with no state or capacity checks, so teardown can still emit its flag after
+    /// <see cref="Fail"/> has marked the stream dead.
+    /// </summary>
+    private async ValueTask SendRawAsync(byte[] frame, CancellationToken token)
+    {
+        await _sendLock.WaitAsync(token);
+        try
+        {
+            await _channel.SendAsync(frame, token);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    private async ValueTask WaitForCapacityAsync(CancellationToken token)
+    {
+        while (true)
+        {
+            ThrowIfSendingIsOver(callerData: true);
+            if (_channel.BufferedAmount < MaxBufferedAmount)
+            {
+                return;
+            }
+
+            TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _drained, drained);
+
+            // Both re-checks happen AFTER publishing the waiter, and both are lost wake-ups
+            // otherwise. A drain in between is the obvious one. The other is a terminal send event
+            // -- a close, or a STOP_SENDING -- landing after the check at the top of this loop:
+            // its ReleaseWriter finds no waiter, and registering one afterwards means waiting for a
+            // notification that has already been and gone. STOP_SENDING is why a state re-read is
+            // needed rather than just cancellation; it ends this side's writing without ending the
+            // stream, so no token fires for it.
+            ThrowIfSendingIsOver(callerData: true);
+            if (_channel.BufferedAmount < MaxBufferedAmount)
+            {
+                Interlocked.CompareExchange(ref _drained, null, drained);
+                return;
+            }
+
+            // The write's token already observes the stream's lifetime, so a close or disposal
+            // does not leave it parked here.
+            await drained.Task.WaitAsync(token);
+        }
+    }
+
+    private void ThrowIfSendingIsOver(bool callerData)
+    {
+        lock (_sync)
+        {
+            if (_failure is not null)
+            {
+                ExceptionDispatchInfo.Throw(_failure);
+            }
+
+            if (!callerData)
+            {
+                return;
+            }
+
+            if (_finSent || _closing)
+            {
+                throw new WriteRefusedException(IOResult.Ended, "The write half of the stream is closed.");
+            }
+
+            if (_peerStoppedReading)
+            {
+                throw new WriteRefusedException(IOResult.Aborted,
+                    "The peer sent STOP_SENDING and is discarding further data.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The write half is over although the stream has not failed. Carries what the write reports,
+    /// decided under the lock that found it, so the caller does not re-read state that a
+    /// concurrent EOF or close may have moved on.
+    /// </summary>
+    private sealed class WriteRefusedException(IOResult result, string message) : IOException(message)
+    {
+        public IOResult Result { get; } = result;
+    }
+
+    private void OnMessage(byte[] message)
+    {
+        List<Message> decoded = [];
+        try
+        {
+            // Only the reassembly buffer needs the lock: a data channel delivers messages one at a
+            // time, and decoded messages are handled outside it so nothing awaits under a lock.
+            lock (_receiveLock)
+            {
+                byte[] buffer = _partialFrame.Length == 0 ? message : [.. _partialFrame, .. message];
+                int offset = 0;
+                while (WebRtcFraming.TryDecode(buffer.AsSpan(offset), out Message? frame, out int consumed))
+                {
+                    decoded.Add(frame);
+                    offset += consumed;
+                }
+
+                _partialFrame = offset == buffer.Length ? [] : buffer[offset..];
+            }
+        }
+        catch (Exception ex)
+        {
+            Fail(ex);
+            return;
+        }
+
+        foreach (Message frame in decoded)
+        {
+            Handle(frame);
+        }
+    }
+
+    private void Handle(Message message)
+    {
+        // Payload before flag: a single message may carry both, and those bytes precede the end of
+        // the stream the flag announces.
+        if (message.HasMessage_ && message.Message_.Length != 0)
+        {
+            bool overflowed = false;
+            lock (_sync)
+            {
+                // Decided and written under one lock: taken apart, a concurrent CloseReadAsync
+                // can complete the writer between the two and the resulting TryWrite failure is
+                // misreported as an overflow.
+                if (_readClosed is null && !_finReceived && _failure is null)
+                {
+                    overflowed = !_inbound.Writer.TryWrite(message.Message_.Memory);
+                }
+            }
+
+            if (overflowed)
+            {
+                Fail(new IOException($"Inbound buffer overflow: more than {MaxBufferedInboundFrames} frames are queued."));
+                return;
+            }
+        }
+
+        if (!message.HasFlag)
+        {
+            return;
+        }
+
+        switch (message.Flag)
+        {
+            case Message.Types.Flag.Fin:
+                bool firstFin;
+                lock (_sync)
+                {
+                    firstFin = !_finReceived;
+                    _finReceived = true;
+                }
+
+                // Answer only the first one. The spec does not forbid a peer retransmitting FIN,
+                // so a repeat is ignored rather than treated as a violation -- but replying to
+                // each would let a peer drive one detached task and one send-lock acquisition per
+                // frame it chooses to send.
+                if (!firstFin)
+                {
+                    break;
+                }
+
+                _inbound.Writer.TryComplete();
+                // "If a FIN flag is received the node SHOULD respond with a FIN_ACK."
+                _ = SendFinAckAsync();
+                break;
+
+            case Message.Types.Flag.FinAck:
+                lock (_sync)
+                {
+                    _finAckReceived = true;
+                }
+
+                _finAck.TrySetResult();
+                MaybeCloseChannel();
+                break;
+
+            case Message.Types.Flag.StopSending:
+                // Unlike QUIC, a libp2p WebRTC endpoint "SHOULD NOT send a RESET_STREAM frame in
+                // reply", and the read half stays up so later flags are still acted on.
+                lock (_sync)
+                {
+                    _peerStoppedReading = true;
+                }
+
+                // A peer that discards our data has no delivery left to confirm, and one that
+                // closed the whole stream may be gone before our FIN reaches it. Released whether
+                // the FIN is already out or still to come, so WriteEofAsync never burns its whole
+                // timeout on that FIN_ACK.
+                _finAck.TrySetResult();
+                ReleaseWriter();
+                break;
+
+            case Message.Types.Flag.ResetStream:
+                Fail(new IOException("The stream was reset by the peer."));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The FIN_ACK reply originates in the data channel callback, which cannot await. Failures are
+    /// routed into <see cref="Fail"/> so they surface on the next read or write instead of being
+    /// lost on a detached task.
+    /// </summary>
+    private async Task SendFinAckAsync()
+    {
+        try
+        {
+            await SendFlagAsync(Message.Types.Flag.FinAck, CancellationToken.None);
+            lock (_sync)
+            {
+                _finAckSent = true;
+            }
+
+            MaybeCloseChannel();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex);
+        }
+    }
+
+    private void MaybeCloseChannel()
+    {
+        lock (_sync)
+        {
+            // "When a FIN_ACK and a FIN have been received, the node may close the datachannel."
+            // A FIN_ACK answers a FIN we sent, so _finSent is implied; and the FIN_ACK we owe the
+            // peer must have left before we tear the channel down under it.
+            if (!CanCloseChannel)
+            {
+                return;
+            }
+        }
+
+        _channel.Close();
+    }
+
+    private bool CanCloseChannel => _finSent && _finReceived && _finAckReceived && _finAckSent;
+
+    private void OnChannelClosed()
+    {
+        bool ended;
+        lock (_sync)
+        {
+            // Both halves, not just the peer's. A received FIN ends reading; if the transport then
+            // disappears while this side still has an open write half, the stream has lost its
+            // channel rather than finished, and a caller awaiting it must be told.
+            ended = _failure is not null || (_finReceived && _finSent);
+        }
+
+        if (!ended)
+        {
+            // Completing cleanly here would make a dropped connection indistinguishable from a
+            // peer that half-closed, turning a truncated transfer into silent data loss.
+            Fail(new IOException("The data channel closed before the stream ended."));
+            return;
+        }
+
+        _inbound.Writer.TryComplete();
+        _finAck.TrySetResult();
+        ReleaseWriter();
+    }
+
+    private void ReleaseWriter() => Interlocked.Exchange(ref _drained, null)?.TrySetResult();
+
+    /// <summary>
+    /// Unsubscribes from the channel: without this the channel holds every stream it has ever
+    /// wrapped, and a late callback mutates state the owner considers finished.
+    /// </summary>
+    private void Detach()
+    {
+        if (Interlocked.Exchange(ref _detached, 1) == 1)
+        {
+            return;
+        }
+
+        _channel.MessageReceived -= OnMessage;
+        _channel.BufferedAmountLow -= ReleaseWriter;
+        _channel.Closed -= OnChannelClosed;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Detach();
+        Fail(new IOException("The stream was disposed."));
+        await _deliveryTask;
+        // Deliberately NOT disposing _lifetime, _sendLock or _callerSendLock. Another caller may
+        // be inside Fail and not yet at its _lifetime.Cancel(): disposing the source under it
+        // makes that call throw before the data channel is closed and the Core channel aborted,
+        // and takes away the cancellation that releases anyone queued on the semaphores.
+        // Disposing a SemaphoreSlim does not complete an existing WaitAsync either -- it just
+        // makes the waiter's eventual Release throw. None of the three ever arms a timer or has
+        // its wait handle touched, so there is nothing to leak.
+    }
+
+    private void Fail(Exception error)
+    {
+        TaskCompletionSource? readClosed;
+        lock (_sync)
+        {
+            if (_failure is not null)
+            {
+                return;
+            }
+
+            _failure = error;
+            readClosed = _readClosed;
+        }
+
+        _inbound.Writer.TryComplete();
+        _finAck.TrySetResult();
+        ReleaseWriter();
+
+        // Before closing the channel: a writer queued on the application send lock is woken by
+        // this and nothing else.
+        _lifetime.Cancel();
+        try
+        {
+            _channel.Close();
+        }
+        finally
+        {
+            // Core completion can synchronously invoke a caller that disposes this channel.
+            // Abort also wakes a delivery pump blocked on unread payload and discards that payload.
+            _ = _received.AbortAsync();
+            // Release shared read-close waiters even if the owner is stuck in a native send.
+            readClosed?.TrySetResult();
+        }
+    }
+}

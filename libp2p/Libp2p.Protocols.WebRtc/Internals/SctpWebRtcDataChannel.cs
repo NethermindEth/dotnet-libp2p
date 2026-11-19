@@ -8,7 +8,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 
 /// <summary>
 /// One SCTP stream of a live association, presented as the <see cref="IWebRtcDataChannel"/> slice
-/// <see cref="WebRtcStream"/> consumes. Implementing that interface rather than an adapter on top of
+/// <see cref="WebRtcChannel"/> consumes. Implementing that interface rather than an adapter on top of
 /// it is the whole point: the same stream state machine runs over this in production and over
 /// FakeWebRtcDataChannel in CI, where no DTLS stack is available.
 /// </summary>
@@ -138,7 +138,7 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
     internal void Receive(SctpDataFrame frame)
     {
         // An empty WebRTC message is carried as one padding byte under an *_Empty PPID; forwarding
-        // that byte would corrupt frame reassembly in WebRtcStream.
+        // that byte would corrupt frame reassembly in WebRtcChannel.
         if (frame.PPID is (uint)DataChannelPayloadProtocols.WebRTC_Binary_Empty
                        or (uint)DataChannelPayloadProtocols.WebRTC_String_Empty
             || frame.UserData is not { Length: > 0 })
@@ -155,10 +155,10 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
 
     /// <summary>
     /// Raises <see cref="BufferedAmountLow"/> while the send queue sits below
-    /// <see cref="WebRtcStream.MaxBufferedAmount"/>. SCTP offers no drain notification, so
+    /// <see cref="WebRtcChannel.MaxBufferedAmount"/>. SCTP offers no drain notification, so
     /// <see cref="WebRtcDirectSctpMuxer"/> polls this.
     ///
-    /// INVARIANT: the event must never fire at or above <see cref="WebRtcStream.MaxBufferedAmount"/>.
+    /// INVARIANT: the event must never fire at or above <see cref="WebRtcChannel.MaxBufferedAmount"/>.
     /// A writer parked in WaitForCapacityAsync wakes on it, re-checks <see cref="BufferedAmount"/>
     /// and parks again, so a threshold above that limit would leave it parked forever.
     ///
@@ -168,7 +168,7 @@ internal sealed class SctpWebRtcDataChannel : IWebRtcDataChannel
     /// </summary>
     internal void PollBufferedAmount(long bufferedAmount)
     {
-        if (bufferedAmount < WebRtcStream.MaxBufferedAmount)
+        if (bufferedAmount < WebRtcChannel.MaxBufferedAmount)
         {
             BufferedAmountLow?.Invoke();
         }

@@ -11,7 +11,7 @@ namespace Nethermind.Libp2p.Protocols.Pubsub;
 internal sealed class PeerControlState
 {
     private readonly Dictionary<MessageId, long> unwanted = new(MessageIdComparer.Instance);
-    private readonly Dictionary<MessageId, ResponseState> iwantResponses = new(MessageIdComparer.Instance);
+    private readonly Dictionary<MessageId, ResponseState> iwantResponses = [];
 
     private readonly record struct ResponseState(int Count, long ExpiresAtTick);
 

@@ -119,6 +119,18 @@ public class GossipsubControlLimitsTests
     }
 
     [Test]
+    public async Task Ihave_DoesNotRequestSeenMessages()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings { HeartbeatInterval = int.MaxValue });
+        MessageId seen = setup.Publish([1, 2, 3]);
+        setup.SentRpcs.Clear();
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIhave(setup.Topic, seen.Bytes, [9]));
+
+        Assert.That(GetIwantIds(setup.SentRpcs), Is.EqualTo(new[] { ByteString.CopyFrom([9]) }));
+    }
+
+    [Test]
     public async Task Iwant_UsesRetransmissionAndResponseByteLimits()
     {
         await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
@@ -156,6 +168,52 @@ public class GossipsubControlLimitsTests
         setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(messageId));
 
         Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+    }
+
+    [Test]
+    public async Task Iwant_BoundsInspectedIdsEvenWhenTheyAreRepeatedOrNotCached()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIwantLength = 2,
+        });
+        MessageId first = setup.Publish([1]);
+        MessageId second = setup.Publish([2]);
+        MessageId unknown = new([9]);
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(unknown, unknown, first));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(first, first, second));
+        Assert.That(GetPublishedMessages(setup.SentRpcs).Select(message => message.Data), Is.EqualTo(new[] { ByteString.CopyFrom([1]) }));
+
+        setup.SentRpcs.Clear();
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(second, first));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task Iwant_EnvelopesAfterTheLengthLimitAreNotCounted()
+    {
+        await using RouterSetup setup = await RouterSetup.Create(new PubsubSettings
+        {
+            HeartbeatInterval = int.MaxValue,
+            MaxIwantLength = 1,
+            MaxIwantMessages = 2,
+        });
+        MessageId cached = setup.Publish([1]);
+        setup.SentRpcs.Clear();
+
+        // The first envelope uses up the length limit, so the second is neither read nor counted as an envelope.
+        Rpc rpc = CreateIwant(new MessageId([9]));
+        rpc.Control.Iwant.Add(new ControlIWant { MessageIDs = { ByteString.CopyFrom(cached.Bytes) } });
+        setup.Router.OnRpc(setup.RemotePeerId, rpc);
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Is.Empty);
+
+        setup.Router.OnRpc(setup.RemotePeerId, CreateIwant(cached));
+        Assert.That(GetPublishedMessages(setup.SentRpcs), Has.Count.EqualTo(1));
     }
 
     [Test]
