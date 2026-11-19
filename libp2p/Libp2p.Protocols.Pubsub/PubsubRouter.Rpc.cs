@@ -665,12 +665,6 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
     private bool IsKnownMessage(MessageId messageId) =>
         _pendingValidations.ContainsKey(messageId) || _limboMessageCache.Contains(messageId) || _seenMessages.Contains(messageId);
 
-    // Control messages carry IDs as bytes. Most advertised IDs are already known, so look them up
-    // before creating a MessageId.
-    private bool IsKnownMessage(ReadOnlySpan<byte> messageId) =>
-        _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>().ContainsKey(messageId) ||
-        _seenMessages.Contains(messageId) || _limboMessageCache.Contains(messageId);
-
     /// <returns><see langword="true"/> if an invalid message delivery was recorded.</returns>
     private bool HandleNewMessages(PeerId peerId, IReadOnlyList<Message> messages, MessageId[] messageIds,
         ConcurrentDictionary<PeerId, Rpc> peerMessages,
@@ -986,7 +980,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 continue;
             }
 
-            if (topicMesh.Count >= _settings.HighestDegree)
+            int highestDegree = _settings.HighestDegree;
+            if (!topicMesh.Contains(peerId) && topicMesh.Count >= highestDegree &&
+                (highestDegree <= 0 || !IsOutbound(peerId)))
             {
                 ControlPrune prune = CreatePrune(peerId, graft.TopicID, _settings.PruneBackoff);
                 RefreshBackoff(peerId, graft.TopicID, LocalBackoff(_settings.PruneBackoff));
@@ -1120,6 +1116,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         HashSet<MessageId> messageIds = [];
+        // Both caches use the system clock, so one read serves every ID of the RPC.
+        DateTimeOffset now = _seenMessages.Now;
+        var pending = _pendingValidations.GetAlternateLookup<ReadOnlySpan<byte>>();
         foreach (ControlIHave ihave in ihaves)
         {
             if (!mesh.ContainsKey(ihave.TopicID))
@@ -1131,13 +1130,18 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
             for (int i = 0; i < advertised; i++)
             {
                 ByteString idBytes = ihave.MessageIDs[i];
-                if (!IsKnownMessage(idBytes.Span))
+                ReadOnlySpan<byte> id = idBytes.Span;
+                if (_seenMessages.Contains(id, now) ||
+                    pending.ContainsKey(id) ||
+                    _limboMessageCache.Contains(id, now))
                 {
-                    messageIds.Add(new MessageId(idBytes.ToByteArray()));
-                    if (messageIds.Count == _settings.MaxIHaveLength)
-                    {
-                        break;
-                    }
+                    continue;
+                }
+
+                messageIds.Add(new MessageId(id.ToArray()));
+                if (messageIds.Count == _settings.MaxIHaveLength)
+                {
+                    break;
                 }
             }
 
@@ -1169,10 +1173,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         PeerControlState control = peer.Control;
-        // The cached message found while reading the IDs is kept, so it is looked up once. An ID that is
-        // not cached cannot be answered, so it only counts toward the limit and no MessageId is created for it.
+        // The cached message found while reading the IDs is kept, so it is looked up once. Every listed ID
+        // counts toward the limit, whether it is cached or repeated, so the limit bounds the work of one RPC.
         Dictionary<MessageId, Message> requested = [];
-        int uncached = 0;
+        int read = 0;
         foreach (ControlIWant iwant in iwants)
         {
             if (!control.TryAcceptIwant(_settings.MaxIwantMessages))
@@ -1180,19 +1184,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                 break;
             }
 
-            for (int i = 0; i < iwant.MessageIDs.Count && requested.Count + uncached < _settings.MaxIwantLength; i++)
+            for (int i = 0; i < iwant.MessageIDs.Count && read < _settings.MaxIwantLength; i++, read++)
             {
                 if (_messageCache.TryGet(iwant.MessageIDs[i].Span, out MessageId cachedId, out Message cachedMessage))
                 {
                     requested.TryAdd(cachedId, cachedMessage);
                 }
-                else
-                {
-                    uncached++;
-                }
             }
 
-            if (requested.Count + uncached >= _settings.MaxIwantLength)
+            if (read >= _settings.MaxIwantLength)
             {
                 break;
             }
