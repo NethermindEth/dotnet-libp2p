@@ -57,7 +57,6 @@
         "dyva",
         "evictable",
         "EVP",
-        "finalizers",
         "evenodd",
         "handshaken",
         "hmac",
@@ -108,7 +107,6 @@
         "kademlia",
         "kbucket",
         "keypair",
-        "LASTEXITCODE",
         "letsencrypt",
         "libc",
         "libcrypto",
@@ -247,7 +245,6 @@
         "varint",
         "waitall",
         "wakeup",
-        "warnaserror",
         "webrtc",
         "webtransport",
         "worktree",
@@ -262,7 +259,6 @@
         "zrtp"
     ],
     "ignorePaths": [
-        "libp2p/Nethermind.Channels.Benchmarks/results*/**",
         "**/obj/*",
         "**/bin/*",
         "**/table.csv",

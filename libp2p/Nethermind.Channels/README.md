@@ -102,5 +102,4 @@ ReadOnlySequence<byte> data = read.OrThrow();
 // Consume data before read is disposed.
 ```
 
-See [allocation measurements](../Nethermind.Channels.Benchmarks/README.md) for before/after
-results, historical comparisons, remaining bookkeeping costs, and local throughput.
+The [transport benchmark](../Libp2p.Transport.Benchmarks/README.md) measures local TCP and QUIC throughput.

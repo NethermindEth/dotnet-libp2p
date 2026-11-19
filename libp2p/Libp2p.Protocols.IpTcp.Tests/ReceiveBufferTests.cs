@@ -29,10 +29,10 @@ public class ReceiveBufferTests
         ILogger logger = Substitute.For<ILogger>();
         using ILoggerFactory loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
-        ReceiveTestChannel channel = new();
+        ReceiveTestChannel channel = new() { ReceivePool = pool };
         Task<ReadResult> reading = channel.Upper.ReadAsync(1, token: deadline.Token).AsTask();
 
-        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(loggerFactory, pool), channel, deadline.Token, activity))
+        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(loggerFactory), channel, deadline.Token, activity))
         {
             await pump.Context.Disposed.Task.WaitAsync(deadline.Token);
             Assert.That((await reading.WaitAsync(deadline.Token)).Result, Is.EqualTo(IOResult.Ended));
@@ -85,10 +85,11 @@ public class ReceiveBufferTests
         TrackingReceivePool pool = new();
         ReceiveTestChannel channel = new()
         {
+            ReceivePool = pool,
             Rejection = ending == "rejection" ? IOResult.Ended : null,
             WriteFailure = ending == "failure" ? new InvalidOperationException("Injected write failure") : null,
         };
-        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(null, pool), channel, deadline.Token))
+        await using (TcpPump pump = await TcpPump.StartAsync(listen, new IpTcpProtocol(), channel, deadline.Token))
         {
             await pool.WaitForRentAsync(deadline.Token);
             switch (ending)
@@ -112,9 +113,9 @@ public class ReceiveBufferTests
     {
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(15));
         TrackingReceivePool pool = new();
-        IpTcpProtocol protocol = new(null, pool);
-        ReceiveTestChannel firstChannel = new();
-        ReceiveTestChannel secondChannel = new();
+        IpTcpProtocol protocol = new();
+        ReceiveTestChannel firstChannel = new() { ReceivePool = pool };
+        ReceiveTestChannel secondChannel = new() { ReceivePool = pool };
         byte[] firstExpected;
         byte[] secondExpected;
         await using (TcpPump first = await TcpPump.StartAsync(listen, protocol, firstChannel, deadline.Token))

@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/channels/">
-    <Project Path="Nethermind.Channels.Benchmarks/Nethermind.Channels.Benchmarks.csproj" />
     <Project Path="Nethermind.Channels/Nethermind.Channels.csproj" />
     <Project Path="Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj" />
   </Folder>

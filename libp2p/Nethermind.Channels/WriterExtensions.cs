@@ -27,11 +27,22 @@ public static class WriterExtensions
         int bufferSize, CancellationToken token = default)
         => WriteFromAsync(writer, readAsync, bufferSize, ArrayPool<byte>.Shared, token);
 
-    internal static async ValueTask<IOResult> WriteFromAsync(IWriter writer,
+    internal static ValueTask<IOResult> WriteFromAsync(IWriter writer,
         Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
         int bufferSize, ArrayPool<byte> pool, CancellationToken token = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        return WriteFromAsync(writer.WriteAsync, readAsync, bufferSize, pool, token);
+    }
+
+    // The libp2p adapter supplies its owned write callback so metrics and custom-writer
+    // fallbacks participate in the same pump without another buffer-lifetime implementation.
+    internal static async ValueTask<IOResult> WriteFromAsync(
+        Func<PooledBuffer, int, int, CancellationToken, ValueTask<IOResult>> writeAsync,
+        Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
+        int bufferSize, ArrayPool<byte> pool, CancellationToken token = default,
+        Action<int>? onWrite = null)
+    {
         ArgumentNullException.ThrowIfNull(readAsync);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize);
         PooledBuffer? buffer = null;
@@ -50,8 +61,9 @@ public static class WriterExtensions
                 }
                 if (length == 0) return IOResult.Ok;
 
-                IOResult result = await writer.WriteAsync(buffer, length, offset, token).ConfigureAwait(false);
+                IOResult result = await writeAsync(buffer, length, offset, token).ConfigureAwait(false);
                 if (result != IOResult.Ok) return result;
+                onWrite?.Invoke(length);
 
                 // Acknowledgement happens after the channel acquires any reader leases. Only
                 // this pump can publish new regions, so a sole root link makes reuse safe.
