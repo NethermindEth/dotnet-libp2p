@@ -66,7 +66,10 @@ public class InboundResourceTests
         {
             Assert.That(protocol.InboundLimit, Is.Not.Null, protocol.Id);
             Assert.That(protocol.InboundLimit!.MaxConcurrent, Is.EqualTo(512), protocol.Id);
-            Assert.That(protocol.InboundLimit.MaxPerPeer, Is.EqualTo(64), protocol.Id);
+            // Ping is the one family with a per-peer number of its own: its specification says a
+            // listener "SHOULD accept at most two streams per peer", well under the generic 64.
+            int expectedPerPeer = protocol.Protocol is PingProtocol ? 2 : 64;
+            Assert.That(protocol.InboundLimit.MaxPerPeer, Is.EqualTo(expectedPerPeer), protocol.Id);
         }
         ProtocolRef[] pubsub = protocols.Where(p => p.Protocol is PubsubProtocol).ToArray();
         Assert.That(pubsub, Has.Length.EqualTo(5));
