@@ -44,6 +44,33 @@ public class PeerStoreTests
         Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
     }
 
+    /// <summary>
+    /// A peer that keeps the address it was first seen on and starts listening on another -- QUIC
+    /// beside an existing TCP port -- has to reach the store as the wider set. Discovery callers
+    /// must not pre-filter on one address, which is why this comparison lives here.
+    /// </summary>
+    [Test]
+    public void RediscoveryAddsAnAddressAlongsideTheOneAlreadyKnown()
+    {
+        PeerStore store = new();
+        string peerId = TestPeers.PeerId(1).ToString();
+        Multiaddress tcp = $"/ip4/192.0.2.10/tcp/4001/p2p/{peerId}";
+        Multiaddress quic = $"/ip4/192.0.2.10/udp/4001/quic-v1/p2p/{peerId}";
+        List<Multiaddress[]> announcements = [];
+
+        store.Discover([tcp], isTrusted: false);
+        store.OnNewPeer += announcements.Add;
+        store.Discover([tcp, quic], isTrusted: false);
+
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(1), out var info), Is.True);
+        Assert.That(info!.Addrs, Is.EquivalentTo(new[] { tcp, quic }),
+            "the unchanged first address must not mask the new one");
+
+        // The same set again is a no-op, which is what lets callers re-announce freely.
+        store.Discover([quic, tcp], isTrusted: false);
+        Assert.That(info.Addrs, Is.EquivalentTo(new[] { tcp, quic }));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public void MetadataDoesNotPreventRemoteAddressRefresh(bool publishProtocols)
