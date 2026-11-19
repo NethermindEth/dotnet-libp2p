@@ -20,12 +20,18 @@ public class ControlBenchmarks
     private const int IdLength = 20;
     private const int Ids = 5_000;
 
+    // A repeated-field entry is a tag byte, a length byte and the ID. This many fill an RPC of the default MaxRpcBytes.
+    private const int RepeatedIds = (1024 * 1024 - 16) / (IdLength + 2);
+
     private PubsubRouter router = null!;
     private PubsubRouter.PubsubPeer peer = null!;
     private PeerId peerId = null!;
     private Rpc ihaveKnown = null!;
+    private Rpc ihaveIgnored = null!;
+    private Rpc ihaveUnknown = null!;
     private Rpc iwantKnown = null!;
     private Rpc iwantUnknown = null!;
+    private Rpc iwantRepeated = null!;
     private Rpc idontwant = null!;
 
     [GlobalSetup]
@@ -41,6 +47,7 @@ public class ControlBenchmarks
         Identity sourceIdentity = RouterFixture.Identity(2);
         RouterFixture.Connect(router, sourceIdentity, PubsubRouter.GossipsubProtocolVersionV12, [Topic], 1);
         ControlIHave ihave = new() { TopicID = Topic };
+        ControlIHave ihaveNew = new() { TopicID = Topic };
         ControlIWant iwant = new();
         ControlIWant iwantCached = new();
         for (int i = 0; i < Ids; i++)
@@ -52,12 +59,34 @@ public class ControlBenchmarks
             ihave.MessageIDs.Add(known);
             iwantCached.MessageIDs.Add(known);
             iwant.MessageIDs.Add(Id(Ids + i));
+            ihaveNew.MessageIDs.Add(Id(Ids + i));
         }
         router.FlushOutboundAsync().GetAwaiter().GetResult();
 
+        ControlIHave ihaveLimbo = new() { TopicID = Topic };
+        router.VerifyMessage = static (_, _) => MessageValidity.Ignored;
+        for (int i = 0; i < Ids; i++)
+        {
+            ByteString ignored = Id(2 * Ids + i);
+            Rpc message = new();
+            message.Publish.Add(new Message { Topic = Topic, Data = ignored });
+            router.OnRpcAsync(sourceIdentity.PeerId, message, PubsubRouter.GossipsubProtocolVersionV12).GetAwaiter().GetResult();
+            ihaveLimbo.MessageIDs.Add(ignored);
+        }
+        router.VerifyMessage = null;
+
+        ControlIWant iwantOneId = new();
+        for (int i = 0; i < RepeatedIds; i++)
+        {
+            iwantOneId.MessageIDs.Add(Id(0));
+        }
+
         ihaveKnown = new Rpc { Control = new ControlMessage { Ihave = { ihave } } };
+        ihaveIgnored = new Rpc { Control = new ControlMessage { Ihave = { ihaveLimbo } } };
+        ihaveUnknown = new Rpc { Control = new ControlMessage { Ihave = { ihaveNew } } };
         iwantKnown = new Rpc { Control = new ControlMessage { Iwant = { iwantCached } } };
         iwantUnknown = new Rpc { Control = new ControlMessage { Iwant = { iwant } } };
+        iwantRepeated = new Rpc { Control = new ControlMessage { Iwant = { iwantOneId } } };
         idontwant = new Rpc { Control = new ControlMessage { Idontwant = { new ControlIDontWant { MessageIDs = { Id(0) } } } } };
     }
 
@@ -78,6 +107,24 @@ public class ControlBenchmarks
         return router.OnRpcAsync(peerId, ihaveKnown, PubsubRouter.GossipsubProtocolVersionV12);
     }
 
+    [Benchmark]
+    public Task IhaveIgnoredIds()
+    {
+        peer.Control.ResetHeartbeatCounters(0);
+        return router.OnRpcAsync(peerId, ihaveIgnored, PubsubRouter.GossipsubProtocolVersionV12);
+    }
+
+    // All but one request of the heartbeat budget is spent, so the router reads and collects every
+    // advertised ID but asks for one: the measurement is the lookup, not the IWANT it sends.
+    [Benchmark]
+    public async Task IhaveUnknownIds()
+    {
+        peer.Control.ResetHeartbeatCounters(0);
+        peer.Control.ReserveIHaveRequests(Ids - 1, Ids);
+        await router.OnRpcAsync(peerId, ihaveUnknown, PubsubRouter.GossipsubProtocolVersionV12);
+        await router.FlushOutboundAsync();
+    }
+
     // After the retransmission limit is reached for every ID, the RPC only looks the IDs up.
     [Benchmark]
     public Task IwantKnownIds()
@@ -91,6 +138,14 @@ public class ControlBenchmarks
     {
         peer.Control.ResetHeartbeatCounters(0);
         return router.OnRpcAsync(peerId, iwantUnknown, PubsubRouter.GossipsubProtocolVersionV12);
+    }
+
+    // One cached ID, listed as often as an RPC of the default size allows.
+    [Benchmark]
+    public Task IwantRepeatedId()
+    {
+        peer.Control.ResetHeartbeatCounters(0);
+        return router.OnRpcAsync(peerId, iwantRepeated, PubsubRouter.GossipsubProtocolVersionV12);
     }
 
     [Benchmark]

@@ -39,15 +39,17 @@ public class TtlCacheTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2]), Is.True);
-            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 3]), Is.False);
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2], cache.Now), Is.True);
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 3], cache.Now), Is.False);
         });
 
         clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
 
         Assert.Multiple(() =>
         {
-            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2]), Is.False);
+            // The caller's time decides, not a second look at the clock.
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2], cache.Now.AddMilliseconds(-1)), Is.True);
+            Assert.That(cache.Contains((ReadOnlySpan<byte>)[1, 2], cache.Now), Is.False);
             Assert.That(cache.Count, Is.Zero);
         });
     }
