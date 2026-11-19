@@ -135,7 +135,11 @@ public class PubsubSettings
     /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>
     public int MaxIwantMessages { get; set; } = 10;
 
-    /// <summary>Maximum message IDs accepted from one peer through IWANT during a heartbeat.</summary>
+    /// <summary>Maximum message IDs read from the IWANT envelopes of one RPC. Every listed ID counts, including repeats and IDs that are not cached.</summary>
+    /// <remarks>
+    /// Also caps the distinct IWANT response IDs tracked per peer across RPCs. At capacity, responses
+    /// for new IDs are suppressed until a tracked ID expires after <see cref="mcache_len"/> heartbeats.
+    /// </remarks>
     public int MaxIwantLength { get; set; } = 5_000;
 
     /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>

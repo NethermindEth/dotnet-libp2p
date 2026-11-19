@@ -10,7 +10,7 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 /// <summary>
 /// Turns one SCTP association into libp2p's stream muxer: outbound streams are opened with DCEP,
 /// inbound ones are surfaced as an async stream, and each becomes an
-/// <see cref="IWebRtcDataChannel"/> that <see cref="WebRtcStream"/> can drive.
+/// <see cref="IWebRtcDataChannel"/> that <see cref="WebRtcChannel"/> can drive.
 /// </summary>
 internal sealed class WebRtcDirectSctpMuxer : IAsyncDisposable
 {
