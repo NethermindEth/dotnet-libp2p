@@ -159,7 +159,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         public bool SupportsPeerExchange => Protocol is PubsubProtocol.GossipsubV11 or PubsubProtocol.GossipsubV12 or PubsubProtocol.GossipsubV13;
         public bool SupportsExtensions => Protocol == PubsubProtocol.GossipsubV13;
 
-        public ConnectionInitiation InitiatedBy { get; internal set; }
+        public ConnectionDirection Direction { get; internal set; }
         public Multiaddress Address { get; internal set; } = null!;
 
         public ReconnectionPolicy ReconnectionPolicy { get; }
@@ -253,6 +253,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private readonly IwantPromiseTracker _iwantPromises;
     private readonly Dictionary<MessageId, PendingValidation> _pendingValidations = new(MessageIdComparer.Instance);
     private readonly TimeProvider _timeProvider;
+    // Used only under the router lock; injected Random instances need not be thread-safe.
+    private readonly Random _random;
     private int _pendingValidationBytes;
 
     private sealed record PendingValidation(MessageId Id, Message Original, Message Snapshot, PeerId Source, int Size)
@@ -342,12 +344,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default, TimeProvider? timeProvider = null)
+        : this(store, settings, loggerFactory, timeProvider, Random.Shared)
+    {
+    }
+
+    internal PubsubRouter(PeerStore store, PubsubSettings? settings, ILoggerFactory? loggerFactory, TimeProvider? timeProvider, Random random)
     {
         logger = loggerFactory?.CreateLogger("pubsub-router");
 
         _peerStore = store;
         _settings = settings ?? PubsubSettings.Default;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.OpportunisticGraftTicks);
+        ArgumentOutOfRangeException.ThrowIfNegative(_settings.OpportunisticGraftPeers);
+        _random = random;
         _outboundLimits = new(_settings);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_settings.MaxIncomingMessageIdRpcBytes);
@@ -777,6 +787,20 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private bool IsDirectPeer(PeerId peerId) => directPeers.ContainsKey(peerId);
 
+    private bool IsOutbound(PeerId peerId) => peerState.GetValueOrDefault(peerId)?.Direction == ConnectionDirection.Outbound;
+
+    private IEnumerable<PeerId> GetGraftCandidates(string topic, HashSet<PeerId> meshPeers,
+        HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat, bool outboundOnly = false)
+    {
+        return (gPeers.GetValueOrDefault(topic) ?? [])
+            .Where(p => !meshPeers.Contains(p)
+                && prunedThisHeartbeat?.Contains((topic, p)) != true
+                && !IsDirectPeer(p)
+                && (!outboundOnly || IsOutbound(p))
+                && GetPeerScoreUnderLock(p) >= 0
+                && !IsInBackoff(p, topic));
+    }
+
     private bool IsDirectPeerSubscribedTo(PeerId peerId, string topic)
     {
         return (fPeers.TryGetValue(topic, out HashSet<PeerId>? floodsubPeers) && floodsubPeers.Contains(peerId)) ||
@@ -790,6 +814,13 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     private static void ValidateControlSettings(PubsubSettings settings)
     {
+        if (settings.DOut < 0 || settings.DOut > 0 &&
+            (settings.DOut >= settings.LowestDegree || settings.DOut > settings.Degree / 2))
+        {
+            throw new ArgumentOutOfRangeException(nameof(PubsubSettings.DOut), settings.DOut,
+                "DOut must be zero or a positive integer below LowestDegree and at most Degree / 2 (integer division).");
+        }
+
         if (settings.MaxIHaveMessages <= 0 || settings.MaxIHaveLength <= 0 ||
             settings.MaxIwantMessages <= 0 || settings.MaxIwantLength <= 0 ||
             settings.GossipRetransmission <= 0 || settings.MaxIwantResponseBytes <= 0 ||
@@ -802,6 +833,22 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     internal int IwantPromiseCount => _iwantPromises.Count;
+
+    internal static T[] Sample<T>(IEnumerable<T> candidates, int count, Random random)
+        => SampleOwned(candidates.ToArray(), count, random);
+
+    // Partial Fisher-Yates: choose a uniform subset by shuffling the owned array in place.
+    private static T[] SampleOwned<T>(T[] pool, int count, Random random)
+    {
+        int take = Math.Clamp(count, 0, pool.Length);
+        // The final candidate is forced, so a full shuffle needs only n - 1 draws.
+        for (int i = 0; i < take && i < pool.Length - 1; i++)
+        {
+            int j = random.Next(i, pool.Length);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+        return take == pool.Length ? pool : pool[..take];
+    }
 
     public Task Heartbeat()
     {
@@ -831,11 +878,28 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 logger?.LogDebug("Applied behavioral penalty {penalty} to peer {peerId}", brokenPromises, peerId);
             }
+
+            HashSet<(string Topic, PeerId Peer)>? prunedThisHeartbeat = null;
+            void QueuePrune(PeerId peerId, ControlPrune prune)
+            {
+                (prunedThisHeartbeat ??= []).Add((prune.TopicID, peerId));
+                peerMessages.GetOrAdd(peerId, _ => new Rpc()).Ensure(r => r.Control.Prune).Add(prune);
+            }
+
+            void GraftPeer(string topic, HashSet<PeerId> meshPeers, PeerId peerId)
+            {
+                meshPeers.Add(peerId);
+                RecordPeerJoinMesh(peerId, topic);
+                peerMessages.GetOrAdd(peerId, _ => new Rpc())
+                    .Ensure(r => r.Control.Graft)
+                    .Add(new ControlGraft { TopicID = topic });
+            }
+
             // First, prune peers with negative scores from all meshes (Gossipsub v1.1)
             foreach (KeyValuePair<string, HashSet<PeerId>> meshEntry in mesh)
             {
                 string topic = meshEntry.Key;
-                var negativePeers = meshEntry.Value.Where(p => GetPeerScore(p) < 0).ToList();
+                var negativePeers = meshEntry.Value.Where(p => GetPeerScoreUnderLock(p) < 0).ToList();
                 foreach (var peerId in negativePeers)
                 {
                     logger?.LogDebug("Pruning peer {peerId} from mesh for topic {topic} due to negative score", peerId, topic);
@@ -843,10 +907,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     RecordPeerLeaveMesh(peerId, topic);
 
                     RefreshBackoff(peerId, topic, LocalBackoff(_settings.PruneBackoff));
-                    ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
-                    peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                         .Ensure(r => r.Control.Prune)
-                         .Add(prune);
+                    QueuePrune(peerId, CreatePrune(peerId, topic, _settings.PruneBackoff));
                 }
             }
 
@@ -854,56 +915,48 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             {
                 string topic = meshEntry.Key;
                 HashSet<PeerId> meshPeers = meshEntry.Value;
+                bool meshEnabled = _settings.HighestDegree > 0;
 
-                if (meshPeers.Count < _settings.LowestDegree)
+                if (meshEnabled && meshPeers.Count < _settings.LowestDegree)
                 {
                     // Need to graft more peers - exclude peers with negative scores
-                    PeerId[] peersToGraft = (gPeers.GetValueOrDefault(topic) ?? [])
-                        .Where(p => !meshPeers.Contains(p)
-                            && !IsDirectPeer(p)
-                            && GetPeerScore(p) >= 0  // Only graft non-negative scoring peers
-                            && (peerState.GetValueOrDefault(p)?.Backoff.TryGetValue(topic, out DateTime backoff) != true || backoff <= _timeProvider.GetUtcNow().UtcDateTime))
-                        .Take(_settings.Degree - meshPeers.Count).ToArray();
+                    PeerId[] peersToGraft = Sample(GetGraftCandidates(topic, meshPeers, prunedThisHeartbeat),
+                        _settings.Degree - meshPeers.Count, _random);
 
                     foreach (PeerId peerId in peersToGraft)
                     {
-                        meshPeers.Add(peerId);
-                        RecordPeerJoinMesh(peerId, topic);
-                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                            .Ensure(r => r.Control.Graft)
-                            .Add(new ControlGraft { TopicID = topic });
+                        GraftPeer(topic, meshPeers, peerId);
                     }
                 }
                 else if (meshPeers.Count > _settings.HighestDegree)
                 {
-                    // Need to prune - keep best scoring peers (Gossipsub v1.1)
-                    int numToPrune = meshPeers.Count - _settings.HighestDegree;
+                    // HighestDegree triggers pruning. Degree is the survivor target, capped
+                    // by HighestDegree for configurations with inverted bounds.
+                    int targetDegree = Math.Clamp(_settings.Degree, 0, Math.Max(0, _settings.HighestDegree));
+                    PeerId[] shuffledPeers = Sample(meshPeers, meshPeers.Count, _random);
+                    List<PeerId> kept = GetBestScoringPeers(shuffledPeers, Math.Min(_settings.DScore, targetDegree));
 
-                    // Get D_score best peers
-                    var bestPeers = GetBestScoringPeers(meshPeers, _settings.DScore).ToHashSet();
-
-                    // Ensure we have D_out outbound connections
-                    var outboundPeers = meshPeers
-                        .Where(p => peerState.GetValueOrDefault(p)?.InitiatedBy == ConnectionInitiation.Local)
-                        .Take(_settings.DOut)
-                        .ToHashSet();
-
-                    // Peers to keep: best scores + outbound quota + random
-                    var peersToKeep = bestPeers.Union(outboundPeers).ToHashSet();
-
-                    // Fill remaining spots randomly
-                    int remaining = _settings.HighestDegree - peersToKeep.Count;
+                    // Draw independently of the shuffle used to break score ties.
+                    int remaining = targetDegree - kept.Count;
                     if (remaining > 0)
                     {
-                        var candidates = meshPeers.Except(peersToKeep).ToList();
-                        foreach (var peer in candidates.OrderBy(_ => Random.Shared.Next()).Take(remaining))
+                        kept.AddRange(Sample(meshPeers.Except(kept), remaining, _random));
+                    }
+
+                    int missingOutbound = Math.Clamp(_settings.DOut, 0, kept.Count) - kept.Count(IsOutbound);
+                    if (missingOutbound > 0)
+                    {
+                        // Replace random picks before the lowest-scoring protected peers.
+                        int replaceIndex = kept.Count - 1;
+                        foreach (PeerId outbound in Sample(meshPeers.Where(IsOutbound).Except(kept), missingOutbound, _random))
                         {
-                            peersToKeep.Add(peer);
+                            while (IsOutbound(kept[replaceIndex])) replaceIndex--;
+                            kept[replaceIndex--] = outbound;
                         }
                     }
 
                     // Prune the rest
-                    var peersToPrune = meshPeers.Except(peersToKeep).ToList();
+                    var peersToPrune = meshPeers.Except(kept).ToList();
 
                     foreach (PeerId peerId in peersToPrune)
                     {
@@ -914,10 +967,10 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                         ControlPrune prune = CreatePrune(peerId, topic, _settings.PruneBackoff);
 
                         // Only include PX if peer has non-negative score
-                        if (peerState.GetValueOrDefault(peerId)?.SupportsPeerExchange is true && GetPeerScore(peerId) >= 0)
+                        if (peerState.GetValueOrDefault(peerId)?.SupportsPeerExchange is true && GetPeerScoreUnderLock(peerId) >= 0)
                         {
                             prune.Peers.AddRange(meshPeers
-                                .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange peers with non-negative scores
+                                .Where(pid => GetPeerScoreUnderLock(pid) >= 0)  // Only exchange peers with non-negative scores
                                 .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
                                 .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
                                 .Where(pid => pid.Record is not null)
@@ -928,9 +981,41 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                                 }));
                         }
 
-                        peerMessages.GetOrAdd(peerId, _ => new Rpc())
-                             .Ensure(r => r.Control.Prune)
-                             .Add(prune);
+                        QueuePrune(peerId, prune);
+                    }
+                }
+
+                if (meshEnabled && _settings.DOut > 0 && meshPeers.Count >= _settings.LowestDegree)
+                {
+                    int missingOutbound = _settings.DOut - meshPeers.Count(IsOutbound);
+                    if (missingOutbound > 0)
+                    {
+                        foreach (PeerId peerId in GetGraftCandidates(topic, meshPeers, prunedThisHeartbeat, outboundOnly: true)
+                            .Take(missingOutbound).ToArray())
+                        {
+                            GraftPeer(topic, meshPeers, peerId);
+                        }
+                    }
+                }
+            }
+
+            if (_settings.HighestDegree > 0 && _settings.OpportunisticGraftPeers > 0 &&
+                (heartbeatTick + 1) % _settings.OpportunisticGraftTicks == 0)
+            {
+                // Pruning on any topic can lower a peer's total score through its mesh failure penalty.
+                // Score peers only after every topic has finished routine maintenance.
+                Dictionary<PeerId, double>? opportunisticScores = null;
+                foreach ((string topic, HashSet<PeerId> meshPeers) in mesh)
+                {
+                    if (meshPeers.Count <= 1) continue;
+
+                    opportunisticScores ??= [];
+
+                    foreach (PeerId peerId in GetOpportunisticGraftPeers(topic, meshPeers, opportunisticScores, prunedThisHeartbeat))
+                    {
+                        GraftPeer(topic, meshPeers, peerId);
+                        // Joining can change the score used by a later topic.
+                        opportunisticScores.Remove(peerId);
                     }
                 }
             }
@@ -944,15 +1029,15 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 }
                 else
                 {
-                    int peerCountToAdd = _settings.Degree - fanout[fanoutTopic].Count;
+                    HashSet<PeerId> fanoutPeers = fanout[fanoutTopic];
+                    HashSet<PeerId> topicPeers = gPeers.GetValueOrDefault(fanoutTopic) ?? [];
+                    fanoutPeers.RemoveWhere(p => !topicPeers.Contains(p) || IsDirectPeer(p) || !MeetsPublishThreshold(p));
+
+                    int peerCountToAdd = _settings.Degree - fanoutPeers.Count;
                     if (peerCountToAdd > 0)
                     {
-                        foreach (PeerId? peerId in (gPeers.GetValueOrDefault(fanoutTopic) ?? [])
-                            .Where(p => !fanout[fanoutTopic].Contains(p) && !IsDirectPeer(p))
-                            .Take(peerCountToAdd))
-                        {
-                            fanout[fanoutTopic].Add(peerId);
-                        }
+                        fanoutPeers.UnionWith(Sample(topicPeers.Where(p =>
+                            !fanoutPeers.Contains(p) && !IsDirectPeer(p) && MeetsPublishThreshold(p)), peerCountToAdd, _random));
                     }
                 }
             }
@@ -982,12 +1067,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                     .Where(p => !topicMesh.Contains(p)
                         && !fanoutPeers.Contains(p)
                         && !IsDirectPeer(p)
-                        && GetPeerScore(p) >= _settings.GossipThreshold)
+                        && GetPeerScoreUnderLock(p) >= _settings.GossipThreshold)
                     .ToArray();
 
                 // Adaptive gossip: send to gossip_factor of eligible peers (min D_lazy).
                 int gossipCount = Math.Max(_settings.LazyDegree, (int)(eligiblePeers.Length * _settings.GossipFactor));
-                PeerId[] gossipPeers = eligiblePeers.Take(gossipCount).ToArray();
+                PeerId[] gossipPeers = SampleOwned(eligiblePeers, gossipCount, _random);
 
                 if (partialMessageGroupIds.Count > 0)
                 {
@@ -1060,6 +1145,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             double score = ScoreOf(peer);
             if (((ICollection<KeyValuePair<PeerId, PubsubPeer>>)peerState).Remove(new KeyValuePair<PeerId, PubsubPeer>(peerId, peer)))
             {
+                UpdateIpColocationCount(peer.Score.IPAddress, -1);
+                UpdateIpColocationCount(peer.Score.IPColocationSubnet, -1);
                 KeepDisconnectedScore(peerId, peer.Score, score);
                 RemoveRemoteSubscriptions(peer);
                 foreach (var peersByTopic in new[] { fanout, mesh })
@@ -1082,7 +1169,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     internal CancellationToken Stopped => _stopped.Token;
 
     internal PubsubPeer? OutboundConnection(Multiaddress addr, string protocolId, Task dialTask,
-        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>> write, Func<ValueTask> abort, Func<Task> disconnect)
+        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<IOResult>> write, Func<ValueTask> abort, Func<Task> disconnect,
+        ConnectionDirection direction = ConnectionDirection.Unknown)
     {
         PeerId? peerId = addr.GetPeerId();
         lock (this)
@@ -1090,8 +1178,9 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             if (peerId is null || _stopped.IsCancellationRequested) return null;
             ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
             if (policy.Suppressed) return null;
-            PubsubPeer peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Local, disconnect);
+            PubsubPeer peer = GetOrCreatePeer(peerId, addr, protocolId, policy, direction, disconnect);
             if (!peer.AttachWriter(write, abort)) return null;
+            if (peer.Direction != direction) peer.Direction = ConnectionDirection.Unknown;
             policy.RemainingRetries = null;
             if (outboundDials.Remove(peerId, out OutboundDialAttempt? attempt)) attempt.Reply = null;
             _ = dialTask.ContinueWith(_ => RemovePeer(peerId, addr, peer), TaskScheduler.Default);
@@ -1104,7 +1193,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     internal (CancellationToken Token, Action SuppressReconnection) InboundConnection(Multiaddress addr, string protocolId,
-        Task listTask, Func<Task> subDial, Func<Task> disconnect)
+        Task listTask, Func<Task> subDial, Func<Task> disconnect, ConnectionDirection direction = ConnectionDirection.Unknown)
     {
         PeerId? peerId = addr.GetPeerId();
         PubsubPeer peer;
@@ -1116,7 +1205,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 return (Canceled, static () => { });
             ReconnectionPolicy policy = GetReconnectionPolicy(peerId);
             if (policy.Suppressed) return (Canceled, static () => { });
-            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, ConnectionInitiation.Remote, disconnect);
+            peer = GetOrCreatePeer(peerId, addr, protocolId, policy, direction, disconnect);
+            if (peer.Direction != direction) peer.Direction = ConnectionDirection.Unknown;
             outbound = ReserveOutbound(peerId);
             if (outbound is not null)
             {
@@ -1161,25 +1251,23 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     }
 
     private PubsubPeer GetOrCreatePeer(PeerId peerId, Multiaddress addr, string protocolId, ReconnectionPolicy policy,
-        ConnectionInitiation initiation, Func<Task> disconnect)
+        ConnectionDirection direction, Func<Task> disconnect)
     {
         if (peerState.TryGetValue(peerId, out PubsubPeer? existing)) return existing;
-        PubsubPeer peer = WithRetainedScore(new PubsubPeer(this, peerId, protocolId, _settings, policy, disconnect)
-        { Address = addr, InitiatedBy = initiation }, out RetainedScore? restored);
+        PubsubPeer peer = new(this, peerId, protocolId, _settings, policy, disconnect)
+        { Address = addr, Direction = direction };
+        (peer.Score.IPAddress, peer.Score.IPColocationSubnet) = IpColocation.GetKeys(addr, _settings.IPColocationFactorWhitelist);
+        peer = WithRetainedScore(peer, out RetainedScore? restored);
         peer.DeadlineTimer = _timeProvider.CreateTimer(_ => ExpireOutbound(peer), null,
             Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         peer.Teardown = TeardownPeerAsync(peer);
         peer.Completion = RunWriterAsync(peer);
         Track(peer.Completion);
+        UpdateIpColocationCount(peer.Score.IPAddress, 1);
+        UpdateIpColocationCount(peer.Score.IPColocationSubnet, 1);
         peerState[peerId] = peer;
         policy.RemainingRetries = null;
         if (restored is not null) ForgetRetainedScore(peerId, restored);
         return peer;
     }
-}
-
-internal enum ConnectionInitiation
-{
-    Local,
-    Remote,
 }

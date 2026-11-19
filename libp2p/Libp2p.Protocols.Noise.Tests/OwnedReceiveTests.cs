@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Reflection;
+using System.Security.Cryptography;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using Noise;
@@ -54,11 +55,7 @@ public class OwnedReceiveTests
             // ciphertext before waiting for that consumer, including on failure.
             await pool.AllReturned.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.That(owners.All(owner => owner.RefCount == 0), Is.True);
-            if (corruptCiphertext)
-            {
-                await pump.WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            else
+            if (!corruptCiphertext)
             {
                 using ReadResult read = await up.Reverse().ReadOwnedAsync(expected.Length);
                 Assert.That(read.OrThrow().ToArray(), Is.EqualTo(expected));
@@ -68,7 +65,10 @@ public class OwnedReceiveTests
         {
             await down.CloseAsync();
             await up.CloseAsync();
-            await pump.WaitAsync(TimeSpan.FromSeconds(5));
+            if (corruptCiphertext)
+                Assert.ThrowsAsync<CryptographicException>(async () => await pump.WaitAsync(TimeSpan.FromSeconds(5)));
+            else
+                await pump.WaitAsync(TimeSpan.FromSeconds(5));
         }
     }
 

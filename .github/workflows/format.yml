@@ -8,7 +8,7 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     env:
-      WORKING_DIR: libp2p
+      WORKING_DIR: .
     steps:
 
       - name: Check out repository

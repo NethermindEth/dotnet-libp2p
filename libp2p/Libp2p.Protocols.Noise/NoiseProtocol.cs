@@ -45,8 +45,10 @@ public class NoiseProtocol : IConnectionProtocol
 
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
+    private const int TagSize = 16;
+
     /// <summary>Plaintext carried by one Noise message: the transport message limit less its 16-byte tag.</summary>
-    private const int MaxPlaintextPerMessage = Protocol.MaxMessageLength - 16;
+    private const int MaxPlaintextPerMessage = Protocol.MaxMessageLength - TagSize;
 
     public async Task DialAsync(IChannel downChannel, IConnectionContext context)
     {
@@ -311,7 +313,7 @@ public class NoiseProtocol : IConnectionProtocol
                     }
 
                     ReadOnlySequence<byte> data = dataReadResult.Data;
-                    buffer = new byte[2 + 16 + data.Length];
+                    buffer = new byte[2 + TagSize + data.Length];
                     bytesWritten = transport.WriteMessage(data.IsSingleSegment ? data.FirstSpan : data.ToArray(), buffer.AsSpan(2));
                 }
 
@@ -354,6 +356,11 @@ public class NoiseProtocol : IConnectionProtocol
                     }
                 }
 
+                if (length < TagSize)
+                {
+                    throw new Libp2pException("Noise transport record is shorter than its authentication tag.");
+                }
+
                 byte[] buffer;
                 int bytesRead;
                 using (ReadResult dataReadResult = await downChannel.ReadOwnedAsync(length, token: token))
@@ -364,7 +371,7 @@ public class NoiseProtocol : IConnectionProtocol
                         // EOF inside an encrypted record is truncation, not an orderly boundary.
                         return false;
                     }
-                    buffer = new byte[length - 16];
+                    buffer = new byte[length - TagSize];
                     ReadOnlySequence<byte> data = dataReadResult.Data;
                     bytesRead = transport.ReadMessage(data.IsSingleSegment ? data.FirstSpan : data.ToArray(), buffer);
                 }
@@ -381,11 +388,12 @@ public class NoiseProtocol : IConnectionProtocol
             }
         });
 
+        Task pumps = Task.WhenAll((Task)upToDown, downToUp);
         bool orderly = false;
         try
         {
             Task<bool> completed = await Task.WhenAny(upToDown, downToUp);
-            orderly = completed.IsCompletedSuccessfully && completed.Result && !connectionToken.IsCancellationRequested;
+            orderly = await completed && !connectionToken.IsCancellationRequested;
         }
         finally
         {
@@ -405,8 +413,11 @@ public class NoiseProtocol : IConnectionProtocol
             finally
             {
                 lifetime.Cancel();
-                await ((Task)Task.WhenAll(upToDown, downToUp)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                await pumps.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
         }
+
+        // A sibling can fault during shutdown even if the first pump ended normally.
+        await pumps;
     }
 }

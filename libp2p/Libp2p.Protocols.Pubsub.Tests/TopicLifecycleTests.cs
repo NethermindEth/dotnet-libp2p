@@ -136,7 +136,7 @@ public class TopicLifecycleTests
     public async Task PublishOnlyTopic_ContinuesGossiping()
     {
         const string topicName = "topic-lifecycle";
-        PubsubSettings settings = new() { Degree = 1, LazyDegree = 1, GossipFactor = 1 };
+        PubsubSettings settings = new() { Degree = 1, DOut = 0, LazyDegree = 1, GossipFactor = 1 };
         PubsubRouter router = new(new PeerStore(), settings);
         await router.StartAsync(new LocalPeerStub(), new CancellationToken(true));
         IRoutingStateContainer state = router;

@@ -96,6 +96,9 @@ public class Channel : IChannel
 
     private void TryComplete()
     {
+        // Publish this direction's EOF before observing the other direction. If both finish
+        // concurrently, at least one observer must see both ends.
+        Thread.MemoryBarrier();
         if (_reader._eow && _writer._eow) Completion.TrySetResult();
     }
 
@@ -188,6 +191,17 @@ public class Channel : IChannel
             ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+            // An exact read of no bytes needs no data or read lock, even after clean EOF/close.
+            // Abort and caller cancellation still apply; other zero-length modes read available data.
+            if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+            {
+                if (Volatile.Read(ref _aborted) != 0)
+                    return ReadResult.Aborted;
+
+                return token.IsCancellationRequested ? ReadResult.Cancelled : ReadResult.Empty;
+            }
+
             bool readLockTaken = false;
             ReadBuffer accumulated = default;
             try
@@ -195,7 +209,6 @@ public class Channel : IChannel
                 await _readLock.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 readLockTaken = true;
                 if (_eow) return ClosedReadResult;
-                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll) return ReadResult.Empty;
 
                 if (blockingMode == ReadBlockingMode.DoNotWait)
                 {

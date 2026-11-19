@@ -11,6 +11,7 @@ using SharedReadResult = Nethermind.Channels.ReadResult;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.WebRtc")]
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
 [assembly: InternalsVisibleTo("Libp2p.E2eTests")]
 
@@ -20,20 +21,29 @@ namespace Nethermind.Libp2p.Core;
 public class Channel : IChannel
 {
     private readonly SharedChannel _channel;
+    private readonly ReaderWriter _reader;
+    private readonly ReaderWriter _writer;
     private IChannel? _reversedChannel;
 
-    public Channel() : this(new SharedChannel()) { }
+    public Channel() : this(countInboundWritesAsSent: true) { }
 
-    private Channel(SharedChannel channel)
+    internal Channel(bool countInboundWritesAsSent)
     {
-        _channel = channel;
-        Reader = new ReaderWriter((SharedChannel.ReaderWriter)channel.Reader);
-        Writer = new ReaderWriter((SharedChannel.ReaderWriter)channel.Writer);
+        _channel = new SharedChannel();
+        _reader = new ReaderWriter((SharedChannel.ReaderWriter)_channel.Reader, countInboundWritesAsSent);
+        _writer = new ReaderWriter((SharedChannel.ReaderWriter)_channel.Writer);
     }
 
-    public IChannel Reverse => _reversedChannel ??= new Channel((SharedChannel)_channel.Reverse) { _reversedChannel = this };
-    public IReader Reader { get; }
-    public IWriter Writer { get; }
+    private Channel(SharedChannel channel, ReaderWriter reader, ReaderWriter writer)
+    {
+        _channel = channel;
+        _reader = reader;
+        _writer = writer;
+    }
+
+    public IChannel Reverse => _reversedChannel ??= new Channel((SharedChannel)_channel.Reverse, _writer, _reader) { _reversedChannel = this };
+    public IReader Reader => _reader;
+    public IWriter Writer => _writer;
 
     public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default) => Reader.ReadAsync(length, blockingMode, token);
@@ -62,11 +72,16 @@ public class Channel : IChannel
 
     internal sealed class ReaderWriter : IReader, IWriter
     {
+        private readonly bool _countSent;
         internal SharedChannel.ReaderWriter Inner { get; }
         internal bool _eow => Inner.IsWriteEnded;
 
         public ReaderWriter() : this(new SharedChannel.ReaderWriter()) { }
-        internal ReaderWriter(SharedChannel.ReaderWriter inner) => Inner = inner;
+        internal ReaderWriter(SharedChannel.ReaderWriter inner, bool countSent = true)
+        {
+            Inner = inner;
+            _countSent = countSent;
+        }
         internal bool TryWriteEof() => Inner.TryWriteEof();
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -120,16 +135,18 @@ public class Channel : IChannel
         public async ValueTask<IOResult> WriteFromAsync(Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
             int bufferSize, CancellationToken token = default)
             => (IOResult)await WriterExtensions.WriteFromAsync(Inner.WriteAsync, readAsync, bufferSize,
-                ArrayPool<byte>.Shared, token, static length => RecordWrite(Channels.IOResult.Ok, length)).ConfigureAwait(false);
+                ArrayPool<byte>.Shared, token, _countSent ? static length => RecordSent(length) : null).ConfigureAwait(false);
 
-        private static IOResult RecordWrite(Channels.IOResult result, long length)
+        private IOResult RecordWrite(Channels.IOResult result, long length)
         {
-            if (result == Channels.IOResult.Ok && length != 0)
-            {
-                Libp2pMetrics.DataSentBytes.Add(length);
-                Libp2pMetrics.DataSentPackets.Add(1);
-            }
+            if (_countSent && result == Channels.IOResult.Ok && length != 0) RecordSent(length);
             return (IOResult)result;
+        }
+
+        private static void RecordSent(long length)
+        {
+            Libp2pMetrics.DataSentBytes.Add(length);
+            Libp2pMetrics.DataSentPackets.Add(1);
         }
 
         public async ValueTask<IOResult> WriteEofAsync(CancellationToken token = default)

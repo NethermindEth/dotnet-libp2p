@@ -47,14 +47,20 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
 
     public bool Contains(TKey key) => TryGet(key, out _);
 
-    /// <summary>Looks a key up by an alternate form that the cache comparer supports, without creating the key.</summary>
-    public bool Contains<TAlternate>(TAlternate key) where TAlternate : notnull, allows ref struct
+    /// <summary>The current time of the cache's clock.</summary>
+    public DateTimeOffset Now => timeProvider.GetUtcNow();
+
+    /// <summary>
+    /// Looks a key up by an alternate form that the cache comparer supports, without creating the key.
+    /// The caller passes <see cref="Now"/>, so a batch of lookups reads the clock once.
+    /// </summary>
+    public bool Contains<TAlternate>(TAlternate key, DateTimeOffset now) where TAlternate : notnull, allows ref struct
     {
         lock (sync)
         {
             if (items.GetAlternateLookup<TAlternate>().TryGetValue(key, out TKey? actualKey, out CachedItem cachedItem))
             {
-                if (cachedItem.ValidTill > timeProvider.GetUtcNow())
+                if (cachedItem.ValidTill > now)
                 {
                     return true;
                 }

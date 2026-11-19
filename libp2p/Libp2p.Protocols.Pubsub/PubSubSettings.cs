@@ -4,6 +4,7 @@
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using Multiformats.Address;
+using System.Net;
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
@@ -134,7 +135,11 @@ public class PubsubSettings
     /// <summary>Maximum IWANT envelopes accepted from one peer during a heartbeat.</summary>
     public int MaxIwantMessages { get; set; } = 10;
 
-    /// <summary>Maximum message IDs accepted from one peer through IWANT during a heartbeat.</summary>
+    /// <summary>Maximum message IDs read from the IWANT envelopes of one RPC. Every listed ID counts, including repeats and IDs that are not cached.</summary>
+    /// <remarks>
+    /// Also caps the distinct IWANT response IDs tracked per peer across RPCs. At capacity, responses
+    /// for new IDs are suppressed until a tracked ID expires after <see cref="mcache_len"/> heartbeats.
+    /// </remarks>
     public int MaxIwantLength { get; set; } = 5_000;
 
     /// <summary>Maximum responses to the same IWANT message ID for one peer while it is cached.</summary>
@@ -196,6 +201,12 @@ public class PubsubSettings
     public double AcceptPXThreshold { get; set; } = 100;
     public double OpportunisticGraftThreshold { get; set; } = 5;
 
+    /// <summary>Heartbeats between opportunistic grafting checks. Must be positive; configure before constructing the router.</summary>
+    public int OpportunisticGraftTicks { get; set; } = 60;
+
+    /// <summary>Maximum peers grafted per topic by each opportunistic check. Zero disables opportunistic grafting.</summary>
+    public int OpportunisticGraftPeers { get; set; } = 2;
+
     // Score Decay
     public int DecayInterval { get; set; } = 1000; // 1 second
     public double DecayToZero { get; set; } = 0.01;
@@ -215,7 +226,14 @@ public class PubsubSettings
     public int MaxRetainedScores { get; set; } = 10_000;
 
     // Mesh Management
+    /// <summary>Number of highest scoring peers protected when pruning to Degree, subject to DOut.</summary>
     public int DScore { get; set; } = 5;
+    /// <summary>
+    /// Minimum outbound transport connections to retain or graft in each mesh when available.
+    /// Zero disables the quota. A positive quota must be below <see cref="LowestDegree"/>
+    /// and at most <see cref="Degree"/> / 2 using integer division, as specified by Gossipsub v1.1.
+    /// The router checks these bounds at construction.
+    /// </summary>
     public int DOut { get; set; } = 2;
     public int PruneBackoff { get; set; } = 60 * 1000; // 1 minute
 
@@ -233,6 +251,12 @@ public class PubsubSettings
     public double AppSpecificWeight { get; set; } = 10;
     public double IPColocationFactorWeight { get; set; } = -35;
     public double IPColocationFactorThreshold { get; set; } = 10;
+    /// <summary>
+    /// IP networks exempt from colocation counting and penalties. Configure before connecting peers.
+    /// Private addresses count unless exempted; IPv4-mapped IPv6 addresses use IPv4 networks.
+    /// Use <see cref="AddIPColocationWhitelist"/> to configure entries from CIDR strings.
+    /// </summary>
+    public List<IPNetwork> IPColocationFactorWhitelist { get; set; } = [];
     public double BehaviorPenaltyWeight { get; set; } = -15;
     public double BehaviorPenaltyDecay { get; set; } = 0.99;
 
@@ -242,6 +266,13 @@ public class PubsubSettings
     public Dictionary<string, TopicScoreParams> TopicScoreParams { get; set; } = new();
 
     public double TopicScoreCap { get; set; } = 3600;
+
+    /// <summary>
+    /// Parses and adds a CIDR network, such as <c>10.0.0.0/8</c>, to
+    /// <see cref="IPColocationFactorWhitelist"/>. Configure before connecting peers.
+    /// </summary>
+    /// <exception cref="FormatException">The string is not a valid CIDR network.</exception>
+    public void AddIPColocationWhitelist(string cidr) => IPColocationFactorWhitelist.Add(IPNetwork.Parse(cidr));
 
     public static MessageId ConcatFromAndSeqno(Message message) => new([.. message.From, .. message.Seqno]);
 }

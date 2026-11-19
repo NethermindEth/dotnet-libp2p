@@ -7,4 +7,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(SolutionFileName)' == 'Tests.slnx' Or '$(SolutionFileName)' == 'Samples.slnx'">
+    <!-- Keep the selected configuration and platform for references outside these solutions. -->
+    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
+  </PropertyGroup>
 </Project>
