@@ -9,9 +9,9 @@ namespace Nethermind.Libp2p.Protocols.WebRtc.Internals;
 /// Drives <see cref="SctpWebRtcDataChannel.PollBufferedAmount"/> for a set of channels on one SCTP
 /// association.
 /// <para>
-/// SCTP gives no send-buffer drain notification, so <see cref="WebRtcStream"/>'s parked writer is
+/// SCTP gives no send-buffer drain notification, so <see cref="WebRtcChannel"/>'s parked writer is
 /// woken by polling, and a channel with nobody polling it never resumes: the writer stops at
-/// <see cref="WebRtcStream.MaxBufferedAmount"/> and stays there until the caller's own timeout.
+/// <see cref="WebRtcChannel.MaxBufferedAmount"/> and stays there until the caller's own timeout.
 /// That is not a hypothetical -- a dialled stream was given a channel without a poller and a 1 MiB
 /// transfer stalled after 32 KiB. Owning this separately is what stops the driver being forgotten
 /// the next time one of these channels is created somewhere new.
