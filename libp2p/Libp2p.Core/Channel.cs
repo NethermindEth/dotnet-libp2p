@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core.Metrics;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.TestsBase")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Tests")]
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Core.Benchmarks")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.WebRtc")]
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
 [assembly: InternalsVisibleTo("Libp2p.E2eTests")]
 
@@ -21,8 +22,13 @@ public class Channel : IChannel
     private TaskCompletionSource Completion = new();
 
     public Channel()
+        : this(countInboundWritesAsSent: true)
     {
-        _reader = new ReaderWriter(this);
+    }
+
+    internal Channel(bool countInboundWritesAsSent)
+    {
+        _reader = new ReaderWriter(this, countInboundWritesAsSent);
         _writer = new ReaderWriter(this);
     }
 
@@ -103,6 +109,9 @@ public class Channel : IChannel
 
     private void TryComplete()
     {
+        // Publish this direction's EOF before observing the other direction. If both finish
+        // concurrently, at least one observer must see both ends.
+        Thread.MemoryBarrier();
         if (_reader._eow && _writer._eow)
         {
             Completion.TrySetResult();
@@ -119,9 +128,10 @@ public class Channel : IChannel
         /// <summary>The reader released a published chunk by discarding it at teardown, not by consuming it.</summary>
         private const int WriteDiscarded = 8;
 
-        internal protected ReaderWriter(Channel tryComplete)
+        internal protected ReaderWriter(Channel tryComplete, bool countSent = true)
         {
             _externalCompletionMonitor = tryComplete;
+            _countSent = countSent;
         }
 
         public ReaderWriter()
@@ -135,6 +145,7 @@ public class Channel : IChannel
         private readonly SemaphoreSlim _readLock = new(1, 1);
         private readonly CancellationTokenSource _closed = new();
         private readonly Channel? _externalCompletionMonitor;
+        private readonly bool _countSent = true;
         internal volatile bool _eow = false;
         private int _aborted;
         private int _state;
@@ -187,6 +198,16 @@ public class Channel : IChannel
         {
             ArgumentOutOfRangeException.ThrowIfNegative(length);
 
+            // An exact read of no bytes needs no data or read lock, even after clean EOF/close.
+            // Abort and caller cancellation still apply; other zero-length modes read available data.
+            if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
+            {
+                if (Volatile.Read(ref _aborted) != 0)
+                    return ReadResult.Aborted;
+
+                return token.IsCancellationRequested ? ReadResult.Cancelled : ReadResult.Ok(default);
+            }
+
             using CancellationTokenSource? linked = LinkToken(token);
             CancellationToken waitToken = linked?.Token ?? _closed.Token;
             bool readLockTaken = false;
@@ -204,15 +225,6 @@ public class Channel : IChannel
                 if (canReadTaken && !_canRead.Wait(0))
                 {
                     return _eow ? ClosedReadResult : ReadResult.Empty;
-                }
-
-                // Handle zero-length reads immediately to avoid deadlock with empty protobuf messages
-                // WriteAsync returns early for zero-length writes without signaling _canRead
-                // Only apply this optimization for WaitAll mode (exact length reads)
-                // For WaitAny mode (ReadAllAsync), we need to wait for actual data
-                if (length == 0 && blockingMode == ReadBlockingMode.WaitAll)
-                {
-                    return ReadResult.Ok(default);
                 }
 
                 if (!canReadTaken)
@@ -413,8 +425,11 @@ public class Channel : IChannel
                     return ClosedIoResult;
                 }
 
-                Libp2pMetrics.DataSentBytes.Add(bytes.Length);
-                Libp2pMetrics.DataSentPackets.Add(1);
+                if (_countSent)
+                {
+                    Libp2pMetrics.DataSentBytes.Add(bytes.Length);
+                    Libp2pMetrics.DataSentPackets.Add(1);
+                }
                 return IOResult.Ok;
             }
             catch (OperationCanceledException)
