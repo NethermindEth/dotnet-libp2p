@@ -6,7 +6,7 @@ The sample uses a minimal transport stack with only `/perf/1.0.0` at the applica
 
 ## Prerequisites
 
-This sample requires Redis for coordination between dialer and listener instances.
+The environment-variable mode requires Redis for coordination between dialer and listener instances.
 
 **Start Redis before running the application:**
 
@@ -62,10 +62,12 @@ When started with `--` flags, the sample follows the libp2p test-plans perf cont
 | Flag | Description |
 |------|-------------|
 | `--run-server` | Run as the perf server. Never exits; stop it with Ctrl+C. |
-| `--server-address` | Server: listen address (`host:port` or multiaddr, default `0.0.0.0:4001`). Client: multiaddr of the server, including `/p2p/<peerId>`. |
-| `--transport` | `tcp`, `quic` or `quic-v1` (default `tcp`) |
+| `--server-address` | The server accepts an IP and port or an IP multiaddr and defaults to `0.0.0.0:4001`. The client accepts `host:port` or a multiaddr. Enclose IPv6 literals in brackets in `host:port` form. |
+| `--transport` | `tcp`, `quic` or `quic-v1`. Without this flag, a server listening on an IP and port binds both transports, a client dialing `host:port` uses TCP, and a multiaddr supplies its own transport. |
 | `--upload-bytes` | Bytes to upload (client) |
 | `--download-bytes` | Bytes to download (client) |
+
+The CLI server uses the public test-plans benchmark identity. A client assumes that identity unless its multiaddr supplies a peer ID.
 
 The client prints a progress line every second and one final line. The final time includes connection setup, upload and download:
 
@@ -75,10 +77,10 @@ The client prints a progress line every second and one final line. The final tim
 Example:
 
     # server
-    dotnet run --project samples/perf-benchmarks -- --run-server --server-address 127.0.0.1:4001 --transport tcp
+    dotnet run --project samples/perf-benchmarks -- --run-server --server-address 127.0.0.1:4001
 
-    # client (use the address the server prints)
-    dotnet run --project samples/perf-benchmarks -- --server-address /ip4/127.0.0.1/tcp/4001/p2p/<peerId> --transport tcp --upload-bytes 1073741824 --download-bytes 1073741824
+    # client
+    dotnet run --project samples/perf-benchmarks -- --server-address 127.0.0.1:4001 --transport tcp --upload-bytes 1073741824 --download-bytes 1073741824
 
 ## Docker Build
 

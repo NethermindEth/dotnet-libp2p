@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Text.Json;
 using DataTransferBenchmark;
+using Multiformats.Address;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using NUnit.Framework;
@@ -33,7 +34,7 @@ public class PerfCliTests
     }
 
     [Test]
-    public void ServerModeDoesNotRequireAddressAndDefaultsToTcp()
+    public void RunnerServerBindsTcpAndQuicOnTheSamePort()
     {
         PerfArgs args = PerfArgs.Parse(["--run-server"]);
 
@@ -41,8 +42,40 @@ public class PerfCliTests
         {
             Assert.That(args.RunServer, Is.True);
             Assert.That(args.ServerAddress, Is.Null);
-            Assert.That(args.Transport, Is.EqualTo("tcp"));
+            Assert.That(args.GetServerAddresses().Select(address => address.ToString()),
+                Is.EqualTo(new[] { "/ip4/0.0.0.0/tcp/4001", "/ip4/0.0.0.0/udp/4001/quic-v1" }));
         });
+    }
+
+    [TestCase("127.0.0.1:4001", "tcp", "/ip4/127.0.0.1/tcp/4001")]
+    [TestCase("[::1]:4001", "quic-v1", "/ip6/::1/udp/4001/quic-v1")]
+    [TestCase("example.com:4001", "tcp", "/dns4/example.com/tcp/4001")]
+    public void RunnerClientUsesTheReferenceServerIdentity(string endpoint, string transport, string expected)
+    {
+        const string referencePeerId = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+        PerfArgs args = PerfArgs.Parse(["--server-address", endpoint, "--transport", transport]);
+
+        Multiaddress target = args.GetServerAddresses().Single();
+
+        Assert.That(target.ToString(), Is.EqualTo($"{expected}/p2p/{referencePeerId}"));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RejectsMultiaddrThatDisagreesWithTransport(bool server)
+    {
+        PerfArgs args = new(server, "/ip4/127.0.0.1/tcp/4001", "quic", 0, 0);
+
+        Assert.Throws<ArgumentException>(() => args.GetServerAddresses());
+    }
+
+    [Test]
+    public void PreservesExplicitClientPeerIdAndMultiaddrTransport()
+    {
+        string endpoint = $"/ip4/127.0.0.1/udp/4001/quic-v1/p2p/{TestPeers.PeerId(1)}";
+        PerfArgs args = PerfArgs.Parse(["--server-address", endpoint]);
+
+        Assert.That(args.GetServerAddresses().Single().ToString(), Is.EqualTo(endpoint));
     }
 
     [Test]
