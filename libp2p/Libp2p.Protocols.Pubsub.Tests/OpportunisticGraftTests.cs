@@ -383,14 +383,12 @@ public class OpportunisticGraftTests
     public async Task TrimmedPeersWithZeroBackoffCanOnlyBeGraftedOnALaterHeartbeat()
     {
         PubsubSettings settings = Settings();
-        settings.Degree = 6;
+        settings.Degree = 4;
         settings.LowestDegree = 3;
         settings.HighestDegree = 4;
         settings.DOut = 2;
         settings.PruneBackoff = 0;
         await using PubsubRouter router = new(new PeerStore(), settings, timeProvider: new Clock());
-        // Lower the live target so the two outbound slots displace both middle-ranked peers.
-        settings.Degree = 4;
         router.GetTopic("topic");
         Peer[] outbound = [await Open(router, 1, 0, inMesh: true), await Open(router, 2, 1, inMesh: true)];
         Peer[] trimmed = [await Open(router, 3, 5, inMesh: true, inbound: true), await Open(router, 4, 6, inMesh: true, inbound: true)];

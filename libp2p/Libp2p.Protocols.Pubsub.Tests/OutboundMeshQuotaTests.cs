@@ -15,15 +15,10 @@ public class OutboundMeshQuotaTests
     [TestCase(4, 10, 4)]
     [TestCase(5, 10, 4)]
     [TestCase(4, 6, 5)]
+    [TestCase(3, 6, 3)]
     [TestCase(3, 5, 4)]
     [TestCase(1, 1, 2)]
     [TestCase(1, 0, 2)]
-    [TestCase(1, 2, 2)]
-    [TestCase(1, 3, 2)]
-    [TestCase(2, 4, 3)]
-    [TestCase(2, 5, 3)]
-    [TestCase(3, 6, 4)]
-    [TestCase(3, 7, 4)]
     public void InvalidOutboundQuotaIsRejectedAtConstruction(int quota, int degree, int low)
     {
         PubsubSettings settings = new() { DOut = quota, Degree = degree, LowestDegree = low };
@@ -36,13 +31,19 @@ public class OutboundMeshQuotaTests
 
     [TestCase(0, 0, 0)]
     [TestCase(0, 1, 0)]
+    [TestCase(1, 2, 2)]
+    [TestCase(1, 3, 2)]
     [TestCase(1, 4, 2)]
     [TestCase(1, 5, 2)]
+    [TestCase(2, 4, 3)]
+    [TestCase(2, 5, 3)]
     [TestCase(2, 6, 4)]
     [TestCase(2, 7, 4)]
+    [TestCase(3, 6, 4)]
+    [TestCase(3, 7, 4)]
     [TestCase(3, 8, 4)]
-    [TestCase(int.MaxValue / 2 - 1, int.MaxValue, int.MaxValue)]
-    public void DisabledOrGoCompatibleOutboundQuotaIsAccepted(int quota, int degree, int low)
+    [TestCase(int.MaxValue / 2, int.MaxValue, int.MaxValue)]
+    public void ValidOutboundQuotaIsAcceptedAtConstruction(int quota, int degree, int low)
     {
         using PubsubRouter router = new(new PeerStore(), new PubsubSettings { DOut = quota, Degree = degree, LowestDegree = low });
     }
@@ -102,7 +103,7 @@ public class OutboundMeshQuotaTests
 
     [Test]
     public async Task HeartbeatFillsOnlyEligibleOutboundPeers(
-        [Values(4, 8)] int size, [Values(0, 1, 2)] int outbound, [Values(0, 2)] int quota)
+        [Values(4, 8)] int size, [Values(0, 1, 2)] int outbound, [Values(0, 2, 3)] int quota)
     {
         PubsubSettings settings = new() { DOut = quota, DirectPeers = [TestPeers.Multiaddr(30)] };
         await using MeshTest test = new(settings);
@@ -117,6 +118,7 @@ public class OutboundMeshQuotaTests
         var first = await test.Add(20, ConnectionDirection.Outbound);
         var second = await test.Add(21, ConnectionDirection.Outbound);
         await test.Add(22, ConnectionDirection.Outbound, subscribe: false);
+        var third = await test.Add(23, ConnectionDirection.Outbound);
         PeerId[] before = test.Mesh.ToArray();
 
         await test.Heartbeat();
@@ -125,7 +127,7 @@ public class OutboundMeshQuotaTests
         Assert.That(test.Mesh, Has.Count.EqualTo(size + missing));
         PeerId[] grafted = test.Mesh.Except(before).ToArray();
         Assert.That(grafted, Has.Length.EqualTo(missing));
-        Assert.That(grafted, Is.SubsetOf(new[] { first.PeerId, second.PeerId }));
+        Assert.That(grafted, Is.SubsetOf(new[] { first.PeerId, second.PeerId, third.PeerId }));
         Assert.That(test.Sent.Values.SelectMany(rpcs => rpcs).SelectMany(rpc => rpc.Control?.Graft ?? []).Count(), Is.EqualTo(missing));
         foreach (var peer in test.Peers.Values.Where(p => !before.Contains(p.PeerId)))
             Assert.That(peer.Score.GetTopicScore("topic").MeshJoinTime is not null, Is.EqualTo(test.Mesh.Contains(peer.PeerId)));
