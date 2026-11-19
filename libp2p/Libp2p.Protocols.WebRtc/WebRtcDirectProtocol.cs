@@ -223,7 +223,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // Ownership passes to RunNoiseHandshakeAsync below, which closes it as
             // webrtc-direct.md Connection Security (3) requires. On any throw before that, the
             // pc.close() in this method's finally closes the channel under it.
-            WebRtcStream noiseStream = new(new RtcDataChannelAdapter(noiseDataChannel));
+            WebRtcChannel noiseChannel = new(new RtcDataChannelAdapter(noiseDataChannel));
 
             Task noiseOpenTask = WaitForDataChannelOpenAsync(noiseDataChannel, token);
             Task connectionTask = WaitForConnectionAsync(pc, token);
@@ -263,7 +263,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 WebRtcDirectRoles.OrderFingerprints(isListener: false, local: _fingerprint, remote: expectedFingerprint);
 
             PublicKey remoteKey = await RunNoiseHandshakeAsync(
-                noiseStream,
+                noiseChannel,
                 context.Peer.Identity,
                 WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
                 isInitiator: !WebRtcDirectRoles.ListenerIsNoiseInitiator,
@@ -280,7 +280,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // longer true by the time a stream is opened. RFC 8832 section 6 parity is ours to
             // honour either way, and FirstOutboundStreamId is where it is written down.
             // Every SctpWebRtcDataChannel needs something calling PollBufferedAmount, because SCTP
-            // reports no drain and WebRtcStream's parked writer is woken by nothing else. The
+            // reports no drain and WebRtcChannel's parked writer is woken by nothing else. The
             // listener gets that from its muxer; these dialled channels have no muxer, so they get
             // their own poller over the same association. Without it a writer stops at
             // MaxBufferedAmount and never resumes -- a 1 MiB transfer stalled after 32 KiB.
@@ -547,7 +547,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // can arrive before there is a channel to route it to: the muxer drops a frame whose
             // stream it does not yet know. The dial half has the same hazard in a sharper form --
             // see the comment in DialAsync.
-            WebRtcStream noiseStream = new(muxer.GetNegotiatedChannel(WebRtcDirectSctpMuxer.NoiseStreamId));
+            WebRtcChannel noiseChannel = new(muxer.GetNegotiatedChannel(WebRtcDirectSctpMuxer.NoiseStreamId));
 
             // Established only means sctp.Start() has returned; the association has not yet seen the
             // peer's INIT at that point. SctpAssociation.SendData on an association still in Closed
@@ -574,7 +574,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
                 WebRtcDirectRoles.OrderFingerprints(isListener: true, local: _fingerprint, remote: remoteFingerprint);
 
             PublicKey remoteKey = await RunNoiseHandshakeAsync(
-                noiseStream,
+                noiseChannel,
                 context.Peer.Identity,
                 WebRtcNoisePrologue.Build(dialerFingerprint, listenerFingerprint),
                 isInitiator: WebRtcDirectRoles.ListenerIsNoiseInitiator,
@@ -610,23 +610,23 @@ public class WebRtcDirectProtocol : ITransportProtocol
     /// "the datachannel used for the Noise handshake is closed". Nothing wraps the connection
     /// afterwards -- DTLS, not Noise, is what encrypts the streams that follow.
     /// <para>
-    /// Takes an already-attached <paramref name="handshakeStream"/>, and owns it from here: the
+    /// Takes an already-attached <paramref name="handshakeChannel"/>, and owns it from here: the
     /// stream has to be subscribed to its data channel before the peer can send, which on the dial
     /// half is well before this is called. The handshake goes through
-    /// <see cref="WebRtcStream"/> because the spec runs it "using the message framing described in
+    /// <see cref="WebRtcChannel"/> because the spec runs it "using the message framing described in
     /// the Multiplexing section", not as raw datachannel messages.
     /// </para>
     /// </summary>
     private static async Task<PublicKey> RunNoiseHandshakeAsync(
-        WebRtcStream handshakeStream,
+        WebRtcChannel handshakeChannel,
         Identity identity,
         byte[] prologue,
         bool isInitiator,
         CancellationToken token)
     {
-        await using WebRtcStream stream = handshakeStream;
+        await using WebRtcChannel channel = handshakeChannel;
         return await WebRtcDirectNoiseHandshake.HandshakeAsync(
-            new WebRtcStreamChannel(stream), identity, prologue, isInitiator, token);
+            channel, identity, prologue, isInitiator, token);
     }
 
     /// <summary>
@@ -790,8 +790,8 @@ public class WebRtcDirectProtocol : ITransportProtocol
         IWebRtcDataChannel channel,
         UpgradeOptions options)
     {
-        await using WebRtcStream stream = new(channel);
-        await connectionContext.Upgrade(new WebRtcStreamChannel(stream), options);
+        await using WebRtcChannel libp2pChannel = new(channel);
+        await connectionContext.Upgrade(libp2pChannel, options);
     }
 
     /// <summary>
