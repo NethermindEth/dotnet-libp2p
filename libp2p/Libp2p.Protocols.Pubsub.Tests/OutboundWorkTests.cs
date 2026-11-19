@@ -356,6 +356,7 @@ public class OutboundWorkTests
     {
         PubsubSettings settings = Settings();
         settings.Degree = settings.LowestDegree = settings.HighestDegree = 1;
+        settings.DOut = 0;
         settings.DefaultSignaturePolicy = PubsubSettings.SignaturePolicy.StrictNoSign;
         settings.GetMessageId = message => new MessageId(message.Data.ToByteArray());
         // Optional traffic may hold one entry; required control may use both.

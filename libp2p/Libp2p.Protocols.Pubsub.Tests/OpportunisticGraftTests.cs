@@ -45,13 +45,13 @@ public class OpportunisticGraftTests
         List<Rpc> sent = [];
         Multiaddress address = ipAddress is null ? TestPeers.Multiaddr(id) : $"/ip4/{ipAddress}/p2p/{TestPeers.Identity(id).PeerId}";
         Task closed = new TaskCompletionSource().Task;
-        if (inbound) router.InboundConnection(address, protocol, closed, () => Task.CompletedTask, () => Task.CompletedTask);
         PubsubRouter.PubsubPeer state = router.OutboundConnection(address, protocol,
             closed, (bytes, _) =>
             {
                 sent.Add(RouterTestExtensions.Decode(bytes));
                 return ValueTask.FromResult(IOResult.Ok);
-            }, () => ValueTask.CompletedTask, () => Task.CompletedTask)!;
+            }, () => ValueTask.CompletedTask, () => Task.CompletedTask,
+            inbound ? ConnectionDirection.Inbound : ConnectionDirection.Outbound)!;
         router.SetAppSpecificScore(state.PeerId, score);
         if (topic is not null)
         {
@@ -383,7 +383,9 @@ public class OpportunisticGraftTests
     public async Task TrimmedPeersWithZeroBackoffCanOnlyBeGraftedOnALaterHeartbeat()
     {
         PubsubSettings settings = Settings();
-        settings.Degree = settings.HighestDegree = 4;
+        settings.Degree = 4;
+        settings.LowestDegree = 3;
+        settings.HighestDegree = 4;
         settings.DOut = 2;
         settings.PruneBackoff = 0;
         await using PubsubRouter router = new(new PeerStore(), settings, timeProvider: new Clock());
@@ -412,14 +414,15 @@ public class OpportunisticGraftTests
         }
     }
 
-    [TestCase(7)]
     [TestCase(8)]
+    [TestCase(9)]
     public async Task TrimmingReturnsToDegreeAndPreservesOutboundQuota(int highestDegree)
     {
         PubsubSettings settings = Settings();
-        settings.Degree = 7;
+        settings.Degree = 8;
+        settings.LowestDegree = 4;
         settings.HighestDegree = highestDegree;
-        settings.DScore = 5;
+        settings.DScore = 6;
         settings.DOut = 3;
         settings.OpportunisticGraftTicks = 2;
         await using PubsubRouter router = new(new PeerStore(), settings);
@@ -428,12 +431,12 @@ public class OpportunisticGraftTests
         Peer firstTrimmed = await Open(router, 4, 3, inMesh: true, inbound: true);
         Peer secondTrimmed = await Open(router, 5, 4, inMesh: true, inbound: true);
         Peer[] retained = [await Open(router, 6, 5, inMesh: true, inbound: true), await Open(router, 7, 6, inMesh: true, inbound: true),
-            await Open(router, 8, 8, inbound: true), await Open(router, 9, 9, inbound: true)];
+            await Open(router, 8, 7, inMesh: true, inbound: true), await Open(router, 9, 8, inbound: true), await Open(router, 10, 9, inbound: true)];
 
         await Tick(router);
-        Assert.That(Mesh(router), Has.Count.EqualTo(7));
+        Assert.That(Mesh(router), Has.Count.EqualTo(8));
         await Tick(router);
-        Assert.That(Mesh(router), Has.Count.EqualTo(9));
+        Assert.That(Mesh(router), Has.Count.EqualTo(10));
         await Tick(router);
 
         Assert.That(Mesh(router), Is.EquivalentTo(outbound.Concat(retained).Select(peer => peer.Id)));
@@ -441,14 +444,15 @@ public class OpportunisticGraftTests
         Assert.That(secondTrimmed.Prunes.Select(prune => prune.TopicID), Is.EqualTo(new[] { "topic" }));
     }
 
-    [TestCase(4, 1, 1)]
-    [TestCase(5, 2, 0)]
-    [TestCase(5, 1, 1)]
-    [TestCase(5, 2, 1)]
+    [TestCase(5, 3, 1)]
+    [TestCase(6, 4, 0)]
+    [TestCase(6, 3, 1)]
+    [TestCase(6, 4, 1)]
     public async Task HeartbeatTrimsToDegreeOnlyAboveHighestDegree(int peerCount, int scoreQuota, int outboundQuota)
     {
         PubsubSettings settings = Settings();
-        settings.Degree = 2;
+        settings.Degree = 4;
+        settings.LowestDegree = 2;
         settings.HighestDegree = peerCount;
         settings.DScore = scoreQuota;
         settings.DOut = outboundQuota;
@@ -460,7 +464,7 @@ public class OpportunisticGraftTests
         {
             peers.Add(await Open(router, id, peerCount - id, inMesh: true, inbound: id != peerCount));
         }
-        settings.HighestDegree = 4;
+        settings.HighestDegree = 5;
         Assert.That(Mesh(router), Is.EquivalentTo(peers.Select(peer => peer.Id)));
 
         await Tick(router);
@@ -472,8 +476,8 @@ public class OpportunisticGraftTests
         }
         else
         {
-            Peer secondSurvivor = outboundQuota > 0 ? peers[^1] : peers[1];
-            Peer[] survivors = [peers[0], secondSurvivor];
+            Peer lastSurvivor = outboundQuota > 0 ? peers[^1] : peers[3];
+            Peer[] survivors = [.. peers.Take(3), lastSurvivor];
             Assert.That(Mesh(router), Is.EquivalentTo(survivors.Select(peer => peer.Id)));
             foreach (Peer peer in peers.Except(survivors))
             {
