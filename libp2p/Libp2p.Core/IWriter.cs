@@ -4,11 +4,50 @@
 using Google.Protobuf;
 using System.Buffers;
 using System.Text;
+using Nethermind.Channels;
 
 namespace Nethermind.Libp2p.Core;
 
 public interface IWriter
 {
+    /// <summary>Receives into pooled storage managed by the shared channel API.</summary>
+    /// <param name="readAsync">
+    /// Fills the supplied memory and returns its byte count, or zero for EOF. Destinations may
+    /// be shorter than <paramref name="bufferSize"/>; access must stop when the callback completes.
+    /// </param>
+    /// <param name="bufferSize">Maximum receive size and logical size of each rented buffer.</param>
+    /// <param name="token">Cancellation for receiving and channel writes.</param>
+    /// <returns><see cref="IOResult.Ok"/> on source EOF, or the first unsuccessful write result.</returns>
+    /// <remarks>
+    /// The shared pump reuses storage only after every reader releases its lease, otherwise
+    /// filling unused regions. Writers without ownership support receive detached copies.
+    /// Source exceptions propagate. The caller decides when to publish EOF or close.
+    /// </remarks>
+    async ValueTask<IOResult> WriteFromAsync(
+        Func<Memory<byte>, CancellationToken, ValueTask<int>> readAsync,
+        int bufferSize, CancellationToken token = default)
+    {
+        return (IOResult)await WriterExtensions.WriteFromAsync(
+            WriteReceivedAsync, readAsync, bufferSize, ArrayPool<byte>.Shared, token).ConfigureAwait(false);
+
+        async ValueTask<Channels.IOResult> WriteReceivedAsync(
+            PooledBuffer buffer, int length, int offset, CancellationToken cancellation)
+            => (Channels.IOResult)await WriteAsync(buffer, length, offset, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes pooled storage while retaining an independent channel lease.</summary>
+    /// <remarks>
+    /// The caller may dispose its lease as soon as this method returns. Published bytes
+    /// must remain unchanged while readers use them.
+    /// Writers without ownership support detach a copy for their existing read contract.
+    /// </remarks>
+    ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+        => WriteAsync(new ReadOnlySequence<byte>(buffer.Memory.Slice(offset, length).ToArray()), token);
+
+    /// <summary>Writes a retained slice without consuming the caller's lease.</summary>
+    ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
+        => WriteAsync(new ReadOnlySequence<byte>(slice.ReadOnlyMemory.ToArray()), token);
+
     ValueTask<IOResult> WriteLineAsync(string str, bool prependedWithSize = true)
         => WriteLineAsync(str, CancellationToken.None);
 

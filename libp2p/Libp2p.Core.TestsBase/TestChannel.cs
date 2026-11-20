@@ -29,6 +29,15 @@ public class TestChannel : IChannel
     public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
         => _channel.ReadAsync(length, blockingMode, token);
 
+    public ValueTask<ReadResult> ReadOwnedAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
+        => _channel.ReadOwnedAsync(length, blockingMode, token);
+
+    public ValueTask<IOResult> WriteAsync(Channels.PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
+        => _channel.WriteAsync(buffer, length, offset, token);
+
+    public ValueTask<IOResult> WriteAsync(Channels.PooledBuffer.Slice bytes, CancellationToken token = default)
+        => _channel.WriteAsync(bytes, token);
+
     public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
     {
         return _channel.WriteAsync(bytes, token);

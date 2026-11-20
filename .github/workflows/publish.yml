@@ -99,6 +99,7 @@ jobs:
           PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build -p:Version=${{ inputs.version }}
           NO_VERSION_PACK_OPTS: -c ${{ env.BUILD_CONFIG }} --no-build
         run: |
+          dotnet pack libp2p/Nethermind.Channels ${{ env.PACK_OPTS }}
           dotnet pack libp2p/Libp2p ${{ env.PACK_OPTS }}
           dotnet pack libp2p/Libp2p.Core ${{ env.PACK_OPTS }}
           dotnet pack libp2p/Libp2p.OpenTelemetry ${{ env.PACK_OPTS }}

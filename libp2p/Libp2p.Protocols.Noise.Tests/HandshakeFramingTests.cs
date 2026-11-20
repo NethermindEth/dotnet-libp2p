@@ -211,7 +211,7 @@ public class HandshakeFramingTests
         TaskCompletionSource shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<ReadResult> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
         IChannel up = Substitute.For<IChannel>();
-        up.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        up.ReadOwnedAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>()).Returns(_ =>
         {
             reading.TrySetResult();
             return new ValueTask<ReadResult>(read.Task);
@@ -257,7 +257,7 @@ public class HandshakeFramingTests
         TaskCompletionSource<ReadResult> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<IOResult> write = new(TaskCreationOptions.RunContinuationsAsynchronously);
         IChannel up = Substitute.For<IChannel>();
-        up.ReadAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>())
+        up.ReadOwnedAsync(Arg.Any<int>(), Arg.Any<ReadBlockingMode>(), Arg.Any<CancellationToken>())
             .Returns(_ => new ValueTask<ReadResult>(read.Task));
         up.WriteAsync(Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns(_ =>
         {

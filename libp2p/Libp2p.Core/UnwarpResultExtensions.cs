@@ -8,36 +8,27 @@ namespace Nethermind.Libp2p.Core;
 
 public static class UnwrapResultExtensions
 {
+    /// <summary>Checks a read result without releasing its ownership lease.</summary>
+    public static ReadOnlySequence<byte> OrThrow(this ReadResult result)
+    {
+        if (result.Result != IOResult.Ok) throw new ChannelClosedException(result.Result);
+        return result.Data;
+    }
+
     public static async ValueTask OrThrow(this ValueTask<IOResult> self)
     {
-        if (self.IsCompleted && self.Result != IOResult.Ok)
-        {
-            throw new ChannelClosedException(self.Result);
-        }
-
-        IOResult result = await self.AsTask();
-
+        IOResult result = await self.ConfigureAwait(false);
         if (result != IOResult.Ok)
         {
             throw new ChannelClosedException(result);
         }
     }
+    /// <summary>Returns a stable sequence, detaching pooled storage before releasing its lease.</summary>
+    /// <remarks>To avoid a compatibility copy, use a using declaration for the awaited result and call its synchronous OrThrow overload.</remarks>
     public static async ValueTask<ReadOnlySequence<byte>> OrThrow(this ValueTask<ReadResult> self)
     {
-        if (self.IsCompleted && self.Result.Result != IOResult.Ok)
-        {
-            throw new ChannelClosedException(self.Result.Result);
-        }
-
-        ReadResult result = await self.AsTask();
-
-        if (result.Result != IOResult.Ok)
-        {
-            throw new ChannelClosedException(result.Result);
-        }
-        else
-        {
-            return result.Data;
-        }
+        using ReadResult result = await self.ConfigureAwait(false);
+        ReadOnlySequence<byte> data = result.OrThrow();
+        return result.IsOwned ? new ReadOnlySequence<byte>(data.ToArray()) : data;
     }
 }

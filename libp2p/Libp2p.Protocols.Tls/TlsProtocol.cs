@@ -231,8 +231,9 @@ public class TlsProtocol : IConnectionProtocol
 
         async Task<bool> WriteAsync()
         {
-            await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+            await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(token))
             {
+                ReadOnlySequence<byte> data = read.Data;
                 if (data.IsSingleSegment)
                 {
                     await sslStream.WriteAsync(data.First, token);

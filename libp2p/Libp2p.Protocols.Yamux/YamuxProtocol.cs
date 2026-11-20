@@ -9,6 +9,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using PooledBuffer = Nethermind.Channels.PooledBuffer;
 
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Yamux.Tests")]
 
@@ -39,6 +40,7 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             ? Math.Min(MaxDataFrameLength, preferred - HeaderLength)
             : MaxDataFrameLength;
 
+    private const int MinimumPooledPayloadSize = 4 * 1024;
     private const int PingDelay = 30_000;
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(10);
 
@@ -753,12 +755,16 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             StreamID = streamId,
             Length = (int)payload.Length
         };
-        byte[] frame = new byte[HeaderLength + header.Length];
-        YamuxHeader.ToBytes(frame, ref header);
-        payload.CopyTo(frame.AsSpan(HeaderLength));
+        int frameLength = HeaderLength + header.Length;
+        using PooledBuffer? pooled = header.Length >= MinimumPooledPayloadSize ? PooledBuffer.Rent(frameLength) : null;
+        Memory<byte> frame = pooled is null ? new byte[frameLength] : pooled.Memory;
+        YamuxHeader.ToBytes(frame.Span, ref header);
+        payload.CopyTo(frame.Span[HeaderLength..]);
 
         _logger?.LogTrace("Ctx({ ctx}), stream {stream id}: Send type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
-        return writer.WriteAsync(new ReadOnlySequence<byte>(frame), token).OrThrow();
+        return (pooled is null
+            ? writer.WriteAsync(new ReadOnlySequence<byte>(frame), token)
+            : writer.WriteAsync(pooled, frameLength, token: token)).OrThrow();
     }
 
     private async Task WriteGoAwayAsync(string contextId, IWriter channel, SessionTerminationCode code)

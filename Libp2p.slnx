@@ -37,4 +37,5 @@
   <Project Path="libp2p/Libp2p.Generators.Protobuf/Libp2p.Generators.Protobuf.csproj" />
   <Project Path="libp2p/Libp2p.OpenTelemetry/Libp2p.OpenTelemetry.csproj" />
   <Project Path="libp2p/Libp2p/Libp2p.csproj" />
+  <Project Path="libp2p/Nethermind.Channels/Nethermind.Channels.csproj" />
 </Solution>
