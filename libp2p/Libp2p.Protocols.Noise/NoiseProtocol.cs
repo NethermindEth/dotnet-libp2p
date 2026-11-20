@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Noise.Dto;
+using PooledBuffer = Nethermind.Channels.PooledBuffer;
 using PublicKey = Nethermind.Libp2p.Core.Dto.PublicKey;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -46,6 +47,7 @@ public class NoiseProtocol : IConnectionProtocol
     private const string PayloadSigPrefix = "noise-libp2p-static-key:";
 
     private const int TagSize = 16;
+    private const int MinimumPooledPlaintextSize = 4 * 1024;
 
     /// <summary>Plaintext carried by one Noise message: the transport message limit less its 16-byte tag.</summary>
     private const int MaxPlaintextPerMessage = Protocol.MaxMessageLength - TagSize;
@@ -301,28 +303,41 @@ public class NoiseProtocol : IConnectionProtocol
         {
             for (; ; )
             {
-                byte[] buffer;
-                int bytesWritten;
-                using (ReadResult dataReadResult = await upChannel.ReadOwnedAsync(MaxPlaintextPerMessage, ReadBlockingMode.WaitAny, token: token))
+                PooledBuffer? pooled = null;
+                try
                 {
-                    if (dataReadResult.Result != IOResult.Ok)
+                    Memory<byte> buffer;
+                    int bytesWritten;
+                    using (ReadResult dataReadResult = await upChannel.ReadOwnedAsync(MaxPlaintextPerMessage, ReadBlockingMode.WaitAny, token: token))
                     {
-                        logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
-                        if (dataReadResult.Result == IOResult.Ended) await downChannel.WriteEofAsync(token);
-                        return dataReadResult.Result == IOResult.Ended;
+                        if (dataReadResult.Result != IOResult.Ok)
+                        {
+                            logger?.LogDebug("End reading, due to {}", dataReadResult.Result);
+                            if (dataReadResult.Result == IOResult.Ended) await downChannel.WriteEofAsync(token);
+                            return dataReadResult.Result == IOResult.Ended;
+                        }
+
+                        ReadOnlySequence<byte> data = dataReadResult.Data;
+                        int capacity = checked(2 + TagSize + (int)data.Length);
+                        pooled = data.Length >= MinimumPooledPlaintextSize ? PooledBuffer.Rent(capacity) : null;
+                        buffer = pooled is null ? new byte[capacity] : pooled.Memory;
+                        bytesWritten = transport.WriteMessage(data.IsSingleSegment ? data.FirstSpan : data.ToArray(), buffer.Span[2..]);
                     }
 
-                    ReadOnlySequence<byte> data = dataReadResult.Data;
-                    buffer = new byte[2 + TagSize + data.Length];
-                    bytesWritten = transport.WriteMessage(data.IsSingleSegment ? data.FirstSpan : data.ToArray(), buffer.AsSpan(2));
+                    BinaryPrimitives.WriteUInt16BigEndian(buffer.Span, (ushort)bytesWritten);
+                    int frameLength = 2 + bytesWritten;
+                    IOResult writeResult = pooled is null
+                        ? await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer[..frameLength]), token)
+                        : await downChannel.WriteAsync(pooled, frameLength, token: token);
+                    if (writeResult != IOResult.Ok)
+                    {
+                        logger?.LogDebug("End sending, due to {}", writeResult);
+                        return writeResult == IOResult.Ended;
+                    }
                 }
-
-                BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(), (ushort)bytesWritten);
-                IOResult writeResult = await downChannel.WriteAsync(new ReadOnlySequence<byte>(buffer, 0, 2 + bytesWritten), token: token);
-                if (writeResult != IOResult.Ok)
+                finally
                 {
-                    logger?.LogDebug("End sending, due to {}", writeResult);
-                    return writeResult == IOResult.Ended;
+                    pooled?.Dispose();
                 }
             }
         });

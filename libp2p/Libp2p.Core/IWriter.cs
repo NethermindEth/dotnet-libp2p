@@ -37,7 +37,8 @@ public interface IWriter
 
     /// <summary>Writes pooled storage while retaining an independent channel lease.</summary>
     /// <remarks>
-    /// The caller retains its lease and must not modify published bytes while readers use them.
+    /// The caller may dispose its lease as soon as this method returns. Published bytes
+    /// must remain unchanged while readers use them.
     /// Writers without ownership support detach a copy for their existing read contract.
     /// </remarks>
     ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)

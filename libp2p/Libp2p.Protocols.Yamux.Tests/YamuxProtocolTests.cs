@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
@@ -84,8 +83,10 @@ public class YamuxProtocolTests
         }
     }
 
-    [Test]
-    public async Task DataFrameIsWrittenAsOneSingleSegmentBuffer()
+    [TestCase(4095, false)]
+    [TestCase(4096, true)]
+    [TestCase(4097, true)]
+    public async Task DataFrameIsWrittenAsOneSingleSegmentBuffer(int payloadLength, bool expectOwned)
     {
         IConnectionContext context = Substitute.For<IConnectionContext>();
         INewSessionContext session = Substitute.For<INewSessionContext>();
@@ -97,28 +98,31 @@ public class YamuxProtocolTests
         TestChannel appChannel = new();
         session.Upgrade(Arg.Any<UpgradeOptions>()).Returns(appChannel);
 
-        WriteRecordingChannel transport = new();
+        Channel transport = new();
         Task yamux = new YamuxProtocol().DialAsync(transport, context);
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
         try
         {
-            IChannel remote = transport.Inner.Reverse();
+            IChannel remote = transport.Reverse;
             YamuxHeader syn = YamuxHeader.FromBytes((await remote.ReadAsync(12, token: timeout.Token).OrThrow()).ToArray());
 
-            byte[] payload = [1, 2, 3, 4, 5, 6, 7, 8];
+            byte[] payload = new byte[payloadLength];
+            new Random(5).NextBytes(payload);
             ValueTask<IOResult> send = appChannel.Reverse().WriteAsync(new ReadOnlySequence<byte>(payload), timeout.Token);
-            ReadOnlySequence<byte> frame = await remote.ReadAsync(12 + payload.Length, token: timeout.Token).OrThrow();
+            using ReadResult read = await remote.ReadOwnedAsync(0, ReadBlockingMode.WaitAny, timeout.Token);
+            ReadOnlySequence<byte> frame = read.OrThrow();
             Assert.That(await send, Is.EqualTo(IOResult.Ok));
 
-            YamuxHeader data = YamuxHeader.FromBytes(frame.Slice(0, 12).ToArray());
-            ReadOnlySequence<byte> written = transport.Writes.Single(w => w.Length == 12 + payload.Length);
+            Assert.That(frame.Length, Is.EqualTo(12 + payload.Length), "A single write must carry the entire DATA frame.");
+            YamuxHeader data = YamuxHeader.FromBytes(frame);
             Assert.Multiple(() =>
             {
                 Assert.That(data.Type, Is.EqualTo(YamuxHeaderType.Data));
                 Assert.That(data.StreamID, Is.EqualTo(syn.StreamID));
                 Assert.That(data.Length, Is.EqualTo(payload.Length));
                 Assert.That(frame.Slice(12).ToArray(), Is.EqualTo(payload));
-                Assert.That(written.IsSingleSegment, Is.True, "A DATA frame must reach the transport as one contiguous buffer.");
+                Assert.That(frame.IsSingleSegment, Is.True, "A DATA frame must reach the transport as one contiguous buffer.");
+                Assert.That(read.IsOwned, Is.EqualTo(expectOwned));
             });
         }
         finally
@@ -126,24 +130,6 @@ public class YamuxProtocolTests
             await transport.CloseAsync();
             await yamux.WaitAsync(TimeSpan.FromSeconds(10));
         }
-    }
-
-    private sealed class WriteRecordingChannel : IChannel
-    {
-        private readonly ConcurrentQueue<ReadOnlySequence<byte>> _writes = new();
-        public TestChannel Inner { get; } = new();
-        public IReadOnlyCollection<ReadOnlySequence<byte>> Writes => _writes;
-        public TaskAwaiter GetAwaiter() => Inner.GetAwaiter();
-        public ValueTask<ReadResult> ReadAsync(int length, ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll, CancellationToken token = default)
-            => Inner.ReadAsync(length, blockingMode, token);
-        public ValueTask<IOResult> WriteAsync(ReadOnlySequence<byte> bytes, CancellationToken token = default)
-        {
-            _writes.Enqueue(bytes);
-            return Inner.WriteAsync(bytes, token);
-        }
-        public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => Inner.WriteEofAsync(token);
-        public ValueTask CloseAsync() => Inner.CloseAsync();
-        public ValueTask AbortAsync() => Inner.AbortAsync();
     }
 
     private sealed class TokenCountingChannel : IChannel

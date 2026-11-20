@@ -72,14 +72,17 @@ public class OwnedReceiveTests
         }
     }
 
-    [Test]
-    public async Task PlaintextIsReleasedBeforeWaitingForCiphertextConsumer()
+    [TestCase(4095, false)]
+    [TestCase(4096, true)]
+    [TestCase(4097, true)]
+    public async Task PlaintextIsReleasedBeforeWaitingForCiphertextConsumer(int payloadLength, bool expectOwned)
     {
         (Transport local, Transport remote) = CreateTransports();
         TestChannel down = new();
         TestChannel up = new();
         Task pump = ExchangeData(local, down, up);
-        byte[] expected = Enumerable.Range(0, 257).Select(i => (byte)i).ToArray();
+        byte[] expected = new byte[payloadLength];
+        new Random(7).NextBytes(expected);
         PoisoningPool pool = new(1);
         try
         {
@@ -87,15 +90,16 @@ public class OwnedReceiveTests
             await pool.AllReturned.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.That(owner.RefCount, Is.Zero);
 
-            IChannel reader = down.Reverse();
-            int length;
-            using (ReadResult prefix = await reader.ReadOwnedAsync(2))
-            {
-                length = BinaryPrimitives.ReadUInt16BigEndian(prefix.OrThrow().FirstSpan);
-            }
-            using ReadResult ciphertext = await reader.ReadOwnedAsync(length);
+            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+            using ReadResult ciphertext = await down.Reverse().ReadOwnedAsync(0, ReadBlockingMode.WaitAny, timeout.Token);
+            ReadOnlySequence<byte> frame = ciphertext.OrThrow();
+            Assert.That(frame.IsSingleSegment, Is.True);
+            Assert.That(frame.Length, Is.EqualTo(2 + expected.Length + 16));
+            Assert.That(ciphertext.IsOwned, Is.EqualTo(expectOwned));
+            int length = BinaryPrimitives.ReadUInt16BigEndian(frame.FirstSpan);
+            Assert.That(length, Is.EqualTo(frame.Length - 2));
             byte[] actual = new byte[expected.Length];
-            int bytesRead = remote.ReadMessage(ciphertext.OrThrow().FirstSpan, actual);
+            int bytesRead = remote.ReadMessage(frame.FirstSpan[2..], actual);
             Assert.That(bytesRead, Is.EqualTo(expected.Length));
             Assert.That(actual, Is.EqualTo(expected));
         }
