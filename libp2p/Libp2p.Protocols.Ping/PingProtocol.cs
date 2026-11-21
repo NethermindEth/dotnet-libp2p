@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Collections.Concurrent;
+using Nethermind.Libp2p.Core.Exceptions;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
@@ -21,7 +22,8 @@ public class PingProtocol : ISessionProtocol
     private readonly ILogger<PingProtocol>? _logger;
 
     /// <summary>
-    /// Sessions with an outbound ping in flight, keyed by the session's own state object.
+    /// Sessions with an outbound ping in flight, keyed by the session's own state object. Entries
+    /// are removed in a finally, so the table holds only what is running.
     /// <para>
     /// One registration is shared by every local peer built from the same factory, and
     /// <see cref="ISessionContext"/> carries no local identity — <c>State.LocalAddress</c> is an
@@ -43,24 +45,33 @@ public class PingProtocol : ISessionProtocol
     /// Sends one ping and verifies the echo.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The <see href="https://github.com/libp2p/specs/blob/master/ping/ping.md">specification</see>
     /// says a dialing peer "MUST NOT keep more than one outbound stream for the ping protocol per
-    /// peer", so a second concurrent ping to a peer is refused rather than opening another stream.
-    /// Refusing keeps the caller's error visible; coalescing onto the in-flight ping would instead
-    /// report one peer's round trip as another's.
+    /// peer", so overlapping pings on a session run one at a time rather than together.
+    /// </para>
+    /// <para>
+    /// The second ping is refused with <see cref="ProtocolBusyException"/> rather than queued: by the
+    /// time this runs the stream is already open and negotiated, so waiting would park an idle ping
+    /// stream on the session instead of ending it. The dedicated type is what lets a caller tell
+    /// local contention from a dead peer — <c>LivenessProbe</c> disconnects on anything else.
+    /// </para>
+    /// <para>
+    /// This cannot keep the second stream from being opened at all, which is what the rule actually
+    /// asks: the request is queued and <c>/ipfs/ping/1.0.0</c> negotiated before any protocol code
+    /// runs. Doing that needs a seam ahead of negotiation, or serialization in the caller.
+    /// </para>
     /// </remarks>
-    /// <exception cref="InvalidOperationException">A ping to this peer is already in flight.</exception>
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         State session = context.State;
         ArgumentNullException.ThrowIfNull(session.RemoteAddress);
 
-        bool held = _dialing.TryAdd(session, 0);
-        if (!held)
+        if (!_dialing.TryAdd(session, 0))
         {
-            throw new InvalidOperationException(
+            throw new ProtocolBusyException(
                 $"A ping to {session.RemotePeerId?.ToString() ?? session.RemoteAddress.ToString()} is already in flight; " +
-                "the ping protocol allows one outbound stream per peer.");
+                "the ping protocol keeps one outbound stream per peer.");
         }
 
         try
@@ -69,10 +80,7 @@ public class PingProtocol : ISessionProtocol
         }
         finally
         {
-            if (held)
-            {
-                _dialing.TryRemove(session, out _);
-            }
+            _dialing.TryRemove(session, out _);
         }
     }
 

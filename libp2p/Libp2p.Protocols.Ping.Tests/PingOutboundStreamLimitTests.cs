@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using System.Runtime.CompilerServices;
 using NSubstitute;
 using NUnit.Framework;
@@ -11,7 +12,9 @@ namespace Nethermind.Libp2p.Protocols.Ping.Tests;
 
 /// <summary>
 /// "The dialing peer MUST NOT keep more than one outbound stream for the ping protocol per peer"
-/// — https://github.com/libp2p/specs/blob/master/ping/ping.md (#250).
+/// — https://github.com/libp2p/specs/blob/master/ping/ping.md (#250). Overlapping pings on one
+/// session therefore run one at a time. They wait rather than failing, because LivenessProbe turns
+/// any exception from a probe into a session disconnect.
 /// </summary>
 [TestFixture]
 [CancelAfter(30_000)]
@@ -35,8 +38,12 @@ public class PingOutboundStreamLimitTests
         return context;
     }
 
+    /// <summary>
+    /// The refusal has to be distinguishable: LivenessProbe disconnects the session on anything
+    /// else, so a plain exception here would turn our own concurrency into a lost connection.
+    /// </summary>
     [Test]
-    public async Task ASecondPingToOnePeerIsRefusedWhileTheFirstIsInFlight()
+    public async Task ASecondPingOnOneSessionIsRefusedAsContentionNotFailure()
     {
         PingProtocol protocol = new();
         ISessionContext context = ContextFor(1);
@@ -45,17 +52,17 @@ public class PingOutboundStreamLimitTests
         Task first = protocol.DialAsync(held, context);
         await held.Reached.Task.WaitAsync(Timeout);
 
-        InvalidOperationException? refused = Assert.ThrowsAsync<InvalidOperationException>(
+        ProtocolBusyException? busy = Assert.ThrowsAsync<ProtocolBusyException>(
             async () => await protocol.DialAsync(new GatedEcho { Open = true }, context));
 
         held.Release.TrySetResult();
         await first.WaitAsync(Timeout);
 
-        Assert.That(refused!.Message, Does.Contain("one outbound stream per peer"));
+        Assert.That(busy!.Message, Does.Contain("already in flight"));
     }
 
     [Test]
-    public async Task TheNextPingToThatPeerSucceedsOnceTheFirstFinishes()
+    public async Task TheNextPingOnThatSessionSucceedsOnceTheFirstFinishes()
     {
         PingProtocol protocol = new();
         ISessionContext context = ContextFor(1);
@@ -69,9 +76,9 @@ public class PingOutboundStreamLimitTests
         await protocol.DialAsync(new GatedEcho { Open = true }, context).WaitAsync(Timeout);
     }
 
-    /// <summary>A failed ping must not leave the peer permanently blocked.</summary>
+    /// <summary>A failed ping must not leave the session's gate held.</summary>
     [Test]
-    public async Task AFailedPingReleasesThePeerForTheNextOne()
+    public async Task AFailedPingReleasesTheSessionForTheNextOne()
     {
         PingProtocol protocol = new();
         ISessionContext context = ContextFor(1);
@@ -82,7 +89,7 @@ public class PingOutboundStreamLimitTests
     }
 
     [Test]
-    public async Task OnePeerInFlightDoesNotBlockAnother()
+    public async Task OneSessionInFlightDoesNotBlockAnother()
     {
         PingProtocol protocol = new();
         GatedEcho held = new();
