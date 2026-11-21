@@ -861,12 +861,13 @@ public class OutboundConnectionRaceTests
         }
     }
 
-    [TestCase(true, 2, false, false)]
-    [TestCase(true, 0, false, true)]
-    [TestCase(false, 0, false, false)]
-    [TestCase(false, 1, true, false)]
+    [TestCase(true, 2, false, false, ConnectionDirection.Outbound, ConnectionDirection.Outbound)]
+    [TestCase(true, 0, false, true, ConnectionDirection.Inbound, ConnectionDirection.Inbound)]
+    [TestCase(false, 0, false, false, ConnectionDirection.Outbound, ConnectionDirection.Inbound)]
+    [TestCase(false, 1, true, false, ConnectionDirection.Inbound, ConnectionDirection.Outbound)]
     public async Task FailedOutgoingNegotiationResumesItsDeferredIncomingReply(
-        bool directPeer, int retries, bool exhaustRetries, bool cancelNegotiation)
+        bool directPeer, int retries, bool exhaustRetries, bool cancelNegotiation,
+        ConnectionDirection incomingDirection, ConnectionDirection writerDirection)
     {
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
@@ -895,6 +896,7 @@ public class OutboundConnectionRaceTests
         TaskCompletionSource writer = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<Rpc> sent = [];
+        PubsubRouter.PubsubPeer? writerPeer = null;
         int replies = 0;
         session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(negotiation.Task);
         try
@@ -906,10 +908,15 @@ public class OutboundConnectionRaceTests
             router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task, () =>
             {
                 Interlocked.Increment(ref replies);
-                router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, sent.Add);
+                writerPeer = router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, writer.Task,
+                    (bytes, _) =>
+                    {
+                        sent.Add(RouterTestExtensions.Decode(bytes));
+                        return ValueTask.FromResult(IOResult.Ok);
+                    }, () => ValueTask.CompletedTask, () => Task.CompletedTask, writerDirection);
                 ready.TrySetResult();
                 return reply.Task;
-            });
+            }, () => Task.CompletedTask, incomingDirection);
             Assert.That(Volatile.Read(ref replies), Is.Zero);
 
             if (cancelNegotiation) negotiation.SetCanceled();
@@ -917,6 +924,8 @@ public class OutboundConnectionRaceTests
             await ready.Task.WaitAsync(token);
             await initialWork.WaitAsync(token);
             Assert.That(Volatile.Read(ref replies), Is.EqualTo(1));
+            Assert.That(writerPeer, Is.Not.Null);
+            Assert.That(writerPeer!.Direction, Is.EqualTo(incomingDirection == writerDirection ? incomingDirection : ConnectionDirection.Unknown));
             await router.FlushOutboundAsync();
             Assert.That(sent.SelectMany(rpc => rpc.Subscriptions)
                 .Any(subscription => subscription.Topicid == "topic" && subscription.Subscribe), Is.True);

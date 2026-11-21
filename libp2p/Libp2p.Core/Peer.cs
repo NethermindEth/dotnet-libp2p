@@ -247,6 +247,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
                 session ??= new(this, activity);
                 session.RegisterConnection();
                 session.IsListenerConnection = isListener;
+                session.Direction = isListener ? ConnectionDirection.Inbound : ConnectionDirection.Outbound;
                 if (isListener) session.StartUpgradeDeadline();
                 // Instrumentation can synchronously reenter shutdown.
                 if (_disposal is not null || session.ConnectionToken.IsCancellationRequested) throw new ChannelClosedException();
