@@ -6,7 +6,7 @@ The sample uses a minimal transport stack with only `/perf/1.0.0` at the applica
 
 ## Prerequisites
 
-This sample requires Redis for coordination between dialer and listener instances.
+The environment-variable mode requires Redis for coordination between dialer and listener instances.
 
 **Start Redis before running the application:**
 
@@ -54,6 +54,33 @@ dotnet run
 3. Start dialer (in another terminal): `$env:IS_DIALER="true"; $env:REDIS_ADDR="localhost:6379"; $env:LISTENER_IP="127.0.0.1"; dotnet run`
 4. The dialer will run performance tests and output results
 5. Stop Redis when done: `docker stop redis-perf && docker rm redis-perf`
+
+## test-plans CLI mode
+
+When started with `--` flags, the sample follows the libp2p test-plans perf contract instead of the environment-variable and Redis mode above. Logs go to stderr; stdout carries only JSON.
+
+| Flag | Description |
+|------|-------------|
+| `--run-server` | Run as the perf server. Never exits; stop it with Ctrl+C. |
+| `--server-address` | The server accepts an IP and port or an IP multiaddr and defaults to `0.0.0.0:4001`. The client accepts `host:port` or a multiaddr. Enclose IPv6 literals in brackets in `host:port` form. |
+| `--transport` | `tcp`, `quic` or `quic-v1`. Without this flag, a server listening on an IP and port binds both transports, a client dialing `host:port` uses TCP, and a multiaddr supplies its own transport. |
+| `--upload-bytes` | Bytes to upload (client) |
+| `--download-bytes` | Bytes to download (client) |
+
+The CLI server uses the public test-plans benchmark identity. A client assumes that identity unless its multiaddr supplies a peer ID.
+
+The client prints a progress line every second and one final line. The final time includes connection setup, upload and download:
+
+    {"type":"intermediary","timeSeconds":1.0,"uploadBytes":120455168,"downloadBytes":0}
+    {"type":"final","timeSeconds":9.49,"uploadBytes":1073741824,"downloadBytes":1073741824}
+
+Example:
+
+    # server
+    dotnet run --project samples/perf-benchmarks -- --run-server --server-address 127.0.0.1:4001
+
+    # client
+    dotnet run --project samples/perf-benchmarks -- --server-address 127.0.0.1:4001 --transport tcp --upload-bytes 1073741824 --download-bytes 1073741824
 
 ## Docker Build
 

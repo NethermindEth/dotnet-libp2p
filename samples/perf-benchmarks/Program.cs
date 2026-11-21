@@ -1,32 +1,53 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using DataTransferBenchmark;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Protocols;
 using Multiformats.Address;
+using Multiformats.Address.Protocols;
 using StackExchange.Redis;
+
+namespace DataTransferBenchmark;
 
 class Program
 {
-    static async Task Main(string[] args)
+    static async Task<int> Main(string[] args)
     {
-        var services = new ServiceCollection()
+        bool cliMode = PerfArgs.IsCliMode(args);
+
+        await using var services = new ServiceCollection()
             .AddLibp2p<PerfPeerFactoryBuilder>(builder => builder.AddProtocol<PerfProtocol>())
             .AddLogging(builder => builder
-                .SetMinimumLevel(LogLevel.Information) // Show information and above
+                .SetMinimumLevel(LogLevel.Information)
                 .AddConsole(options =>
                 {
-                    options.LogToStandardErrorThreshold = LogLevel.Warning; // Only warnings/errors to stderr
+                    options.LogToStandardErrorThreshold = cliMode ? LogLevel.Trace : LogLevel.Warning;
                 }))
             .BuildServiceProvider();
 
         var peerFactory = services.GetRequiredService<IPeerFactory>();
         var logger = services.GetRequiredService<ILogger<Program>>();
 
+        if (cliMode)
+        {
+            PerfArgs parsed;
+            try
+            {
+                parsed = PerfArgs.Parse(args);
+            }
+            catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 2;
+            }
+
+            return await RunCliAsync(peerFactory, logger, parsed);
+        }
         // Read configuration from environment variables (following WRITE_A_PERF_TEST.md)
         var isDialer = Environment.GetEnvironmentVariable("IS_DIALER") == "true";
         var redisAddr = Environment.GetEnvironmentVariable("REDIS_ADDR") ?? "redis:6379";
@@ -88,6 +109,53 @@ class Program
         else
         {
             await RunListener(peerFactory, logger, redisAddr, transport, testKey);
+        }
+
+        return 0;
+    }
+
+    static async Task<int> RunCliAsync(IPeerFactory peerFactory, ILogger logger, PerfArgs args)
+    {
+        try
+        {
+            Multiaddress[] addresses = args.GetServerAddresses();
+            await using ILocalPeer peer = peerFactory.Create(args.RunServer ? PerfArgs.TestPlansServerIdentity : null);
+            if (args.RunServer)
+            {
+                await peer.StartListenAsync(addresses);
+                if (peer.ListenAddresses.Count != addresses.Length)
+                {
+                    throw new InvalidOperationException($"Could not bind every requested perf listener: {string.Join<Multiaddress>(", ", addresses)}");
+                }
+
+                logger.LogInformation("Listening on {Addresses}", string.Join(", ", peer.ListenAddresses));
+                await Task.Delay(Timeout.Infinite);
+                return 0;
+            }
+
+            Multiaddress target = addresses[0];
+            string localIp = target.Has<IP6>() || target.Has<DNS6>() ? "/ip6/::" : "/ip4/0.0.0.0";
+            string localTransport = target.Has<QUICv1>() ? "/udp/0/quic-v1" : "/tcp/0";
+            await peer.StartListenAsync([Multiaddress.Decode(localIp + localTransport)]);
+            PerfProtocol.BytesToSend = args.UploadBytes;
+            PerfProtocol.BytesToReceive = args.DownloadBytes;
+
+            using PerfReporter reporter = new();
+            PerfProtocol.Reporter = reporter;
+            ISession session = await peer.DialAsync(target);
+            await session.DialAsync<PerfProtocol>();
+            reporter.Final();
+            await session.DisconnectAsync();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Perf run failed");
+            return 1;
+        }
+        finally
+        {
+            PerfProtocol.Reporter = null;
         }
     }
 
@@ -494,5 +562,111 @@ class Program
         }
 
         return CalculateStats(values);
+    }
+}
+
+public sealed record PerfArgs(bool RunServer, string? ServerAddress, string? Transport, ulong UploadBytes, ulong DownloadBytes)
+{
+    // The public, zero-seed Ed25519 fixture used by the test-plans perf implementations.
+    // A runner that only knows host:port can still verify the benchmark server's peer ID.
+    internal static readonly Identity TestPlansServerIdentity = new(new byte[32]);
+
+    public static bool IsCliMode(string[] args) => args.Any(a => a.StartsWith("--", StringComparison.Ordinal));
+
+    public static PerfArgs Parse(string[] args)
+    {
+        bool server = false;
+        string? address = null;
+        string? transport = null;
+        ulong upload = 0, download = 0;
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--run-server": server = true; break;
+                case "--server-address": address = Value(args, ref i); break;
+                case "--transport": transport = Value(args, ref i); break;
+                case "--upload-bytes": upload = ulong.Parse(Value(args, ref i)); break;
+                case "--download-bytes": download = ulong.Parse(Value(args, ref i)); break;
+                default: throw new ArgumentException($"Unknown argument: {args[i]}");
+            }
+        }
+
+        if (!server && string.IsNullOrWhiteSpace(address))
+            throw new ArgumentException("--server-address is required in client mode");
+
+        return new PerfArgs(server, address, transport, upload, download);
+    }
+
+    private static string Value(string[] args, ref int i) =>
+        ++i < args.Length ? args[i] : throw new ArgumentException($"{args[i - 1]} requires a value");
+
+    public Multiaddress[] GetServerAddresses()
+    {
+        bool? quic = Transport switch
+        {
+            null => null,
+            "tcp" => false,
+            "quic" or "quic-v1" => true,
+            _ => throw new ArgumentException($"Unsupported transport {Transport}. Supported transports are tcp, quic and quic-v1.")
+        };
+
+        string address = ServerAddress ?? "0.0.0.0:4001";
+        Multiaddress endpoint;
+        if (address.StartsWith('/'))
+        {
+            endpoint = Multiaddress.Decode(address);
+            bool tcpAddress = IpTcpProtocol.IsAddressMatch(endpoint);
+            bool quicAddress = endpoint.Has<UDP>() && endpoint.Has<QUICv1>();
+            if (tcpAddress == quicAddress || (quic is bool selected && selected != quicAddress))
+                throw new ArgumentException("The server multiaddr must use TCP or QUIC and match any explicit --transport.");
+        }
+        else
+        {
+            int colon = address.LastIndexOf(':');
+            if (colon <= 0 || !ushort.TryParse(address.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out ushort port))
+                throw new ArgumentException($"Invalid server address: {address}");
+
+            string host = address[..colon];
+            bool bracketed = host.StartsWith('[') && host.EndsWith(']');
+            if (bracketed) host = host[1..^1];
+
+            string prefix;
+            if (IPAddress.TryParse(host, out IPAddress? ip)
+                && bracketed == (ip.AddressFamily == AddressFamily.InterNetworkV6))
+            {
+                string protocol = bracketed ? "ip6" : "ip4";
+                prefix = $"/{protocol}/{ip}";
+            }
+            else if (!RunServer && !bracketed && Uri.CheckHostName(host) == UriHostNameType.Dns)
+            {
+                prefix = $"/dns4/{host}";
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid server address: {address}");
+            }
+
+            if (RunServer && quic is null)
+                return [Multiaddress.Decode($"{prefix}/tcp/{port}"), Multiaddress.Decode($"{prefix}/udp/{port}/quic-v1")];
+
+            endpoint = Multiaddress.Decode(quic == true ? $"{prefix}/udp/{port}/quic-v1" : $"{prefix}/tcp/{port}");
+        }
+
+        PeerId? peerId = endpoint.GetPeerId();
+        if (RunServer)
+        {
+            if (!endpoint.Has<IP4>() && !endpoint.Has<IP6>())
+                throw new ArgumentException("The server listen address must contain an IP address.");
+            if (peerId is not null && peerId != TestPlansServerIdentity.PeerId)
+                throw new ArgumentException("The listen address peer ID does not match the test-plans server identity.");
+        }
+        else if (peerId is null)
+        {
+            endpoint = endpoint.Add<P2P>(TestPlansServerIdentity.PeerId.ToString());
+        }
+
+        return [endpoint];
     }
 }
