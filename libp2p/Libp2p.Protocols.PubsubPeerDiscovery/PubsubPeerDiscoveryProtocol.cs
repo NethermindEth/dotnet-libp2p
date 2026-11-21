@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery;
 using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Dto;
 
@@ -137,18 +138,99 @@ public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore pe
     {
         try
         {
-            Peer peer = Peer.Parser.ParseFrom(msg);
-            Multiaddress[] addrs = [.. peer.Addrs.Select(a => Multiaddress.Decode(a.ToByteArray()))];
-            PeerId? remotePeerId = addrs.FirstOrDefault()?.GetPeerId();
-            if (remotePeerId is not null && remotePeerId != localPeerId!)
+            Peer announcement = Peer.Parser.ParseFrom(msg);
+            PeerId? announced = AnnouncedPeer(announcement, out Multiaddress[] addrs, logger);
+            if (announced is null || announced == localPeerId!)
             {
-                peerStore.Discover(addrs, isTrusted: false);
+                return;
             }
-            logger?.LogDebug($"New peer discovered {peer}");
+
+            peerStore.Discover(addrs, isTrusted: false);
+            logger?.LogDebug("New peer discovered {peerId} at {addresses}", announced, string.Join(",", addrs));
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Peer message handling caused an exception");
         }
+    }
+
+    /// <summary>
+    /// The peer an announcement is internally consistent about, or <c>null</c> when it is not.
+    /// <para>
+    /// <b>This does not authenticate the announcer.</b> A public key is public, so anyone can put
+    /// another peer's key in an announcement and have every check here pass; what this establishes
+    /// is that one announcement describes one peer, not that the sender is that peer. Authenticating
+    /// it needs the signed pubsub author, which subscribers are not currently given — see #242.
+    /// Addresses from here therefore stay <c>isTrusted: false</c>.
+    /// </para>
+    /// <para>
+    /// The identity is taken from the advertised public key, as in the reference implementation,
+    /// rather than from an address suffix. Both are self-asserted, but reading only the first
+    /// suffix meant the rest of the announcement was never checked against anything at all. Every
+    /// suffix present must now agree with the derived id, because one announcement carrying two
+    /// identities is not a thing an honest peer sends.
+    /// </para>
+    /// <para>
+    /// An address that cannot be decoded is skipped rather than failing the announcement: a peer
+    /// advertises every transport it listens on and this build does not know them all. An address
+    /// claiming a different peer is a different matter and rejects the whole announcement.
+    /// </para>
+    /// </summary>
+    internal static PeerId? AnnouncedPeer(Peer announcement, out Multiaddress[] addresses, ILogger? logger = null)
+    {
+        addresses = [];
+
+        if (announcement.PublicKey.IsEmpty)
+        {
+            logger?.LogDebug("Ignoring a peer announcement that carries no public key");
+            return null;
+        }
+
+        PeerId derived;
+        try
+        {
+            derived = new PeerId(PublicKeyDecoder.Decode(announcement.PublicKey));
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "Ignoring a peer announcement whose public key is unusable");
+            return null;
+        }
+
+        List<Multiaddress> decoded = [];
+        foreach (ByteString raw in announcement.Addrs)
+        {
+            Multiaddress address;
+            try
+            {
+                address = Multiaddress.Decode(raw.ToByteArray());
+            }
+            catch (Exception ex)
+            {
+                logger?.LogDebug(ex, "Skipping an address of {peerId} that could not be decoded", derived);
+                continue;
+            }
+
+            if (address.Protocols.Count == 0)
+            {
+                // Decoding is lenient: bytes it cannot place come back as an address with nothing
+                // in it rather than as an exception. Unusable either way, so it goes the same way.
+                logger?.LogDebug("Skipping an empty address of {peerId}", derived);
+                continue;
+            }
+
+            PeerId? claimed = address.GetPeerId();
+            if (claimed is not null && claimed != derived)
+            {
+                logger?.LogWarning("Rejecting an announcement for {peerId} that also claims {other}", derived, claimed);
+                addresses = [];
+                return null;
+            }
+
+            decoded.Add(address);
+        }
+
+        addresses = [.. decoded];
+        return derived;
     }
 }
