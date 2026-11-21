@@ -46,6 +46,13 @@ internal static class LivenessProbe
         {
             throw;
         }
+        catch (ProtocolBusyException)
+        {
+            // Another probe already holds this session's ping. That says nothing about the remote,
+            // so disconnecting would turn our own concurrency into a lost connection -- and would
+            // interrupt the probe that is actually running.
+            throw;
+        }
         catch (Exception ex)
         {
             await DisconnectQuietly(session).ConfigureAwait(false);
