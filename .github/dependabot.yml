@@ -11,6 +11,15 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    ignore:
+      # Google.Protobuf.Tools shares the $(ProtobufVersion) property with Google.Protobuf, so
+      # grouping by dependency name would raise a second pull request making the same edit.
+      # Routine bumps arrive through Google.Protobuf.
+      - dependency-name: Google.Protobuf.Tools
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
       nuget:
         # Both directories resolve versions from the same root Directory.Packages.props, so a

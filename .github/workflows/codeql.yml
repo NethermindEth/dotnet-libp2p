@@ -1,5 +1,8 @@
 name: CodeQL
 
+# A squashed Dependabot merge lands on main as a Dependabot-authored commit, and the push run
+# for it gets a read-only token that cannot upload results. The scheduled run and
+# workflow_dispatch are not restricted that way, so they are what refreshes main in that case.
 on:
   push:
     branches: [main]
@@ -7,6 +10,7 @@ on:
     branches: [main]
   schedule:
     - cron: "27 4 * * 1"
+  workflow_dispatch:
 
 jobs:
   analyze:
