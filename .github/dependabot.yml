@@ -1,8 +1,13 @@
 version: 2
 updates:
 
+  # Both directories hold solution entry points: Libp2p.slnx at the root, Samples.slnx and
+  # Tests.slnx under solutions/. Discovery expands each one's projects, so listing the root
+  # alone would miss the projects only those two solutions reference.
   - package-ecosystem: nuget
-    directory: /
+    directories:
+      - /
+      - /solutions
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
