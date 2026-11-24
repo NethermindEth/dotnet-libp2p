@@ -13,6 +13,10 @@ updates:
     open-pull-requests-limit: 5
     groups:
       nuget:
+        # Both directories resolve versions from the same root Directory.Packages.props, so a
+        # dependency they share would otherwise get one pull request per directory, each editing
+        # the same line. Grouping by dependency name gives one pull request per dependency instead.
+        group-by: dependency-name
         patterns: ["*"]
 
   - package-ecosystem: github-actions
