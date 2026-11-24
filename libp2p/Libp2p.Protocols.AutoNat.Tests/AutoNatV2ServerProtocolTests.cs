@@ -40,6 +40,19 @@ public class AutoNatV2ServerProtocolTests
         await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.ToString() == publicAddr.ToString()), Nonce, Arg.Any<CancellationToken>());
     }
 
+    [TestCase("/ip4/203.0.113.7/ip4/203.0.113.7/tcp/4001")]
+    [TestCase("/ip6/2001:db8::1/ip6/2001:db8::1/tcp/4001")]
+    public async Task SkipsAddressWithRepeatedIp(string repeated)
+    {
+        IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
+        Multiaddress publicAddr = "/ip4/203.0.113.7/tcp/4001";
+
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(repeated), Addr(publicAddr)]);
+
+        Assert.That(response.AddrIdx, Is.EqualTo(1));
+        await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.ToString() == publicAddr.ToString()), Nonce, Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public async Task ReportsFailedDialBack()
     {

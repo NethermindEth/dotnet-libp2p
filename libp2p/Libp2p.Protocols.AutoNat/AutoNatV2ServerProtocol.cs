@@ -169,9 +169,10 @@ public class AutoNatV2ServerProtocol : ISessionListenerProtocol
 
     private static IPAddress? GetIp(Multiaddress? addr)
     {
-        MultiaddressProtocol? protocol = addr is null ? null : addr.Has<IP4>() ? addr.Get<IP4>() : addr.Has<IP6>() ? addr.Get<IP6>() : null;
-        if (protocol is null) return null;
-        IPAddress ip = IPAddress.Parse(protocol.ToString());
+        // Exactly one IP: we can't dial an address with more, and Multiaddress.Get<T>() throws on a repeat.
+        MultiaddressProtocol[] ips = addr is null ? [] : [.. addr.Protocols.Where(p => p is IP4 or IP6)];
+        if (ips.Length != 1) return null;
+        IPAddress ip = IPAddress.Parse(ips[0].ToString());
         return ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip;
     }
 
