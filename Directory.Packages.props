@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <ProtobufVersion>3.33.1</ProtobufVersion>
+    <ProtobufVersion>3.36.2</ProtobufVersion>
     <MauiVersion>10.0.0</MauiVersion>
   </PropertyGroup>
   <ItemGroup>
