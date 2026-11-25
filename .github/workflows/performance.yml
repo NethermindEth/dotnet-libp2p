@@ -22,14 +22,14 @@ jobs:
         stack: [tcp-noise-yamux, tcp-tls-yamux, quic-v1]
     steps:
       - name: Check out main revision
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
           persist-credentials: false
 
       - name: Check out pull request revision
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: base/global.json
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload measurements
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: performance-${{ matrix.stack }}
           path: results/*.json

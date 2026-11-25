@@ -12,18 +12,18 @@ jobs:
     steps:
 
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
 
       - name: Format whitespace
         working-directory: ${{ env.WORKING_DIR }}
         run: dotnet format whitespace . --folder --verify-no-changes
 
       - name: Check spelling
-        uses: streetsidesoftware/cspell-action@v7
+        uses: streetsidesoftware/cspell-action@v9
         with:
           config: ./cspell.json
