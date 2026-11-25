@@ -21,6 +21,7 @@
     <Project Path="libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
+    <File Path=".github/workflows/codeql.yml" />
     <File Path=".github/workflows/format.yml" />
     <File Path=".github/workflows/performance.yml" />
     <File Path=".github/workflows/performance-report.yml" />
