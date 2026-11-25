@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
@@ -173,6 +174,14 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         {
             // The caller gave up; that says nothing about the cached session.
             _logger.LogWarning("{Operation} to {Node} cancelled", operation, receiver);
+            throw;
+        }
+        catch (ProtocolBusyException)
+        {
+            // Local contention for a per-peer stream allowance, not a bad session. Evicting and
+            // disconnecting here would tear down a healthy connection and interrupt the operation
+            // that currently holds the allowance.
+            _logger.LogTrace("{Operation} to {Node} refused; the protocol is already in use", operation, receiver);
             throw;
         }
         catch (Exception ex)

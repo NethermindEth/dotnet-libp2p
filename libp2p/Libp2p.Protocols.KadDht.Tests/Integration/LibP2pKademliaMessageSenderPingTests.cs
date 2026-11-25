@@ -5,6 +5,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using NSubstitute;
 using NUnit.Framework;
@@ -65,6 +66,24 @@ public class LibP2pKademliaMessageSenderPingTests
         var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
 
         Assert.That(async () => await sender.Ping(_node, cts.Token), Throws.InstanceOf<OperationCanceledException>());
+        await _session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>
+    /// One outbound ping per peer means a second concurrent probe is refused. Reporting that as a
+    /// failed ping would blame the peer for local contention, and reporting it as a successful one
+    /// would assert a liveness this probe never observed, so it surfaces instead (#250).
+    /// </summary>
+    [Test]
+    public async Task Ping_AnotherProbeHoldsTheStream_SurfacesContentionAndKeepsTheSession()
+    {
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new ProtocolBusyException("a ping is already in flight")));
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+
+        Assert.That(async () => await sender.Ping(_node, CancellationToken.None),
+            Throws.InstanceOf<ProtocolBusyException>(), "Contention must not be reported as a liveness verdict.");
+
         await _session.DidNotReceive().DisconnectAsync();
     }
 }

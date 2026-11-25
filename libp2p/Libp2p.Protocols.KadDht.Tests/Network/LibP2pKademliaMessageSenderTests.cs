@@ -274,6 +274,33 @@ public class LibP2pKademliaMessageSenderTests
         await session.DidNotReceive().DisconnectAsync();
     }
 
+    /// <summary>
+    /// A refused second ping is our own contention over the one outbound stream the peer allows,
+    /// not a bad session. Evicting here would disconnect a healthy connection and interrupt the
+    /// probe that actually holds the stream (#250).
+    /// </summary>
+    [Test]
+    public async Task Ping_AnotherProbeHoldsTheStream_KeepsTheCachedSession()
+    {
+        var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
+        var session = Substitute.For<ISession>();
+        var multiaddr = Multiaddress.Decode(node.Multiaddrs[0]);
+        _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>()).Returns(Task.FromResult(session));
+        await _messageSender.Ping(node, CancellationToken.None);
+
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new ProtocolBusyException("a ping is already in flight")));
+        Assert.That(async () => await _messageSender.Ping(node, CancellationToken.None),
+            Throws.InstanceOf<ProtocolBusyException>());
+
+        await session.DidNotReceive().DisconnectAsync();
+
+        // The cached session is still the one in use: a second dial would mean it was evicted.
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await _messageSender.Ping(node, CancellationToken.None);
+        await _mockLocalPeer.Received(1).DialAsync(multiaddr, Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public void Ping_WithoutPingProtocol_ThrowsSetupExceptionWithoutDialing()
     {

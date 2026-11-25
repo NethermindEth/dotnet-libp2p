@@ -6,6 +6,7 @@ using Libp2p.Protocols.KadDht.Kademlia;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
@@ -72,6 +73,16 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             _logger?.LogDebug("Ping to {NodeId} cancelled", receiver.PeerId);
+            throw;
+        }
+        catch (ProtocolBusyException)
+        {
+            // Our own probe already holds this peer's single outbound ping. Reporting false would
+            // blame the peer for local contention, and reporting true would assert a liveness this
+            // probe never observed, so the contention is surfaced instead. The probe that holds the
+            // stream still produces the real answer. Coalescing concurrent checks onto that probe
+            // would remove the race altogether.
+            _logger?.LogTrace("Ping to {NodeId} refused; a probe is already in flight", receiver.PeerId);
             throw;
         }
         catch (Exception ex)

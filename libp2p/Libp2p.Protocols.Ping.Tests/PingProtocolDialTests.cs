@@ -23,10 +23,9 @@ public class PingProtocolDialTests
         int duplicates = 0;
         using Barrier start = new(Workers);
 
-        // One session per worker, dialled sequentially within it. The protocol now allows a single
-        // outbound ping per session, so sharing one session across the workers would exercise that
-        // refusal rather than the payload randomness this test is about; the concurrency that
-        // matters here is several threads drawing from Random.Shared at once, which this keeps.
+        // One session per worker, dialled sequentially within it, mirroring the one outbound ping
+        // per peer the session allows. This test is about payload randomness, and the concurrency
+        // that matters for it is several threads drawing from Random.Shared at once.
         Task[] workers = Enumerable.Range(0, Workers).Select(worker => Task.Factory.StartNew(() =>
         {
             ISessionContext context = Substitute.For<ISessionContext>();

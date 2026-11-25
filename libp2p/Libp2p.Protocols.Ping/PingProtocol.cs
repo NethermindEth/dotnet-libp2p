@@ -14,7 +14,7 @@ namespace Nethermind.Libp2p.Protocols;
 /// <summary>
 ///     https://github.com/libp2p/specs/blob/master/ping/ping.md
 /// </summary>
-public class PingProtocol : ISessionProtocol
+public class PingProtocol : ISessionProtocol, IOutboundStreamLimited
 {
     private const int PayloadLength = 32;
 
@@ -22,66 +22,78 @@ public class PingProtocol : ISessionProtocol
     private readonly ILogger<PingProtocol>? _logger;
 
     /// <summary>
-    /// Sessions with an outbound ping in flight, keyed by the session's own state object. Entries
-    /// are removed in a finally, so the table holds only what is running.
-    /// <para>
-    /// One registration is shared by every local peer built from the same factory, and
-    /// <see cref="ISessionContext"/> carries no local identity — <c>State.LocalAddress</c> is an
-    /// endpoint without a <c>/p2p</c> suffix — so keying on the remote peer alone would make two
-    /// local nodes dialing one server contend for a single allowance. Keying on the session gives
-    /// per connection to a peer rather than strictly per peer, so a node holding two connections to
-    /// one remote could keep two outbound pings. That is the part of the rule this cannot enforce
-    /// without a local identity on the context.
-    /// </para>
+    /// Pairs with an outbound ping in flight. One protocol instance is shared by every local peer
+    /// built from the same factory, so the key carries the local peer as well as the remote;
+    /// otherwise two local peers dialing one server would contend for a single allowance. Entries
+    /// are removed when the allowance is disposed, so the table holds only what is running.
     /// </summary>
-    private readonly ConcurrentDictionary<State, byte> _dialing = new();
+    private readonly ConcurrentDictionary<(ILocalPeer Local, PeerId Remote), byte> _dialing = new();
 
     public PingProtocol(ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<PingProtocol>();
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// A remote that is not yet identified is let through: the rule is one stream per peer, and
+    /// there is no peer to count against until the handshake names one. A session protocol is
+    /// dialed after security, so in practice the identity is known.
+    /// </remarks>
+    public IDisposable? TryAcquireOutboundStream(ILocalPeer local, PeerId? remote)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        if (remote is null) return Allowance.Unscoped;
+
+        (ILocalPeer, PeerId) key = (local, remote);
+        return _dialing.TryAdd(key, 0) ? new Allowance(_dialing, key) : null;
+    }
+
+    /// <inheritdoc />
+    public string DescribeOutboundRefusal(PeerId? remote) =>
+        $"A ping to {remote?.ToString() ?? "the remote peer"} is already in flight; " +
+        "the ping protocol keeps one outbound stream per peer.";
+
+    /// <summary>Holds one pair's outbound allowance until disposed. Disposing twice is harmless.</summary>
+    private sealed class Allowance : IDisposable
+    {
+        /// <summary>Handed out when there is no identity to scope the allowance to.</summary>
+        internal static readonly IDisposable Unscoped = new Allowance(null, default);
+
+        private readonly ConcurrentDictionary<(ILocalPeer, PeerId), byte>? _dialing;
+        private readonly (ILocalPeer, PeerId) _key;
+        private int _released;
+
+        internal Allowance(ConcurrentDictionary<(ILocalPeer, PeerId), byte>? dialing, (ILocalPeer, PeerId) key)
+        {
+            _dialing = dialing;
+            _key = key;
+        }
+
+        public void Dispose()
+        {
+            if (_dialing is null) return;
+            if (Interlocked.Exchange(ref _released, 1) == 0) _dialing.TryRemove(_key, out _);
+        }
+    }
+
     /// <summary>
     /// Sends one ping and verifies the echo.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// The <see href="https://github.com/libp2p/specs/blob/master/ping/ping.md">specification</see>
     /// says a dialing peer "MUST NOT keep more than one outbound stream for the ping protocol per
-    /// peer", so overlapping pings on a session run one at a time rather than together.
-    /// </para>
-    /// <para>
-    /// The second ping is refused with <see cref="ProtocolBusyException"/> rather than queued: by the
-    /// time this runs the stream is already open and negotiated, so waiting would park an idle ping
-    /// stream on the session instead of ending it. The dedicated type is what lets a caller tell
-    /// local contention from a dead peer — <c>LivenessProbe</c> disconnects on anything else.
-    /// </para>
-    /// <para>
-    /// This cannot keep the second stream from being opened at all, which is what the rule actually
-    /// asks: the request is queued and <c>/ipfs/ping/1.0.0</c> negotiated before any protocol code
-    /// runs. Doing that needs a seam ahead of negotiation, or serialization in the caller.
-    /// </para>
+    /// peer". That is enforced through <see cref="IOutboundStreamLimited"/>, which the session
+    /// consults before it queues the dial, so a second ping is refused with
+    /// <see cref="ProtocolBusyException"/> without a stream being opened or negotiated. The
+    /// dedicated exception type is what lets a caller tell local contention from a dead peer.
     /// </remarks>
     public async Task DialAsync(IChannel channel, ISessionContext context)
     {
         State session = context.State;
         ArgumentNullException.ThrowIfNull(session.RemoteAddress);
 
-        if (!_dialing.TryAdd(session, 0))
-        {
-            throw new ProtocolBusyException(
-                $"A ping to {session.RemotePeerId?.ToString() ?? session.RemoteAddress.ToString()} is already in flight; " +
-                "the ping protocol keeps one outbound stream per peer.");
-        }
-
-        try
-        {
-            await PingOnceAsync(channel, session.RemoteAddress);
-        }
-        finally
-        {
-            _dialing.TryRemove(session, out _);
-        }
+        await PingOnceAsync(channel, session.RemoteAddress);
     }
 
     private async Task PingOnceAsync(IChannel channel, Multiaddress remoteAddress)
