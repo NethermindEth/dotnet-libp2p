@@ -20,6 +20,7 @@ public class FloodsubProtocolTests
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
         FloodsubEndpoint endpoint = new(deadline.Token);
         await using ServiceProvider localServices = new ServiceCollection()
+            .AddPubsub()
             .AddLibp2p(builder => builder.WithPubsub())
             .AddSingleton(new PubsubSettings { HeartbeatInterval = int.MaxValue, ReconnectionPeriod = int.MaxValue })
             .BuildServiceProvider();

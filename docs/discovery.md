@@ -61,6 +61,7 @@ using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery;
 
 ServiceProvider provider = new ServiceCollection()
+    .AddPubsub()
     .AddSingleton(new PubsubPeerDiscoverySettings
     {
         Topics = ["_peer-discovery._p2p._pubsub"],
@@ -95,7 +96,7 @@ Discovery stops when the token passed to `StartDiscoveryAsync` is cancelled or w
 
 Neither disposes the shared `PeerStore`, `PubsubRouter` or local peer.
 
-Who disposes depends on who created the instance. `AddLibp2p` registers `MDnsDiscoveryProtocol`, `PubsubRouter` and `PeerStore` as singletons, and the service provider disposes them when it is disposed. Dispose instances you create with `new`, such as `PubsubPeerDiscoveryProtocol` in the example above, yourself:
+`AddLibp2p()` registers the mDNS discovery service and peer store. `AddPubsub()` registers the pubsub router. The service provider disposes the instances it creates. Dispose instances you create with `new`, such as `PubsubPeerDiscoveryProtocol` in the example above, yourself:
 
 ```csharp
 await discovery.DisposeAsync();

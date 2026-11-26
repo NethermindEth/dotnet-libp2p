@@ -33,12 +33,14 @@ public class OutboundRecoveryTests
             ReconnectionPeriod = 2_000,
         };
         await using ServiceProvider firstServices = new ServiceCollection()
-            .AddLibp2p<FloodsubBuilder>(builder => ((ILibp2pPeerFactoryBuilder)builder).WithPubsub())
+            .AddPubsub()
+            .AddLibp2p<FloodsubBuilder>()
             .AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(new Nethermind.Libp2p.Core.TestsBase.TestContextLoggerFactory())
             .AddSingleton(settings)
             .BuildServiceProvider();
         await using ServiceProvider secondServices = new ServiceCollection()
-            .AddLibp2p<FloodsubBuilder>(builder => ((ILibp2pPeerFactoryBuilder)builder).WithPubsub())
+            .AddPubsub()
+            .AddLibp2p<FloodsubBuilder>()
             .AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(new Nethermind.Libp2p.Core.TestsBase.TestContextLoggerFactory())
             .AddSingleton(new PubsubSettings { AutoConnect = false, HeartbeatInterval = int.MaxValue })
             .BuildServiceProvider();
@@ -136,7 +138,8 @@ public class OutboundRecoveryTests
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
         DeadlineClock clock = new();
         ServiceProvider Services(PubsubSettings settings) => new ServiceCollection()
-            .AddLibp2p<FloodsubBuilder>(builder => ((ILibp2pPeerFactoryBuilder)builder).WithPubsub())
+            .AddPubsub()
+            .AddLibp2p<FloodsubBuilder>()
             .AddSingleton<TimeProvider>(clock)
             .AddSingleton(settings).BuildServiceProvider();
         PubsubSettings Settings() => new() { AutoConnect = false, HeartbeatInterval = int.MaxValue };
@@ -271,7 +274,7 @@ public class OutboundRecoveryTests
     private static Task Drain(PubsubRouter router) => (Task)typeof(PubsubRouter)
         .GetMethod("FlushOutboundAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(router, null)!;
 
-    // Keep the standard TCP/Noise/Yamux stack and its WithPubsub registration, offering Floodsub only.
+    // Keep the standard TCP/Noise/Yamux stack and select Floodsub for the pubsub layer.
     public sealed class FloodsubBuilder(IServiceProvider provider) : Libp2pPeerFactoryBuilder(provider)
     {
         protected override ProtocolRef[] Pubsub() => [Get<FloodsubProtocol>()];

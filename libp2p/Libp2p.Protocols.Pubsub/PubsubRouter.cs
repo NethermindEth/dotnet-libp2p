@@ -398,8 +398,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         ValidateControlSettings(_settings);
         _messageCache = new(_settings.mcache_gossip, _settings.mcache_len, _settings.MaxMessageCacheEntries, _settings.MaxMessageCacheBytes);
         _messageIdCalculations = new(Math.Max(1, _settings.MaxConcurrentMessageIdCalculations));
-        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, comparer: MessageIdComparer.Instance);
-        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, comparer: MessageIdComparer.Instance);
+        _seenMessages = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, _timeProvider, MessageIdComparer.Instance);
+        _limboMessageCache = new(_settings.MessageCacheTtl, _settings.MaxSeenMessageIds, _timeProvider, MessageIdComparer.Instance);
         _iwantPromises = new(_settings.MaxIwantPromises);
         partialMessageGossip = new(_settings.MaxPartialMessageGroupsPerTopic, _settings.PartialMessageGossipTtlHeartbeats);
     }
@@ -430,6 +430,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
             List<Task> loops = [
                 Task.Run(() => LoopHeartbeat(lifetime), lifetime),
+                Task.Run(() => LoopExpireMessageIds(lifetime), lifetime),
             ];
             if (_settings.AutoConnect)
             {
@@ -479,6 +480,17 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         {
             await Task.Delay(_settings.HeartbeatInterval, token);
             await Heartbeat();
+        }
+    }
+
+    private async Task LoopExpireMessageIds(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), _timeProvider, token).ConfigureAwait(false);
+            DateTimeOffset now = _timeProvider.GetUtcNow();
+            _seenMessages.RemoveExpired(now);
+            _limboMessageCache.RemoveExpired(now);
         }
     }
 
@@ -683,8 +695,8 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         }
 
         _messageCache.Clear();
-        _seenMessages.Dispose();
-        _limboMessageCache.Dispose();
+        _seenMessages.Clear();
+        _limboMessageCache.Clear();
     }
 
     /// <summary>

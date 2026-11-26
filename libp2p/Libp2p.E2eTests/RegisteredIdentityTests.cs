@@ -175,7 +175,7 @@ public class RegisteredIdentityTests
 
     private static ServiceProvider Services(bool tls)
     {
-        IServiceCollection services = new ServiceCollection();
+        IServiceCollection services = new ServiceCollection().AddPubsub();
         if (tls) services.AddLibp2p<TlsBuilder>(builder => ((ILibp2pPeerFactoryBuilder)builder).WithPubsub());
         else services.AddLibp2p(builder => builder.WithPubsub());
         return services.AddSingleton(new PubsubSettings { AutoConnect = false, HeartbeatInterval = int.MaxValue }).BuildServiceProvider();

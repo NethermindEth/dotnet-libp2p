@@ -31,6 +31,7 @@ public class MeshBackoffE2eTests
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
         Clock clock = new();
         await using ServiceProvider receiverServices = new ServiceCollection()
+            .AddPubsub()
             .AddLibp2p(builder => builder.WithPubsub())
             .AddSingleton<TimeProvider>(clock)
             .AddSingleton(new PubsubSettings
