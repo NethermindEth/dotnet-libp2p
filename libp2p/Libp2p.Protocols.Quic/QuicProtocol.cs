@@ -265,6 +265,8 @@ public class QuicProtocol(ILoggerFactory? loggerFactory = null) : ITransportProt
         context.State.RemotePublicKey = CertificateHelper.ExtractPublicKey(connection.RemoteCertificate as X509Certificate2, out _) ?? throw new Libp2pException("Remote public key not found");
         context.State.RemoteAddress = $"/{(connection.RemoteEndPoint.AddressFamily == AddressFamily.InterNetwork ? "ip4" : "ip6")}/{connection.RemoteEndPoint.Address}/udp/{connection.RemoteEndPoint.Port}/quic-v1/p2p/{new Identity(context.State.RemotePublicKey).PeerId}";
 
+        context.State.IsRemoteIdentityAuthenticated = true;
+
         INewSessionContext session = context.UpgradeToSession();
         using CancellationTokenSource acceptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         ConcurrentDictionary<Task, byte> exchanges = new();

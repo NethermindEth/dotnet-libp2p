@@ -297,6 +297,7 @@ public class NoiseProtocol : IConnectionProtocol
         {
             remoteAddress.Add(new P2P(remotePeerId.ToString()));
         }
+        context.State.IsRemoteIdentityAuthenticated = true;
     }
 
     private static async Task ExchangeData(Transport transport, IChannel downChannel, IChannel upChannel, ILogger? logger, CancellationToken connectionToken)

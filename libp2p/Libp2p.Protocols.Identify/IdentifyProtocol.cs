@@ -23,7 +23,17 @@ public class IdentifyProtocol : IdentifyProtocolBase, ISessionProtocol<IdentifyR
     public async Task<IdentifyResult> DialAsync(IChannel channel, ISessionContext context)
     {
         _logger?.LogInformation("Dial");
-        return await ReadAndVerifyIdentity(channel, context);
+        IdentifyResult result = await ReadAndVerifyIdentity(channel, context);
+        if (context.State.IsRemoteIdentityAuthenticated && result.ObservedAddress is { Length: > 0 } observation
+            && !(context.UpgradeOptions?.CancellationToken ?? context.Token).IsCancellationRequested
+            && result.PeerId != context.Peer.Identity.PeerId)
+        {
+            PublicAddressDiscovery? discovery;
+            try { discovery = context.Peer.GetPublicAddressDiscovery(); }
+            catch (ObjectDisposedException) { return result; } // The peer can close during Identify.
+            discovery?.Record(result.PeerId, context.State.RemoteAddress, observation.Span);
+        }
+        return result;
     }
 
     public async Task ListenAsync(IChannel channel, ISessionContext context)

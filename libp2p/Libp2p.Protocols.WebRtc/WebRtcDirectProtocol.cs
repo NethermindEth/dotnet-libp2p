@@ -272,6 +272,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             connectionContext.State.RemotePublicKey = remoteKey;
             connectionContext.State.RemoteAddress = AuthenticatedAddress(
                 endpoint, expectedFingerprint, remoteKey, expectedPeerId);
+            connectionContext.State.IsRemoteIdentityAuthenticated = true;
 
             // Ids are chosen here rather than left to SIPSorcery. RTCDataChannelCollection seeds
             // its counter at ushort.MaxValue - 1 and adds 2 unchecked, so the first id it offers
@@ -586,6 +587,7 @@ public class WebRtcDirectProtocol : ITransportProtocol
             // the one Noise just proved is the only one there has ever been.
             connectionContext.State.RemoteAddress = AuthenticatedAddress(
                 remoteEndPoint, remoteFingerprint, remoteKey, expectedPeerId: null);
+            connectionContext.State.IsRemoteIdentityAuthenticated = true;
 
             await RunSessionAsync(
                 connectionContext,

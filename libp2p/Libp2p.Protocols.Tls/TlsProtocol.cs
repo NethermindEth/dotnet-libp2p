@@ -186,6 +186,7 @@ public class TlsProtocol : IConnectionProtocol
         {
             remoteAddress.Add(new P2P(new Identity(remotePublicKey).PeerId.ToString()));
         }
+        context.State.IsRemoteIdentityAuthenticated = true;
     }
 
     private static async Task ExchangeData(SslStream sslStream, IChannel downChannel, IChannel upChannel, CancellationToken connectionToken)

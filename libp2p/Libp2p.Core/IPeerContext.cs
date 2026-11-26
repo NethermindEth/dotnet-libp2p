@@ -104,6 +104,9 @@ public class State
     public PublicKey? RemotePublicKey { get; set; }
     public PeerId? RemotePeerId => RemoteAddress?.GetPeerId();
 
+    /// <summary>Whether the security handshake proved the remote peer's identity on this connection.</summary>
+    public bool IsRemoteIdentityAuthenticated { get; set; }
+
     /// <summary>Highest signed peer record sequence verified for this session's remote peer.</summary>
     public ulong? VerifiedPeerRecordSequence
     {
