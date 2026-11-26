@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using System.Net.Http.Headers;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Nethermind.Libp2p.Protocols.AutoTls.Internal;
@@ -19,6 +20,8 @@ namespace Nethermind.Libp2p.Protocols.AutoTls.Internal;
 /// </summary>
 public sealed class AcmeFlow
 {
+    private static readonly TimeSpan OrderTimeout = TimeSpan.FromMinutes(5);
+
     private readonly AutoTlsOptions _options;
     private readonly FileCertificateStore _store;
     private readonly P2pForgeClient _forge;
@@ -51,7 +54,11 @@ public sealed class AcmeFlow
         string peerId = PeerIdEncoding.ToBase36CidString(identity.PeerId);
         string wildcardDomain = $"*.{peerId}.{_options.ForgeDomain}";
 
-        AcmeContext acme = await GetOrCreateAccountAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        using CancellationTokenSource issuance = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        AcmeCancellationHandler handler = new(new HttpClientHandler(), issuance.Token);
+        using HttpClient http = new(handler);
+        AcmeContext acme = await GetOrCreateAccountAsync(http, ct);
 
         _logger?.LogInformation("Placing ACME order for {Domain}", wildcardDomain);
         IOrderContext order = await acme.NewOrder(new[] { wildcardDomain });
@@ -67,10 +74,19 @@ public sealed class AcmeFlow
         await WaitForChallengeValidAsync(dnsChallenge, ct);
 
         IKey csrKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
-        CertificateChain chain = await order.Generate(
-            new CsrInfo { CommonName = wildcardDomain },
-            csrKey);
+        CertificateChain chain;
+        try
+        {
+            chain = await CompleteOrderAsync(
+                order, new CsrInfo { CommonName = wildcardDomain }, csrKey, issuance,
+                TimeProvider.System, () => handler.RetryAfter);
+        }
+        catch (OperationCanceledException) when (issuance.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            throw new AutoTlsException("ACME order timed out waiting for certificate issuance.");
+        }
 
+        ct.ThrowIfCancellationRequested();
         PfxBuilder pfxBuilder = chain.ToPfx(csrKey);
         // Empty password is acceptable on disk because FileCertificateStore enforces 0600.
         byte[] pfx = pfxBuilder.Build($"libp2p-autotls-{peerId}", string.Empty);
@@ -85,22 +101,77 @@ public sealed class AcmeFlow
         return cert;
     }
 
-    private async Task<AcmeContext> GetOrCreateAccountAsync(CancellationToken ct)
+    internal static async Task<CertificateChain> CompleteOrderAsync(
+        IOrderContext order, CsrInfo csr, IKey key, CancellationTokenSource issuance, TimeProvider clock,
+        Func<RetryConditionHeaderValue?> getRetryAfter)
+    {
+        using CancellationTokenSource deadline = new(OrderTimeout, clock);
+        // Certes does not accept a token. Cancel the same attempt that owns its HTTP client.
+        using CancellationTokenRegistration cancelIssuance = deadline.Token.UnsafeRegister(
+            static state => ((CancellationTokenSource)state!).Cancel(), issuance);
+        CancellationToken ct = issuance.Token;
+
+        ct.ThrowIfCancellationRequested();
+        Order? state = await order.Resource();
+        while (state?.Status == OrderStatus.Pending)
+        {
+            state = await PollOrderAsync(order, getRetryAfter(), clock, ct);
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (state?.Status != OrderStatus.Ready)
+        {
+            throw new AutoTlsException($"ACME order is not ready to finalize (status: {state?.Status}).");
+        }
+
+        state = await order.Finalize(csr, key);
+        while (state?.Status is OrderStatus.Pending or OrderStatus.Processing)
+        {
+            state = await PollOrderAsync(order, getRetryAfter(), clock, ct);
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (state?.Status != OrderStatus.Valid)
+        {
+            throw new AutoTlsException($"ACME order did not become valid (status: {state?.Status}).");
+        }
+
+        CertificateChain chain = await order.Download();
+        ct.ThrowIfCancellationRequested();
+        return chain;
+    }
+
+    private static async Task<Order> PollOrderAsync(
+        IOrderContext order, RetryConditionHeaderValue? retryAfter, TimeProvider clock, CancellationToken ct)
+    {
+        TimeSpan delay = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow()) ?? TimeSpan.Zero;
+        delay = delay <= TimeSpan.Zero ? TimeSpan.FromSeconds(1) : delay;
+        // The deadline may end the attempt before the next poll is allowed.
+        delay = delay >= OrderTimeout ? Timeout.InfiniteTimeSpan : delay;
+        await Task.Delay(delay, clock, ct);
+        ct.ThrowIfCancellationRequested();
+        return await order.Resource();
+    }
+
+    internal async Task<AcmeContext> GetOrCreateAccountAsync(HttpClient http, CancellationToken ct)
     {
         Uri directory = new(_options.AcmeDirectoryUrl);
+        AcmeHttpClient acmeHttp = new(directory, http);
         string? pem = _store.TryLoadAccountKey();
         if (pem is not null)
         {
             IKey existing = KeyFactory.FromPem(pem);
-            return new AcmeContext(directory, existing);
+            return new AcmeContext(directory, existing, acmeHttp);
         }
 
-        AcmeContext acme = new(directory);
+        AcmeContext acme = new(directory, http: acmeHttp);
         string contact = string.IsNullOrEmpty(_options.ContactEmail)
             ? "noreply@libp2p.direct"
             : _options.ContactEmail;
         await acme.NewAccount(contact, termsOfServiceAgreed: true);
+        // Keep the registered key for the next attempt if shutdown was requested.
         _store.SaveAccountKey(acme.AccountKey.ToPem());
+        ct.ThrowIfCancellationRequested();
         return acme;
     }
 
@@ -126,5 +197,34 @@ public sealed class AcmeFlow
             delay = TimeSpan.FromSeconds(Math.Min(max.TotalSeconds, delay.TotalSeconds * 2));
         }
         throw new AutoTlsException("ACME DNS-01 challenge timed out waiting for validation.");
+    }
+
+    internal sealed class AcmeCancellationHandler(HttpMessageHandler inner, CancellationToken issuanceToken)
+        : DelegatingHandler(inner)
+    {
+        // Each issuance uses its own client and awaits its ACME calls in sequence.
+        internal RetryConditionHeaderValue? RetryAfter { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            using CancellationTokenSource requestCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, issuanceToken);
+            CancellationToken ct = requestCancellation.Token;
+            ct.ThrowIfCancellationRequested();
+
+            HttpResponseMessage response = await base.SendAsync(request, ct);
+            try
+            {
+                // Keep the issuance token in effect while reading the response, too.
+                await response.Content.LoadIntoBufferAsync(ct);
+                RetryAfter = response.Headers.RetryAfter;
+                return response;
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
+        }
     }
 }
