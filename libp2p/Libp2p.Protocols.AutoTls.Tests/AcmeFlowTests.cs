@@ -5,12 +5,14 @@ using Certes;
 using Certes.Acme;
 using Certes.Acme.Resource;
 using Certes.Pkcs;
+using Microsoft.Extensions.Options;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.AutoTls.Internal;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace Nethermind.Libp2p.Protocols.AutoTls.Tests;
 
@@ -156,6 +158,78 @@ public class AcmeFlowTests
         issuance.Cancel();
 
         Assert.CatchAsync<OperationCanceledException>(async () => await request.WaitAsync(TestTimeout));
+    }
+
+    [Test]
+    public async Task SavesRegisteredAccountKeyBeforeHonoringCancellation()
+    {
+        DirectoryInfo directory = System.IO.Directory.CreateTempSubdirectory();
+        try
+        {
+            IOptions<AutoTlsOptions> options = Options.Create(new AutoTlsOptions
+            {
+                AcmeDirectoryUrl = "https://example.com/directory",
+                CertificateStorePath = directory.FullName
+            });
+            FileCertificateStore store = new(options);
+            using CancellationTokenSource shutdown = new();
+            AccountRegistrationHandler transport = new(shutdown.Cancel);
+            using HttpClient http = new(new AcmeFlow.AcmeCancellationHandler(transport, shutdown.Token));
+            AcmeFlow flow = new(options, store, new P2pForgeClient(http, options));
+
+            OperationCanceledException? canceled = Assert.CatchAsync<OperationCanceledException>(async () =>
+                await flow.GetOrCreateAccountAsync(http, shutdown.Token).WaitAsync(TestTimeout));
+            Assert.That(canceled?.CancellationToken, Is.EqualTo(shutdown.Token));
+            string? savedKey = store.TryLoadAccountKey();
+            Assert.That(savedKey, Is.Not.Null);
+
+            using HttpClient retryHttp = new(transport, disposeHandler: false);
+            AcmeFlow retry = new(options, new FileCertificateStore(options), new P2pForgeClient(retryHttp, options));
+            AcmeContext account = await retry.GetOrCreateAccountAsync(retryHttp, CancellationToken.None).WaitAsync(TestTimeout);
+            Assert.That(account.AccountKey.ToPem(), Is.EqualTo(savedKey));
+            Assert.That(transport.Registrations, Is.EqualTo(1));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private sealed class AccountRegistrationHandler(Action cancel) : HttpMessageHandler
+    {
+        public int Registrations { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            switch (request.Method.Method, request.RequestUri?.AbsolutePath)
+            {
+                case ("GET", "/directory"):
+                    return JsonResponse(HttpStatusCode.OK, """
+                        {
+                            "newNonce": "https://example.com/acme/new-nonce",
+                            "newAccount": "https://example.com/acme/new-account"
+                        }
+                        """);
+                case ("HEAD", "/acme/new-nonce"):
+                    HttpResponseMessage nonce = new(HttpStatusCode.OK);
+                    nonce.Headers.Add("Replay-Nonce", "D8s4D2mLs8Vn-goWuPQeKA");
+                    return nonce;
+                case ("POST", "/acme/new-account"):
+                    HttpResponseMessage account = JsonResponse(HttpStatusCode.Created, """{"status": "valid"}""");
+                    account.Headers.Location = new Uri("https://example.com/acme/account/1");
+                    account.Headers.Add("Replay-Nonce", "MYAuvOpaoIiywTezizk5vw");
+                    // Deliver the successful registration even though shutdown has started.
+                    await account.Content.LoadIntoBufferAsync(cancellationToken);
+                    Registrations++;
+                    cancel();
+                    return account;
+                default:
+                    throw new InvalidOperationException($"Unexpected ACME request: {request.Method} {request.RequestUri}");
+            }
+        }
+
+        private static HttpResponseMessage JsonResponse(HttpStatusCode status, string body)
+            => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
     }
 
     private sealed class OrderStub(OrderStatus initial, OrderStatus result) : IOrderContext

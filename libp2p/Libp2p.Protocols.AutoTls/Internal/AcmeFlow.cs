@@ -153,7 +153,7 @@ public sealed class AcmeFlow
         return await order.Resource();
     }
 
-    private async Task<AcmeContext> GetOrCreateAccountAsync(HttpClient http, CancellationToken ct)
+    internal async Task<AcmeContext> GetOrCreateAccountAsync(HttpClient http, CancellationToken ct)
     {
         Uri directory = new(_options.AcmeDirectoryUrl);
         AcmeHttpClient acmeHttp = new(directory, http);
@@ -169,8 +169,9 @@ public sealed class AcmeFlow
             ? "noreply@libp2p.direct"
             : _options.ContactEmail;
         await acme.NewAccount(contact, termsOfServiceAgreed: true);
-        ct.ThrowIfCancellationRequested();
+        // Keep the registered key for the next attempt if shutdown was requested.
         _store.SaveAccountKey(acme.AccountKey.ToPem());
+        ct.ThrowIfCancellationRequested();
         return acme;
     }
 
