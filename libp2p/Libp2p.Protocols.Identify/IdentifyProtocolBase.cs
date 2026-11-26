@@ -187,19 +187,12 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, advertisedAddresses, idVersion),
         };
 
-        // Include all routable addresses in ListenAddrs — only exclude loopback
-        // and unspecified (0.0.0.0/::). Private/LAN addresses (192.168.x.x, 10.x.x.x, etc.)
-        // are kept because they are routable within the local network.
+        // Keep LAN addresses in ListenAddrs. Exclude loopback and unspecified addresses.
         ByteString[] endpoints = advertisedAddresses
-            .Where(a =>
-            {
-                IPAddress ip = a.ToEndPoint().Address;
-                return !IPAddress.IsLoopback(ip)
-                    && !ip.Equals(IPAddress.Any)
-                    && !ip.Equals(IPAddress.IPv6Any);
-            })
-            .Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto))
-            .Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
+            .Select(a => (Endpoint: a.ToEndPoint(out ProtocolType protocol), Protocol: protocol))
+            .Where(a => !a.Endpoint.Address.IsLoopbackAddress() && !a.Endpoint.Address.IsUnspecified())
+            .Select(a => ByteString.CopyFrom(a.Endpoint.ToMultiaddress(a.Protocol).ToBytes()))
+            .ToArray();
 
         identify.ListenAddrs.AddRange(endpoints);
 
