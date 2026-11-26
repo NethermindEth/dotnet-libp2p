@@ -18,7 +18,7 @@ public class IdentifyNotifier
         _timeProvider = timeProvider;
     }
 
-    public void TrackChanges(LocalPeer libp2pPeer)
+    public void TrackChanges(ILocalPeer libp2pPeer)
     {
         if (libp2pPeer.GetProtocol<ISessionProtocol<ulong, ulong>>(IdentifyPushProtocol.ProtocolId) is not { } identifyPush)
         {
@@ -28,7 +28,7 @@ public class IdentifyNotifier
         {
             ulong seq = NextSequence();
 
-            foreach (var session in libp2pPeer.Sessions.ToList())
+            foreach (ISession session in libp2pPeer.Sessions)
             {
                 _ = session.DialAsync(identifyPush, seq);
             }

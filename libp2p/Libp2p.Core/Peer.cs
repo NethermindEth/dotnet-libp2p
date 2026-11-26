@@ -42,7 +42,18 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
     private readonly HashSet<Session> _connections = [];
     private TaskCompletionSource? _disposal;
-    public ObservableCollection<Session> Sessions { get; } = [];
+    internal ObservableCollection<Session> Sessions { get; } = [];
+
+    IReadOnlyList<ISession> ILocalPeer.Sessions
+    {
+        get
+        {
+            lock (Sessions)
+            {
+                return Array.AsReadOnly<ISession>(Sessions.ToArray());
+            }
+        }
+    }
 
     public override string ToString()
     {

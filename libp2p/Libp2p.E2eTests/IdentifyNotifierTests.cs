@@ -12,12 +12,36 @@ using Nethermind.Libp2p.Protocols.Identify.Dto;
 using NSubstitute;
 using NUnit.Framework;
 using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
 using System.Reflection;
 
 namespace Libp2p.E2eTests;
 
 public class IdentifyNotifierTests
 {
+    [Test]
+    public void AddressChangesSendPushThroughInterfaceSessions()
+    {
+        Clock clock = new();
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
+        ISession pending = Substitute.For<ISession>();
+        ISession initialized = Substitute.For<ISession>();
+        initialized.IsInitialized.Returns(true);
+        IReadOnlyList<ISession> sessions = Array.AsReadOnly(new[] { pending, initialized });
+        ObservableCollection<Multiaddress> addresses = [];
+        IdentifyPushProtocol push = new(new ProtocolStackSettings());
+        peer.Sessions.Returns(sessions);
+        peer.ListenAddresses.Returns(addresses);
+        peer.GetProtocol<ISessionProtocol<ulong, ulong>>(IdentifyPushProtocol.ProtocolId).Returns(push);
+
+        new IdentifyNotifier(clock).TrackChanges(peer);
+        addresses.Add(TestPeers.Multiaddr(1));
+
+        ulong sequence = (ulong)clock.UtcNow.ToUnixTimeMilliseconds();
+        _ = pending.Received(1).DialAsync(push, sequence);
+        _ = initialized.Received(1).DialAsync(push, sequence);
+    }
+
     [TestCase(0)]
     [TestCase(-1000)]
     [TestCase(1000)]

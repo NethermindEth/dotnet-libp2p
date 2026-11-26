@@ -339,23 +339,10 @@ public static class KadDhtProtocolExtensions
         return peerId =>
         {
             // Build only when a validated response peer needs a flag, and share the result
-            // across both peer lists. Copy eligible sessions under their collection lock;
-            // converting addresses to peer IDs must not hold up session admission/teardown.
-            if (connected is null)
-            {
-                LocalPeer.Session[] sessions = [];
-                if (context.Peer is LocalPeer local)
-                {
-                    lock (local.Sessions)
-                    {
-                        sessions = local.Sessions.Where(session => session.Connected.IsCompletedSuccessfully &&
-                            !session.Closed.IsCancellationRequested).ToArray();
-                    }
-                }
-                connected = sessions.Select(session => (PeerId: session.State.RemotePeerId, session.Closed))
-                    .Where(session => session.PeerId is not null)
-                    .ToLookup(session => session.PeerId!, session => session.Closed);
-            }
+            // across both peer lists. Read peer IDs from the snapshot outside the admission lock.
+            connected ??= context.Peer.Sessions
+                .Where(session => session.IsInitialized && !session.Closed.IsCancellationRequested)
+                .ToLookup(session => session.RemotePeerId, session => session.Closed);
             // A session can close after the snapshot, and another session for that same
             // identity can remain live. Check the retained closure tokens at each lookup.
             return connected[peerId].Any(closed => !closed.IsCancellationRequested)
