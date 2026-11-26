@@ -8,6 +8,7 @@ using Certes.Pkcs;
 using Microsoft.Extensions.Options;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.AutoTls.Internal;
+using System.Buffers.Text;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -212,12 +213,12 @@ public class AcmeFlowTests
                         """);
                 case ("HEAD", "/acme/new-nonce"):
                     HttpResponseMessage nonce = new(HttpStatusCode.OK);
-                    nonce.Headers.Add("Replay-Nonce", "D8s4D2mLs8Vn-goWuPQeKA");
+                    nonce.Headers.Add("Replay-Nonce", Base64Url.EncodeToString("initial nonce"u8));
                     return nonce;
                 case ("POST", "/acme/new-account"):
                     HttpResponseMessage account = JsonResponse(HttpStatusCode.Created, """{"status": "valid"}""");
                     account.Headers.Location = new Uri("https://example.com/acme/account/1");
-                    account.Headers.Add("Replay-Nonce", "MYAuvOpaoIiywTezizk5vw");
+                    account.Headers.Add("Replay-Nonce", Base64Url.EncodeToString("account nonce"u8));
                     // Deliver the successful registration even though shutdown has started.
                     await account.Content.LoadIntoBufferAsync(cancellationToken);
                     Registrations++;
