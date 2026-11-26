@@ -61,7 +61,6 @@ internal class PeerDisposalTests
         PeerStore store = new(2);
         await using DisposalPeer peer = new(store);
         LocalPeer.Session admitted = Admit(peer, 2);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         LocalPeer.Session late = NewSession(peer, 3);
         using INewConnectionContext connection = peer.CreateConnection(peer.TransportRef, late, listener, null);
         Exception? lateFailure = null;
@@ -80,7 +79,7 @@ internal class PeerDisposalTests
                 Assert.That(peer.Sessions, Is.Empty);
                 Assert.That(peer.Initializations, Is.EqualTo(1));
                 Assert.That(connectedEvents, Is.Zero);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.False);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
@@ -224,7 +223,6 @@ internal class PeerDisposalTests
         PeerStore store = new(1);
         await using DisposalPeer peer = new(store);
         LocalPeer.Session session = Admit(peer, 2);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         Task? nestedDisconnect = null;
         Task? nestedDispose = null;
         Task? repeatedDispose = null;
@@ -258,7 +256,7 @@ internal class PeerDisposalTests
             else Assert.That(nestedDispose, Is.SameAs(outer));
             Assert.That(session.ConnectionToken.IsCancellationRequested, Is.True);
             Assert.That(peer.Sessions, Is.Empty);
-            Assert.That(retained.Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
             Assert.That(metrics.Connections, Is.Zero);
             Assert.That(metrics.Sessions, Is.Zero);
             Assert.That(metrics.SessionsClosed, Is.EqualTo(1));
@@ -273,8 +271,6 @@ internal class PeerDisposalTests
         DisposalPeer peer = new(store);
         LocalPeer.Session first = Admit(peer, 2);
         LocalPeer.Session second = Admit(peer, 3);
-        PeerStore.PeerInfo firstRetained = store.GetPeerInfo(TestPeers.PeerId(2));
-        PeerStore.PeerInfo secondRetained = store.GetPeerInfo(TestPeers.PeerId(3));
         int secondClosed = 0;
         using CancellationTokenRegistration throwing = first.ConnectionToken.Register(() => throw new InvalidOperationException("Closed subscriber failed."));
         using CancellationTokenRegistration observing = second.ConnectionToken.Register(() => Interlocked.Increment(ref secondClosed));
@@ -282,7 +278,7 @@ internal class PeerDisposalTests
         Exception? firstFailure = await CaptureFailureAsync(async () => await initialDisposal.WaitAsync(Deadline));
         bool secondWasClosedByInitialDisposal = second.ConnectionToken.IsCancellationRequested;
         int remainingSessionsAfterInitialDisposal = peer.Sessions.Count;
-        int secondPinsAfterInitialDisposal = secondRetained.Sessions;
+        int secondPinsAfterInitialDisposal = store.GetRetainedSessionCount(TestPeers.PeerId(3));
         TaskCompletionSource start = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<Task> firstCaller = RequestDisposalAsync();
         Task<Task> secondCaller = RequestDisposalAsync();
@@ -305,8 +301,8 @@ internal class PeerDisposalTests
             Assert.That(second.ConnectionToken.IsCancellationRequested, Is.True);
             Assert.That(secondClosed, Is.EqualTo(1));
             Assert.That(peer.Sessions, Is.Empty);
-            Assert.That(firstRetained.Sessions, Is.Zero);
-            Assert.That(secondRetained.Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(3)), Is.Zero);
             Assert.That(metrics.Connections, Is.Zero);
             Assert.That(metrics.Sessions, Is.Zero);
             Assert.That(metrics.SessionsClosed, Is.EqualTo(2));
@@ -326,7 +322,6 @@ internal class PeerDisposalTests
         PeerStore store = new(1);
         await using DisposalPeer peer = new(store, initialization: initialization.Task);
         LocalPeer.Session session = Admit(peer, 2);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         int connectedEvents = 0;
         peer.OnConnected += _ => connectedEvents++;
         await peer.DisposeAsync();
@@ -338,7 +333,7 @@ internal class PeerDisposalTests
             Assert.That(failure, Is.InstanceOf<OperationCanceledException>());
             Assert.That(session.ConnectionToken.IsCancellationRequested, Is.True);
             Assert.That(peer.Sessions, Is.Empty);
-            Assert.That(retained.Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
             Assert.That(connectedEvents, Is.Zero);
         });
     }
@@ -351,7 +346,6 @@ internal class PeerDisposalTests
         PeerStore store = new(1);
         await using DisposalPeer peer = new(store, initialization: initialization.Task);
         LocalPeer.Session session = Admit(peer, 2);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         int connectedEvents = 0;
         peer.OnConnected += _ => connectedEvents++;
         using CancellationTokenRegistration registration = session.ConnectionToken.Register(() => initialization.TrySetResult());
@@ -366,7 +360,7 @@ internal class PeerDisposalTests
             Assert.That(connectedEvents, Is.Zero);
             Assert.That(session.ConnectionToken.IsCancellationRequested, Is.True);
             Assert.That(peer.Sessions, Is.Empty);
-            Assert.That(retained.Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
         });
     }
 
@@ -375,7 +369,6 @@ internal class PeerDisposalTests
     {
         using ActiveMetrics metrics = new();
         PeerStore store = new(1);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         Action? dispose = null;
         using CallbackLogger logger = new(() => dispose!());
         await using DisposalPeer peer = new(store, loggerFactory: logger);
@@ -398,7 +391,7 @@ internal class PeerDisposalTests
                 Assert.That(peer.Sessions, Is.Empty);
                 Assert.That(peer.Initializations, Is.Zero);
                 Assert.That(connectedEvents, Is.Zero);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
             });
@@ -421,7 +414,6 @@ internal class PeerDisposalTests
                 terminate!();
         });
         PeerStore store = new(1);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         await using DisposalPeer peer = new(store);
         LocalPeer.Session session = NewSession(peer, 2);
         using INewConnectionContext connection = peer.CreateConnection(peer.TransportRef, session, false, null);
@@ -448,7 +440,7 @@ internal class PeerDisposalTests
                 Assert.That(peer.Sessions, Is.Empty);
                 Assert.That(peer.Initializations, Is.Zero);
                 Assert.That(connectedEvents, Is.Zero);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
                 Assert.That(metrics.SessionsOpened, Is.EqualTo(1));
@@ -513,7 +505,6 @@ internal class PeerDisposalTests
     {
         using ActiveMetrics metrics = new();
         PeerStore store = new(1);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         await using DisposalPeer peer = new(store);
         LocalPeer.Session session = NewSession(peer, 2);
         using INewConnectionContext connection = peer.CreateConnection(peer.TransportRef, session, false, null);
@@ -538,7 +529,7 @@ internal class PeerDisposalTests
                 Assert.That(peer.Sessions, Is.Empty);
                 Assert.That(peer.Initializations, Is.Zero);
                 Assert.That(connectedEvents, Is.Zero);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
             });
@@ -555,7 +546,6 @@ internal class PeerDisposalTests
     {
         using ActiveMetrics metrics = new();
         PeerStore store = new(1);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         DisposalPeer peer = new(store);
         LocalPeer.Session session = NewSession(peer, 2);
         using INewConnectionContext connection = peer.CreateConnection(peer.TransportRef, session, false, null);
@@ -587,7 +577,7 @@ internal class PeerDisposalTests
                 Assert.That(peer.Sessions, Is.Empty);
                 Assert.That(peer.Initializations, Is.Zero);
                 Assert.That(connectedEvents, Is.Zero);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
             });
@@ -604,7 +594,7 @@ internal class PeerDisposalTests
                     {
                         Assert.That(peer.Sessions, Is.EqualTo(new[] { replacement }));
                         Assert.That(replacement.ConnectionToken.IsCancellationRequested, Is.False);
-                        Assert.That(retained.Sessions, Is.EqualTo(1));
+                        Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.EqualTo(1));
                         Assert.That(peer.Initializations, Is.EqualTo(1));
                         Assert.That(connectedEvents, Is.EqualTo(1));
                     });
@@ -618,7 +608,7 @@ internal class PeerDisposalTests
             Assert.Multiple(() =>
             {
                 Assert.That(peer.Sessions, Is.Empty);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
                 Assert.That(metrics.Connections, Is.Zero);
                 Assert.That(metrics.Sessions, Is.Zero);
             });

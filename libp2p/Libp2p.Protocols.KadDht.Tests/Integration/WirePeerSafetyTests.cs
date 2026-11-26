@@ -42,7 +42,7 @@ public class WirePeerSafetyTests
         var store = new PeerStore(100);
         store.Discover([Multiaddress.Decode($"/ip4/1.1.1.1/p2p/{Id(-1)}")], isTrusted: false);
         services.AddSingleton(local);
-        services.AddSingleton(store);
+        services.AddSingleton<IPeerStore>(store);
         services.AddKadDht();
         using var provider = services.BuildServiceProvider();
         var response = new Message { Type = type };

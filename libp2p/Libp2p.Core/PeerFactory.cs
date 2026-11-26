@@ -7,9 +7,9 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore? peerStore = null, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null) : IPeerFactory
+public class PeerFactory(IProtocolStackSettings protocolStackSettings, IPeerStore? peerStore = null, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null) : IPeerFactory
 {
-    public PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore? peerStore, ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
+    public PeerFactory(IProtocolStackSettings protocolStackSettings, IPeerStore? peerStore, ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
         : this(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory, null, null) { }
 
     protected PeerResourceLimits ResourceLimits { get; } = resourceLimits ?? PeerResourceLimits.Default;
@@ -19,7 +19,7 @@ public class PeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore
     protected IProtocolStackSettings protocolStackSettings = protocolStackSettings;
     private static int _factoryCounter;
 
-    protected PeerStore PeerStore { get; } = peerStore ?? new PeerStore();
+    protected IPeerStore PeerStore { get; } = peerStore ?? new PeerStore();
     protected ILoggerFactory? LoggerFactory { get; } = loggerFactory;
 
     protected Activity? rootActivity = rootActivity ?? activitySource?.StartActivity($"Factory #{Interlocked.Increment(ref _factoryCounter)}", ActivityKind.Internal, "");

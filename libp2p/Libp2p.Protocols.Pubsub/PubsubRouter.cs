@@ -285,7 +285,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
     private DateTime nextPolicyCleanup;
 
     private readonly ConcurrentBag<Reconnection> reconnections = [];
-    private readonly PeerStore _peerStore;
+    private readonly IPeerStore _peerStore;
     private readonly IReadOnlyDictionary<PeerId, Multiaddress[]> directPeers;
     private readonly ConcurrentDictionary<PeerId, byte> pendingDirectDials = new();
     private readonly ConcurrentDictionary<PeerId, byte> pendingDials = new();
@@ -343,12 +343,12 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
         Canceled = cts.Token;
     }
 
-    public PubsubRouter(PeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default, TimeProvider? timeProvider = null)
+    public PubsubRouter(IPeerStore store, PubsubSettings? settings = null, ILoggerFactory? loggerFactory = default, TimeProvider? timeProvider = null)
         : this(store, settings, loggerFactory, timeProvider, Random.Shared)
     {
     }
 
-    internal PubsubRouter(PeerStore store, PubsubSettings? settings, ILoggerFactory? loggerFactory, TimeProvider? timeProvider, Random random)
+    internal PubsubRouter(IPeerStore store, PubsubSettings? settings, ILoggerFactory? loggerFactory, TimeProvider? timeProvider, Random random)
     {
         logger = loggerFactory?.CreateLogger("pubsub-router");
 
@@ -406,7 +406,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     /// <summary>
     /// Starts background loops and, when <see cref="PubsubSettings.AutoConnect"/> is enabled,
-    /// connects to peers from the <see cref="PeerStore"/>.
+    /// connects to peers from the <see cref="IPeerStore"/>.
     /// The router stops when <paramref name="token"/> is cancelled or when it is disposed;
     /// use <see cref="DisposeAsync"/> to also wait for the owned work to finish.
     /// </summary>
@@ -554,7 +554,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
             remotePeer = session.RemoteAddress.GetPeerId();
             if (remotePeer is null) return;
-            string[] protocols = _peerStore.TryGetPeerInfo(remotePeer, out PeerStore.PeerInfo? info) ? info?.SupportedProtocols ?? [] : [];
+            IReadOnlyList<string> protocols = _peerStore.TryGetPeerInfo(remotePeer, out PeerMetadata? metadata) ? metadata.SupportedProtocols ?? [] : [];
             Func<CancellationToken, Task>? dial = protocols.Contains(GossipsubProtocolVersionV13) ? session.DialAsync<GossipsubProtocolV13>
                 : protocols.Contains(GossipsubProtocolVersionV12) ? session.DialAsync<GossipsubProtocolV12>
                 : protocols.Contains(GossipsubProtocolVersionV11) ? session.DialAsync<GossipsubProtocolV11>
@@ -659,7 +659,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
 
     /// <summary>
     /// Stops owned work and releases owned resources without waiting for background work to finish.
-    /// Shared dependencies such as <see cref="PeerStore"/> and the local peer are not disposed.
+    /// Shared dependencies such as <see cref="IPeerStore"/> and the local peer are not disposed.
     /// </summary>
     public void Dispose()
     {
@@ -676,45 +676,57 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
             onNewPeer = _onNewPeer;
         }
 
-        _peerStore.OnNewPeer -= onNewPeer;
-        _stopped.Cancel();
-        lifetime?.Dispose();
-
-        reconnections.Clear();
-        reconnectionPolicies.Clear();
-        lock (this)
+        try
         {
-            // Registration also holds this lock: no generation can escape the shutdown snapshot.
-            foreach (PubsubPeer peer in peerState.Values) StopPeer(peer);
-            _pendingValidations.Clear();
-            _pendingValidationBytes = 0;
-            foreach (PubsubPeer peer in peerState.Values)
+            if (onNewPeer is not null)
+                _peerStore.OnNewPeer -= onNewPeer;
+        }
+        finally
+        {
+            try { _stopped.Cancel(); }
+            finally
             {
-                RemoveRemoteSubscriptions(peer);
+                lifetime?.Dispose();
+
+                lock (this)
+                {
+                    reconnections.Clear();
+                    reconnectionPolicies.Clear();
+                    // Registration also holds this lock: no generation can escape the shutdown snapshot.
+                    foreach (PubsubPeer peer in peerState.Values) StopPeer(peer);
+                    _pendingValidations.Clear();
+                    _pendingValidationBytes = 0;
+                    foreach (PubsubPeer peer in peerState.Values)
+                    {
+                        RemoveRemoteSubscriptions(peer);
+                    }
+                }
+
+                _messageCache.Clear();
+                _seenMessages.Clear();
+                _limboMessageCache.Clear();
             }
         }
-
-        _messageCache.Clear();
-        _seenMessages.Clear();
-        _limboMessageCache.Clear();
     }
 
     /// <summary>
-    /// Stops the router like <see cref="Dispose"/> and waits for its background loops and dials to finish.
+    /// Stops the router like <see cref="Dispose"/> and waits for its owned work to finish.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        Dispose();
-
-        Task owned;
-        lock (this)
+        try { Dispose(); }
+        finally
         {
-            owned = Task.WhenAll([_loops, .. _connects.Keys]);
-        }
-        await owned.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        if (owned.IsFaulted)
-        {
-            logger?.LogWarning(owned.Exception, "Pubsub background work failed");
+            Task owned;
+            lock (this)
+            {
+                owned = Task.WhenAll([_loops, .. _connects.Keys]);
+            }
+            await owned.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (owned.IsFaulted)
+            {
+                logger?.LogWarning(owned.Exception, "Pubsub background work failed");
+            }
         }
     }
 
@@ -759,7 +771,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                 remaining = (policy.RemainingRetries ?? _settings.ReconnectionAttempts) - 1;
                 policy.RemainingRetries = remaining;
                 policy.Reconnecting = true;
-                if (peerId is not null && _peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? info) && info?.Addrs is { Count: > 0 } advertised)
+                if (peerId is not null && _peerStore.TryGetPeerInfo(peerId, out PeerMetadata? metadata) && metadata.Addresses is { Count: > 0 } advertised)
                     addresses = [.. advertised];
                 if (policy.LastSessionAddress is { } last && !addresses.Contains(last)) addresses = [.. addresses, last];
             }
@@ -984,7 +996,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable, IAsyncD
                             prune.Peers.AddRange(meshPeers
                                 .Where(pid => GetPeerScoreUnderLock(pid) >= 0)  // Only exchange peers with non-negative scores
                                 .Take(_settings.HighestDegree + 2)  // Send more than D_hi for redundancy
-                                .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
+                                .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info.SignedPeerRecord : null))
                                 .Where(pid => pid.Record is not null)
                                 .Select(pid => new PeerInfo
                                 {

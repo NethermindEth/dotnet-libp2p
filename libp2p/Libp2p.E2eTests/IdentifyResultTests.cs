@@ -52,9 +52,9 @@ public class IdentifyResultTests
             Assert.That(result.ObservedAddress, Is.EqualTo(address));
             Assert.That(result.SignedPeerRecord, Is.EqualTo(validRecord ? message.SignedPeerRecord : null));
             Assert.That(result.PeerRecordSequence, Is.EqualTo(validRecord ? (ulong?)sequence : null));
-            Assert.That(store.GetPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/1.2"));
+            Assert.That(store.ReadPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/1.2"));
         }
-        store.GetPeerInfo(remote.PeerId).SupportedProtocols![0] = "/changed";
+        store.SetSupportedProtocols(remote.PeerId, ["/changed", "/two/2"]);
         Assert.That(result.Protocols[0], Is.EqualTo("/one/1"), "The returned metadata is a snapshot.");
         Assert.Throws<NotSupportedException>(() => ((IList<string>)result.Protocols)[0] = "/changed");
     }
@@ -66,11 +66,11 @@ public class IdentifyResultTests
         PeerStore store = new();
         await Dial(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), AgentVersion = "client/1" });
         await Dial(remote, store, new Identify(), push: true);
-        Assert.That(store.GetPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/1"));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/1"));
         await Dial(remote, store, new Identify { AgentVersion = "client/2" }, push: true);
-        Assert.That(store.GetPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/2"));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("client/2"));
         await Dial(remote, store, new Identify { AgentVersion = "" }, push: true);
-        Assert.That(store.GetPeerInfo(remote.PeerId).AgentVersion, Is.Empty);
+        Assert.That(store.ReadPeerInfo(remote.PeerId).AgentVersion, Is.Empty);
     }
 
     [TestCase(false)]
@@ -79,7 +79,7 @@ public class IdentifyResultTests
     {
         Identity remote = TestPeers.Identity(2);
         PeerStore store = new();
-        store.GetPeerInfo(remote.PeerId).AgentVersion = "prior/1";
+        store.SetAgentVersion(remote.PeerId, "prior/1");
         Identify message = new()
         {
             PublicKey = (wrongPublicKey ? TestPeers.Identity(3) : remote).PublicKey.ToByteString(),
@@ -89,7 +89,7 @@ public class IdentifyResultTests
         Assert.ThrowsAsync<PeerConnectionException>(async () =>
             await Dial(remote, store, message, strict: true));
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("prior/1"));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).AgentVersion, Is.EqualTo("prior/1"));
     }
 
     [Test]
@@ -98,8 +98,7 @@ public class IdentifyResultTests
         Identity remote = TestPeers.Identity(2);
         PeerStore store = new();
         ByteString newer = SigningHelper.CreateSignedEnvelope(remote, [], 43);
-        store.GetPeerInfo(remote.PeerId).SignedPeerRecord = newer;
-        store.GetPeerInfo(remote.PeerId).Seq = 43;
+        store.Discover(newer);
         Identify message = new()
         {
             PublicKey = remote.PublicKey.ToByteString(),
@@ -110,8 +109,8 @@ public class IdentifyResultTests
 
         Assert.That(result.PeerRecordSequence, Is.EqualTo(42));
         Assert.That(result.SignedPeerRecord, Is.EqualTo(message.SignedPeerRecord));
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(newer));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(43));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(newer));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).PeerRecordSequence, Is.EqualTo(43));
     }
 
     [Test]
@@ -129,7 +128,7 @@ public class IdentifyResultTests
 
         Assert.That(result.PeerId, Is.EqualTo(setup.Peers[1].Identity.PeerId));
         Assert.That(result.AgentVersion, Is.EqualTo("integration/1"));
-        Assert.That(setup.PeerStores[0].GetPeerInfo(result.PeerId).AgentVersion, Is.EqualTo("integration/1"));
+        Assert.That(setup.PeerStores[0].ReadPeerInfo(result.PeerId).AgentVersion, Is.EqualTo("integration/1"));
         await session.DialAsync<IdentifyProtocol>();
     }
 

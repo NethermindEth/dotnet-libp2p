@@ -11,14 +11,14 @@ namespace Nethermind.Libp2p;
 
 public class Libp2pPeerFactory(
         IProtocolStackSettings protocolStackSettings,
-        PeerStore peerStore,
+        IPeerStore peerStore,
         IdentifyNotifier identifyNotifier,
         ActivitySource? activitySource = null,
         Activity? rootActivity = null,
         ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
     : PeerFactory(protocolStackSettings, peerStore, activitySource, rootActivity, loggerFactory, resourceLimits, timeProvider)
 {
-    public Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, IdentifyNotifier identifyNotifier,
+    public Libp2pPeerFactory(IProtocolStackSettings protocolStackSettings, IPeerStore peerStore, IdentifyNotifier identifyNotifier,
         ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
         : this(protocolStackSettings, peerStore, identifyNotifier, activitySource, rootActivity, loggerFactory, null, null) { }
 
@@ -27,13 +27,13 @@ public class Libp2pPeerFactory(
 
 public class Libp2pPeer : LocalPeer
 {
-    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
+    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, IPeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier, ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
         : base(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory, resourceLimits: resourceLimits, timeProvider: timeProvider)
     {
         identifyNotifier.TrackChanges(this);
     }
 
-    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier,
+    public Libp2pPeer(IProtocolStackSettings protocolStackSettings, IPeerStore peerStore, Identity identity, IdentifyNotifier identifyNotifier,
         ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory)
         : this(protocolStackSettings, peerStore, identity, identifyNotifier, activitySource, rootActivity, loggerFactory, null, null) { }
 

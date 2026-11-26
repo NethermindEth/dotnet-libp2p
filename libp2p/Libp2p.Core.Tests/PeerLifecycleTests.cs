@@ -35,7 +35,7 @@ internal class PeerLifecycleTests
 
             store.Discover([updated], isTrusted: false);
 
-            Assert.That(store.GetPeerInfo(TestPeers.PeerId(2)).Addrs, Is.EquivalentTo(new[] { updated }));
+            Assert.That(store.ReadPeerInfo(TestPeers.PeerId(2)).Addresses, Is.EquivalentTo(new[] { updated }));
         }
         finally
         {
@@ -66,7 +66,7 @@ internal class PeerLifecycleTests
                 await session.DisconnectAsync();
             }
             Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out var retained), Is.True);
-            Assert.That(retained!.Addrs, Is.EquivalentTo(new[] { seed }));
+            Assert.That(retained!.Addresses, Is.EquivalentTo(new[] { seed }));
         }
     }
 
@@ -133,9 +133,10 @@ internal class PeerLifecycleTests
         try
         {
             await first.DisconnectAsync();
-            Assert.Throws<Libp2pException>(() => store.GetPeerInfo(TestPeers.PeerId(4)));
+            Assert.Throws<Libp2pException>(() => store.SetAgentVersion(TestPeers.PeerId(4), null));
             await second.DisconnectAsync();
-            Assert.That(store.GetPeerInfo(TestPeers.PeerId(4)), Is.Not.Null);
+            store.SetAgentVersion(TestPeers.PeerId(4), null);
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(4), out _), Is.True);
         }
         finally
         {
@@ -152,25 +153,26 @@ internal class PeerLifecycleTests
         LocalPeer.Session session = NewSession(peer);
         peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
         await session.Connected;
-        PeerStore.PeerInfo info = store.GetPeerInfo(TestPeers.PeerId(2));
+        PeerId remote = TestPeers.PeerId(2);
+        store.SetAgentVersion(remote, "client/1");
         TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task update = Task.Run(async () =>
         {
             ready.SetResult();
             await release.Task;
-            info.SupportedProtocols = ["/meshsub/1.3.0"];
+            store.SetSupportedProtocols(remote, ["/meshsub/1.3.0"]);
         });
         try
         {
             await ready.Task;
-            Parallel.For(3, 30, i => store.GetPeerInfo(TestPeers.PeerId(i)));
+            Parallel.For(3, 30, i => store.SetAgentVersion(TestPeers.PeerId(i), null));
             release.SetResult();
             await update;
 
-            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out PeerStore.PeerInfo? current), Is.True);
-            Assert.That(current, Is.SameAs(info));
-            Assert.That(current!.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
+            Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out PeerMetadata? current), Is.True);
+            Assert.That(current!.AgentVersion, Is.EqualTo("client/1"));
+            Assert.That(current.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
             Assert.That(await peer.DialAsync(TestPeers.PeerId(2)), Is.SameAs(session));
         }
         finally
@@ -191,8 +193,8 @@ internal class PeerLifecycleTests
         ControlledPeer peer = new(TestPeers.Identity(1), connectedTo: () => initialization.Task, store: store);
         LocalPeer.Session session = NewSession(peer);
         peer.UpgradeToSession(session, new ProtocolRef(new GateTransport()), false, null);
-        store.GetPeerInfo(TestPeers.PeerId(2));
-        Assert.Throws<Libp2pException>(() => store.GetPeerInfo(TestPeers.PeerId(3)), "An active session must not be evicted to admit another peer.");
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.True);
+        Assert.Throws<Libp2pException>(() => store.SetAgentVersion(TestPeers.PeerId(3), null), "An active session must not be evicted to admit another peer.");
 
         if (completion != 0)
         {
@@ -218,7 +220,8 @@ internal class PeerLifecycleTests
             await session.DisconnectAsync();
         }
 
-        Assert.That(store.GetPeerInfo(TestPeers.PeerId(3)), Is.Not.Null);
+        store.SetAgentVersion(TestPeers.PeerId(3), null);
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.True);
         Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
     }
 
@@ -355,11 +358,16 @@ internal class PeerLifecycleTests
     [TestCase(true)]
     public async Task StoredBadAddressesCannotChangeTheDialedPeer(bool validFirst)
     {
-        PeerStore store = new();
+        IPeerStore store = Substitute.For<IPeerStore>();
         Multiaddress valid = TestPeers.Multiaddr(2);
         Multiaddress foreign = TestPeers.Multiaddr(3);
         Multiaddress bare = "/ip4/192.0.2.1/tcp/4001";
-        store.GetPeerInfo(TestPeers.PeerId(2)).Addrs = validFirst ? [valid, bare, foreign] : [foreign, bare, valid];
+        PeerMetadata metadata = new(addresses: validFirst ? [valid, bare, foreign] : [foreign, bare, valid]);
+        store.TryGetPeerInfo(TestPeers.PeerId(2), out Arg.Any<PeerMetadata?>()).Returns(call =>
+        {
+            call[1] = metadata;
+            return true;
+        });
         GateTransport transport = new();
         transport.CompleteDial.SetResult();
         await using ControlledPeer peer = new(TestPeers.Identity(1), transport, store: store);
@@ -428,7 +436,8 @@ internal class PeerLifecycleTests
 
         Assert.That(peer.Sessions, Is.Empty);
         Assert.That(transport.ConnectionToken.IsCancellationRequested, Is.True);
-        Assert.That(store.GetPeerInfo(TestPeers.PeerId(3)), Is.Not.Null, "A failed transport must release the peer-store slot.");
+        store.SetAgentVersion(TestPeers.PeerId(3), null);
+        Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(3), out _), Is.True, "A failed transport must release the peer-store slot.");
     }
 
     [Test]
@@ -1076,7 +1085,7 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, PeerStore? store = null, ILoggerFactory? loggerFactory = null)
+    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, IPeerStore? store = null, ILoggerFactory? loggerFactory = null)
         : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, loggerFactory: loggerFactory, multiaddrResolver: resolver)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());

@@ -29,12 +29,12 @@ public class TestBuilder(IServiceProvider? serviceProvider = null) : PeerFactory
 public class TestPeerFactory : PeerFactory
 {
     private readonly IProtocolStackSettings _protocolStackSettings;
-    private readonly PeerStore _peerStore;
+    private readonly IPeerStore _peerStore;
     private readonly ActivitySource? _activitySource;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ConcurrentDictionary<PeerId, ILocalPeer> _peers = new();
 
-    public TestPeerFactory(IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null)
+    public TestPeerFactory(IProtocolStackSettings protocolStackSettings, IPeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null)
         : base(protocolStackSettings, peerStore, activitySource)
     {
         _protocolStackSettings = protocolStackSettings;
@@ -52,7 +52,7 @@ public class TestPeerFactory : PeerFactory
 
 internal class TestLocalPeer : LocalPeer
 {
-    public TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, PeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null)
+    public TestLocalPeer(Identity id, IProtocolStackSettings protocolStackSettings, IPeerStore peerStore, ActivitySource? activitySource = null, ILoggerFactory? loggerFactory = null)
         : base(id, peerStore, protocolStackSettings, activitySource, null, loggerFactory)
     {
     }

@@ -6,12 +6,13 @@ using Multiformats.Address;
 using Nethermind.Libp2p.Core.Dto;
 using Nethermind.Libp2p.Core.Exceptions;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Nethermind.Libp2p.Core.Discovery;
 
-public class PeerStore
+public class PeerStore : IPeerStore
 {
-    private readonly ConcurrentDictionary<PeerId, PeerInfo> _store = [];
+    private readonly ConcurrentDictionary<PeerId, Entry> _store = [];
     private readonly LinkedList<PeerId> _discovered = [];
     private readonly LinkedList<PeerId> _configured = [];
     private readonly Lock _storeLock = new();
@@ -27,16 +28,8 @@ public class PeerStore
         _maxPeers = maxPeers;
     }
 
-    /// <remarks>
-    /// Records arrive from remote peers, for example through gossipsub peer
-    /// exchange, so a malformed one is ignored the same way as one that fails
-    /// verification. That includes a payload its sender validly signed but that
-    /// is not a peer record.
-    /// </remarks>
-    public void Discover(ByteString signedPeerRecord) => Discover(signedPeerRecord, null);
-
-    /// <summary>Stores newer signed records from every source, preserving the session watermark when a retained record is missing.</summary>
-    public void Discover(ByteString signedPeerRecord, State? state)
+    /// <inheritdoc />
+    public void Discover(ByteString signedPeerRecord, State? state = null)
     {
         PublicKey publicKey;
         SignedEnvelope signedEnvelope;
@@ -73,12 +66,12 @@ public class PeerStore
             {
                 // A valid signature authenticates the record, not its source.
                 // PX entries remain in the ordinary discovered eviction tier.
-                PeerInfo? info = GetOrAdd(peerId, isConfigured: false, required: false);
-                if (info is null) return;
-                announce = StoreRecord(info, replaceConfiguredAddresses: false);
+                Entry? entry = GetOrAdd(peerId, isConfigured: false, required: false);
+                if (entry is null) return;
+                announce = StoreRecord(entry, replaceConfiguredAddresses: false);
                 if (!announce) return;
             }
-            onNewPeer?.Invoke(addresses);
+            _onNewPeer?.Invoke(addresses);
             return;
         }
         if (state.RemotePeerId != peerId) return;
@@ -86,54 +79,59 @@ public class PeerStore
         {
             lock (_storeLock)
             {
-                PeerInfo info = GetOrAdd(peerId)!;
-                if (info.SignedPeerRecord is not null) state.RecordVerifiedPeerRecordSequence(info.Seq ?? 0);
-                ulong? priorSeq = state.VerifiedPeerRecordSequence;
-                state.RecordVerifiedPeerRecordSequence(seq);
-                if (priorSeq is null || seq >= priorSeq)
+                Entry entry = GetOrAdd(peerId)!;
+                if (entry.Metadata.PeerRecordSequence is { } cachedSequence) state.RecordVerifiedPeerRecordSequence(cachedSequence);
+                if (state.RecordVerifiedPeerRecordSequence(seq) == seq)
                 {
-                    announce = StoreRecord(info, replaceConfiguredAddresses: true);
+                    announce = StoreRecord(entry, replaceConfiguredAddresses: true);
                 }
             }
         }
-        if (announce) onNewPeer?.Invoke(addresses);
+        if (announce) _onNewPeer?.Invoke(addresses);
 
-        // Caller holds _storeLock; envelope and sequence are published together.
-        bool StoreRecord(PeerInfo info, bool replaceConfiguredAddresses)
+        // Caller holds _storeLock; the envelope, sequence and addresses are published together.
+        bool StoreRecord(Entry entry, bool replaceConfiguredAddresses)
         {
-            if (info.SignedPeerRecord is not null && seq <= (info.Seq ?? 0))
+            PeerMetadata metadata = entry.Metadata;
+            ulong? storedSequence = metadata.PeerRecordSequence;
+            bool newer = storedSequence is null || seq > storedSequence;
+            // Peer exchange may defer a configured peer's addresses until its own session
+            // presents the same payload. A conflicting record at the same sequence stays rejected.
+            if (!newer && (seq < storedSequence || !replaceConfiguredAddresses ||
+                entry.DeferredSignedRecordPayload is not { } deferred || deferred != signedEnvelope.Payload)) return false;
+
+            if (newer) entry.DeferredSignedRecordPayload = null;
+            IReadOnlyList<Multiaddress>? updatedAddresses = null;
+            if (addresses.Length > 0)
             {
-                // PX can retain a configured peer's record without applying its
-                // addresses. Its session may apply the same signed payload once,
-                // without replacing the envelope or accepting conflicting equal sequences.
-                if (seq < (info.Seq ?? 0) || !replaceConfiguredAddresses ||
-                    info.DeferredSignedRecordPayload is not { } deferred || deferred != signedEnvelope.Payload) return false;
+                if (entry.IsConfigured && !replaceConfiguredAddresses)
+                {
+                    entry.DeferredSignedRecordPayload = signedEnvelope.Payload;
+                }
+                else
+                {
+                    entry.DeferredSignedRecordPayload = null;
+                    entry.HasSignedAddresses = true;
+                    if (metadata.Addresses is null || !addressSet.SetEquals(metadata.Addresses))
+                        updatedAddresses = Array.AsReadOnly(addressSet.ToArray());
+                }
             }
-            else
+
+            if (newer || updatedAddresses is not null)
             {
-                info.SignedPeerRecord = signedPeerRecord;
-                info.Seq = seq;
-                info.DeferredSignedRecordPayload = null;
+                entry.Metadata = metadata with
+                {
+                    SignedPeerRecord = newer ? signedPeerRecord : metadata.SignedPeerRecord,
+                    PeerRecordSequence = newer ? seq : storedSequence,
+                    Addresses = updatedAddresses ?? metadata.Addresses
+                };
             }
-            if (addresses.Length == 0) return false;
-            if (info.IsConfigured && !replaceConfiguredAddresses)
-            {
-                info.DeferredSignedRecordPayload = signedEnvelope.Payload;
-                return false;
-            }
-            info.DeferredSignedRecordPayload = null;
-            info.HasSignedAddresses = true;
-            if (info.Addrs is not null && info.Addrs.SetEquals(addressSet)) return false;
-            info.Addrs = addressSet;
-            return true;
+            return updatedAddresses is not null;
         }
     }
 
-    /// <summary>Adds deliberately configured peer addresses, protected from untrusted discovery.</summary>
-    public void Discover(Multiaddress[] addrs) => Discover(addrs, isTrusted: true);
-
-    /// <summary>Uses false for peer-supplied addresses. Remote discoveries cannot evict or overwrite trusted entries.</summary>
-    public void Discover(Multiaddress[] addrs, bool isTrusted)
+    /// <inheritdoc />
+    public void Discover(Multiaddress[] addrs, bool isTrusted = true)
     {
         if (addrs is { Length: 0 })
         {
@@ -153,17 +151,19 @@ public class PeerStore
             }
             lock (_storeLock)
             {
-                PeerInfo? peerInfo = GetOrAdd(peerId, isConfigured: isTrusted, required: isTrusted);
-                if (peerInfo is null || !isTrusted && (peerInfo.IsConfigured || peerInfo.HasSignedAddresses)) return;
-                if (peerInfo.Addrs is not null && peerInfo.Addrs.SetEquals(addresses)) return;
-                peerInfo.Addrs = addresses;
+                Entry? entry = GetOrAdd(peerId, isConfigured: isTrusted, required: isTrusted);
+                if (entry is null || !isTrusted && (entry.IsConfigured || entry.HasSignedAddresses)) return;
+                PeerMetadata metadata = entry.Metadata;
+                if (metadata.Addresses is not null && addresses.SetEquals(metadata.Addresses)) return;
+                entry.Metadata = metadata with { Addresses = Array.AsReadOnly(addresses.ToArray()) };
             }
-            onNewPeer?.Invoke(filtered ? [.. addresses] : addrs);
+            _onNewPeer?.Invoke(filtered ? [.. addresses] : addrs);
         }
     }
 
-    private Action<Multiaddress[]>? onNewPeer = null;
+    private event Action<Multiaddress[]>? _onNewPeer;
 
+    /// <inheritdoc />
     public event Action<Multiaddress[]>? OnNewPeer
     {
         add
@@ -173,70 +173,69 @@ public class PeerStore
                 return;
             }
 
-            onNewPeer += value;
-            foreach (PeerInfo? item in _store.Select(x => x.Value).ToArray())
+            _onNewPeer += value;
+            foreach (Entry entry in _store.Values)
             {
-                if (item.Addrs is not null) value.Invoke(item.Addrs.ToArray());
+                if (entry.Metadata.Addresses is { } addresses) value.Invoke(addresses.ToArray());
             }
         }
         remove
         {
-            onNewPeer -= value;
+            _onNewPeer -= value;
         }
     }
 
     public override string ToString() => $"peerStore({_store.Count}):{string.Join(",", _store.Select(x => x.Key.ToString() ?? "null"))}";
 
-    public PeerInfo GetPeerInfo(PeerId peerId)
+    /// <inheritdoc />
+    public void SetSupportedProtocols(PeerId peerId, IReadOnlyList<string> protocols)
     {
-        if (_store.TryGetValue(peerId, out PeerInfo? existing)) return existing;
+        IReadOnlyList<string> snapshot = Array.AsReadOnly(protocols.ToArray());
         lock (_storeLock)
         {
-            return GetOrAdd(peerId)!;
+            Entry entry = GetOrAdd(peerId)!;
+            entry.Metadata = entry.Metadata with { SupportedProtocols = snapshot };
         }
     }
 
-    /// <summary>Publishes metadata to the current retained entry, rather than a possibly evicted reference.</summary>
-    public void SetSupportedProtocols(PeerId peerId, string[] protocols)
-    {
-        lock (_storeLock) GetOrAdd(peerId)!.SupportedProtocols = protocols;
-    }
-
-    /// <summary>Publishes the advertised agent version to the current retained entry.</summary>
+    /// <inheritdoc />
     public void SetAgentVersion(PeerId peerId, string? agentVersion)
     {
-        lock (_storeLock) GetOrAdd(peerId)!.AgentVersion = agentVersion;
-    }
-
-    public ulong? GetVerifiedPeerRecordSequence(PeerId peerId)
-    {
         lock (_storeLock)
         {
-            return _store.TryGetValue(peerId, out PeerInfo? info) && info.SignedPeerRecord is not null ? info.Seq ?? 0 : null;
+            Entry entry = GetOrAdd(peerId)!;
+            entry.Metadata = entry.Metadata with { AgentVersion = agentVersion };
         }
     }
 
-    internal void Retain(PeerId peerId)
+    /// <inheritdoc />
+    public void Retain(PeerId peerId)
     {
         lock (_storeLock)
         {
-            PeerInfo info = GetOrAdd(peerId)!;
-            if (info.Sessions++ == 0) RemoveFromEvictionList(info);
+            Entry entry = GetOrAdd(peerId)!;
+            if (entry.Sessions++ == 0) RemoveFromEvictionList(entry);
         }
     }
 
-    internal void Release(PeerId peerId)
+    /// <inheritdoc />
+    public void Release(PeerId peerId)
     {
         lock (_storeLock)
         {
-            PeerInfo info = _store[peerId];
-            if (--info.Sessions == 0) info.EvictionNode = (info.IsConfigured ? _configured : _discovered).AddLast(peerId);
+            Entry entry = _store[peerId];
+            if (--entry.Sessions == 0) entry.EvictionNode = (entry.IsConfigured ? _configured : _discovered).AddLast(peerId);
         }
     }
 
-    private PeerInfo? GetOrAdd(PeerId peerId, bool isConfigured = false, bool required = true)
+    internal int GetRetainedSessionCount(PeerId peerId)
     {
-        if (_store.TryGetValue(peerId, out PeerInfo? existing))
+        lock (_storeLock) return _store.TryGetValue(peerId, out Entry? entry) ? entry.Sessions : 0;
+    }
+
+    private Entry? GetOrAdd(PeerId peerId, bool isConfigured = false, bool required = true)
+    {
+        if (_store.TryGetValue(peerId, out Entry? existing))
         {
             if (isConfigured && !existing.IsConfigured)
             {
@@ -257,40 +256,45 @@ public class PeerStore
             oldest.List!.Remove(oldest);
             _store.TryRemove(oldest.Value, out _);
         }
-        PeerInfo added = new() { IsConfigured = isConfigured };
+        Entry added = new() { IsConfigured = isConfigured };
         added.EvictionNode = (isConfigured ? _configured : _discovered).AddLast(peerId);
         _store[peerId] = added;
         return added;
     }
 
-    private static void RemoveFromEvictionList(PeerInfo info)
+    private static void RemoveFromEvictionList(Entry entry)
     {
-        if (info.EvictionNode is { } node)
+        if (entry.EvictionNode is { } node)
         {
             node.List!.Remove(node);
-            info.EvictionNode = null;
+            entry.EvictionNode = null;
         }
     }
 
-    public bool TryGetPeerInfo(PeerId peerId, out PeerInfo? peerInfo)
+    /// <inheritdoc />
+    public bool TryGetPeerInfo(PeerId peerId, [NotNullWhen(true)] out PeerMetadata? metadata)
     {
-        return _store.TryGetValue(peerId, out peerInfo);
+        metadata = _store.TryGetValue(peerId, out Entry? entry) ? entry.Metadata : null;
+        return metadata is not null;
     }
 
-    public class PeerInfo
+    private sealed class Entry
     {
-        internal bool IsConfigured;
+        private static readonly PeerMetadata EmptyMetadata = new();
+        private PeerMetadata _metadata = EmptyMetadata;
+
+        public PeerMetadata Metadata
+        {
+            get => Volatile.Read(ref _metadata);
+            set => Volatile.Write(ref _metadata, value);
+        }
+
+        public bool IsConfigured;
         // A newer empty record does not remove the existing addresses' protection.
-        internal bool HasSignedAddresses;
+        public bool HasSignedAddresses;
         // Only configured entries can defer applying a retained record's addresses.
-        internal ByteString? DeferredSignedRecordPayload;
-        internal int Sessions;
-        internal LinkedListNode<PeerId>? EvictionNode;
-        public string? AgentVersion { get; set; }
-        public ByteString? SignedPeerRecord { get; set; }
-        public string[]? SupportedProtocols { get; set; }
-        public HashSet<Multiaddress>? Addrs { get; set; }
-        public ulong? Seq { get; set; }
+        public ByteString? DeferredSignedRecordPayload;
+        public int Sessions;
+        public LinkedListNode<PeerId>? EvictionNode;
     }
 }
-

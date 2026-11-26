@@ -47,7 +47,7 @@ public class E2eTestSetup : IAsyncDisposable
     protected ILogger TestLogger { get; set; } = loggerFactory.CreateLogger("test-setup");
 
     public Dictionary<int, ILocalPeer> Peers { get; } = [];
-    public Dictionary<int, PeerStore> PeerStores { get; } = [];
+    public Dictionary<int, IPeerStore> PeerStores { get; } = [];
     public Dictionary<int, ServiceProvider> ServiceProviders { get; } = [];
 
     protected virtual IPeerFactoryBuilder ConfigureLibp2p(ILibp2pPeerFactoryBuilder builder)
@@ -98,7 +98,7 @@ public class E2eTestSetup : IAsyncDisposable
                 tracerProvider?.AddProcessor(activityTracker);
             }
 
-            PeerStores[_peerCounter] = sp.GetService<PeerStore>()!;
+            PeerStores[_peerCounter] = sp.GetRequiredService<IPeerStore>();
             Peers[_peerCounter] = sp.GetService<IPeerFactory>()!.Create(TestPeers.Identity(_peerCounter));
 
             Multiaddress[]? listenAddrs = GetListenAddresses(_peerCounter);

@@ -1,6 +1,6 @@
 # Working with sessions
 
-A session represents a connection to a remote peer after transport negotiation. You can establish one by dialing a peer address, a set of addresses, or a peer ID known to the `PeerStore`.
+A session represents a connection to a remote peer after transport negotiation. You can establish one by dialing a peer address, a set of addresses, or a peer ID known to the `IPeerStore`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -82,7 +82,7 @@ If discovery has populated the peer store, you can dial by peer id instead of ca
 ```csharp
 using Nethermind.Libp2p.Core.Discovery;
 
-PeerStore peerStore = provider.GetRequiredService<PeerStore>();
+IPeerStore peerStore = provider.GetRequiredService<IPeerStore>();
 peerStore.Discover([remoteAddress]);
 
 PeerId remotePeerId = remoteAddress.GetPeerId()!;

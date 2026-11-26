@@ -50,6 +50,45 @@ public class PubsubRouterLifecycleTests
     }
 
     [Test]
+    public async Task DisposeAsync_stops_and_joins_owned_work_when_peer_store_unsubscribe_fails()
+    {
+        IPeerStore store = Substitute.For<IPeerStore>();
+        InvalidOperationException failure = new("Peer store unsubscribe failed.");
+        store.When(s => s.OnNewPeer -= Arg.Any<Action<Multiaddress[]>>()).Do(_ => throw failure);
+        PubsubRouter router = new(store);
+        using CancellationTokenSource caller = new();
+        await router.StartAsync(CreatePeer(), caller.Token);
+
+        TaskCompletionSource streamClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource abortStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource finishAbort = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        PubsubRouter.PubsubPeer generation = router.OutboundConnection(TestPeers.Multiaddr(1), PubsubRouter.FloodsubProtocolVersion,
+            streamClosed.Task, (_, _) => ValueTask.FromResult(IOResult.Ok), async () =>
+            {
+                abortStarted.TrySetResult();
+                await finishAbort.Task;
+            }, () => Task.CompletedTask)!;
+
+        Task disposal = router.DisposeAsync().AsTask();
+        try
+        {
+            Assert.That(await Task.WhenAny(abortStarted.Task, disposal).WaitAsync(Timeout), Is.SameAs(abortStarted.Task));
+            Assert.That(router.Stopped.IsCancellationRequested, Is.True);
+            Assert.That(disposal.IsCompleted, Is.False);
+        }
+        finally
+        {
+            finishAbort.TrySetResult();
+            streamClosed.TrySetResult();
+            caller.Cancel();
+            await disposal.WaitAsync(Timeout).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await generation.Completion.WaitAsync(Timeout);
+        }
+
+        Assert.That(Assert.ThrowsAsync<InvalidOperationException>(async () => await disposal), Is.SameAs(failure));
+    }
+
+    [Test]
     public async Task Disposal_is_idempotent_and_blocks_restart()
     {
         PubsubRouter router = new(new PeerStore());
@@ -64,11 +103,14 @@ public class PubsubRouterLifecycleTests
     }
 
     [Test]
-    public async Task DisposeAsync_completes_when_router_was_never_started()
+    public async Task DisposeAsync_skips_unsubscribe_when_router_was_never_started()
     {
-        PubsubRouter router = new(new PeerStore());
+        IPeerStore store = Substitute.For<IPeerStore>();
+        PubsubRouter router = new(store);
 
         await router.DisposeAsync().AsTask().WaitAsync(Timeout);
+
+        store.DidNotReceiveWithAnyArgs().OnNewPeer -= null;
     }
 
     [Test]

@@ -60,7 +60,7 @@ public class ProviderResponseBudgetTests
         foreach (var provider in providers)
         {
             Assert.That(fixture.Store.TryGetPeerInfo(provider.PeerId, out var info), Is.True);
-            Assert.That(info!.Addrs!.Select(address => address.ToString()), Is.EquivalentTo(provider.Multiaddrs));
+            Assert.That(info!.Addresses!.Select(address => address.ToString()), Is.EquivalentTo(provider.Multiaddrs));
         }
         Assert.That(result.CloserPeers, Is.Not.Empty);
         Assert.That(result.CloserPeers.Sum(node => node.Multiaddrs.Count), Is.LessThan(closer.Sum(node => node.Multiaddrs.Count)));
@@ -86,7 +86,7 @@ public class ProviderResponseBudgetTests
         Assert.That(result.Providers.Single().Multiaddrs, Is.Empty);
         Assert.That(result.CloserPeers.Single().Multiaddrs, Is.EqualTo(node.Multiaddrs));
         Assert.That(fixture.Store.TryGetPeerInfo(node.PeerId, out var info), Is.True);
-        Assert.That(info!.Addrs!.Select(address => address.ToString()), Is.EquivalentTo(node.Multiaddrs));
+        Assert.That(info!.Addresses!.Select(address => address.ToString()), Is.EquivalentTo(node.Multiaddrs));
     }
 
     [TestCase(0, 2)]

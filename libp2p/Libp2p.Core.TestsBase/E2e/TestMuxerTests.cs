@@ -16,7 +16,7 @@ internal class TestMuxerTests
         ServiceProvider MakeServiceProvider() => new ServiceCollection()
                   .AddSingleton<IPeerFactoryBuilder>(sp => new TestBuilder(sp))
                   .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
-                  .AddSingleton<PeerStore>()
+                  .AddSingleton<IPeerStore, PeerStore>()
                   .AddSingleton(channelBus)
                   .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
                   .BuildServiceProvider();

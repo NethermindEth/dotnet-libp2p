@@ -52,7 +52,7 @@ public class PeerConcurrencyTests
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         IServiceCollection collection = new ServiceCollection().AddLibp2p(b => plaintext ? b.WithPlaintextEnforced() : b);
         if (gateInitializations) collection.AddSingleton<Libp2pPeerFactory>(sp => new GatedFactory(
-            sp.GetRequiredService<IProtocolStackSettings>(), sp.GetRequiredService<PeerStore>(), sp.GetRequiredService<IdentifyNotifier>(), release.Task));
+            sp.GetRequiredService<IProtocolStackSettings>(), sp.GetRequiredService<IPeerStore>(), sp.GetRequiredService<IdentifyNotifier>(), release.Task));
         using ServiceProvider services = collection.BuildServiceProvider();
         IPeerFactory factory = services.GetRequiredService<IPeerFactory>();
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
@@ -284,7 +284,7 @@ public class PeerConcurrencyTests
     {
         private readonly IdentifyNotifier _notifier;
         private readonly Task _release;
-        public GatedFactory(IProtocolStackSettings settings, PeerStore store, IdentifyNotifier notifier, Task release)
+        public GatedFactory(IProtocolStackSettings settings, IPeerStore store, IdentifyNotifier notifier, Task release)
             : base(settings, store, notifier)
         {
             _notifier = notifier;
@@ -293,7 +293,7 @@ public class PeerConcurrencyTests
         public override ILocalPeer Create(Identity? identity = null) => new GatedPeer(protocolStackSettings, PeerStore, identity ?? new Identity(), _notifier, _release);
     }
 
-    private sealed class GatedPeer(IProtocolStackSettings settings, PeerStore store, Identity identity, IdentifyNotifier notifier, Task release)
+    private sealed class GatedPeer(IProtocolStackSettings settings, IPeerStore store, Identity identity, IdentifyNotifier notifier, Task release)
         : Libp2pPeer(settings, store, identity, notifier)
     {
         public LocalPeer.Session? OutboundSession { get; private set; }
