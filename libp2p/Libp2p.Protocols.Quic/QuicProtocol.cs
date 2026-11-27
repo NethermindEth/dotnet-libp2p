@@ -68,7 +68,6 @@ public class QuicProtocol : ITransportProtocol
         IPEndPoint localEndpoint = new(ipAddress, udpPort);
 
         using CertificateHelper.CertificateLease certificateLease = CertificateHelper.CreateCertificateLease(_sessionKey, context.Peer.Identity);
-        X509Certificate2 cert = certificateLease.Certificate;
 
         QuicServerConnectionOptions serverConnectionOptions = new()
         {
@@ -78,19 +77,7 @@ public class QuicProtocol : ITransportProtocol
             MaxInboundUnidirectionalStreams = 1000,
             IdleTimeout = IdleTimeout,
             KeepAliveInterval = KeepAliveInterval,
-            ServerAuthenticationOptions = new SslServerAuthenticationOptions
-            {
-                ClientCertificateRequired = true,
-                ApplicationProtocols = protocols,
-                RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                    ValidateClientCertificate(cert),
-                ServerCertificate = cert,
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
-                AllowRenegotiation = true,
-                AllowTlsResume = true,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-                ServerCertificateSelectionCallback = (s, h) => cert
-            },
+            ServerAuthenticationOptions = CreateServerAuthenticationOptions(certificateLease.Certificate),
         };
 
         await using QuicListener listener = await QuicListener.ListenAsync(new QuicListenerOptions
@@ -235,6 +222,24 @@ public class QuicProtocol : ITransportProtocol
             throw new NotSupportedException("QUIC is not supported, check for presence of libmsquic and support of TLS 1.3.");
         }
     }
+
+    internal SslServerAuthenticationOptions CreateServerAuthenticationOptions(X509Certificate2 certificate) => new()
+    {
+        ClientCertificateRequired = true,
+        // SNI names the server. The callback authenticates the client by its libp2p identity.
+        CertificateChainPolicy = new X509ChainPolicy
+        {
+            RevocationMode = X509RevocationMode.NoCheck,
+            VerificationFlags = X509VerificationFlags.IgnoreInvalidName
+        },
+        ApplicationProtocols = protocols,
+        RemoteCertificateValidationCallback = (_, cert, _, _) => ValidateClientCertificate(cert),
+        ServerCertificate = certificate,
+        EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+        AllowRenegotiation = true,
+        AllowTlsResume = true,
+        ServerCertificateSelectionCallback = (_, _) => certificate
+    };
 
     private bool ValidateClientCertificate(X509Certificate? certificate)
     {
