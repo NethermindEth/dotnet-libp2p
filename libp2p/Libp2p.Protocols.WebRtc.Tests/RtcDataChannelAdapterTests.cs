@@ -33,23 +33,27 @@ public class RtcDataChannelAdapterTests
     /// </remarks>
     [Test]
     [CancelAfter(10_000)]
-    public void MessagesArrivingBeforeAConsumerAttaches_AreRetained(CancellationToken token)
+    public async Task MessagesArrivingBeforeAConsumerAttaches_AreRetained(CancellationToken token)
     {
         RTCDataChannel channel = DetachedChannel();
         using RtcDataChannelAdapter adapter = new(channel);
-        MethodInfo gotData = typeof(RTCDataChannel).GetMethod("GotData", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("SIPSorcery no longer exposes GotData; rewrite this test against its replacement.");
-
-        void Deliver(byte[] payload) => gotData.Invoke(channel,
-            [(ushort)0, (ushort)0, (uint)DataChannelPayloadProtocols.WebRTC_Binary, payload]);
-
-        Deliver([1, 2, 3]);
+        Action<byte[]> deliver = Deliverer(channel);
+        deliver([1, 2, 3]);
 
         List<byte[]> received = [];
-        adapter.MessageReceived += received.Add;
-        Deliver([4, 5, 6]);
+        TaskCompletionSource<byte[][]> receivedBoth = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        adapter.MessageReceived += message =>
+        {
+            received.Add(message);
+            if (received.Count == 2)
+            {
+                receivedBoth.TrySetResult([.. received]);
+            }
+        };
+        deliver([4, 5, 6]);
 
-        Assert.That(received, Is.EqualTo(new[] { new byte[] { 1, 2, 3 }, new byte[] { 4, 5, 6 } }),
+        Assert.That(await receivedBoth.Task.WaitAsync(token),
+            Is.EqualTo(new[] { new byte[] { 1, 2, 3 }, new byte[] { 4, 5, 6 } }),
             "the message delivered before the consumer attached must still arrive, and in order");
     }
 
@@ -104,22 +108,33 @@ public class RtcDataChannelAdapterTests
         using RtcDataChannelAdapter adapter = new(channel);
         Action<byte[]> deliver = Deliverer(channel);
 
-        for (int i = 0; i < 257; i++)
+        byte[][] expected = Enumerable.Range(0, 256).Select(i => new[] { (byte)i }).ToArray();
+        foreach (byte[] message in expected)
         {
-            deliver([(byte)i]);
+            deliver(message.ToArray());
         }
+        deliver([0, 0]);
 
-        bool closed = false;
-        adapter.Closed += () => closed = true;
-        adapter.MessageReceived += _ => { };
-
-        for (int i = 0; i < 500 && !closed; i++)
+        object receivedLock = new();
+        List<byte[]> received = [];
+        TaskCompletionSource<byte[][]> receivedAtClose = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        adapter.Closed += () =>
         {
-            await Task.Delay(10, token);
-        }
+            lock (receivedLock)
+            {
+                receivedAtClose.TrySetResult(received.Select(message => message.ToArray()).ToArray());
+            }
+        };
+        adapter.MessageReceived += message =>
+        {
+            lock (receivedLock)
+            {
+                received.Add(message);
+            }
+        };
 
-        Assert.That(closed, Is.True,
-            "an overflowed retention buffer must reach the consumer as a terminal event, not as silence");
+        Assert.That(await receivedAtClose.Task.WaitAsync(token), Is.EqualTo(expected),
+            "the adapter must deliver only the retained messages in order before closing");
     }
 
     /// <summary>Delivers an inbound message the way the SCTP association would.</summary>
