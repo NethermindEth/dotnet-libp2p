@@ -98,6 +98,7 @@ public partial class PubsubRouter
         internal bool ExtensionsQueued;
         internal volatile bool Terminal;
         internal bool DisconnectRequired;
+        internal bool RecoveryWaitsForDisconnect; // Owned by the router lock.
         internal TaskCompletionSource Idle = CompletedSignal();
         internal readonly TaskCompletionSource Stop = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Task Teardown = Task.CompletedTask;
@@ -538,7 +539,7 @@ public partial class PubsubRouter
         await peer.Stop.Task.ConfigureAwait(false);
         await peer.DeadlineTimer.DisposeAsync().ConfigureAwait(false);
         // Remove the generation and register its reconnection before anything observing its token can run.
-        RemovePeer(peer.PeerId, peer.Address, peer);
+        RemovePeer(peer.PeerId, peer);
         // Abort independently of the writer: cancellation cannot retract a partly consumed chunk.
         try { peer.TokenSource.Cancel(); }
         catch (Exception ex) { logger?.LogWarning(ex, "Pubsub peer cancellation failed"); }
@@ -551,6 +552,17 @@ public partial class PubsubRouter
         {
             try { await peer.Disconnect().ConfigureAwait(false); }
             catch (Exception ex) { logger?.LogWarning(ex, "Pubsub session disconnect failed"); }
+            finally
+            {
+                lock (this)
+                {
+                    if (peer.RecoveryWaitsForDisconnect)
+                    {
+                        peer.Reconnection.Disconnecting--;
+                        SignalReconnect();
+                    }
+                }
+            }
         }
     }
 }

@@ -70,7 +70,8 @@ public abstract class PubsubProtocol : ISessionProtocol
         _logger?.LogDebug("Listen({contextId}) to {remoteAddress}", context.Id, context.State.RemoteAddress);
 
         TaskCompletionSource listTcs = new();
-        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task, () => context.DialAsync(this), context.DisconnectAsync, context.Direction);
+        (CancellationToken token, Action suppressReconnection) = router.InboundConnection(context.State.RemoteAddress, Id, listTcs.Task,
+            () => context.DialAsync(this, router.LifetimeToken), context.DisconnectAsync, context.Direction);
         CancellationToken channelClosed = channel.CancellationToken;
         using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, channelClosed, router.Stopped);
         token = lifetime.Token;

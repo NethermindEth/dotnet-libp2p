@@ -135,7 +135,7 @@ public class GossipsubV13ProtocolTests
     {
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
-        context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
+        context.DialAsync(Arg.Any<ISessionProtocol>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         return context;
     }
 
@@ -265,6 +265,7 @@ public class GossipsubV13ProtocolTests
         TaskCompletionSource selectedProtocol = new(TaskCreationOptions.RunContinuationsAsynchronously);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
+        session.RemotePeerId.Returns(remoteAddress.GetPeerId()!);
         session.DialAsync<GossipsubProtocolV13>(Arg.Any<CancellationToken>()).Returns(_ =>
         {
             selectedProtocol.TrySetResult();

@@ -93,7 +93,7 @@ public class PubsubSessionFailureTests
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(2) });
         context.Activity.Returns(activity);
-        context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
+        context.DialAsync(Arg.Any<ISessionProtocol>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         CancelableReadChannel channel = new();
 
         Task listen = new FloodsubProtocol(router).ListenAsync(channel, context);
@@ -152,8 +152,9 @@ public class PubsubSessionFailureTests
         await router.StartAsync(localPeer, cts.Token);
 
         TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
-        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { }, ConnectionDirection.Outbound);
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task,
+            () => Task.CompletedTask, ConnectionDirection.Outbound).SuppressReconnection;
         outboundClosed.SetResult();
         while (((IRoutingStateContainer)router).ConnectedPeers.Count != 0)
         {
@@ -184,8 +185,9 @@ public class PubsubSessionFailureTests
         await router.StartAsync(localPeer, cts.Token);
 
         TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
-        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { }, ConnectionDirection.Outbound);
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task,
+            () => Task.CompletedTask, ConnectionDirection.Outbound).SuppressReconnection;
         outboundClosed.SetResult();
         await dialStarted.Task.WaitAsync(cts.Token);
 
@@ -272,7 +274,7 @@ public class PubsubSessionFailureTests
 
         Multiaddress remoteAddress = TestPeers.Multiaddr(2);
         TaskCompletionSource streamClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, streamClosed.Task, _ => { });
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, streamClosed.Task, _ => { }, ConnectionDirection.Outbound);
         streamClosed.SetResult();
         Assert.That(SpinWait.SpinUntil(() =>
         {
@@ -300,6 +302,7 @@ public class PubsubSessionFailureTests
 
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
+        session.RemotePeerId.Returns(remoteAddress.GetPeerId()!);
         TaskCompletionSource setupStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource setupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         session.DialAsync<FloodsubProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
@@ -311,8 +314,9 @@ public class PubsubSessionFailureTests
         await router.StartAsync(localPeer, cts.Token);
 
         TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
-        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task, () => Task.CompletedTask).SuppressReconnection;
+        router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { }, ConnectionDirection.Outbound);
+        Action suppressReconnection = router.InboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, new TaskCompletionSource().Task,
+            () => Task.CompletedTask, ConnectionDirection.Outbound).SuppressReconnection;
         outboundClosed.SetResult();
         await setupStarted.Task.WaitAsync(cts.Token);
 
@@ -335,6 +339,7 @@ public class PubsubSessionFailureTests
         Multiaddress remoteAddress = TestPeers.Multiaddr(2);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
+        session.RemotePeerId.Returns(remoteAddress.GetPeerId()!);
         localPeer.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(session));
         await router.StartAsync(localPeer);
 
@@ -357,6 +362,7 @@ public class PubsubSessionFailureTests
         store.SetSupportedProtocols(remoteAddress.GetPeerId()!, [PubsubRouter.FloodsubProtocolVersion]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
+        session.RemotePeerId.Returns(remoteAddress.GetPeerId()!);
         TaskCompletionSource setupStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource setupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         session.DialAsync<FloodsubProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
@@ -413,17 +419,18 @@ public class PubsubSessionFailureTests
         using Activity activity = new Activity("pubsub-listen").Start();
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State { RemoteAddress = remoteAddress });
+        context.Direction.Returns(ConnectionDirection.Outbound);
         context.Activity.Returns(activity);
         TestChannel channel = new();
         TaskCompletionSource outboundClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OpenOutbound() => router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { });
+        void OpenOutbound() => router.OutboundConnection(remoteAddress, PubsubRouter.FloodsubProtocolVersion, outboundClosed.Task, _ => { }, ConnectionDirection.Outbound);
         if (outboundFirst)
         {
             OpenOutbound();
         }
         else
         {
-            context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(_ =>
+            context.DialAsync(Arg.Any<ISessionProtocol>(), Arg.Any<CancellationToken>()).Returns(_ =>
             {
                 OpenOutbound();
                 return Task.CompletedTask;

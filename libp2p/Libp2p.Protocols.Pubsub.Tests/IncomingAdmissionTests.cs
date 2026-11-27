@@ -38,7 +38,7 @@ public class IncomingAdmissionTests
     {
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(index) });
-        context.DialAsync(Arg.Any<ISessionProtocol>()).Returns(Task.CompletedTask);
+        context.DialAsync(Arg.Any<ISessionProtocol>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         return context;
     }
     private static MeterListener Skips(Action<string> onSkip)

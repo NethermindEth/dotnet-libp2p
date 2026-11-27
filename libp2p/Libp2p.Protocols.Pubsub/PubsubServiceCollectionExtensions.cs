@@ -10,7 +10,8 @@ public static class PubsubServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the default singleton <see cref="PubsubRouter"/> when the collection has no router registration.
-    /// The router uses the registered peer store and optional <see cref="PubsubSettings"/>.
+    /// The router uses the registered peer store and optional <see cref="PubsubSettings"/> and
+    /// <see cref="IPubsubReconnectPolicy"/>.
     /// Select the standard stack handlers with <c>WithPubsub()</c> and start the router with
     /// <see cref="PubsubRouter.StartAsync"/>.
     /// </summary>

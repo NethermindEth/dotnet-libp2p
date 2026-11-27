@@ -106,6 +106,12 @@ peerStore.Discover([
 
 When a new peer is discovered, `PubsubRouter` dials it and negotiates the best supported pubsub protocol from the remote peer's identified protocols. Gossipsub v1.3 is preferred, then gossipsub v1.2, gossipsub v1.1, gossipsub v1.0, and floodsub.
 
+### Pubsub reconnect policy
+
+With automatic connections enabled, failed discovery dials, closed pubsub streams and failed reply streams can start recovery. By default, `ReconnectionAttempts` allows ten retries per peer recovery and `ReconnectionPeriod` waits 15,000 milliseconds before each retry. An attached outbound stream ends the recovery. Updates to discovered addresses refresh the next attempt without starting a second recovery. The router uses the latest peer-store addresses first, can reuse a live session or a previous outbound target, and never treats an inbound source port as a listening address. Invalid pubsub frames that suppress reconnection remain ineligible.
+
+Register an `IPubsubReconnectPolicy` before resolving the router to select a delay or end a recovery based on the peer, the original trigger and the one-based attempt number. For example, `services.AddSingleton<IPubsubReconnectPolicy, MyReconnectPolicy>()` applies the policy to the router created by `AddPubsub()`. A directly constructed router accepts the same policy via its `reconnectPolicy` argument. Return `null` to stop recovery or a delay from zero through `int.MaxValue` milliseconds. The router calls the policy outside its routing lock and still enforces `ReconnectionAttempts`, one establishing retry per peer, and five establishing retries across the router. It retains up to 10,000 pending or establishing recoveries. Policy replacement applies to pubsub retries. Configured direct peers continue to use `DirectConnectPeriod`.
+
 ### Application-managed connections
 
 If the application owns connection scheduling, peer limits or compatibility checks, register settings before resolving the router:
