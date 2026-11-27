@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+// cspell:words fbff fdff febf feff baaaaaaaaaaaaaaa
+
 using System.Net;
 using System.Net.Sockets;
 using Multiformats.Address;
