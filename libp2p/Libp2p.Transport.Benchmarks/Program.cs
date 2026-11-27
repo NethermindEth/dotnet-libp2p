@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Quic;
+using System.Runtime;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
@@ -13,7 +16,7 @@ namespace Nethermind.Libp2p.Transport.Benchmarks;
 
 internal static class Program
 {
-    private const ulong TransferBytes = 32 * 1024;
+    private const ulong DefaultTransferBytes = 32 * 1024;
     private const string StreamOpenExchangeMetric = "stream-open-exchange";
 
     private static readonly (string Name, string Security, string ListenAddress)[] Stacks =
@@ -23,27 +26,37 @@ internal static class Program
         ("quic-v1", "noise", "/ip4/127.0.0.1/udp/0/quic-v1")
     ];
 
-    private static readonly (string Name, ulong Upload, ulong Download)[] Metrics =
-    [
-        ("upload", TransferBytes, 0),
-        ("download", 0, TransferBytes),
-        (StreamOpenExchangeMetric, 1, 1)
-    ];
-
     private static async Task Main(string[] args)
     {
-        if (args is not [string outputPath, string stackName, string metricName])
+        if (args.Length is < 3 or > 5)
         {
-            throw new ArgumentException("Expected an output JSON path, stack, and metric");
+            throw new ArgumentException("Expected an output JSON path, stack, metric, optional sample count, and optional payload byte count");
+        }
+        string outputPath = args[0];
+        string stackName = args[1];
+        string metricName = args[2];
+        int sampleCount = args.Length >= 4 ? int.Parse(args[3], CultureInfo.InvariantCulture) : 1;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleCount);
+        ulong transferBytes = args.Length == 5 ? ulong.Parse(args[4], CultureInfo.InvariantCulture) : DefaultTransferBytes;
+        ArgumentOutOfRangeException.ThrowIfZero(transferBytes);
+        if (args.Length == 5 && metricName is StreamOpenExchangeMetric)
+        {
+            throw new ArgumentException("Payload byte count applies only to upload and download measurements");
         }
 
         (string Name, string Security, string ListenAddress) stack = Stacks.Single(x => x.Name == stackName);
-        (string Name, ulong Upload, ulong Download) metric = Metrics.Single(x => x.Name == metricName);
+        (string Name, ulong Upload, ulong Download) metric = metricName switch
+        {
+            "upload" => (metricName, transferBytes, 0),
+            "download" => (metricName, 0, transferBytes),
+            StreamOpenExchangeMetric => (metricName, 1, 1),
+            _ => throw new ArgumentException("Unknown metric")
+        };
         if (stack.Name is "quic-v1" && !QuicListener.IsSupported)
         {
             throw new PlatformNotSupportedException("QUIC is unavailable; install libmsquic before benchmarking");
         }
-        Measurement result = await RunAsync(stack, metric);
+        Measurement result = await RunAsync(stack, metric, sampleCount);
 
         File.WriteAllText(outputPath, JsonSerializer.Serialize(result,
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
@@ -52,7 +65,8 @@ internal static class Program
 
     private static async Task<Measurement> RunAsync(
         (string Name, string Security, string ListenAddress) stack,
-        (string Name, ulong Upload, ulong Download) metric)
+        (string Name, ulong Upload, ulong Download) metric,
+        int sampleCount)
     {
         Environment.SetEnvironmentVariable("BENCHMARK_SECURITY", stack.Security);
         await using ServiceProvider services = new ServiceCollection()
@@ -73,15 +87,32 @@ internal static class Program
         BenchmarkProtocol.BytesToSend = metric.Upload;
         BenchmarkProtocol.BytesToReceive = metric.Download;
         ISession session = await dialer.DialAsync(target, timeout.Token);
-        await session.DialAsync<BenchmarkProtocol>(timeout.Token).WaitAsync(timeout.Token); // warmup
-        long start = Stopwatch.GetTimestamp();
-        await session.DialAsync<BenchmarkProtocol>(timeout.Token).WaitAsync(timeout.Token);
-        double seconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
+        int warmupCount = sampleCount == 1 ? 1 : 5;
+        for (int i = 0; i < warmupCount; i++)
+        {
+            await session.DialAsync<BenchmarkProtocol>(timeout.Token).WaitAsync(timeout.Token);
+        }
+        double[] samples = new double[sampleCount];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            await session.DialAsync<BenchmarkProtocol>(timeout.Token).WaitAsync(timeout.Token);
+            double seconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
+            samples[i] = metric.Name is StreamOpenExchangeMetric ? seconds * 1000 : (metric.Upload + metric.Download) / (1024d * 1024) / seconds;
+        }
         await session.DisconnectAsync().WaitAsync(timeout.Token);
 
-        double value = metric.Name is StreamOpenExchangeMetric ? seconds * 1000 : TransferBytes / (1024d * 1024) / seconds;
-        return new(stack.Name, metric.Name, metric.Name is StreamOpenExchangeMetric ? "ms" : "MiB/s", value, [value]);
+        double[] sorted = (double[])samples.Clone();
+        Array.Sort(sorted);
+        int middle = sorted.Length / 2;
+        double median = sorted.Length % 2 == 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+        return new(stack.Name, metric.Name, metric.Name is StreamOpenExchangeMetric ? "ms" : "MiB/s", median, samples,
+            metric.Upload, metric.Download, warmupCount, RuntimeInformation.FrameworkDescription,
+            RuntimeInformation.OSDescription, RuntimeInformation.ProcessArchitecture.ToString(), Environment.ProcessorCount,
+            GCSettings.IsServerGC, Environment.GetEnvironmentVariable("DOTNET_TieredCompilation"), DateTimeOffset.UtcNow);
     }
 
-    private sealed record Measurement(string Stack, string Metric, string Unit, double Median, double[] Samples);
+    private sealed record Measurement(string Stack, string Metric, string Unit, double Median, double[] Samples,
+        ulong UploadBytes, ulong DownloadBytes, int WarmupCount, string Runtime, string OS, string Architecture,
+        int ProcessorCount, bool ServerGC, string? TieredCompilation, DateTimeOffset TimestampUtc);
 }

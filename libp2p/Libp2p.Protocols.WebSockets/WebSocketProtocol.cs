@@ -205,15 +205,17 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
     private static async Task WriteToWebSocketAsync(SocketWebSocket webSocket, IChannel upChannel, ILogger? logger, CancellationToken token)
     {
-        await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+        await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(token))
         {
             if (webSocket.State is not WebSocketState.Open)
             {
                 break;
             }
 
+            ReadOnlySequence<byte> data = read.Data;
             logger?.LogTrace("WebSocket sending {Length} bytes", data.Length);
-            await webSocket.SendAsync(data.ToArray(), WebSocketMessageType.Binary, endOfMessage: true, cancellationToken: token);
+            await webSocket.SendAsync(data.IsSingleSegment ? data.First : data.ToArray(), WebSocketMessageType.Binary,
+                endOfMessage: true, cancellationToken: token);
         }
     }
 
