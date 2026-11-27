@@ -344,7 +344,7 @@ public class IpColocationTests
         Connect(router, next);
         // Teardown and stream completion can both remove the same generation; repeat removal after reconnect.
         typeof(PubsubRouter).GetMethod("RemovePeer", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(router, [address.GetPeerId()!, address, old]);
+            .Invoke(router, [address.GetPeerId()!, old]);
 
         Assert.That(BucketCounts(router).Values, Is.EquivalentTo(ipv6 ? new[] { 1, 1 } : new[] { 1 }));
         Multiaddress[] neighbors = [Address(2, newEndpoint), Address(3, newEndpoint)];

@@ -70,8 +70,8 @@ public class ConnectionManagementTests
         Multiaddress address = TestPeers.Multiaddr(1);
         TaskCompletionSource stream = new();
         CancellationToken closed = inbound
-            ? router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, stream.Task, () => Task.CompletedTask).Token
-            : router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, stream.Task, _ => { });
+            ? router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, stream.Task, () => Task.CompletedTask, ConnectionDirection.Outbound).Token
+            : router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV13, stream.Task, _ => { }, ConnectionDirection.Outbound);
         TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using CancellationTokenRegistration registration = closed.Register(() => removed.TrySetResult());
 

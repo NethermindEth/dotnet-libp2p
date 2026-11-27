@@ -461,5 +461,5 @@ public class ScoreRetentionTests
     /// <summary>Removes a peer as its connection ending would, on the calling thread.</summary>
     private static void RemovePeer(PubsubRouter router, Multiaddress address, PubsubRouter.PubsubPeer peer) =>
         typeof(PubsubRouter).GetMethod("RemovePeer", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(router, [address.GetPeerId()!, address, peer]);
+            .Invoke(router, [address.GetPeerId()!, peer]);
 }

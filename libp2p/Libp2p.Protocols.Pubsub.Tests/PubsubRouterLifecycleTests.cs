@@ -150,7 +150,7 @@ public class PubsubRouterLifecycleTests
         ISessionContext context = Substitute.For<ISessionContext>();
         context.State.Returns(new State { RemoteAddress = TestPeers.Multiaddr(1) });
         TaskCompletionSource<Task> reverseDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        context.DialAsync(protocol).Returns(_ =>
+        context.DialAsync(protocol, Arg.Is<CancellationToken>(token => token.CanBeCanceled)).Returns(_ =>
         {
             Task dial = protocol.DialAsync(new Channel(), context);
             reverseDial.TrySetResult(dial);

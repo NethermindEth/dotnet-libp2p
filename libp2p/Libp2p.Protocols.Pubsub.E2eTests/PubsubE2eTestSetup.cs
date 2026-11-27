@@ -152,28 +152,4 @@ public class PubsubE2eTestSetup : E2eTestSetup
         }
     }
 
-    public async Task WaitForBrokenMeshAsync(string topic, int timeoutMs = 15_000)
-    {
-        int requiredCount = int.Min(Routers.Count - 1, DefaultSettings.LowestDegree);
-
-        CancellationTokenSource cts = new(timeoutMs);
-        await Task.Delay(100, cts.Token);
-
-        while (true)
-        {
-            PrintState();
-
-            cts.Token.ThrowIfCancellationRequested();
-
-            foreach (IRoutingStateContainer router in Routers.Values)
-            {
-                if (router.Mesh[topic].Count < requiredCount)
-                {
-                    return;
-                }
-            }
-
-            await Task.Delay(1000, cts.Token);
-        }
-    }
 }

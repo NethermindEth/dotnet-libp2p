@@ -21,8 +21,12 @@ public class PubsubSettings
     /// </summary>
     public bool AutoConnect { get; set; } = true;
 
-    /// <summary>Shared automatic retry budget per peer, reset by fresh discovery, a new peer generation or an attached writer. Zero disables retries; direct peers use a separate reconnect loop.</summary>
+    /// <summary>
+    /// Maximum automatic attempts per peer recovery, including with a custom <see cref="IPubsubReconnectPolicy"/>.
+    /// Zero disables retries. Configured direct peers use their own reconnect loop.
+    /// </summary>
     public int ReconnectionAttempts { get; set; } = 10;
+    /// <summary>Delay in milliseconds between attempts under the default policy. Use -1 to disable scheduled retries.</summary>
     public int ReconnectionPeriod { get; set; } = 15_000;
 
     public int Degree { get; set; } = 6; // The desired outbound degree of the network 	6

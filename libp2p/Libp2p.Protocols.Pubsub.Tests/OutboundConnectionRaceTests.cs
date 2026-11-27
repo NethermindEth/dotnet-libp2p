@@ -14,7 +14,7 @@ public class OutboundConnectionRaceTests
 {
     [TestCase(false)]
     [TestCase(true)]
-    public async Task NewIncomingGenerationGetsItsRetryBeforeOrAfterTheLastNegotiationFails(bool incomingFirst)
+    public async Task IncomingGenerationOnlyGetsAFreshBudgetIfEarlierRecoveryHasEnded(bool incomingFirst)
     {
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
@@ -24,6 +24,7 @@ public class OutboundConnectionRaceTests
         router.GetTopic("topic");
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -51,7 +52,8 @@ public class OutboundConnectionRaceTests
             await oldWork.WaitAsync(token);
             if (!incomingFirst) AcceptIncoming();
             router.Reconnect(CancellationToken.None);
-            Assert.That(Volatile.Read(ref dials), Is.EqualTo(3));
+            Assert.That(Volatile.Read(ref dials), Is.EqualTo(incomingFirst ? 2 : 3));
+            if (incomingFirst) return;
             await router.FlushOutboundAsync();
             Assert.That(sent.SelectMany(rpc => rpc.Subscriptions)
                 .Any(subscription => subscription.Topicid == "topic" && subscription.Subscribe), Is.True);
@@ -70,16 +72,17 @@ public class OutboundConnectionRaceTests
     }
 
     [Test]
-    public async Task FreshDiscoveryKeepsItsRetryWhenAnOlderLastNegotiationFails()
+    public async Task DiscoveryUpdateRefreshesTheNextRetryWithoutOverlappingAnActiveNegotiation()
     {
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress original = $"/ip4/10.0.0.2/tcp/4001/p2p/{TestPeers.PeerId(2)}";
         Multiaddress updated = $"/ip4/10.0.0.2/tcp/4002/p2p/{TestPeers.PeerId(2)}";
         store.SetSupportedProtocols(TestPeers.PeerId(2), [PubsubRouter.GossipsubProtocolVersionV12]);
-        await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 1, ReconnectionPeriod = int.MaxValue });
+        await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 2, ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(original);
+        session.RemotePeerId.Returns(original.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource writer = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -104,11 +107,11 @@ public class OutboundConnectionRaceTests
             router.Reconnect(CancellationToken.None);
             Task oldWork = router.PendingConnections;
             store.Discover([updated]);
-            Assert.That(dialed.Count, Is.EqualTo(3));
+            Assert.That(dialed.Count, Is.EqualTo(2));
             negotiation.SetException(new IOException("Old negotiation failed"));
             await oldWork.WaitAsync(token);
             router.Reconnect(CancellationToken.None);
-            Assert.That(dialed.Count, Is.EqualTo(4));
+            Assert.That(dialed.Count, Is.EqualTo(3));
             Assert.That(dialed.Last(), Is.EqualTo(new[] { updated }));
             await router.FlushOutboundAsync();
             Assert.That(sent.SelectMany(rpc => rpc.Subscriptions)
@@ -187,7 +190,7 @@ public class OutboundConnectionRaceTests
     }
 
     [Test]
-    public async Task ReconnectTriesBothAdvertisedAndLastSessionAddresses()
+    public async Task ReconnectUsesAdvertisedAddressesForAnInboundTransport()
     {
         Multiaddress advertised = $"/ip4/10.0.0.9/tcp/4001/p2p/{TestPeers.PeerId(2)}";
         Multiaddress connected = $"/ip4/10.0.0.2/tcp/4001/p2p/{TestPeers.PeerId(2)}";
@@ -208,9 +211,9 @@ public class OutboundConnectionRaceTests
         {
             router.InboundConnection(connected, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task, () =>
             {
-                router.OutboundConnection(connected, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, _ => { });
+                router.OutboundConnection(connected, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, _ => { }, ConnectionDirection.Inbound);
                 return writer.Task;
-            });
+            }, ConnectionDirection.Inbound);
             Task closing = router.PendingConnections;
             writer.SetResult();
             incoming.SetResult();
@@ -219,7 +222,7 @@ public class OutboundConnectionRaceTests
             for (int tick = 0; tick < 4; tick++) router.Reconnect(CancellationToken.None);
             Assert.That(dialed.Count, Is.EqualTo(2));
             foreach (Multiaddress[] addresses in dialed)
-                Assert.That(addresses, Is.EquivalentTo(new[] { advertised, connected }));
+                Assert.That(addresses, Is.EqualTo(new[] { advertised }));
         }
         finally
         {
@@ -229,7 +232,7 @@ public class OutboundConnectionRaceTests
     }
 
     [Test]
-    public async Task DiscoveryNegotiationDoesNotConsumeAQueuedRetry()
+    public async Task DiscoveryDuringRecoveryDoesNotStartAnotherNegotiation()
     {
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
@@ -237,6 +240,7 @@ public class OutboundConnectionRaceTests
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 1, ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         int negotiations = 0;
@@ -254,13 +258,14 @@ public class OutboundConnectionRaceTests
             incoming.SetResult();
             await closing.WaitAsync(TestContext.CurrentContext.CancellationToken);
             store.Discover([address]);
+            Assert.That(Volatile.Read(ref negotiations), Is.Zero);
             router.Reconnect(CancellationToken.None);
             Assert.That(Volatile.Read(ref negotiations), Is.EqualTo(1));
             Task work = router.PendingConnections;
             negotiation.SetException(new IOException("Negotiation failed"));
             await work.WaitAsync(TestContext.CurrentContext.CancellationToken);
             for (int tick = 0; tick < 3; tick++) router.Reconnect(CancellationToken.None);
-            Assert.That(Volatile.Read(ref negotiations), Is.EqualTo(2));
+            Assert.That(Volatile.Read(ref negotiations), Is.EqualTo(1));
         }
         finally
         {
@@ -319,7 +324,7 @@ public class OutboundConnectionRaceTests
         {
             for (int stream = 0; stream < 3; stream++)
                 router.InboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
-                    () => Task.FromException(new IOException("Reply failed")));
+                    () => Task.FromException(new IOException("Reply failed")), ConnectionDirection.Outbound);
             for (int tick = 1; tick <= 5; tick++)
             {
                 router.Reconnect(CancellationToken.None);
@@ -332,7 +337,7 @@ public class OutboundConnectionRaceTests
     [TestCase(1, true)]
     [TestCase(2, true)]
     [TestCase(2, false)]
-    public async Task FreshDiscoveryGetsItsConfiguredRetryBudget(int retries, bool exhaustFirstBudget)
+    public async Task DiscoveryRestartsTheRetryBudgetAfterTheEarlierRecoveryEnds(int retries, bool exhaustFirstBudget)
     {
         PeerStore store = new();
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = retries, ReconnectionPeriod = int.MaxValue });
@@ -349,13 +354,14 @@ public class OutboundConnectionRaceTests
             Multiaddress address = $"/ip4/10.0.0.2/tcp/{4001 + episode}/p2p/{TestPeers.PeerId(2)}";
             store.Discover([address]);
             await router.PendingConnections.WaitAsync(TestContext.CurrentContext.CancellationToken);
-            int attempts = episode == 0 && !exhaustFirstBudget ? retries - 1 : retries;
+            int attempts = exhaustFirstBudget ? retries : episode == 0 ? retries - 1 : 1;
             for (int tick = 0; tick < attempts; tick++)
             {
                 router.Reconnect(CancellationToken.None);
                 await router.PendingConnections.WaitAsync(TestContext.CurrentContext.CancellationToken);
             }
-            Assert.That(dialed.Count(addresses => addresses.Contains(address)), Is.EqualTo(attempts + 1));
+            int initialDial = episode == 0 || exhaustFirstBudget ? 1 : 0;
+            Assert.That(dialed.Count(addresses => addresses.Contains(address)), Is.EqualTo(attempts + initialDial));
         }
     }
 
@@ -377,6 +383,7 @@ public class OutboundConnectionRaceTests
         router.GetTopic("topic");
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource<ISession> pendingDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -462,6 +469,7 @@ public class OutboundConnectionRaceTests
         router.GetTopic("topic");
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<ISession> physicalDial = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -587,9 +595,9 @@ public class OutboundConnectionRaceTests
         try
         {
             CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
-                () => Task.FromException(new IOException("Reply failed"))).Token;
+                () => Task.FromException(new IOException("Reply failed")), ConnectionDirection.Outbound).Token;
             using CancellationTokenRegistration registration = closed.Register(() => removed.TrySetResult());
-            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, _ => { });
+            router.OutboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, writer.Task, _ => { }, ConnectionDirection.Outbound);
             router.Reconnect(CancellationToken.None);
             Assert.That(Volatile.Read(ref dials), Is.Zero);
 
@@ -621,6 +629,7 @@ public class OutboundConnectionRaceTests
         router.GetTopic("direct");
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource writer = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -670,6 +679,7 @@ public class OutboundConnectionRaceTests
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue, HeartbeatInterval = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(connected);
+        session.RemotePeerId.Returns(connected.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         bool down = false;
         ConcurrentQueue<string> redialed = new();
@@ -723,6 +733,7 @@ public class OutboundConnectionRaceTests
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(negotiation.Task);
@@ -767,7 +778,7 @@ public class OutboundConnectionRaceTests
         try
         {
             CancellationToken closed = router.InboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV12,
-                incoming.Task, () => reply.Task).Token;
+                incoming.Task, () => reply.Task, ConnectionDirection.Outbound).Token;
             using CancellationTokenRegistration registration = closed.Register(() => removed.TrySetResult());
             Task work = router.PendingConnections;
             incoming.SetResult();
@@ -812,14 +823,14 @@ public class OutboundConnectionRaceTests
         {
             for (int stream = 0; stream < streams; stream++)
                 router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
-                    () => Task.FromException(new IOException("Reply failed")));
+                    () => Task.FromException(new IOException("Reply failed")), ConnectionDirection.Outbound);
             for (int tick = 0; tick < streams * retries + 3; tick++) router.Reconnect(CancellationToken.None);
 
-            Assert.That(Volatile.Read(ref dials) - directLoopDials, Is.LessThanOrEqualTo(directPeer ? 0 : retries));
+            Assert.That(Volatile.Read(ref dials) - directLoopDials, Is.EqualTo(directPeer ? 0 : retries));
             router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task,
-                () => Task.FromException(new IOException("Reply still failed")));
+                () => Task.FromException(new IOException("Reply still failed")), ConnectionDirection.Outbound);
             for (int tick = 0; tick < retries + 1; tick++) router.Reconnect(CancellationToken.None);
-            Assert.That(Volatile.Read(ref dials) - directLoopDials, Is.LessThanOrEqualTo(directPeer ? 0 : retries));
+            Assert.That(Volatile.Read(ref dials) - directLoopDials, Is.EqualTo(directPeer ? 0 : retries));
         }
         finally { incoming.TrySetResult(); }
     }
@@ -884,6 +895,7 @@ public class OutboundConnectionRaceTests
         router.GetTopic("topic");
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         int physicalDials = 0;
         local.DialAsync(Arg.Any<Multiaddress[]>(), Arg.Any<CancellationToken>()).Returns(_ =>
@@ -959,6 +971,7 @@ public class OutboundConnectionRaceTests
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -994,7 +1007,7 @@ public class OutboundConnectionRaceTests
     [TestCase(0, false)]
     [TestCase(2, false)]
     [TestCase(1, true)]
-    public async Task FailedDeferredReplyUsesTheIncomingGenerationsRetryBudget(int retries, bool exhaustRetries)
+    public async Task FailedDeferredReplyRetainsTheSharedRetryBudget(int retries, bool exhaustRetries)
     {
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
@@ -1008,6 +1021,7 @@ public class OutboundConnectionRaceTests
         });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         int physicalDials = 0;
         int initialDials = exhaustRetries ? 2 : 1;
@@ -1017,6 +1031,9 @@ public class OutboundConnectionRaceTests
                 : Task.FromException<ISession>(new IOException("Connection failed")));
         TaskCompletionSource negotiation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource replyStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource removed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(negotiation.Task);
         int replies = 0;
         try
@@ -1025,24 +1042,35 @@ public class OutboundConnectionRaceTests
             store.Discover([address]);
             if (exhaustRetries) router.Reconnect(CancellationToken.None);
             Task initialWork = router.PendingConnections;
-            router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task, () =>
+            CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12, incoming.Task, () =>
             {
                 Interlocked.Increment(ref replies);
-                return Task.FromException(new IOException("Reply failed"));
-            });
+                replyStarted.TrySetResult();
+                return reply.Task;
+            }).Token;
+            using CancellationTokenRegistration closedRegistration = closed.Register(() => removed.TrySetResult());
             negotiation.SetException(new IOException("Negotiation failed"));
             await initialWork.WaitAsync(token);
+            await replyStarted.Task.WaitAsync(token);
+            router.Reconnect(CancellationToken.None);
+            Assert.That(Volatile.Read(ref physicalDials), Is.EqualTo(initialDials));
+            incoming.SetResult();
+            await removed.Task.WaitAsync(token);
+            Task replyWork = router.PendingConnections;
+            reply.SetException(new IOException("Reply failed"));
+            await replyWork.WaitAsync(token);
             for (int retry = 0; retry < retries + 3; retry++) router.Reconnect(CancellationToken.None);
             Assert.Multiple(() =>
             {
                 Assert.That(Volatile.Read(ref replies), Is.EqualTo(1));
-                Assert.That(Volatile.Read(ref physicalDials), Is.EqualTo(initialDials + retries));
+                Assert.That(Volatile.Read(ref physicalDials), Is.EqualTo(exhaustRetries ? initialDials : initialDials + retries));
             });
         }
         finally
         {
             negotiation.TrySetResult();
             incoming.TrySetResult();
+            reply.TrySetResult();
         }
     }
 
@@ -1056,6 +1084,7 @@ public class OutboundConnectionRaceTests
         store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         await router.StartAsync(local);
         TaskCompletionSource outgoing = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1096,6 +1125,7 @@ public class OutboundConnectionRaceTests
         store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         ILocalPeer local = CreateLocal(session);
         await router.StartAsync(local);
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1109,7 +1139,7 @@ public class OutboundConnectionRaceTests
         try
         {
             CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12,
-                incoming.Task, () => Task.FromException(new IOException("Negotiation failed"))).Token;
+                incoming.Task, () => Task.FromException(new IOException("Negotiation failed")), ConnectionDirection.Outbound).Token;
             router.Reconnect(CancellationToken.None);
 
             Assert.Multiple(() =>
@@ -1135,6 +1165,7 @@ public class OutboundConnectionRaceTests
         store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
+        session.RemotePeerId.Returns(address.GetPeerId()!);
         await router.StartAsync(CreateLocal(session));
         TaskCompletionSource incoming = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1149,7 +1180,7 @@ public class OutboundConnectionRaceTests
         try
         {
             CancellationToken closed = router.InboundConnection(address, PubsubRouter.GossipsubProtocolVersionV12,
-                incoming.Task, () => reply.Task).Token;
+                incoming.Task, () => reply.Task, ConnectionDirection.Outbound).Token;
             using CancellationTokenRegistration registration = closed.Register(() => removed.TrySetResult());
             incoming.SetResult();
             await removed.Task.WaitAsync(token);
@@ -1196,7 +1227,7 @@ public class OutboundConnectionRaceTests
         try
         {
             router.InboundConnection(TestPeers.Multiaddr(2), PubsubRouter.GossipsubProtocolVersionV12,
-                incoming.Task, () => Task.FromException(new IOException("Negotiation failed")));
+                incoming.Task, () => Task.FromException(new IOException("Negotiation failed")), ConnectionDirection.Outbound);
             for (int retry = 0; retry < retries + 3; retry++) router.Reconnect(CancellationToken.None);
             Assert.That(Volatile.Read(ref attempts), Is.EqualTo(autoConnect ? retries : 0));
         }

@@ -16,20 +16,20 @@ internal static class RouterTestExtensions
     }
 
     public static CancellationToken OutboundConnection(this PubsubRouter router, Multiaddress address, string protocol,
-        Task closed, Action<Rpc> send)
+        Task closed, Action<Rpc> send, ConnectionDirection direction = ConnectionDirection.Unknown)
     {
         PubsubRouter.PubsubPeer? peer = router.OutboundConnection(address, protocol, closed, (bytes, _) =>
         {
             send(Decode(bytes));
             return ValueTask.FromResult(IOResult.Ok);
-        }, () => ValueTask.CompletedTask, () => Task.CompletedTask);
+        }, () => ValueTask.CompletedTask, () => Task.CompletedTask, direction);
         router.FlushOutboundAsync().GetAwaiter().GetResult();
         return peer?.TokenSource.Token ?? new CancellationToken(true);
     }
 
     public static (CancellationToken Token, Action SuppressReconnection) InboundConnection(this PubsubRouter router,
-        Multiaddress address, string protocol, Task closed, Func<Task> dial) =>
-        router.InboundConnection(address, protocol, closed, dial, () => Task.CompletedTask);
+        Multiaddress address, string protocol, Task closed, Func<Task> dial, ConnectionDirection direction = ConnectionDirection.Unknown) =>
+        router.InboundConnection(address, protocol, closed, dial, () => Task.CompletedTask, direction);
 
     public static Rpc Decode(ReadOnlyMemory<byte> frame)
     {

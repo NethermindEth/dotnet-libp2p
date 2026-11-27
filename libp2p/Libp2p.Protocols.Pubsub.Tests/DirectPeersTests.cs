@@ -131,6 +131,7 @@ public class DirectPeersTests
         TaskCompletionSource protocolDialed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(directAddress);
+        session.RemotePeerId.Returns(directAddress.GetPeerId()!);
         session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(_ =>
         {
             protocolDialed.TrySetResult();
@@ -242,6 +243,7 @@ public class DirectPeersTests
         int protocolDials = 0;
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(directAddress);
+        session.RemotePeerId.Returns(directAddress.GetPeerId()!);
         session.DialAsync<GossipsubProtocolV12>(Arg.Any<CancellationToken>()).Returns(_ =>
         {
             int attempt = Interlocked.Increment(ref protocolDials);
