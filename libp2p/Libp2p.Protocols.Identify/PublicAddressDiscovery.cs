@@ -54,7 +54,8 @@ public sealed class PublicAddressDiscovery
         return candidate?.AddressFamily == addressFamily ? candidate : null;
     }
 
-    internal void Record(PeerId reporter, Multiaddress? remoteAddress, ReadOnlySpan<byte> observation)
+    internal void Record(PeerId reporter, Multiaddress? remoteAddress, ReadOnlySpan<byte> observation,
+        CancellationToken connectionToken, CancellationToken invocationToken)
     {
         if (remoteAddress is not { Protocols: [_, TCP or UDP, ..] } ||
             GetPublicIP(remoteAddress.GetDirectIPAddress()) is not { } reporterIP)
@@ -78,6 +79,8 @@ public sealed class PublicAddressDiscovery
         lock (_gate)
         {
             long timestamp = _clock.GetTimestamp();
+            if (connectionToken.IsCancellationRequested || invocationToken.IsCancellationRequested) return;
+
             reports.RemoveAll(report => report.Reporter == reporterId || report.Network.Equals(network)
                 || IsExpired(report, timestamp));
             if (reports.Count == MaxReportsPerFamily) reports.RemoveAt(0);

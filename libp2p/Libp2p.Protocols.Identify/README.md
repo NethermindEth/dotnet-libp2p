@@ -18,7 +18,7 @@ before any peers connect and must be updated when the public IP changes.
 On dynamic networks, enable public IP discovery and let ordinary Identify
 exchanges collect reports. Identify's observed address describes the connection
 source seen by the remote peer. Outbound connections can use ephemeral ports.
-[Identify observed address](https://github.com/libp2p/specs/blob/78e75c6f4e5dd9de4bc1524c686c0f45df4b461a/identify/README.md#observedaddr)
+[Identify observed address](https://github.com/libp2p/specs/blob/c733210b3a6c042d01f6b39f23c0c9a3a20d3e88/identify/README.md#observedaddr)
 
 ```csharp
 using System.Net;
@@ -39,7 +39,8 @@ Discovery considers other authenticated peers with direct, literal public endpoi
 Noise, TLS, QUIC and WebRTC direct supply the authentication signal. Plaintext
 only exchanges keys. Custom security and transport protocols can set
 `State.IsRemoteIdentityAuthenticated` after authenticating the remote identity.
-Reports come from successful ordinary Identify requests. The collector accepts
+Reports come from successful ordinary Identify requests. Canceling the stream
+or closing the connection discards its pending report. The collector accepts
 public IPv4 and IPv6 TCP or UDP endpoints and handles the common fixed-length
 transport suffixes. The IP family and TCP or UDP transport must match the
 reporter's direct connection. The collector discards ports and normalizes
@@ -50,7 +51,7 @@ report replaces any previous report from the same peer ID or reporter network
 in that family. A reporter network is a single IPv4 address or an IPv6 /56.
 Two or more independent reports must agree and form a strict majority. This
 heuristic follows Go's approach to grouping observers.
-[Go observed address manager](https://github.com/libp2p/go-libp2p/blob/8582b880e88ed4969b80d000f99adbc052be7fe1/p2p/host/observedaddrs/manager.go)
+[Go observed address manager](https://github.com/libp2p/go-libp2p/blob/e16f35e99a919aaa04ef5ca60811c2ddd59f3e25/p2p/host/observedaddrs/manager.go)
 
 With insufficient agreement, `GetCandidateAsync` returns `null` or calls
 an optional application-supplied lookup once. The lookup can work before peers
@@ -61,4 +62,4 @@ of the requested family. Discovery uses the network only through that callback.
 Pass bind addresses to `StartListenAsync`. Choose an advertised endpoint with a
 separately established listener or forwarding port. Verify public reachability
 by testing a remote dial back to that endpoint.
-[AutoNAT v2](https://github.com/libp2p/specs/blob/78e75c6f4e5dd9de4bc1524c686c0f45df4b461a/autonat/autonat-v2.md)
+[AutoNAT v2](https://github.com/libp2p/specs/blob/b63cdeb93d6397800c64093aa14d6228b8e6b690/autonat/autonat-v2.md)

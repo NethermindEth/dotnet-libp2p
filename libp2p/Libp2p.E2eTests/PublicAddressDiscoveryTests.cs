@@ -81,21 +81,23 @@ public class PublicAddressDiscoveryTests
     }
 
     [Test]
-    public async Task IPv6UsesIndependentPrefixesAndAcceptsStandardUdp()
+    public async Task IPv6UsesIndependentPrefixesAndAcceptsBothUdpCodes()
     {
         await using ServiceProvider services = CreateServices();
         await using ILocalPeer local = CreatePeer(services);
         PublicAddressDiscovery discovery = local.GetPublicAddressDiscovery()!;
-        ByteString encoded = Encode("/ip6/2606:4700::1111/udp/54444/quic-v1");
-        // Convert the bundled package's UDP code to multicodec 273.
-        ByteString standardUdp = ByteString.CopyFrom([.. encoded.Span[..17], 0x91, 0x02, .. encoded.Span[18..]]);
+        IPAddress candidate = IPAddress.Parse("2606:4700::1111");
+        byte[] address = candidate.GetAddressBytes();
+        // ip6, UDP multicodec, port 54444, quic-v1.
+        ByteString standardUdp = ByteString.CopyFrom([41, .. address, 0x91, 0x02, 0xd4, 0xac, 0xcd, 0x03]);
+        ByteString legacyUdp = ByteString.CopyFrom([41, .. address, 17, 0xd4, 0xac, 0xcd, 0x03]);
 
         await ReportAsync(local, 2, "/ip6/2600:2000:2000:ab01::1/udp/4001", standardUdp);
         await ReportAsync(local, 3, "/ip6/2600:2000:2000:abfe::2/udp/4001", standardUdp);
         Assert.That(await discovery.GetCandidateAsync(IPv6), Is.Null, "Both reporters are in the same /56.");
 
-        await ReportAsync(local, 4, "/ip6/2600:2000:2000:ac00::1/udp/4001", encoded);
-        Assert.That(await discovery.GetCandidateAsync(IPv6), Is.EqualTo(IPAddress.Parse("2606:4700::1111")));
+        await ReportAsync(local, 4, "/ip6/2600:2000:2000:ac00::1/udp/4001", legacyUdp);
+        Assert.That(await discovery.GetCandidateAsync(IPv6), Is.EqualTo(candidate));
         Assert.That(await discovery.GetCandidateAsync(IPv4), Is.Null);
     }
 
@@ -213,6 +215,31 @@ public class PublicAddressDiscoveryTests
         Assert.That(await discovery.GetCandidateAsync(IPv4), Is.Null);
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task CancellationDuringServiceResolutionDoesNotRecordObservation(bool cancelInvocation)
+    {
+        await using ServiceProvider services = CreateServices();
+        await using ILocalPeer local = CreatePeer(services);
+        PublicAddressDiscovery discovery = local.GetPublicAddressDiscovery()!;
+        await ReportAsync(local, 2, "/ip4/11.1.1.1/tcp/4001", Encode(FirstObservedAddress));
+
+        using CancellationTokenSource invocation = new();
+        using CancellationTokenSource connection = new();
+        ILocalPeer peer = Substitute.For<ILocalPeer, IPeerServices>();
+        peer.Identity.Returns(local.Identity);
+        ((IPeerServices)peer).GetPeerService<PublicAddressDiscovery>().Returns(_ =>
+        {
+            (cancelInvocation ? invocation : connection).Cancel();
+            return discovery;
+        });
+
+        await ReportAsync(peer, 3, "/ip4/11.1.1.2/tcp/4001", Encode(FirstObservedAddress),
+            connectionToken: connection.Token, invocationToken: invocation.Token);
+
+        Assert.That(await discovery.GetCandidateAsync(IPv4), Is.Null);
+    }
+
     [Test]
     public async Task EmptyDiscoveryUsesOnlyAnExplicitLookup()
     {
@@ -288,11 +315,13 @@ public class PublicAddressDiscoveryTests
     private static ByteString Encode(string address) => ByteString.CopyFrom(Multiaddress.Decode(address).ToBytes());
 
     private static async Task<IdentifyResult> ReportAsync(ILocalPeer local, int reporter, string endpoint, ByteString observation,
-        Identity? messageIdentity = null)
+        Identity? messageIdentity = null, CancellationToken connectionToken = default, CancellationToken invocationToken = default)
     {
         Identity identity = TestPeers.Identity(reporter);
         ISessionContext context = Substitute.For<ISessionContext>();
         context.Peer.Returns(local);
+        context.Token.Returns(connectionToken);
+        context.UpgradeOptions.Returns(new UpgradeOptions { CancellationToken = invocationToken });
         context.State.Returns(new State
         {
             RemoteAddress = $"{endpoint}/p2p/{identity.PeerId}",
