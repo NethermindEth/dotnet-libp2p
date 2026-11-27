@@ -92,13 +92,13 @@ Configure `MaxPendingValidationMessages`, `MaxPendingValidationBytes`, and `Pend
 
 ## Connecting pubsub peers
 
-Use one of the discovery mechanisms to populate `PeerStore`, or add known peer addresses manually:
+Use one of the discovery mechanisms to populate `IPeerStore`, or add known peer addresses manually:
 
 ```csharp
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 
-PeerStore peerStore = provider.GetRequiredService<PeerStore>();
+IPeerStore peerStore = provider.GetRequiredService<IPeerStore>();
 peerStore.Discover([
     Multiaddress.Decode("/ip4/127.0.0.1/tcp/4001/p2p/12D3KooW...")
 ]);

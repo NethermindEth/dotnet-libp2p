@@ -6,6 +6,8 @@ using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2p.Protocols.Pubsub;
 using NUnit.Framework;
 
+using Nethermind.Libp2p.Core.TestsBase;
+
 namespace Libp2p.Protocols.Pubsub.E2eTests;
 
 [TestFixture]
@@ -24,7 +26,7 @@ public class ConnectionManagementTests
         ISession session = await test.Peers[0].DialAsync(test.Peers[1].Identity.PeerId)
             .WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.That(test.PeerStores[0].GetPeerInfo(session.RemotePeerId).SignedPeerRecord, Is.Not.Null,
+        Assert.That(test.PeerStores[0].ReadPeerInfo(session.RemotePeerId).SignedPeerRecord, Is.Not.Null,
             "Identify still stores verified metadata before the application opens gossip");
         Assert.That(((IRoutingStateContainer)test.Routers[0]).ConnectedPeers, Is.Empty);
         Assert.That(((IRoutingStateContainer)test.Routers[1]).ConnectedPeers, Is.Empty);

@@ -7,7 +7,7 @@ using Nethermind.Libp2p.Protocols.PubsubPeerDiscovery.Dto;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, PeerStore peerStore, PubsubPeerDiscoverySettings settings, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol, IDisposable, IAsyncDisposable
+public class PubsubPeerDiscoveryProtocol(PubsubRouter pubSubRouter, IPeerStore peerStore, PubsubPeerDiscoverySettings settings, ILocalPeer peer, ILoggerFactory? loggerFactory = null) : IDiscoveryProtocol, IDisposable, IAsyncDisposable
 {
     private readonly PubsubRouter _pubSubRouter = pubSubRouter;
     private IReadOnlyList<Multiaddress>? _localPeerAddrs;

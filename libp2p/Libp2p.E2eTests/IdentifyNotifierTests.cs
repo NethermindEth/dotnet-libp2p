@@ -57,7 +57,7 @@ public class IdentifyNotifierTests
         ulong firstSequence = tracked.TakeSequence();
         Identify first = await tracked.SendPush(firstSequence);
         store.Discover(first.SignedPeerRecord);
-        Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Addrs, Is.EquivalentTo(new[] { firstAddress }));
+        Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).Addresses, Is.EquivalentTo(new[] { firstAddress }));
 
         clock.UtcNow += TimeSpan.FromMilliseconds(clockChangeMilliseconds);
         tracked.Peer.ListenAddresses[0] = secondAddress;
@@ -69,9 +69,9 @@ public class IdentifyNotifierTests
         {
             Assert.That(firstSequence, Is.EqualTo((ulong)Clock.InitialTime.ToUnixTimeMilliseconds()));
             Assert.That(secondSequence, Is.EqualTo(Math.Max((ulong)clock.UtcNow.ToUnixTimeMilliseconds(), firstSequence + 1)));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Seq, Is.EqualTo(secondSequence));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).SignedPeerRecord, Is.EqualTo(second.SignedPeerRecord));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Addrs, Is.EquivalentTo(new[] { secondAddress }));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).PeerRecordSequence, Is.EqualTo(secondSequence));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).SignedPeerRecord, Is.EqualTo(second.SignedPeerRecord));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).Addresses, Is.EquivalentTo(new[] { secondAddress }));
         }
     }
 

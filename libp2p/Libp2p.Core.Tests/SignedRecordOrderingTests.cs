@@ -38,10 +38,10 @@ public class SignedRecordOrderingTests
         store.Discover([Address(peer, 3)], isTrusted: false);
         store.Discover(Record(peer, 4));
 
-        PeerStore.PeerInfo info = store.GetPeerInfo(peer.PeerId);
-        Assert.That(info.Addrs, Is.EquivalentTo(new[] { Address(peer, 3) }));
+        PeerMetadata info = store.ReadPeerInfo(peer.PeerId);
+        Assert.That(info.Addresses, Is.EquivalentTo(new[] { Address(peer, 3) }));
         Assert.That(info.SignedPeerRecord, Is.EqualTo(record), "Discovery must retain the original envelope and replay watermark.");
-        Assert.That(info.Seq, Is.EqualTo(5UL));
+        Assert.That(info.PeerRecordSequence, Is.EqualTo(5UL));
         Assert.That(notifications, Has.Count.EqualTo(2));
     }
 
@@ -54,8 +54,8 @@ public class SignedRecordOrderingTests
         ByteString empty = SigningHelper.CreateSignedEnvelope(peer, [], 2);
         store.Discover(empty);
         store.Discover([Address(peer, 3)], isTrusted: false);
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(empty));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 1) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(empty));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, 1) }));
     }
 
     [TestCase(false)]
@@ -74,9 +74,9 @@ public class SignedRecordOrderingTests
         store.Discover(record, peerExchangeFirst ? state : null);
         store.Discover(record, state);
 
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 2) }));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Seq, Is.EqualTo(2UL));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, 2) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).PeerRecordSequence, Is.EqualTo(2UL));
         Assert.That(state.VerifiedPeerRecordSequence, Is.EqualTo(2UL));
         Assert.That(notifications, Has.Count.EqualTo(1));
     }
@@ -93,21 +93,21 @@ public class SignedRecordOrderingTests
         ByteString record = Record(peer, seq);
         store.Discover(record);
         store.Discover(Record(peer, seq, port: 9999), state);
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { configured }), "An equal sequence with different addresses must not replace the retained record.");
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { configured }), "An equal sequence with different addresses must not replace the retained record.");
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
         SignedEnvelope sessionRecord = SignedEnvelope.Parser.ParseFrom(record);
         sessionRecord.PublicKey = ByteString.CopyFrom([.. sessionRecord.PublicKey.ToByteArray(), 0x18, 0x01]);
         store.Discover(sessionRecord.ToByteString(), state);
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq) }));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, seq) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(record));
 
         ByteString newer = Record(peer, seq + 1);
         store.Discover(newer);
         store.Discover(record, state);
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq) }), "An older session record cannot apply superseded deferred addresses.");
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, seq) }), "An older session record cannot apply superseded deferred addresses.");
         store.Discover(newer, state);
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, seq + 1) }));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(newer));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, seq + 1) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(newer));
     }
 
     [TestCase(false, false)]
@@ -125,9 +125,9 @@ public class SignedRecordOrderingTests
         store.Discover(newest, firstAuthenticated ? state : null);
         store.Discover(Record(peer, 1), secondAuthenticated ? state : null);
         store.Discover(Record(peer, 2, port: 9999), secondAuthenticated ? state : null);
-        Assert.That(store.GetPeerInfo(peer.PeerId).Seq, Is.EqualTo(2UL));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(newest));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 2) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).PeerRecordSequence, Is.EqualTo(2UL));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(newest));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, 2) }));
         Assert.That(notifications, Has.Count.EqualTo(1));
     }
 
@@ -138,15 +138,15 @@ public class SignedRecordOrderingTests
         PeerStore store = new();
         ByteString zero = SigningHelper.CreateSignedEnvelope(peer, [], 0);
         store.Discover(zero);
-        Assert.That(store.GetVerifiedPeerRecordSequence(peer.PeerId), Is.EqualTo(0UL));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).PeerRecordSequence, Is.EqualTo(0UL));
         store.Discover(Record(peer, 0));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.Null);
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.Null);
         store.Discover(Record(peer, 1));
         ByteString empty = SigningHelper.CreateSignedEnvelope(peer, [], 2);
         store.Discover(empty);
         store.Discover(Record(peer, 1, port: 9999));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(empty));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 1) }), "Empty records preserve the existing address policy.");
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(empty));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, 1) }), "Empty records preserve the existing address policy.");
     }
 
     [Test]
@@ -157,9 +157,9 @@ public class SignedRecordOrderingTests
         PeerStore store = new();
         ByteString[] records = Enumerable.Range(0, 20).Select(i => Record(peer, (ulong)i)).ToArray();
         Parallel.For(0, records.Length, i => store.Discover(records[i], i % 2 == 0 ? state : null));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Seq, Is.EqualTo(19UL));
-        Assert.That(store.GetPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(records[19]));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { Address(peer, 19) }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).PeerRecordSequence, Is.EqualTo(19UL));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).SignedPeerRecord, Is.EqualTo(records[19]));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { Address(peer, 19) }));
     }
 
     [Test]
@@ -206,8 +206,8 @@ public class SignedRecordOrderingTests
         store.OnNewPeer += _ => notifications++;
         notifications = 0;
         store.Discover(Record(peer, 2));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Seq, Is.EqualTo(2UL));
-        Assert.That(store.GetPeerInfo(peer.PeerId).Addrs, Is.EquivalentTo(new[] { configured }));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).PeerRecordSequence, Is.EqualTo(2UL));
+        Assert.That(store.ReadPeerInfo(peer.PeerId).Addresses, Is.EquivalentTo(new[] { configured }));
         Assert.That(notifications, Is.Zero);
 
         PeerStore untrusted = new();

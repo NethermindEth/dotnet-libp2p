@@ -296,7 +296,7 @@ public class PubsubSessionFailureTests
         localPeer.Identity.Returns(TestPeers.Identity(1));
         localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
         Multiaddress remoteAddress = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(remoteAddress.GetPeerId()!).SupportedProtocols = [PubsubRouter.FloodsubProtocolVersion];
+        store.SetSupportedProtocols(remoteAddress.GetPeerId()!, [PubsubRouter.FloodsubProtocolVersion]);
 
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
@@ -354,7 +354,7 @@ public class PubsubSessionFailureTests
         localPeer.Identity.Returns(TestPeers.Identity(1));
         localPeer.ListenAddresses.Returns([TestPeers.Multiaddr(1)]);
         Multiaddress remoteAddress = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(remoteAddress.GetPeerId()!).SupportedProtocols = [PubsubRouter.FloodsubProtocolVersion];
+        store.SetSupportedProtocols(remoteAddress.GetPeerId()!, [PubsubRouter.FloodsubProtocolVersion]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(remoteAddress);
         TaskCompletionSource setupStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);

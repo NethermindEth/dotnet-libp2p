@@ -16,8 +16,6 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     public Libp2pPeerFactoryBuilder(IServiceProvider? serviceProvider = default) : base(serviceProvider)
     {
         ProtocolLimits = serviceProvider?.GetService<BuiltInProtocolLimits>() ?? new();
-        if (serviceProvider?.GetService<Nethermind.Libp2p.Core.Discovery.PeerStore>() is null)
-            Services.AddSingleton<Nethermind.Libp2p.Core.Discovery.PeerStore>();
         if (serviceProvider?.GetService<IdentifyNotifier>() is null)
             Services.AddSingleton<IdentifyNotifier>();
     }

@@ -20,7 +20,7 @@ using System.Runtime.CompilerServices;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class MDnsDiscoveryProtocol(PeerStore peerStore, ILoggerFactory? loggerFactory = null, MDnsDiscoverySettings? settings = null)
+public class MDnsDiscoveryProtocol(IPeerStore peerStore, ILoggerFactory? loggerFactory = null, MDnsDiscoverySettings? settings = null)
     : IDiscoveryProtocol, IDisposable, IAsyncDisposable
 {
     private readonly ILogger? _logger = loggerFactory?.CreateLogger<MDnsDiscoveryProtocol>();

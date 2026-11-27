@@ -19,7 +19,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 1, ReconnectionPeriod = int.MaxValue });
         router.GetTopic("topic");
         ISession session = Substitute.For<ISession>();
@@ -76,7 +76,7 @@ public class OutboundConnectionRaceTests
         PeerStore store = new();
         Multiaddress original = $"/ip4/10.0.0.2/tcp/4001/p2p/{TestPeers.PeerId(2)}";
         Multiaddress updated = $"/ip4/10.0.0.2/tcp/4002/p2p/{TestPeers.PeerId(2)}";
-        store.GetPeerInfo(TestPeers.PeerId(2)).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(TestPeers.PeerId(2), [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 1, ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(original);
@@ -233,7 +233,7 @@ public class OutboundConnectionRaceTests
     {
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionAttempts = 1, ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
@@ -367,7 +367,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings
         {
             ReconnectionAttempts = 1,
@@ -452,7 +452,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings
         {
             ReconnectionAttempts = 2,
@@ -610,7 +610,7 @@ public class OutboundConnectionRaceTests
     {
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings
         {
             DirectPeers = [address],
@@ -666,7 +666,7 @@ public class OutboundConnectionRaceTests
         Multiaddress alternate = $"/ip4/10.0.0.3/tcp/4001/p2p/{TestPeers.PeerId(2)}";
         Multiaddress connected = $"/ip4/10.0.0.2/tcp/54321/p2p/{TestPeers.PeerId(2)}";
         PeerStore store = new();
-        store.GetPeerInfo(TestPeers.PeerId(2)).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(TestPeers.PeerId(2), [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue, HeartbeatInterval = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(connected);
@@ -719,7 +719,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
@@ -872,7 +872,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings
         {
             DirectPeers = directPeer ? [address] : [],
@@ -955,7 +955,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
@@ -999,7 +999,7 @@ public class OutboundConnectionRaceTests
         CancellationToken token = TestContext.CurrentContext.CancellationToken;
         PeerStore store = new();
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         await using PubsubRouter router = new(store, new PubsubSettings
         {
             ReconnectionAttempts = retries,
@@ -1053,7 +1053,7 @@ public class OutboundConnectionRaceTests
         PeerStore store = new();
         await using PubsubRouter router = new(store);
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
         ILocalPeer local = CreateLocal(session);
@@ -1093,7 +1093,7 @@ public class OutboundConnectionRaceTests
         PeerStore store = new();
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
         ILocalPeer local = CreateLocal(session);
@@ -1132,7 +1132,7 @@ public class OutboundConnectionRaceTests
         PeerStore store = new();
         await using PubsubRouter router = new(store, new PubsubSettings { ReconnectionPeriod = int.MaxValue });
         Multiaddress address = TestPeers.Multiaddr(2);
-        store.GetPeerInfo(address.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        store.SetSupportedProtocols(address.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         ISession session = Substitute.For<ISession>();
         session.RemoteAddress.Returns(address);
         await router.StartAsync(CreateLocal(session));

@@ -121,7 +121,7 @@ public class DirectPeersTests
         PeerStore peerStore = new();
         Multiaddress directAddress = TestPeers.Multiaddr(1);
         PeerId directPeerId = directAddress.GetPeerId()!;
-        peerStore.GetPeerInfo(directPeerId).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        peerStore.SetSupportedProtocols(directPeerId, [PubsubRouter.GossipsubProtocolVersionV12]);
         if (addressesAlreadyKnown)
         {
             peerStore.Discover([directAddress]);
@@ -228,7 +228,7 @@ public class DirectPeersTests
     {
         Multiaddress directAddress = TestPeers.Multiaddr(1);
         PeerStore peerStore = new();
-        peerStore.GetPeerInfo(directAddress.GetPeerId()!).SupportedProtocols = [PubsubRouter.GossipsubProtocolVersionV12];
+        peerStore.SetSupportedProtocols(directAddress.GetPeerId()!, [PubsubRouter.GossipsubProtocolVersionV12]);
         using PubsubRouter router = new(peerStore, new PubsubSettings
         {
             DirectPeers = [directAddress],

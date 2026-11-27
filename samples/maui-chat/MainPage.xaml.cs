@@ -112,7 +112,7 @@ public partial class MainPage : ContentPage
         return new ServiceCollection()
             .AddLogging(ConfigureLogging)
             .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
-            .AddSingleton<PeerStore>()
+            .AddSingleton<IPeerStore, PeerStore>()
             .AddSingleton<MultiplexerSettings>()
             .AddSingleton<IPeerFactoryBuilder>(sp => new MauiChatPeerFactoryBuilder(sp).WithQuic().AddProtocol(chatProtocol))
             .AddSingleton(sp => sp.GetRequiredService<IPeerFactoryBuilder>().Build())
