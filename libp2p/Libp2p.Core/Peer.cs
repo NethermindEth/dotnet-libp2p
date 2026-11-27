@@ -26,7 +26,6 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
     internal TimeProvider Clock { get; } = timeProvider ?? TimeProvider.System;
     private int _inboundInitializations;
 
-    private const int ConnectionTimeout = 15_000;
     private const int MaxConcurrentDials = 16;
     private const int CanceledDialDisposalGracePeriod = 1_000;
 
@@ -608,17 +607,44 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         }
     }
 
-    private sealed class PendingDial
+    internal sealed class PendingDial
     {
+        private readonly Lock _readinessLock = new();
+        private bool _readinessClosed;
+        private Session? _readySession;
+
         public PendingDial(LocalPeer peer, Multiaddress[] addrs, PeerId peerId)
         {
             Attempt = new(() => peer.DialAsyncDeduped(addrs, peerId, Cancellation.Token, this));
         }
 
         public CancellationTokenSource Cancellation { get; } = new();
+        public CancellationToken ConnectionCancellation { get; set; }
         public Lazy<Task<ISession>> Attempt { get; }
         public HashSet<Session> Sessions { get; } = [];
         public int Waiters;
+
+        public bool TrySetConnected(Session session)
+        {
+            lock (_readinessLock)
+            {
+                if (_readinessClosed || ConnectionCancellation.IsCancellationRequested || !session.ConnectedTcs.TrySetResult())
+                    return false;
+                _readySession = session;
+                return true;
+            }
+        }
+
+        public Session? CloseReadiness()
+        {
+            lock (_readinessLock)
+            {
+                _readinessClosed = true;
+                Session? readySession = _readySession;
+                _readySession = null;
+                return readySession;
+            }
+        }
     }
 
     private async Task<ISession> DialAsyncDeduped(Multiaddress[] addrs, PeerId remotePeerId, CancellationToken token, PendingDial pending)
@@ -643,8 +669,9 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
                 throw new Libp2pException($"No usable address was resolved for peer {remotePeerId}");
             }
 
-            using CancellationTokenSource timeout = new(ConnectionTimeout);
+            using CancellationTokenSource timeout = new(ResourceLimits.ConnectionTimeout, Clock);
             using CancellationTokenSource waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
+            pending.ConnectionCancellation = waitCancellation.Token;
             List<Exception> failures = [];
             int next = 0;
             try
@@ -659,7 +686,8 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
                         CancellationTokenSource cancellation = new();
                         Task? transport = null;
                         Session? owner = null;
-                        Task<ISession> attempt = DialAsyncCore(addr, cancellation.Token, dial => transport = dial, session => owner = session, pending);
+                        Task<ISession> attempt = DialAsyncCore(addr, cancellation.Token,
+                            dial => transport = dial, session => owner = session, pending);
                         active.Add((owner, cancellation, transport, attempt, false));
                     }
 
@@ -670,6 +698,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
                         winningAttempt = completed;
                         return session;
                     }
+                    waitCancellation.Token.ThrowIfCancellationRequested();
                     var completedDial = active.First(dial => dial.Attempt == completed);
                     Session? failedOwner = completedDial.Session;
                     SessionExistsException? duplicate = GetTaskException(completed) as SessionExistsException;
@@ -724,6 +753,15 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested && timeout.IsCancellationRequested)
             {
+                // Readiness wins even if the address attempt is still recording metrics.
+                Session? ready = pending.CloseReadiness();
+                if (ready is not null && !ready.Closed.IsCancellationRequested &&
+                    active.FirstOrDefault(dial => ReferenceEquals(dial.Session, ready)).Attempt is { } readyAttempt)
+                {
+                    token.ThrowIfCancellationRequested();
+                    winningAttempt = readyAttempt;
+                    return ready;
+                }
                 throw new TimeoutException("The connection attempt timed out.");
             }
             if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
@@ -731,6 +769,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         }
         finally
         {
+            pending.CloseReadiness();
             foreach (var dial in active)
             {
                 ObserveLateFailure(dial.Attempt);
@@ -748,7 +787,8 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
 
     public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => DialAsync([addr], token);
 
-    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token, Action<Task> transportDialStarted, Action<Session> sessionCreated, PendingDial pending)
+    private async Task<ISession> DialAsyncCore(Multiaddress addr, CancellationToken token,
+        Action<Task> transportDialStarted, Action<Session> sessionCreated, PendingDial pending)
     {
         Activity? dialActivity = activitySource?.StartActivity($"Dial {addr}", ActivityKind.Internal, peerActivity?.Id);
         dialActivity?.SetTag("parent", peerActivity?.DisplayName);
@@ -763,7 +803,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
             throw new Libp2pSetupException($"{nameof(ITransportProtocol)} should be implemented by {dialerProtocol.GetType()}");
         }
 
-        Session session = new(this, dialActivity);
+        Session session = new(this, dialActivity, pending);
         sessionCreated(session);
         lock (_pendingDialsLock)
         {

@@ -138,6 +138,19 @@ Concurrent disposal calls await the same cleanup, including a session already di
 
 ## Resource limits and deadlines
 
+A new outbound dial gets one **15-second** `ConnectionTimeout` after multiaddress
+and DNS resolution finish. Callers sharing the same dial share its budget across
+parallel and fallback addresses, transport setup, and session initialization,
+including automatic Identify in the standard peer. Address resolution runs under its
+own deadline. Individual negotiation and initialization deadlines can end an address
+attempt sooner. Listener readiness, idle eviction, and keep-alive have separate timing.
+
+If the connection budget expires, `DialAsync` throws `TimeoutException` and cancels
+its address attempts. Caller cancellation ends that caller's wait with
+`OperationCanceledException`; attempts stop when the last waiter cancels. A successful
+dial cancels the remaining attempts and stops the timer. The established session
+continues under its own lifetime, and reusing it requires no new connection budget.
+
 The default stack bounds inbound TCP connections to **256 per local peer**, including
 connections still shutting down. At most **32** may come from one IPv4 source address or native IPv6 /64 prefix,
 across all of that peer's TCP listeners. Source ports do not create new allowances;
@@ -175,7 +188,8 @@ ServiceProvider provider = new ServiceCollection()
         inboundUpgradeTimeout: TimeSpan.FromSeconds(20),
         initializationTimeout: TimeSpan.FromSeconds(20),
         negotiationTimeout: TimeSpan.FromSeconds(15),
-        inboundTcpIdleTimeout: TimeSpan.FromSeconds(60)))
+        inboundTcpIdleTimeout: TimeSpan.FromSeconds(60),
+        connectionTimeout: TimeSpan.FromSeconds(25)))
     .BuildServiceProvider();
 ```
 

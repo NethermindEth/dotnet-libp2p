@@ -10,7 +10,8 @@ public sealed class PeerResourceLimits
 
     public PeerResourceLimits(int maxInboundTcpConnections = 256, int maxInboundTcpConnectionsPerIp = 32,
         int maxConcurrentInitializations = 128, TimeSpan? inboundUpgradeTimeout = null,
-        TimeSpan? initializationTimeout = null, TimeSpan? negotiationTimeout = null, TimeSpan? inboundTcpIdleTimeout = null)
+        TimeSpan? initializationTimeout = null, TimeSpan? negotiationTimeout = null, TimeSpan? inboundTcpIdleTimeout = null,
+        TimeSpan? connectionTimeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInboundTcpConnections);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInboundTcpConnectionsPerIp);
@@ -22,12 +23,19 @@ public sealed class PeerResourceLimits
         InitializationTimeout = Validate(initializationTimeout ?? TimeSpan.FromSeconds(15));
         NegotiationTimeout = Validate(negotiationTimeout ?? TimeSpan.FromSeconds(15));
         InboundTcpIdleTimeout = Validate(inboundTcpIdleTimeout ?? TimeSpan.FromSeconds(60));
+        ConnectionTimeout = Validate(connectionTimeout ?? TimeSpan.FromSeconds(15));
     }
 
     public PeerResourceLimits(int maxInboundTcpConnections, int maxInboundTcpConnectionsPerIp, int maxConcurrentInitializations,
         TimeSpan? inboundUpgradeTimeout, TimeSpan? initializationTimeout, TimeSpan? negotiationTimeout)
         : this(maxInboundTcpConnections, maxInboundTcpConnectionsPerIp, maxConcurrentInitializations,
             inboundUpgradeTimeout, initializationTimeout, negotiationTimeout, null)
+    { }
+
+    public PeerResourceLimits(int maxInboundTcpConnections, int maxInboundTcpConnectionsPerIp, int maxConcurrentInitializations,
+        TimeSpan? inboundUpgradeTimeout, TimeSpan? initializationTimeout, TimeSpan? negotiationTimeout, TimeSpan? inboundTcpIdleTimeout)
+        : this(maxInboundTcpConnections, maxInboundTcpConnectionsPerIp, maxConcurrentInitializations,
+            inboundUpgradeTimeout, initializationTimeout, negotiationTimeout, inboundTcpIdleTimeout, null)
     { }
 
     private static TimeSpan Validate(TimeSpan timeout)
@@ -46,4 +54,6 @@ public sealed class PeerResourceLimits
     public TimeSpan NegotiationTimeout { get; }
     /// <summary>Minimum time without application operations before an established TCP connection may be evicted under admission pressure.</summary>
     public TimeSpan InboundTcpIdleTimeout { get; }
+    /// <summary>Time allowed for a new outbound dial after address resolution, including racing transports and initializing the session.</summary>
+    public TimeSpan ConnectionTimeout { get; }
 }
