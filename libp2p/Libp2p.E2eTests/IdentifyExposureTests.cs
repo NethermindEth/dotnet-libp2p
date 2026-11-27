@@ -22,6 +22,30 @@ public class IdentifyExposureTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public async Task ListenAddrsKeepsLanEndpointsAndOmitsLoopbackAndUnspecified(bool push)
+    {
+        Multiaddress privateIPv4 = "/ip4/192.168.1.5/tcp/4001";
+        Multiaddress privateIPv6 = "/ip6/fd12::1/tcp/4002";
+        Multiaddress[] listeners =
+        [
+            "/ip4/127.0.0.2/tcp/4003",
+            "/ip6/::ffff:127.0.0.2/tcp/4004",
+            privateIPv4,
+            "/ip6/::ffff:0.0.0.0/tcp/4005",
+            privateIPv6,
+        ];
+        Identify message = await SendAsync(new ProtocolStackSettings { Protocols = [] }, push, listeners);
+        PeerRecord record = PeerRecord.Parser.ParseFrom(SignedEnvelope.Parser.ParseFrom(message.SignedPeerRecord).Payload);
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(message.ListenAddrs, Is.EqualTo(new[] { ByteString.CopyFrom(privateIPv4.ToBytes()), ByteString.CopyFrom(privateIPv6.ToBytes()) }));
+            Assert.That(record.Addresses.Select(a => a.Multiaddr), Is.EqualTo(listeners.Select(a => ByteString.CopyFrom(a.ToBytes()))));
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task AdvertisementIncludesOnlyDistinctExposedSessionProtocols(bool push)
     {
         ProtocolStackSettings stack = new() { Protocols = [] };
@@ -256,10 +280,10 @@ public class IdentifyExposureTests
         stack.Protocols!.Add(new ProtocolRef(new NamedProtocol(id), exposed), []);
     }
 
-    private static async Task<Identify> SendAsync(IProtocolStackSettings stack, bool push)
+    private static async Task<Identify> SendAsync(IProtocolStackSettings stack, bool push, params Multiaddress[] listenAddresses)
     {
         Channel channel = new();
-        ISessionContext context = SenderContext(TestPeers.Identity(91));
+        ISessionContext context = SenderContext(TestPeers.Identity(91), listenAddresses);
         Task send = push
             ? new IdentifyPushProtocol(stack).DialAsync(channel, context, 1)
             : new IdentifyProtocol(stack).ListenAsync(channel, context);
@@ -268,12 +292,12 @@ public class IdentifyExposureTests
         return message;
     }
 
-    private static ISessionContext SenderContext(Identity identity)
+    private static ISessionContext SenderContext(Identity identity, params Multiaddress[] listenAddresses)
     {
         ISessionContext context = Substitute.For<ISessionContext>();
         ILocalPeer peer = Substitute.For<ILocalPeer>();
         peer.Identity.Returns(identity);
-        peer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        peer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>(listenAddresses));
         context.Peer.Returns(peer);
         context.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/4001" });
         return context;

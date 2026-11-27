@@ -33,6 +33,7 @@ public class PeerStoreWiringTests
         _ = provider.GetRequiredService<IPeerFactory>();
         IPeerStore store = provider.GetServices<IPeerStore>().Single();
         Assert.That(store, Is.TypeOf<PeerStore>());
+        Assert.That(provider.GetService<PeerStore>(), Is.Null);
         Assert.That(provider.GetRequiredService<ILibp2pPeerFactoryBuilder>().ServiceProvider.GetRequiredService<IPeerStore>(), Is.SameAs(store));
     }
 

@@ -344,7 +344,7 @@ public class MDnsDiscoveryProtocol(IPeerStore peerStore, ILoggerFactory? loggerF
         {
             AddressRecord? least = service.Resources
                 .OfType<AddressRecord>()
-                .OrderByDescending(record => IsLinkLocal(record.Address))
+                .OrderByDescending(record => record.Address.IsLinkLocal())
                 .FirstOrDefault();
 
             if (least is null)
@@ -435,11 +435,7 @@ public class MDnsDiscoveryProtocol(IPeerStore peerStore, ILoggerFactory? loggerF
 
     private static bool IsLinkLocal(Multiaddress address) =>
         address.Protocols.FirstOrDefault(protocol => protocol is IP4 or IP6)?.Value is IPAddress ip
-        && IsLinkLocal(ip);
-
-    private static bool IsLinkLocal(IPAddress ip) =>
-        ip.IsIPv6LinkLocal || (ip.AddressFamily == AddressFamily.InterNetwork
-            && ip.GetAddressBytes() is [169, 254, ..]);
+        && ip.IsLinkLocal();
 
     /// <summary>
     /// Whether the message actually offers this instance under the service we are configured for.

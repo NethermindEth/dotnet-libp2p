@@ -1,5 +1,24 @@
 # Core routines and API
 
+`IsLoopbackAddress`, `IsUnspecified`, `IsLinkLocal` and `IsPrivateAddress` allow
+callers to select the address ranges they need. Private addresses here include
+IPv4 private-use, IPv6 unique-local and deprecated IPv6 site-local ranges.
+IPv4-mapped IPv6 uses the embedded IPv4 address for classification.
+
+`IsPublicAddressCandidate` checks whether a literal IP is suitable for
+consideration as a public peer endpoint. It excludes multicast, scoped IPv6 and
+IANA special-purpose ranges, including globally reachable service reservations.
+Native IPv6 candidates must fall within 2000::/3. Assignment, transport support
+and reachability require separate checks.
+[IPv4 special-purpose registry](https://www.iana.org/assignments/iana-ipv4-special-registry),
+[IPv6 special-purpose registry](https://www.iana.org/assignments/iana-ipv6-special-registry),
+[IPv6 global unicast registry](https://www.iana.org/assignments/ipv6-unicast-address-assignments).
+
+The `Multiaddress` overloads inspect a single leading literal IP and leave the
+multiaddress intact. DNS names, relay paths, non-IP endpoints and ambiguous
+addresses fail all five predicates. `GetDirectIPAddress` exposes the same
+literal with its original family and scope. These helpers perform no DNS lookups.
+
 `IReader.ReadLineAsync()` limits the declared payload to 1,024 bytes, including
 any trailing newline and excluding the varint length prefix. Callers that need
 larger lines must use `ReadLineAsync(maxLength, token)`. Oversized declarations
