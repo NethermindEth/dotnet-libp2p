@@ -49,22 +49,16 @@ public class TlsDataPumpTests
     }
 
     [Test]
-    public async Task PublishesReceivedRecordsLargerThan1024Bytes()
+    public async Task PublishesReceivedRecordInOneOwnedRead()
     {
         await using TlsPair pair = await TlsPair.StartAsync();
         byte[] payload = new byte[8 * 1024];
 
         ValueTask<IOResult> write = pair.Sender.WriteAsync(new ReadOnlySequence<byte>(payload));
-        long largest = 0;
-        for (long received = 0; received < payload.Length;)
-        {
-            long length = (await pair.Receiver.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow().AsTask().WaitAsync(TimeSpan.FromSeconds(15))).Length;
-            largest = Math.Max(largest, length);
-            received += length;
-        }
-
+        using ReadResult received = await pair.Receiver.ReadOwnedAsync(0, ReadBlockingMode.WaitAny).AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.That(received.OrThrow().Length, Is.EqualTo(payload.Length));
+        Assert.That(received.IsOwned, Is.True);
         Assert.That(await write.AsTask().WaitAsync(TimeSpan.FromSeconds(15)), Is.EqualTo(IOResult.Ok));
-        Assert.That(largest, Is.EqualTo(payload.Length));
     }
 
     private sealed class TlsPair : IAsyncDisposable

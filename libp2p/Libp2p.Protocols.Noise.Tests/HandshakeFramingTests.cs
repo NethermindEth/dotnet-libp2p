@@ -17,6 +17,34 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 
 public class HandshakeFramingTests
 {
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task PublishedHandshakeBytesStayStableAfterUpgrade(int message)
+    {
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        using HandshakePeer peer = new(message);
+        try
+        {
+            if (message == 2)
+                await peer.SendAsync(peer.Frame([]), false, deadline.Token);
+            var (prefix, body) = await peer.ReceiveAsync(deadline.Token);
+            byte[] originalPrefix = prefix.ToArray();
+            byte[] originalBody = body.ToArray();
+
+            await peer.SendAsync(peer.Frame(peer.Payload()), false, deadline.Token);
+            if (message == 1)
+                await peer.ReceiveAsync(deadline.Token);
+            await peer.Upgraded.Task.WaitAsync(deadline.Token);
+
+            Assert.That(prefix.ToArray(), Is.EqualTo(originalPrefix));
+            Assert.That(body.ToArray(), Is.EqualTo(originalBody));
+        }
+        finally
+        {
+            await peer.CloseAsync();
+        }
+    }
+
     // Message 0 and 2 are read by ListenAsync; message 1 is read by DialAsync.
     [TestCase(0, 0x7fff, false)]
     [TestCase(0, 0x8000, false)]
@@ -376,12 +404,15 @@ public class HandshakeFramingTests
             return frame[..(result.BytesWritten + 2)];
         }
 
-        public async Task ReceiveAsync(CancellationToken token)
+        public async Task<(ReadOnlySequence<byte> Prefix, ReadOnlySequence<byte> Body)> ReceiveAsync(CancellationToken token)
         {
-            int length = BinaryPrimitives.ReadUInt16BigEndian((await Wire.ReadAsync(2, token: token).OrThrow()).ToArray());
+            ReadOnlySequence<byte> prefix = await Wire.ReadAsync(2, token: token).OrThrow();
+            int length = BinaryPrimitives.ReadUInt16BigEndian(prefix.ToArray());
             byte[] buffer = new byte[Protocol.MaxMessageLength];
-            var result = _handshake.ReadMessage((await Wire.ReadAsync(length, token: token).OrThrow()).ToArray(), buffer);
+            ReadOnlySequence<byte> body = await Wire.ReadAsync(length, token: token).OrThrow();
+            var result = _handshake.ReadMessage(body.ToArray(), buffer);
             _transport = result.Transport;
+            return (prefix, body);
         }
 
         public byte[] DataFrame() => DataFrame([9, 8, 7]);

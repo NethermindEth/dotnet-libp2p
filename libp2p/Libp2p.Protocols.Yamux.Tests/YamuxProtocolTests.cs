@@ -8,6 +8,7 @@ using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Yamux;
 using NSubstitute;
+using PooledBuffer = Nethermind.Channels.PooledBuffer;
 
 namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 
@@ -231,14 +232,21 @@ public class YamuxProtocolTests
             await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
 
             byte[] reply = [1, 2, 3, 4, 5, 6, 7, 8];
-            frame = new byte[12 + reply.Length];
             YamuxHeader data = new() { Type = YamuxHeaderType.Data, StreamID = syn.StreamID, Length = reply.Length };
-            YamuxHeader.ToBytes(frame, ref data);
-            reply.CopyTo(frame, 12);
-            await remote.WriteAsync(new ReadOnlySequence<byte>(frame), timeout.Token).OrThrow();
-
-            ReadOnlySequence<byte> received = await appChannel.Reverse().ReadAsync(reply.Length, token: timeout.Token).OrThrow();
-            Assert.That(received.ToArray(), Is.EqualTo(reply));
+            ReadOnlyMemory<byte> sent;
+            using (PooledBuffer packet = PooledBuffer.Rent(12 + reply.Length))
+            {
+                YamuxHeader.ToBytes(packet.Span, ref data);
+                reply.CopyTo(packet.Span[12..]);
+                sent = packet.Memory[12..];
+                await remote.WriteAsync(packet, packet.Length, token: timeout.Token).OrThrow();
+            }
+            using (ReadResult received = await appChannel.Reverse().ReadOwnedAsync(reply.Length, token: timeout.Token))
+            {
+                Assert.That(received.OrThrow().ToArray(), Is.EqualTo(reply));
+                Assert.That(received.IsOwned, Is.True);
+                Assert.That(received.Data.First.Equals(sent), Is.True, "The application must receive the original pooled slice.");
+            }
 
             await appChannel.CloseAsync();
             await remote.ReadAsync(12, token: timeout.Token).OrThrow();

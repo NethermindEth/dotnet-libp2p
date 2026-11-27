@@ -214,7 +214,7 @@ public sealed class WebSocketProtocol(ILoggerFactory? loggerFactory = null, ITls
 
             ReadOnlySequence<byte> data = read.Data;
             logger?.LogTrace("WebSocket sending {Length} bytes", data.Length);
-            await webSocket.SendAsync(read.IsOwned ? data.First : data.ToArray(), WebSocketMessageType.Binary,
+            await webSocket.SendAsync(data.IsSingleSegment ? data.First : data.ToArray(), WebSocketMessageType.Binary,
                 endOfMessage: true, cancellationToken: token);
         }
     }

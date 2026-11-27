@@ -16,6 +16,33 @@ namespace Nethermind.Libp2p.Protocols.Noise.Tests;
 [Parallelizable(ParallelScope.All)]
 public class OwnedReceiveTests
 {
+    [Test]
+    public async Task FirstLengthByteIsReleasedWhileWaitingForTheSecond()
+    {
+        var (local, remote) = CreateTransports();
+        using Transport localTransport = local;
+        using Transport remoteTransport = remote;
+        TestChannel down = new();
+        TestChannel up = new();
+        Task pump = ExchangeData(local, down, up);
+        PoisoningPool pool = new(1);
+        try
+        {
+            PooledBuffer owner = await WriteOwnedAsync(down.Reverse(), new byte[] { 1 }, pool);
+            await pool.AllReturned.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(owner.RefCount, Is.Zero);
+            await down.Reverse().WriteEofAsync();
+            await pump.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That((await up.Reverse().ReadAsync(1)).Result, Is.EqualTo(IOResult.Aborted));
+        }
+        finally
+        {
+            await down.CloseAsync();
+            await up.CloseAsync();
+            await pump.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     [TestCase(false, false)]
     [TestCase(false, true)]
     [TestCase(true, false)]

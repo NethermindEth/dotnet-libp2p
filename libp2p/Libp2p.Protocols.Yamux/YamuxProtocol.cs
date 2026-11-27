@@ -189,7 +189,6 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             while (!downChannelAwaiter.IsCompleted)
             {
                 YamuxHeader header = await ReadHeaderAsync(session?.Id ?? NoSession, channel, transportClosedToken);
-                ReadOnlySequence<byte> data = default;
 
                 if (header.Version != 0 || header.Type > YamuxHeaderType.GoAway)
                 {
@@ -334,9 +333,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                 if (header is { Type: YamuxHeaderType.Data, Length: not 0 })
                 {
                     int available = stream.LocalWindow.Available;
-                    data = await channel.ReadAsync(header.Length).OrThrow();
+                    using ReadResult data = await channel.ReadOwnedAsync(header.Length);
 
-                    bool spent = stream.LocalWindow.TrySpend((int)data.Length);
+                    bool spent = stream.LocalWindow.TrySpend((int)data.OrThrow().Length);
                     if (!spent)
                     {
                         _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Local window spent out of budget", session.Id, header.StreamID);
@@ -371,13 +370,14 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
             await WriteGoAwayAsync(session?.Id ?? NoSession, channel, SessionTerminationCode.Ok);
 
-            async Task DeliverAsync(IChannel upChannel, ReadOnlySequence<byte> payload, string sessionId, int streamId)
+            async Task DeliverAsync(IChannel upChannel, ReadResult payload, string sessionId, int streamId)
             {
-                int length = (int)payload.Length;
+                int length = (int)payload.Data.Length;
                 IOResult result;
                 try
                 {
-                    result = await upChannel.WriteAsync(payload);
+                    // Start the write before yielding so it retains the bytes before the frame reader disposes its lease.
+                    result = await payload.WriteToAsync(upChannel);
                 }
                 catch (Exception e)
                 {
@@ -392,7 +392,12 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
             {
                 if (discarded.Type != YamuxHeaderType.Data || discarded.Length == 0) return;
                 using CancellationTokenSource payloadTimeout = new(ControlTimeout, _timeProvider);
-                await channel.ReadAsync(discarded.Length, token: payloadTimeout.Token).OrThrow();
+                int remaining = discarded.Length;
+                while (remaining > 0)
+                {
+                    using ReadResult data = await channel.ReadOwnedAsync(remaining, ReadBlockingMode.WaitAny, payloadTimeout.Token);
+                    remaining -= (int)data.OrThrow().Length;
+                }
             }
 
             void CreateUpchannel(string contextId, int streamId, YamuxHeaderFlags initiationFlag, UpgradeOptions upgradeOptions)
@@ -468,8 +473,9 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: New stream request acknowledged", contextId, streamId);
                         }
 
-                        await foreach (ReadOnlySequence<byte> upData in upChannel.ReadAllAsync())
+                        await foreach (ReadResult read in upChannel.ReadAllOwnedAsync())
                         {
+                            ReadOnlySequence<byte> upData = read.Data;
                             _logger?.LogDebug("Ctx({ctx}), stream {stream id}: Receive from upchannel, length={length}", contextId, streamId, upData.Length);
 
                             for (int i = 0; i < upData.Length;)
@@ -727,7 +733,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
 
     private async ValueTask<YamuxHeader> ReadHeaderAsync(string contextId, IReader reader, CancellationToken token = default)
     {
-        YamuxHeader header = YamuxHeader.FromBytes(await reader.ReadAsync(HeaderLength, token: token).OrThrow());
+        using ReadResult read = await reader.ReadOwnedAsync(HeaderLength, token: token);
+        YamuxHeader header = YamuxHeader.FromBytes(read.OrThrow());
         _logger?.LogTrace("Ctx({ctx}), stream {stream id}: Receive type={type} flags={flags} length={length}", contextId, header.StreamID, header.Type, header.Flags, header.Length);
         return header;
     }
@@ -742,9 +749,8 @@ public partial class YamuxProtocol : SymmetricProtocol, IConnectionProtocol
     }
 
     /// <summary>
-    /// Writes one DATA frame as a single buffer holding the header and a copy of
-    /// <paramref name="payload"/>. The copy is required: the payload still refers to the
-    /// application's buffer, which the stream channel does not protect after the read returns.
+    /// Writes the header and <paramref name="payload"/> in one contiguous DATA frame
+    /// that the transport can retain beyond the application read's iteration.
     /// </summary>
     private ValueTask WriteDataFrameAsync(string contextId, IWriter writer, int streamId,
         ReadOnlySequence<byte> payload, CancellationToken token)
