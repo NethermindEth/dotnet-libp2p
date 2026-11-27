@@ -18,14 +18,17 @@ namespace Nethermind.Libp2p.Protocols.AutoNat.Tests;
 public class AutoNatV2ServerProtocolTests
 {
     private const ulong Nonce = 0x1234_5678_9abc_def0;
+    private const string PublicAddress = "/ip4/8.8.8.8/tcp/4001";
+    private const string OtherPublicAddress = "/ip4/1.1.1.1/tcp/4001";
     private static readonly PeerId Client = TestPeers.PeerId(1);
-    private static readonly Multiaddress Observed = $"/ip4/203.0.113.7/tcp/4001/p2p/{Client}";
+    private static readonly Multiaddress Observed = $"{PublicAddress}/p2p/{Client}";
+    private static readonly Multiaddress Relayed = $"{PublicAddress}/p2p/{TestPeers.PeerId(2)}/p2p-circuit/p2p/{Client}";
 
     [Test]
     public async Task DialsBackFirstPublicAddress_SkippingPrivateAndMalformed()
     {
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
-        Multiaddress publicAddr = "/ip4/203.0.113.7/tcp/4001";
+        Multiaddress publicAddr = $"{PublicAddress}/ws/p2p/{Client}";
         byte[] garbage = [0xff, 0xff, 0xff];
 
         DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed,
@@ -40,23 +43,21 @@ public class AutoNatV2ServerProtocolTests
         await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.ToString() == publicAddr.ToString()), Nonce, Arg.Any<CancellationToken>());
     }
 
-    [TestCase("/ip4/203.0.113.7/ip4/203.0.113.7/tcp/4001")]
-    [TestCase("/ip6/2001:db8::1/ip6/2001:db8::1/tcp/4001")]
+    [TestCase("/ip4/8.8.8.8/ip4/8.8.8.8/tcp/4001")]
+    [TestCase("/ip6/2606:4700::1111/ip6/2606:4700::1111/tcp/4001")]
     public async Task SkipsAddressWithRepeatedIp(string repeated)
     {
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
-        Multiaddress publicAddr = "/ip4/203.0.113.7/tcp/4001";
-
-        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(repeated), Addr(publicAddr)]);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(repeated), Addr(PublicAddress)]);
 
         Assert.That(response.AddrIdx, Is.EqualTo(1));
-        await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.ToString() == publicAddr.ToString()), Nonce, Arg.Any<CancellationToken>());
+        await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.ToString() == PublicAddress), Nonce, Arg.Any<CancellationToken>());
     }
 
     [Test]
     public async Task ReportsFailedDialBack()
     {
-        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(DialBack(DialStatus.EDialError)), Observed, [Addr("/ip4/203.0.113.7/tcp/4001")]);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(DialBack(DialStatus.EDialError)), Observed, [Addr(PublicAddress)]);
 
         Assert.That(response.DialStatus, Is.EqualTo(DialStatus.EDialError));
     }
@@ -65,8 +66,10 @@ public class AutoNatV2ServerProtocolTests
     [TestCase("/ip4/127.0.0.1/tcp/4001")]
     [TestCase("/ip4/100.64.0.1/tcp/4001")]
     [TestCase("/ip6/fe80::1/tcp/4001")]
+    [TestCase("/ip6/::ffff:10.0.0.1/tcp/4001")]
     [TestCase("/dns4/example.com/tcp/4001")]
-    [TestCase("/ip4/203.0.113.7/tcp/4001/p2p/OTHER")]
+    [TestCase("/ip4/8.8.8.8/tcp/4001/dns4/example.com")]
+    [TestCase(PublicAddress + "/p2p/OTHER")]
     public async Task RefusesAddressesItWillNotDial(string addr)
     {
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
@@ -77,13 +80,57 @@ public class AutoNatV2ServerProtocolTests
         await dialBack.DidNotReceiveWithAnyArgs().DialBackAsync(default!, default!, default, default);
     }
 
+    [TestCase("/ip4/203.0.113.7/tcp/4001")]
+    [TestCase("/ip6/2001:db8::1/tcp/4001")]
+    public async Task RefusesDocumentationAddressEvenWhenItMatchesTheObservedIp(string address)
+    {
+        IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), $"{address}/p2p/{Client}", [Addr(address)]);
+
+        Assert.That(response.Status, Is.EqualTo(ResponseStatus.EDialRefused));
+        await dialBack.DidNotReceiveWithAnyArgs().DialBackAsync(default!, default!, default, default);
+    }
+
+    [Test]
+    public async Task RefusesRelayAddressWithPublicTransportIp()
+    {
+        IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(Relayed)]);
+
+        Assert.That(response.Status, Is.EqualTo(ResponseStatus.EDialRefused));
+        await dialBack.DidNotReceiveWithAnyArgs().DialBackAsync(default!, default!, default, default);
+    }
+
+    [Test]
+    public async Task RelayTransportIpCannotExemptARequestFromDialData()
+    {
+        IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
+        AutoNatV2ServerProtocol server = new(dialBack, new AutoNatV2ServerSettings { DialDataRequestsPerMinute = 0 });
+        DialResponse response = await RequestAsync(server, Relayed, [Addr(PublicAddress)]);
+
+        Assert.That(response.Status, Is.EqualTo(ResponseStatus.ERequestRejected));
+        await dialBack.DidNotReceiveWithAnyArgs().DialBackAsync(default!, default!, default, default);
+    }
+
+    [TestCase(PublicAddress, "/ip6/::ffff:8.8.8.8/tcp/4001")]
+    [TestCase("/ip6/::ffff:8.8.8.8/tcp/4001", PublicAddress)]
+    public async Task MappedAndNativeIpv4MatchForDialData(string candidate, string observed)
+    {
+        IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
+        AutoNatV2ServerProtocol server = new(dialBack, new AutoNatV2ServerSettings { DialDataRequestsPerMinute = 0 });
+        DialResponse response = await RequestAsync(server, $"{observed}/p2p/{Client}", [Addr(candidate)]);
+
+        Assert.That(response.Status, Is.EqualTo(ResponseStatus.Ok));
+        await dialBack.Received(1).DialBackAsync(Client, Arg.Is<Multiaddress>(a => a.Equals((Multiaddress)candidate)), Nonce, Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public async Task RefusesAddressWithoutTransport()
     {
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
         dialBack.CanDial(Arg.Any<Multiaddress>()).Returns(false);
 
-        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr("/ip4/203.0.113.7/tcp/4001")]);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(PublicAddress)]);
 
         Assert.That(response.Status, Is.EqualTo(ResponseStatus.EDialRefused));
     }
@@ -106,7 +153,7 @@ public class AutoNatV2ServerProtocolTests
         AutoNatV2ServerProtocol server = new(dialBack, new AutoNatV2ServerSettings { MaxDialDataDelay = TimeSpan.Zero });
         (IChannel client, Task listen) = Start(server, Observed);
 
-        await client.WriteSizeAndProtobufAsync(Request(Addr("/ip4/192.168.1.5/tcp/1"), Addr("/ip4/198.51.100.9/tcp/4001")));
+        await client.WriteSizeAndProtobufAsync(Request(Addr("/ip4/192.168.1.5/tcp/1"), Addr(OtherPublicAddress)));
         Message dataRequest = await client.ReadPrefixedProtobufAsync(Message.Parser);
         Assert.That(dataRequest.MsgCase, Is.EqualTo(Message.MsgOneofCase.DialDataRequest));
         Assert.That(dataRequest.DialDataRequest.AddrIdx, Is.EqualTo(1));
@@ -132,7 +179,7 @@ public class AutoNatV2ServerProtocolTests
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
         (IChannel client, Task listen) = Start(new AutoNatV2ServerProtocol(dialBack), Observed);
 
-        await client.WriteSizeAndProtobufAsync(Request(Addr("/ip4/198.51.100.9/tcp/4001")));
+        await client.WriteSizeAndProtobufAsync(Request(Addr(OtherPublicAddress)));
         await client.ReadPrefixedProtobufAsync(Message.Parser);
         await client.WriteSizeAndProtobufAsync(new Message { DialDataResponse = new DialDataResponse { Data = ByteString.CopyFrom(new byte[10]) } });
 
@@ -145,7 +192,7 @@ public class AutoNatV2ServerProtocolTests
     {
         AutoNatV2ServerProtocol server = new(DialBack(DialStatus.Ok), new AutoNatV2ServerSettings { DialDataRequestsPerMinute = 0 });
 
-        DialResponse response = await RequestAsync(server, Observed, [Addr("/ip4/198.51.100.9/tcp/4001")]);
+        DialResponse response = await RequestAsync(server, Observed, [Addr(OtherPublicAddress)]);
 
         Assert.That(response.Status, Is.EqualTo(ResponseStatus.ERequestRejected));
     }
@@ -155,7 +202,7 @@ public class AutoNatV2ServerProtocolTests
     {
         ManualTimeProvider clock = new();
         AutoNatV2ServerProtocol server = new(DialBack(DialStatus.Ok), new AutoNatV2ServerSettings { RequestsPerPeerPerMinute = 1 }, timeProvider: clock);
-        ByteString addr = Addr("/ip4/203.0.113.7/tcp/4001");
+        ByteString addr = Addr(PublicAddress);
 
         Assert.That((await RequestAsync(server, Observed, [addr])).Status, Is.EqualTo(ResponseStatus.Ok));
         Assert.That((await RequestAsync(server, Observed, [addr])).Status, Is.EqualTo(ResponseStatus.ERequestRejected));
@@ -171,7 +218,7 @@ public class AutoNatV2ServerProtocolTests
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
         dialBack.DialBackAsync(default!, default!, default, default).ReturnsForAnyArgs(_ => dialing.TrySetResult() ? dial.Task : Task.FromResult(DialStatus.Ok));
         AutoNatV2ServerProtocol server = new(dialBack, new AutoNatV2ServerSettings { MaxConcurrentRequestsPerPeer = 1 });
-        ByteString addr = Addr("/ip4/203.0.113.7/tcp/4001");
+        ByteString addr = Addr(PublicAddress);
 
         (IChannel first, Task firstListen) = Start(server, Observed);
         await first.WriteSizeAndProtobufAsync(Request(addr));
@@ -194,7 +241,7 @@ public class AutoNatV2ServerProtocolTests
         clock.Advance(TimeSpan.FromSeconds(15));
 
         Assert.That(async () => await listen, Throws.Exception);
-        Assert.That((await RequestAsync(server, Observed, [Addr("/ip4/203.0.113.7/tcp/4001")])).Status, Is.EqualTo(ResponseStatus.Ok));
+        Assert.That((await RequestAsync(server, Observed, [Addr(PublicAddress)])).Status, Is.EqualTo(ResponseStatus.Ok));
     }
 
     [Test]
@@ -215,7 +262,7 @@ public class AutoNatV2ServerProtocolTests
         IAutoNatDialBack dialBack = DialBack(DialStatus.Ok);
         dialBack.DialBackAsync(default!, default!, default, default).ReturnsForAnyArgs(Task.FromException<DialStatus>(new InvalidOperationException()));
 
-        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr("/ip4/203.0.113.7/tcp/4001")]);
+        DialResponse response = await RequestAsync(new AutoNatV2ServerProtocol(dialBack), Observed, [Addr(PublicAddress)]);
 
         Assert.That(response.Status, Is.EqualTo(ResponseStatus.EInternalError));
     }
