@@ -18,6 +18,39 @@ namespace Nethermind.Libp2p.Core.Tests;
 [CancelAfter(5_000)]
 internal class PeerLifecycleTests
 {
+    [Test]
+    public async Task DisconnectDuringInitializationStopsApplicationRecovery()
+    {
+        CancellationToken token = TestContext.CurrentContext.CancellationToken;
+        TaskCompletionSource initializing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        GateTransport transport = new();
+        transport.CompleteDial.SetResult();
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport, () =>
+        {
+            initializing.TrySetResult();
+            return release.Task;
+        });
+        SessionRecoveryOptions options = new(maxAttempts: 2,
+            selectAddresses: (_, _) => ValueTask.FromResult(new[] { TestPeers.Multiaddr(2) }));
+        await using SessionRecovery recovery = new(peer, options, TimeProvider.System);
+        await using IAsyncEnumerator<SessionRecoveryUpdate> watch = recovery.WatchAsync(TestPeers.PeerId(2), token).GetAsyncEnumerator();
+        try
+        {
+            Assert.That(await watch.MoveNextAsync(), Is.True);
+            await initializing.Task.WaitAsync(token);
+            ISession session = peer.Sessions.Single();
+            Assert.That(session.IsInitialized, Is.False);
+            await session.DisconnectAsync().WaitAsync(token);
+            Assert.That(await watch.MoveNextAsync(), Is.True);
+            Assert.That(watch.Current.State, Is.EqualTo(SessionRecoveryState.Stopped));
+            Assert.That(watch.Current.CloseReason, Is.EqualTo(SessionCloseReason.LocalDisconnect));
+            Assert.That(transport.DialCount, Is.EqualTo(1));
+            Assert.That(await watch.MoveNextAsync(), Is.False);
+        }
+        finally { release.TrySetResult(); }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task RemoteDiscoveryRefreshesAddressesAfterConnecting(bool disconnect)

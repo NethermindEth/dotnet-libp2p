@@ -105,6 +105,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
     }
 
     public event Connected? OnConnected;
+    internal event Action<PeerId>? InitializingSessionDisconnected;
 
     private sealed class ListenerRegistration(CancellationTokenSource cancellation, Activity? activity)
     {

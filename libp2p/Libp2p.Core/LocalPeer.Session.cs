@@ -315,6 +315,10 @@ public partial class LocalPeer
             Exception? failure = null;
             try
             {
+                // A dial cannot return this session to its recovery watch before readiness.
+                if (closeSession && !IsInitialized && _closeReason == SessionCloseReason.LocalDisconnect
+                    && State.RemotePeerId is { } remotePeerId)
+                    peer.InitializingSessionDisconnected?.Invoke(remotePeerId);
                 try { connectionTokenSource.Cancel(); }
                 finally
                 {

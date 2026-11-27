@@ -65,7 +65,7 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
             if (IsStopping) return null;
             if (_runs.TryGetValue(peerId, out RecoveryRun? existing))
             {
-                if (existing.Subscribers == 0 || existing.Latest.IsTerminal)
+                if (existing.Canceling is not null || existing.Latest.IsTerminal)
                 {
                     draining = existing.Completion;
                     return null;
@@ -75,6 +75,8 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
             }
 
             RecoveryRun run = new(peerId, CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, _peerShutdown));
+            if (_runs.Count == 0 && peer is LocalPeer local)
+                local.InitializingSessionDisconnected += StopForLocalDisconnect;
             _runs.Add(peerId, run);
             run.Completion = Task.Run(() => RunAsync(run));
             return run;
@@ -104,6 +106,18 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
             if (--run.Subscribers == 0 && !run.Latest.IsTerminal)
             {
                 // Claim cancellation synchronously and let callbacks run outside the lock.
+                run.Canceling ??= run.Cancellation.CancelAsync();
+            }
+        }
+    }
+
+    private void StopForLocalDisconnect(PeerId peerId)
+    {
+        lock (_gate)
+        {
+            if (_runs.TryGetValue(peerId, out RecoveryRun? run) && !run.Latest.IsTerminal && !run.Token.IsCancellationRequested)
+            {
+                run.StopReason = SessionCloseReason.LocalDisconnect;
                 run.Canceling = run.Cancellation.CancelAsync();
             }
         }
@@ -135,7 +149,7 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
         }
         catch (Exception) when (IsStopping || run.Token.IsCancellationRequested)
         {
-            update = IsStopping ? PeerStopped() : new(SessionRecoveryState.Stopped);
+            update = IsStopping ? PeerStopped() : new(SessionRecoveryState.Stopped, CloseReason: run.StopReason);
         }
         catch (Exception failure)
         {
@@ -147,7 +161,12 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
         run.Cancellation.Dispose();
 
         // Keep the retiring run registered until its last dial or address lookup has returned.
-        lock (_gate) _runs.Remove(run.PeerId);
+        lock (_gate)
+        {
+            _runs.Remove(run.PeerId);
+            if (_runs.Count == 0 && peer is LocalPeer local)
+                local.InitializingSessionDisconnected -= StopForLocalDisconnect;
+        }
     }
 
     private async Task<SessionRecoveryUpdate> ConnectAsync(RecoveryRun run, SessionCloseReason reason)
@@ -245,6 +264,7 @@ internal sealed class SessionRecovery(ILocalPeer peer, SessionRecoveryOptions op
         public int Subscribers { get; set; } = 1;
         public Task Completion { get; set; } = Task.CompletedTask;
         public Task? Canceling { get; set; }
+        public SessionCloseReason StopReason { get; set; }
         public SessionRecoveryUpdate Latest { get; set; } = new(SessionRecoveryState.Connecting, Attempt: 1);
         public TaskCompletionSource Changed { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
