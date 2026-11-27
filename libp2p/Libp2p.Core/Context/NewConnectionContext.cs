@@ -16,7 +16,7 @@ public class NewConnectionContext(LocalPeer localPeer, LocalPeer.Session session
 
     public void Dispose()
     {
-        try { _ = session.DisconnectAsync(); }
+        try { _ = session.DisconnectAsync(SessionCloseReason.ConnectionLost); }
         finally { Activity?.Dispose(); }
     }
 }

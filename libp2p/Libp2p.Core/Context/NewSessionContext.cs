@@ -25,6 +25,6 @@ public class NewSessionContext(LocalPeer localPeer, LocalPeer.Session session, P
     public void Dispose()
     {
         logger?.LogDebug("Disposing session context {Id}", Id);
-        _ = session.DisconnectAsync();
+        _ = session.DisconnectAsync(SessionCloseReason.ConnectionLost);
     }
 }

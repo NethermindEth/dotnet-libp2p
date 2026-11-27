@@ -24,6 +24,7 @@ public partial class LocalPeer
         public PeerId RemotePeerId => State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
         public bool IsInitialized => Connected.IsCompletedSuccessfully;
         public CancellationToken Closed => ConnectionToken;
+        public SessionCloseReason CloseReason => _closeReason;
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
         internal int QueuedRequestCount => SubDialRequests.Count;
@@ -98,6 +99,7 @@ public partial class LocalPeer
         private CancellationTokenSource connectionTokenSource = new();
         private readonly Lock _lifecycleLock = new();
         private TaskCompletionSource? _disconnection;
+        private volatile SessionCloseReason _closeReason;
         private bool _connectionCounted;
         private bool _sessionCounted;
         private PeerId? _retainedPeerId;
@@ -129,7 +131,7 @@ public partial class LocalPeer
                 // Claim eviction before releasing the lock: no new application work may race admission.
                 _idleEviction = true;
             }
-            ObserveLateFailure(DisconnectAsync());
+            ObserveLateFailure(DisconnectAsync(SessionCloseReason.IdleEviction));
             return true;
         }
 
@@ -155,7 +157,7 @@ public partial class LocalPeer
                     _deadlineExpired = true;
                 }
                 try { Libp2pMetrics.DeadlinesExpired.Add(1, new KeyValuePair<string, object?>("stage", stage == 1 ? "upgrade" : "initialization")); }
-                finally { ObserveLateFailure(DisconnectAsync()); }
+                finally { ObserveLateFailure(DisconnectAsync(SessionCloseReason.ConnectionLost)); }
             }, null, timeout, Timeout.InfiniteTimeSpan);
         }
 
@@ -291,7 +293,9 @@ public partial class LocalPeer
                 }
         }
 
-        public Task DisconnectAsync()
+        public Task DisconnectAsync() => DisconnectAsync(SessionCloseReason.LocalDisconnect);
+
+        internal Task DisconnectAsync(SessionCloseReason reason)
         {
             bool closeSession;
             bool closeConnection;
@@ -299,6 +303,7 @@ public partial class LocalPeer
             lock (_lifecycleLock)
             {
                 if (_disconnection is not null) return _disconnection.Task;
+                _closeReason = peer.IsDisposing ? SessionCloseReason.PeerShutdown : reason;
                 _disconnection = disconnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 _deadlineStage = 3;
                 _deadline?.Dispose();
@@ -310,6 +315,10 @@ public partial class LocalPeer
             Exception? failure = null;
             try
             {
+                // A dial cannot return this session to its recovery watch before readiness.
+                if (closeSession && !IsInitialized && _closeReason == SessionCloseReason.LocalDisconnect
+                    && State.RemotePeerId is { } remotePeerId)
+                    peer.InitializingSessionDisconnected?.Invoke(remotePeerId);
                 try { connectionTokenSource.Cancel(); }
                 finally
                 {
