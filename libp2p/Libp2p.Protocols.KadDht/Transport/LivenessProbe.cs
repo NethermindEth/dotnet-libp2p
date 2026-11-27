@@ -26,6 +26,37 @@ internal static class LivenessProbe
                 $"Kad-DHT liveness checks need {nameof(PingProtocol)} in the peer's protocol stack, but it is not registered.");
     }
 
+    /// <summary>How long to wait before retrying a ping that another caller currently holds.</summary>
+    private static readonly TimeSpan ContentionRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// Pings the remote end of <paramref name="session"/>, waiting out a ping that someone else already
+    /// holds for this peer.
+    /// </summary>
+    /// <remarks>
+    /// The ping protocol keeps one outbound stream per peer, so a refusal means another ping is mid-flight.
+    /// That is not an answer about the remote, and a health tracker reads either answer as one: reporting a
+    /// failure removes the peer, and reporting success clears its recorded failures without a pong. Waiting
+    /// for the stream and then pinging produces a real answer instead. If the stream never frees before
+    /// <paramref name="operationToken"/> expires, that expiry is a failed probe like any other.
+    /// </remarks>
+    public static async Task ProbeWaitingForStreamAsync(ISession session, TimeSpan timeout,
+        CancellationToken callerToken, CancellationToken operationToken = default)
+    {
+        while (true)
+        {
+            try
+            {
+                await ProbeAsync(session, timeout, callerToken, operationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ProtocolBusyException)
+            {
+                await Task.Delay(ContentionRetryDelay, operationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
     /// <summary>
     /// Pings the remote end of <paramref name="session"/>. Any failure other than <paramref name="callerToken"/>
     /// cancelling (timeout, closed connection, bad pong) disconnects the session so that the next dial is a fresh one.

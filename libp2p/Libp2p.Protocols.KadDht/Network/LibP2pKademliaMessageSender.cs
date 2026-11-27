@@ -54,8 +54,12 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         // Kad-DHT PING is deprecated and must not be sent; probe the cached session with the ping protocol.
         // A cached session is not proof of a live connection, so a failed probe evicts it in WithSession.
         LivenessProbe.EnsureSupported(_localPeer);
+        // This path reports liveness by completing rather than by a value, so a refusal must not escape.
+        using CancellationTokenSource operation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        operation.CancelAfter(LivenessProbe.DefaultTimeout);
         await WithSession(receiver, "liveness check", token,
-            session => LivenessProbe.ProbeAsync(session, LivenessProbe.DefaultTimeout, token));
+            session => LivenessProbe.ProbeWaitingForStreamAsync(
+                session, LivenessProbe.DefaultTimeout, token, operation.Token));
     }
 
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)
@@ -174,14 +178,6 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         {
             // The caller gave up; that says nothing about the cached session.
             _logger.LogWarning("{Operation} to {Node} cancelled", operation, receiver);
-            throw;
-        }
-        catch (ProtocolBusyException)
-        {
-            // Local contention for a per-peer stream allowance, not a bad session. Evicting and
-            // disconnecting here would tear down a healthy connection and interrupt the operation
-            // that currently holds the allowance.
-            _logger.LogTrace("{Operation} to {Node} refused; the protocol is already in use", operation, receiver);
             throw;
         }
         catch (Exception ex)

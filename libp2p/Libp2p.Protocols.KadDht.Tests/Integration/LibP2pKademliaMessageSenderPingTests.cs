@@ -127,21 +127,46 @@ public class LibP2pKademliaMessageSenderPingTests
     }
 
     /// <summary>
-    /// Once our own checks are coalesced, a refusal means a ping from elsewhere holds the stream.
-    /// That is not evidence about the peer, and both other answers evict it: the health tracker
-    /// removes a pending node on a false result as well as on an exception.
+    /// Once our own checks are coalesced, a refusal means a ping from elsewhere in the process holds
+    /// the stream. Neither answer may be invented: reporting a failure removes the peer, and reporting
+    /// success clears its recorded failures without a pong. The probe waits for the stream instead.
     /// </summary>
     [Test]
-    public async Task Ping_AnotherPingHoldsTheStream_DoesNotBecomeADeadPeerVerdict()
+    public async Task Ping_AnotherPingHoldsTheStream_WaitsForItThenProbes()
     {
-        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(new ProtocolBusyException("a ping is already in flight")));
+        int attempts = 0;
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+            Interlocked.Increment(ref attempts) == 1
+                ? Task.FromException(new ProtocolBusyException("a ping is already in flight"))
+                : Task.CompletedTask);
         var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
 
         bool alive = await sender.Ping(_node, CancellationToken.None).WaitAsync(TestTimeout);
 
-        Assert.That(alive, Is.True);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(alive, Is.True);
+            Assert.That(attempts, Is.EqualTo(2), "Liveness must come from a ping that actually ran.");
+        }
         await _session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>
+    /// A probe outlives the caller that starts it, so a caller that has already given up must not
+    /// start one: it would dial, and on timeout disconnect the session, on nobody's behalf.
+    /// </summary>
+    [Test]
+    public async Task Ping_CallerAlreadyCancelled_NeverDials()
+    {
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync();
+
+        Assert.That(async () => await sender.Ping(_node, cancelled.Token),
+            Throws.InstanceOf<OperationCanceledException>());
+
+        await _localPeer.DidNotReceive().DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>());
+        await _session.DidNotReceive().DialAsync<PingProtocol>(Arg.Any<CancellationToken>());
     }
 
     /// <summary>A finished probe must not keep answering for the next check.</summary>

@@ -66,6 +66,9 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     {
         // A misconfigured stack is a setup error, not a dead peer, so it is thrown rather than reported as false.
         LivenessProbe.EnsureSupported(_localPeer);
+        // A probe outlives the caller that started it, so a caller that has already given up must not
+        // start one: it would dial, and on timeout disconnect the session, for nobody.
+        token.ThrowIfCancellationRequested();
         PeerId peerId = receiver.PeerId;
 
         while (true)
@@ -116,19 +119,13 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
             // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.
             // A successful dial alone can return a cached session without touching the wire.
             var session = await DialNodeAsync(receiver, timeoutCts.Token);
-            await LivenessProbe.ProbeAsync(session, _operationTimeout, CancellationToken.None, timeoutCts.Token);
+            // Coalescing keeps our own checks off the contended path, so a refusal here means a ping
+            // from elsewhere in the process holds the stream.
+            await LivenessProbe.ProbeWaitingForStreamAsync(session, _operationTimeout, CancellationToken.None, timeoutCts.Token);
 
             _logger?.LogTrace("Connection to {NodeId} is alive", receiver.PeerId);
             // Bootstrap relies on the transport to re-admit responding bootnodes.
             _onPingResponse?.Invoke(receiver);
-            return true;
-        }
-        catch (ProtocolBusyException)
-        {
-            // Coalescing keeps our own checks off this path, so the stream is held by a ping from
-            // elsewhere in the process. That says nothing about the peer, and both other answers
-            // evict it: the health tracker removes a pending node on false as well as on a throw.
-            _logger?.LogTrace("Ping to {NodeId} refused; another ping holds the stream", receiver.PeerId);
             return true;
         }
         catch (Exception ex)

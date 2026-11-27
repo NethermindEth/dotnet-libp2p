@@ -280,7 +280,7 @@ public class LibP2pKademliaMessageSenderTests
     /// probe that actually holds the stream (#250).
     /// </summary>
     [Test]
-    public async Task Ping_AnotherProbeHoldsTheStream_KeepsTheCachedSession()
+    public async Task Ping_AnotherPingHoldsTheStream_WaitsForItInsteadOfFailing()
     {
         var node = CreateDhtNode("12D3KooWTest1", "/ip4/127.0.0.1/tcp/4001");
         var session = Substitute.For<ISession>();
@@ -288,17 +288,24 @@ public class LibP2pKademliaMessageSenderTests
         _mockLocalPeer.DialAsync(multiaddr, Arg.Any<CancellationToken>()).Returns(Task.FromResult(session));
         await _messageSender.Ping(node, CancellationToken.None);
 
-        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(new ProtocolBusyException("a ping is already in flight")));
-        Assert.That(async () => await _messageSender.Ping(node, CancellationToken.None),
-            Throws.InstanceOf<ProtocolBusyException>());
+        // This path signals liveness by completing, so a refusal must not escape: the health tracker
+        // reads the exception as a failed request and removes the peer.
+        int attempts = 0;
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+            Interlocked.Increment(ref attempts) == 1
+                ? Task.FromException(new ProtocolBusyException("a ping is already in flight"))
+                : Task.CompletedTask);
 
+        Assert.DoesNotThrowAsync(async () => await _messageSender.Ping(node, CancellationToken.None));
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(attempts, Is.EqualTo(2), "Liveness must come from a ping that actually ran.");
+            // The cached session is still the one in use: a second dial would mean it was evicted.
+            Assert.That(_mockLocalPeer.ReceivedCalls().Count(c =>
+                c.GetMethodInfo().Name == nameof(ILocalPeer.DialAsync)), Is.EqualTo(1));
+        }
         await session.DidNotReceive().DisconnectAsync();
-
-        // The cached session is still the one in use: a second dial would mean it was evicted.
-        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        await _messageSender.Ping(node, CancellationToken.None);
-        await _mockLocalPeer.Received(1).DialAsync(multiaddr, Arg.Any<CancellationToken>());
     }
 
     [Test]
