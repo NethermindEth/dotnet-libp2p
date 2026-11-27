@@ -27,7 +27,7 @@ public class SimultaneousQuicTests
         Schedule schedule = new(identities[0].PeerId);
         using ServiceProvider services = new ServiceCollection().AddLibp2p(b => b.WithQuic())
             .AddSingleton<Libp2pPeerFactory>(sp => new ScheduledFactory(sp.GetRequiredService<IProtocolStackSettings>(),
-                sp.GetRequiredService<PeerStore>(), sp.GetRequiredService<IdentifyNotifier>(), schedule)).BuildServiceProvider();
+                sp.GetRequiredService<IPeerStore>(), sp.GetRequiredService<IdentifyNotifier>(), schedule)).BuildServiceProvider();
         IPeerFactory factory = services.GetRequiredService<IPeerFactory>();
         IProtocolStackSettings settings = services.GetRequiredService<IProtocolStackSettings>();
         ProtocolRef registered = settings.TopProtocols!.Single(p => p.Protocol is QuicProtocol);
@@ -105,12 +105,12 @@ public class SimultaneousQuicTests
     {
         private readonly IdentifyNotifier _notifier;
         private readonly Schedule _schedule;
-        public ScheduledFactory(IProtocolStackSettings settings, PeerStore store, IdentifyNotifier notifier, Schedule schedule)
+        public ScheduledFactory(IProtocolStackSettings settings, IPeerStore store, IdentifyNotifier notifier, Schedule schedule)
             : base(settings, store, notifier) { _notifier = notifier; _schedule = schedule; }
         public override ILocalPeer Create(Identity? identity = null) => new ScheduledPeer(protocolStackSettings, PeerStore, identity!, _notifier, _schedule);
     }
 
-    private sealed class ScheduledPeer(IProtocolStackSettings settings, PeerStore store, Identity identity, IdentifyNotifier notifier, Schedule schedule)
+    private sealed class ScheduledPeer(IProtocolStackSettings settings, IPeerStore store, Identity identity, IdentifyNotifier notifier, Schedule schedule)
         : Libp2pPeer(settings, store, identity, notifier)
     {
         protected override async Task ConnectedTo(ISession session, bool isDialer)

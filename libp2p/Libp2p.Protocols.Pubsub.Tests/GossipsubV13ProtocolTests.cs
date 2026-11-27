@@ -257,10 +257,10 @@ public class GossipsubV13ProtocolTests
         PubsubRouter router = new(peerStore);
         Multiaddress remoteAddress = TestPeers.Multiaddr(1);
         PeerId remotePeerId = remoteAddress.GetPeerId()!;
-        peerStore.GetPeerInfo(remotePeerId).SupportedProtocols = [
+        peerStore.SetSupportedProtocols(remotePeerId, [
             PubsubRouter.GossipsubProtocolVersionV12,
             PubsubRouter.GossipsubProtocolVersionV13,
-        ];
+        ]);
 
         TaskCompletionSource selectedProtocol = new(TaskCreationOptions.RunContinuationsAsynchronously);
         ISession session = Substitute.For<ISession>();

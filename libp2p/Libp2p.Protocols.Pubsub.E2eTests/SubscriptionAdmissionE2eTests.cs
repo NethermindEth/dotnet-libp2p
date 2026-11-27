@@ -38,6 +38,7 @@ public class SubscriptionAdmissionE2eTests
             MaxRemoteSubscriptionTopicBytes = 4,
         };
         await using ServiceProvider receiverServices = new ServiceCollection()
+            .AddPubsub()
             .AddLibp2p(builder => builder.WithPubsub())
             .AddSingleton(settings).BuildServiceProvider();
         WireSender wire = new(protocol);

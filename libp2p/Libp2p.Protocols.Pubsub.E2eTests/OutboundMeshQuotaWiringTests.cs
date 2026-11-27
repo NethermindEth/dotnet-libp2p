@@ -33,7 +33,7 @@ public class OutboundMeshQuotaWiringTests
             GetMessageId = message => new MessageId(message.Data.ToByteArray()),
         };
         await using ServiceProvider services = new ServiceCollection()
-            .AddLibp2p(builder => builder.WithPubsub()).AddSingleton(settings).BuildServiceProvider();
+            .AddPubsub().AddLibp2p(builder => builder.WithPubsub()).AddSingleton(settings).BuildServiceProvider();
         WirePeer wire = new();
         await using ServiceProvider remoteServices = new ServiceCollection()
             .AddLibp2p(builder => builder.AddProtocol(wire)).BuildServiceProvider();

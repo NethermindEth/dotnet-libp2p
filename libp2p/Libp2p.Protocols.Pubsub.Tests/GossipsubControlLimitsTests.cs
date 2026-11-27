@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
@@ -630,7 +631,7 @@ public class GossipsubControlLimitsTests
     /// <remarks>
     /// A bad peer-exchange record, whether its key is unusable or its bytes are
     /// not a record at all, used to throw out of
-    /// <see cref="PeerStore.Discover(ByteString)"/>. That ended processing of the
+    /// <see cref="IPeerStore.Discover(ByteString, State)"/>. That ended processing of the
     /// whole RPC, so the valid records after it were never discovered.
     /// </remarks>
     [TestCase(false, TestName = "Prune_DiscoversValidExchangedPeers_WhenAnEarlierRecordHasAnUnusableKey")]
@@ -719,8 +720,9 @@ public class GossipsubControlLimitsTests
             [Multiaddress.Decode($"/ip4/192.0.2.1/tcp/9999/p2p/{signer.PeerId}")], 0);
         setup.Router.OnRpc(setup.RemotePeerId, PruneWith(secondTopic,
             new PeerInfo { PeerID = ByteString.CopyFrom(signer.PeerId.Bytes), SignedPeerRecord = stale }));
-        Assert.That(info.SignedPeerRecord, Is.EqualTo(original));
-        Assert.That(info.Seq, Is.EqualTo(1UL));
+        PeerMetadata retained = setup.PeerStore.ReadPeerInfo(signer.PeerId);
+        Assert.That(retained.SignedPeerRecord, Is.EqualTo(original));
+        Assert.That(retained.PeerRecordSequence, Is.EqualTo(1UL));
     }
 
     [Test]
@@ -733,9 +735,9 @@ public class GossipsubControlLimitsTests
             new PeerInfo { PeerID = ByteString.CopyFrom(signer.PeerId.Bytes), SignedPeerRecord = record }));
         Multiaddress address = $"/ip4/192.0.2.1/tcp/4001/p2p/{signer.PeerId}";
         setup.PeerStore.Discover([address], isTrusted: false);
-        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).Addrs, Is.EquivalentTo(new[] { address }));
-        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).SignedPeerRecord, Is.EqualTo(record));
-        Assert.That(setup.PeerStore.GetPeerInfo(signer.PeerId).Seq, Is.EqualTo(5UL));
+        Assert.That(setup.PeerStore.ReadPeerInfo(signer.PeerId).Addresses, Is.EquivalentTo(new[] { address }));
+        Assert.That(setup.PeerStore.ReadPeerInfo(signer.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(setup.PeerStore.ReadPeerInfo(signer.PeerId).PeerRecordSequence, Is.EqualTo(5UL));
     }
 
     /// <remarks>
@@ -750,7 +752,8 @@ public class GossipsubControlLimitsTests
         PeerId known = TestPeers.PeerId(5);
         PeerId unknown = TestPeers.PeerId(6);
         Identity signed = TestPeers.Identity(7);
-        setup.PeerStore.GetPeerInfo(known).Addrs = [TestPeers.Multiaddr(5)];
+        setup.PeerStore.Discover([TestPeers.Multiaddr(5)], isTrusted: false);
+        setup.LocalPeer.ClearReceivedCalls();
 
         setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic,
             new PeerInfo(),
@@ -805,10 +808,11 @@ public class GossipsubControlLimitsTests
         await using RouterSetup setup = await PrunableSetup();
         PeerInfo[] exchanged = Enumerable.Range(100, 100).Select(i =>
         {
-            setup.PeerStore.GetPeerInfo(TestPeers.PeerId(i)).Addrs = [TestPeers.Multiaddr(i)];
+            setup.PeerStore.Discover([TestPeers.Multiaddr(i)], isTrusted: false);
             return new PeerInfo { PeerID = ByteString.CopyFrom(TestPeers.PeerId(i).Bytes) };
         }).ToArray();
 
+        setup.LocalPeer.ClearReceivedCalls();
         setup.Router.OnRpc(setup.RemotePeerId, PruneWith(setup.Topic, exchanged));
 
         int dials = setup.LocalPeer.ReceivedCalls()

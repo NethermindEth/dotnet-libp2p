@@ -28,7 +28,7 @@ public class IdleConnectionTests
         Assert.That(connection.TryDisconnectIfIdle(TimeSpan.FromSeconds(60)), Is.False);
         await connection.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(connection.Token.IsCancellationRequested, Is.True);
-        Assert.That(store.GetPeerInfo(TestPeers.Identity(2).PeerId).Sessions, Is.Zero);
+        Assert.That(store.GetRetainedSessionCount(TestPeers.Identity(2).PeerId), Is.Zero);
     }
 
     [TestCase(false)]

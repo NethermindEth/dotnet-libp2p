@@ -68,6 +68,7 @@ public class PubsubE2eTestSetup : E2eTestSetup
     protected override IServiceCollection ConfigureServices(IServiceCollection col)
     {
         return base.ConfigureServices(col)
+            .AddPubsub()
             .AddSingleton(DefaultSettings);
     }
 

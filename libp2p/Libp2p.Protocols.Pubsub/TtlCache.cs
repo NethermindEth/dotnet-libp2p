@@ -3,7 +3,7 @@
 
 namespace Nethermind.Libp2p.Protocols.Pubsub;
 
-internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
+internal class TtlCache<TKey, TItem> where TKey : notnull
 {
     private readonly int ttl;
     private readonly int maxEntries;
@@ -11,9 +11,6 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
     private readonly object sync = new();
     private readonly Dictionary<TKey, CachedItem> items;
     private readonly LinkedList<TKey> insertionOrder = [];
-    private readonly CancellationTokenSource sweeperCancellation = new();
-    private readonly Task sweeperTask;
-    private int disposed;
     private readonly record struct CachedItem(TItem Item, DateTimeOffset ValidTill, LinkedListNode<TKey> Node);
 
     public TtlCache(int ttl, TimeProvider? timeProvider = null)
@@ -29,20 +26,6 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         this.ttl = ttl;
         this.maxEntries = maxEntries;
         this.timeProvider = timeProvider ?? TimeProvider.System;
-        sweeperTask = Task.Run(async () =>
-        {
-            try
-            {
-                while (true)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5), this.timeProvider, sweeperCancellation.Token);
-                    RemoveExpired(this.timeProvider.GetUtcNow());
-                }
-            }
-            catch (OperationCanceledException) when (sweeperCancellation.IsCancellationRequested)
-            {
-            }
-        });
     }
 
     public bool Contains(TKey key) => TryGet(key, out _);
@@ -180,17 +163,8 @@ internal class TtlCache<TKey, TItem> : IDisposable where TKey : notnull
         insertionOrder.Remove(item.Node);
     }
 
-    public void Dispose()
+    public void Clear()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
-        {
-            return;
-        }
-
-        sweeperCancellation.Cancel();
-        sweeperTask.GetAwaiter().GetResult();
-        sweeperCancellation.Dispose();
-
         lock (sync)
         {
             items.Clear();

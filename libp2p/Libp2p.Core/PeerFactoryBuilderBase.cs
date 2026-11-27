@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 using Microsoft.Extensions.DependencyInjection;
+using Nethermind.Libp2p.Core.Discovery;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Nethermind.Libp2p.Core;
@@ -154,7 +155,18 @@ public abstract class PeerFactoryBuilderBase<TBuilder, [DynamicallyAccessedMembe
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_factory is not null) return _factory;
         IServiceProvider configurationProvider = _suppliedProvider ?? ServiceProvider;
-        _builtProvider = new BuilderServiceProvider(_services, configurationProvider);
+        bool hasBuilderStore = _services.Any(d => !d.IsKeyedService && d.ServiceType == typeof(IPeerStore));
+        bool hasHostStore = configurationProvider.GetService<IPeerStore>() is not null;
+        if (hasBuilderStore && hasHostStore)
+        {
+            throw new InvalidOperationException("The supplied service provider already has an IPeerStore. Register the replacement IPeerStore on the host service collection instead of builder.Services.");
+        }
+        IEnumerable<ServiceDescriptor> registrations = _services;
+        if (!hasBuilderStore && !hasHostStore)
+        {
+            registrations = _services.Append(ServiceDescriptor.Singleton<IPeerStore, PeerStore>());
+        }
+        _builtProvider = new BuilderServiceProvider(registrations, configurationProvider);
         ServiceProvider = _builtProvider;
         try
         {

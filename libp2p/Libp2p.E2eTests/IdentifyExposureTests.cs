@@ -22,6 +22,30 @@ public class IdentifyExposureTests
 {
     [TestCase(false)]
     [TestCase(true)]
+    public async Task ListenAddrsKeepsLanEndpointsAndOmitsLoopbackAndUnspecified(bool push)
+    {
+        Multiaddress privateIPv4 = "/ip4/192.168.1.5/tcp/4001";
+        Multiaddress privateIPv6 = "/ip6/fd12::1/tcp/4002";
+        Multiaddress[] listeners =
+        [
+            "/ip4/127.0.0.2/tcp/4003",
+            "/ip6/::ffff:127.0.0.2/tcp/4004",
+            privateIPv4,
+            "/ip6/::ffff:0.0.0.0/tcp/4005",
+            privateIPv6,
+        ];
+        Identify message = await SendAsync(new ProtocolStackSettings { Protocols = [] }, push, listeners);
+        PeerRecord record = PeerRecord.Parser.ParseFrom(SignedEnvelope.Parser.ParseFrom(message.SignedPeerRecord).Payload);
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(message.ListenAddrs, Is.EqualTo(new[] { ByteString.CopyFrom(privateIPv4.ToBytes()), ByteString.CopyFrom(privateIPv6.ToBytes()) }));
+            Assert.That(record.Addresses.Select(a => a.Multiaddr), Is.EqualTo(listeners.Select(a => ByteString.CopyFrom(a.ToBytes()))));
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task AdvertisementIncludesOnlyDistinctExposedSessionProtocols(bool push)
     {
         ProtocolStackSettings stack = new() { Protocols = [] };
@@ -83,7 +107,7 @@ public class IdentifyExposureTests
     {
         Identity sender = TestPeers.Identity(92);
         PeerStore receiverStore = new();
-        receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols = ["/old/1"];
+        receiverStore.SetSupportedProtocols(sender.PeerId, ["/old/1"]);
         ProtocolStackSettings stack = new() { Protocols = [] };
         Add(stack, "/visible/1", true);
         Add(stack, "/hidden/1", false);
@@ -94,7 +118,7 @@ public class IdentifyExposureTests
         await new IdentifyPushProtocol(stack).DialAsync(channel, senderContext, 2);
         await receive;
 
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/visible/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/visible/1" }));
     }
 
     [Test]
@@ -102,7 +126,7 @@ public class IdentifyExposureTests
     {
         Identity sender = TestPeers.Identity(93);
         PeerStore receiverStore = new();
-        receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols = ["/known/1"];
+        receiverStore.SetSupportedProtocols(sender.PeerId, ["/known/1"]);
         Channel channel = new();
         Task receive = new IdentifyPushProtocol(new ProtocolStackSettings(), peerStore: receiverStore)
             .ListenAsync(channel, ReceiverContext(sender));
@@ -110,7 +134,7 @@ public class IdentifyExposureTests
         await channel.Reverse.WriteSizeAndProtobufAsync(new Identify { PublicKey = sender.PublicKey.ToByteString() });
         await receive;
 
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/known/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/known/1" }));
     }
 
     [Test]
@@ -118,7 +142,7 @@ public class IdentifyExposureTests
     {
         Identity sender = TestPeers.Identity(94);
         PeerStore receiverStore = new();
-        receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols = ["/known/1"];
+        receiverStore.SetSupportedProtocols(sender.PeerId, ["/known/1"]);
         Channel channel = new();
         Task receive = new IdentifyProtocol(new ProtocolStackSettings(), peerStore: receiverStore)
             .DialAsync(channel, ReceiverContext(sender));
@@ -126,7 +150,7 @@ public class IdentifyExposureTests
         await channel.Reverse.WriteSizeAndProtobufAsync(new Identify { PublicKey = sender.PublicKey.ToByteString() });
         await receive;
 
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.Empty);
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.Empty);
     }
 
     [Test]
@@ -134,7 +158,7 @@ public class IdentifyExposureTests
     {
         Identity sender = TestPeers.Identity(95);
         PeerStore receiverStore = new();
-        receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols = ["/old/1"];
+        receiverStore.SetSupportedProtocols(sender.PeerId, ["/old/1"]);
         Channel channel = new();
         Task receive = new IdentifyPushProtocol(new ProtocolStackSettings(), peerStore: receiverStore)
             .ListenAsync(channel, ReceiverContext(sender));
@@ -142,7 +166,7 @@ public class IdentifyExposureTests
         await channel.Reverse.WriteSizeAndProtobufAsync(new Identify { Protocols = { "/next/1" } });
         await receive;
 
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
     }
 
     [Test]
@@ -150,7 +174,7 @@ public class IdentifyExposureTests
     {
         Identity sender = TestPeers.Identity(96);
         PeerStore receiverStore = new();
-        receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols = ["/old/1"];
+        receiverStore.SetSupportedProtocols(sender.PeerId, ["/old/1"]);
         Channel channel = new();
         Task receive = new IdentifyPushProtocol(new ProtocolStackSettings(), peerStore: receiverStore)
             .ListenAsync(channel, ReceiverContext(sender));
@@ -162,7 +186,7 @@ public class IdentifyExposureTests
         });
 
         Assert.ThrowsAsync<PeerConnectionException>(async () => await receive);
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/old/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/old/1" }));
     }
 
     [Test]
@@ -177,7 +201,7 @@ public class IdentifyExposureTests
         await channel.Reverse.WriteSizeAndProtobufAsync(new Identify { Protocols = { "/next/1" } });
 
         Assert.ThrowsAsync<PeerConnectionException>(async () => await receive);
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.Null);
+        Assert.That(receiverStore.TryGetPeerInfo(sender.PeerId, out _), Is.False);
     }
 
     [Test]
@@ -198,7 +222,7 @@ public class IdentifyExposureTests
             Protocols = { "/old/1" }
         });
         await initialRead;
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SignedPeerRecord, Is.EqualTo(signedRecord));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SignedPeerRecord, Is.EqualTo(signedRecord));
 
         Channel pushChannel = new();
         Task pushRead = new IdentifyPushProtocol(new ProtocolStackSettings(), settings, receiverStore)
@@ -206,7 +230,7 @@ public class IdentifyExposureTests
         await pushChannel.Reverse.WriteSizeAndProtobufAsync(new Identify { Protocols = { "/next/1" } });
         await pushRead;
 
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
 
         Channel invalidChannel = new();
         Task invalidRead = new IdentifyPushProtocol(new ProtocolStackSettings(), settings, receiverStore)
@@ -218,7 +242,7 @@ public class IdentifyExposureTests
         });
 
         Assert.ThrowsAsync<PeerConnectionException>(async () => await invalidRead);
-        Assert.That(receiverStore.GetPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
+        Assert.That(receiverStore.ReadPeerInfo(sender.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/next/1" }));
     }
 
     [Test]
@@ -247,7 +271,7 @@ public class IdentifyExposureTests
         int response = await session.DialAsync<IncrementNumberTestProtocol, int, int>(41);
 
         Assert.That(response, Is.EqualTo(42));
-        Assert.That(setup.PeerStores[0].GetPeerInfo(setup.Peers[1].Identity.PeerId).SupportedProtocols,
+        Assert.That(setup.PeerStores[0].ReadPeerInfo(setup.Peers[1].Identity.PeerId).SupportedProtocols,
             Does.Not.Contain("/number/"));
     }
 
@@ -256,10 +280,10 @@ public class IdentifyExposureTests
         stack.Protocols!.Add(new ProtocolRef(new NamedProtocol(id), exposed), []);
     }
 
-    private static async Task<Identify> SendAsync(IProtocolStackSettings stack, bool push)
+    private static async Task<Identify> SendAsync(IProtocolStackSettings stack, bool push, params Multiaddress[] listenAddresses)
     {
         Channel channel = new();
-        ISessionContext context = SenderContext(TestPeers.Identity(91));
+        ISessionContext context = SenderContext(TestPeers.Identity(91), listenAddresses);
         Task send = push
             ? new IdentifyPushProtocol(stack).DialAsync(channel, context, 1)
             : new IdentifyProtocol(stack).ListenAsync(channel, context);
@@ -268,12 +292,12 @@ public class IdentifyExposureTests
         return message;
     }
 
-    private static ISessionContext SenderContext(Identity identity)
+    private static ISessionContext SenderContext(Identity identity, params Multiaddress[] listenAddresses)
     {
         ISessionContext context = Substitute.For<ISessionContext>();
         ILocalPeer peer = Substitute.For<ILocalPeer>();
         peer.Identity.Returns(identity);
-        peer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>());
+        peer.ListenAddresses.Returns(new ObservableCollection<Multiaddress>(listenAddresses));
         context.Peer.Returns(peer);
         context.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/4001" });
         return context;

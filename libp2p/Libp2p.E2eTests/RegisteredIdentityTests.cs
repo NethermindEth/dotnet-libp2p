@@ -48,7 +48,7 @@ public class RegisteredIdentityTests
         Assert.That(failure, Is.TypeOf<TaskCanceledException>().Or.TypeOf<Nethermind.Libp2p.Core.Exceptions.PeerConnectionException>());
         Assert.That(deadline.IsCancellationRequested, Is.False);
         Assert.That(connections, Is.Zero);
-        Assert.That(firstServices.GetRequiredService<PeerStore>().TryGetPeerInfo(alias, out _), Is.False);
+        Assert.That(firstServices.GetRequiredService<IPeerStore>().TryGetPeerInfo(alias, out _), Is.False);
         ISession canonical = await first.DialAsync([.. second.ListenAddresses], deadline.Token).WaitAsync(deadline.Token);
         Assert.That(await connected.Task.WaitAsync(deadline.Token), Is.SameAs(canonical));
         Assert.That(canonical.RemotePeerId, Is.EqualTo(second.Identity.PeerId));
@@ -131,8 +131,8 @@ public class RegisteredIdentityTests
         Assert.That(inbound.RemotePeerId, Is.EqualTo(firstIdentity.PeerId));
         Assert.That(outbound.RemoteAddress.GetPeerId(), Is.EqualTo(secondIdentity.PeerId));
         Assert.That(inbound.RemoteAddress.GetPeerId(), Is.EqualTo(firstIdentity.PeerId));
-        Assert.That(firstServices.GetRequiredService<PeerStore>().GetPeerInfo(secondIdentity.PeerId).SignedPeerRecord, Is.Not.Null);
-        Assert.That(secondServices.GetRequiredService<PeerStore>().GetPeerInfo(firstIdentity.PeerId).SignedPeerRecord, Is.Not.Null);
+        Assert.That(firstServices.GetRequiredService<IPeerStore>().ReadPeerInfo(secondIdentity.PeerId).SignedPeerRecord, Is.Not.Null);
+        Assert.That(secondServices.GetRequiredService<IPeerStore>().ReadPeerInfo(firstIdentity.PeerId).SignedPeerRecord, Is.Not.Null);
 
         Task stream = protocol switch
         {
@@ -175,7 +175,7 @@ public class RegisteredIdentityTests
 
     private static ServiceProvider Services(bool tls)
     {
-        IServiceCollection services = new ServiceCollection();
+        IServiceCollection services = new ServiceCollection().AddPubsub();
         if (tls) services.AddLibp2p<TlsBuilder>(builder => ((ILibp2pPeerFactoryBuilder)builder).WithPubsub());
         else services.AddLibp2p(builder => builder.WithPubsub());
         return services.AddSingleton(new PubsubSettings { AutoConnect = false, HeartbeatInterval = int.MaxValue }).BuildServiceProvider();

@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.WebRtc;
 using NUnit.Framework;
 
@@ -40,7 +41,7 @@ public class StackBuilderTests
     [Test]
     public void LayerOverridesInheritTheStandardWiring()
     {
-        using ServiceProvider provider = new ServiceCollection().AddLibp2p().BuildServiceProvider();
+        using ServiceProvider provider = new ServiceCollection().AddPubsub().AddLibp2p().BuildServiceProvider();
         LayerBuilder builder = new(provider);
         builder.WithPubsub();
         builder.AddProtocol(new NamedProtocol("/extra"));
@@ -72,7 +73,7 @@ public class StackBuilderTests
     [TestCaseSource(nameof(StackVariants))]
     public void StandardStackPreservesAllOptionCombinations(int flags)
     {
-        using ServiceProvider provider = new ServiceCollection().AddLibp2p<OptionalTransportBuilder>().BuildServiceProvider();
+        using ServiceProvider provider = new ServiceCollection().AddPubsub().AddLibp2p<OptionalTransportBuilder>().BuildServiceProvider();
         OptionalTransportBuilder builder = (OptionalTransportBuilder)provider.GetRequiredService<IPeerFactoryBuilder>();
         if ((flags & 1) != 0) builder.WithPlaintextEnforced();
         if ((flags & 2) != 0) builder.WithRelay();

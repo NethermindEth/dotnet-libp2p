@@ -3,10 +3,10 @@
 
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Protocols;
-using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Relay;
 
 namespace Nethermind.Libp2p;
@@ -22,6 +22,7 @@ public static class ServiceProviderExtensions
     public static IServiceCollection AddLibp2p<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPeerFactoryBuilder>(this IServiceCollection services, Func<IPeerFactoryBuilder, IPeerFactoryBuilder>? factorySetup = null)
         where TPeerFactoryBuilder : IPeerFactoryBuilder
     {
+        services.TryAddSingleton<IPeerStore, PeerStore>();
         return services
             .AddSingleton<IRelayReservationStore, RelayReservationStore>()
             .AddSingleton<RelayStopProtocol>()
@@ -29,8 +30,6 @@ public static class ServiceProviderExtensions
             .AddSingleton(sp => factorySetup is null ? ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp) : factorySetup(ActivatorUtilities.CreateInstance<TPeerFactoryBuilder>(sp)))
             .AddSingleton(sp => sp.GetService<IPeerFactoryBuilder>()!.Build())
             .AddSingleton<MultiplexerSettings>()
-            .AddSingleton<PubsubRouter>()
-            .AddSingleton<PeerStore>()
             .AddSingleton<MDnsDiscoveryProtocol>()
             .AddSingleton<IdentifyNotifier>()
             ;

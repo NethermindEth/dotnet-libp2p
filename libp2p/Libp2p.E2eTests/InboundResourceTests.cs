@@ -9,6 +9,7 @@ using Multiformats.Address.Net;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 
@@ -59,7 +60,7 @@ public class InboundResourceTests
     [Test]
     public void RegisteredBuiltInProtocolsHaveFiniteLimits()
     {
-        using ServiceProvider services = new ServiceCollection().AddLibp2p(builder => builder.WithPubsub().WithRelay()).BuildServiceProvider();
+        using ServiceProvider services = new ServiceCollection().AddPubsub().AddLibp2p(builder => builder.WithPubsub().WithRelay()).BuildServiceProvider();
         _ = services.GetRequiredService<IPeerFactory>();
         var protocols = services.GetRequiredService<IProtocolStackSettings>().Protocols!.Keys;
         foreach (ProtocolRef protocol in protocols.Where(p => p.Protocol is ISessionListenerProtocol or ISessionProtocol))
@@ -88,14 +89,14 @@ public class InboundResourceTests
     {
         PeerStore store = new(3);
         using ServiceProvider services = new ServiceCollection().AddLibp2p()
-            .AddSingleton(store)
+            .AddSingleton<IPeerStore>(store)
             .AddSingleton(new PeerResourceLimits(initializationTimeout: TimeSpan.FromMilliseconds(500)))
             .BuildServiceProvider();
         await using ILocalPeer target = services.GetRequiredService<IPeerFactory>().Create();
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(15));
         await target.StartListenAsync(["/ip4/127.0.0.1/tcp/0"], lifetime.Token);
         List<LocalPeer> attackers = [];
-        List<PeerStore.PeerInfo> retained = [];
+        List<PeerId> retained = [];
         List<Task<ISession>> dials = [];
         try
         {
@@ -133,9 +134,9 @@ public class InboundResourceTests
                     targetSession = ((LocalPeer)target).Sessions.Single(session => session.RemotePeerId == attacker.Identity.PeerId);
                 TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 using CancellationTokenRegistration closure = targetSession.Closed.Register(() => closed.TrySetResult());
-                PeerStore.PeerInfo info = store.GetPeerInfo(attacker.Identity.PeerId);
-                Assert.That(info.Sessions, Is.EqualTo(1), "The real secure/multiplexed initialization retained this peer.");
-                retained.Add(info);
+                PeerId remotePeerId = attacker.Identity.PeerId;
+                Assert.That(store.GetRetainedSessionCount(remotePeerId), Is.EqualTo(1), "The real secure/multiplexed initialization retained this peer.");
+                retained.Add(remotePeerId);
                 await stall.Stopped.Task.WaitAsync(lifetime.Token);
                 // Remote EOF can precede local cancellation callbacks and pin release.
                 // Observe expiry before joining shutdown so the test cannot initiate it.
@@ -144,7 +145,7 @@ public class InboundResourceTests
                 if (cancellation is not null)
                 {
                     await cancellation.Entered.Task.WaitAsync(lifetime.Token);
-                    Assert.That(info.Sessions, Is.EqualTo(1), "The local cancellation callback is still held at its barrier.");
+                    Assert.That(store.GetRetainedSessionCount(remotePeerId), Is.EqualTo(1), "The local cancellation callback is still held at its barrier.");
                     Assert.That(disconnection.IsCompleted, Is.False, "Disconnection must wait for its cancellation callbacks.");
                     cancellation.Release();
                 }
@@ -154,9 +155,9 @@ public class InboundResourceTests
                 var targetSessions = ((LocalPeer)target).Sessions;
                 Assert.That(() => { lock (targetSessions) return targetSessions.Count; }, Is.Zero.After(5000, 20),
                     "The target must finish disconnecting before checking peer-store retention.");
-                Assert.That(info.Sessions, Is.Zero, "Expiry must release the pin and terminate the remote protocol work.");
+                Assert.That(store.GetRetainedSessionCount(remotePeerId), Is.Zero, "Expiry must release the pin and terminate the remote protocol work.");
             }
-            Assert.That(retained.All(info => info.Sessions == 0), Is.True);
+            Assert.That(retained.All(remote => store.GetRetainedSessionCount(remote) == 0), Is.True);
             Assert.That(((LocalPeer)target).Sessions, Is.Empty);
             using ServiceProvider healthyServices = new ServiceCollection().AddLibp2p().BuildServiceProvider();
             await using ILocalPeer healthy = healthyServices.GetRequiredService<IPeerFactory>().Create();

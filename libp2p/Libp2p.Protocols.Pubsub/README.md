@@ -6,7 +6,7 @@ See the [libp2p pubsub spec](https://github.com/libp2p/specs/tree/master/pubsub)
 
 ## Setup
 
-Enable pubsub on the standard stack with `WithPubsub()`:
+`AddPubsub()` registers a singleton `PubsubRouter` in the application service collection. `WithPubsub()` selects the floodsub and gossipsub handlers on the stack. When using `AddLibp2p()`, call `AddPubsub()` on the same service collection so the application and its handlers share the router. Both steps are opt-in. Applications with their own handlers can register the router separately.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -15,18 +15,23 @@ using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols.Pubsub;
 
-ServiceProvider provider = new ServiceCollection()
+await using ServiceProvider provider = new ServiceCollection()
+    .AddPubsub()
     .AddLibp2p(builder => builder.WithPubsub())
     .BuildServiceProvider();
 
-ILocalPeer peer = provider.GetRequiredService<IPeerFactory>().Create();
+await using ILocalPeer peer = provider.GetRequiredService<IPeerFactory>().Create();
 await peer.StartListenAsync();
 
 PubsubRouter router = provider.GetRequiredService<PubsubRouter>();
 await router.StartAsync(peer);
 ```
 
-`StartAsync` connects the router to the local peer and starts heartbeat and reconnect loops. Call it once for the peer that owns the router.
+Call `StartAsync` once to attach the router to the local peer and start its heartbeat, cache maintenance and any automatic connection loops.
+
+Register a `PubsubSettings` singleton in the same service collection to configure the default router. To supply your own router, register it as a singleton before `AddPubsub()` or use DI's `Replace` to replace the default registration. Repeat calls to `AddPubsub()` reuse the registration.
+
+`AddLibp2p()` provides the peer store required by the router. Supply the peer store yourself when registering a router outside the standard stack. For a standalone builder constructed without a provider, call `builder.Services.AddPubsub()` and `builder.WithPubsub()` before `builder.Build()`, then resolve the router from `builder.ServiceProvider`. The standalone builder disposes the router it creates.
 
 ## Subscribing to a topic
 
@@ -87,13 +92,13 @@ Configure `MaxPendingValidationMessages`, `MaxPendingValidationBytes`, and `Pend
 
 ## Connecting pubsub peers
 
-Use one of the discovery mechanisms to populate `PeerStore`, or add known peer addresses manually:
+Use one of the discovery mechanisms to populate `IPeerStore`, or add known peer addresses manually:
 
 ```csharp
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
 
-PeerStore peerStore = provider.GetRequiredService<PeerStore>();
+IPeerStore peerStore = provider.GetRequiredService<IPeerStore>();
 peerStore.Discover([
     Multiaddress.Decode("/ip4/127.0.0.1/tcp/4001/p2p/12D3KooW...")
 ]);

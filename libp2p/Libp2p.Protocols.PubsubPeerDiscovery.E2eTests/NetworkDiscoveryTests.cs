@@ -29,7 +29,7 @@ public class NetworkDiscoveryTests
         test.Subscribe(commonTopic);
 
         // Each peer discovers peer 0; wait for an actual connection before proceeding.
-        foreach ((int index, PeerStore peerStore) in test.PeerStores.Skip(1))
+        foreach ((int index, IPeerStore peerStore) in test.PeerStores.Skip(1))
         {
             TaskCompletionSource connectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
             test.Peers[index].OnConnected += _ => connectedTcs.TrySetResult();
