@@ -12,12 +12,36 @@ using Nethermind.Libp2p.Protocols.Identify.Dto;
 using NSubstitute;
 using NUnit.Framework;
 using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
 using System.Reflection;
 
 namespace Libp2p.E2eTests;
 
 public class IdentifyNotifierTests
 {
+    [Test]
+    public void AddressChangesSendPushThroughInterfaceSessions()
+    {
+        Clock clock = new();
+        ILocalPeer peer = Substitute.For<ILocalPeer>();
+        ISession pending = Substitute.For<ISession>();
+        ISession initialized = Substitute.For<ISession>();
+        initialized.IsInitialized.Returns(true);
+        IReadOnlyList<ISession> sessions = Array.AsReadOnly(new[] { pending, initialized });
+        ObservableCollection<Multiaddress> addresses = [];
+        IdentifyPushProtocol push = new(new ProtocolStackSettings());
+        peer.Sessions.Returns(sessions);
+        peer.ListenAddresses.Returns(addresses);
+        peer.GetProtocol<ISessionProtocol<ulong, ulong>>(IdentifyPushProtocol.ProtocolId).Returns(push);
+
+        new IdentifyNotifier(clock).TrackChanges(peer);
+        addresses.Add(TestPeers.Multiaddr(1));
+
+        ulong sequence = (ulong)clock.UtcNow.ToUnixTimeMilliseconds();
+        _ = pending.Received(1).DialAsync(push, sequence);
+        _ = initialized.Received(1).DialAsync(push, sequence);
+    }
+
     [TestCase(0)]
     [TestCase(-1000)]
     [TestCase(1000)]
@@ -33,7 +57,7 @@ public class IdentifyNotifierTests
         ulong firstSequence = tracked.TakeSequence();
         Identify first = await tracked.SendPush(firstSequence);
         store.Discover(first.SignedPeerRecord);
-        Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Addrs, Is.EquivalentTo(new[] { firstAddress }));
+        Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).Addresses, Is.EquivalentTo(new[] { firstAddress }));
 
         clock.UtcNow += TimeSpan.FromMilliseconds(clockChangeMilliseconds);
         tracked.Peer.ListenAddresses[0] = secondAddress;
@@ -45,9 +69,9 @@ public class IdentifyNotifierTests
         {
             Assert.That(firstSequence, Is.EqualTo((ulong)Clock.InitialTime.ToUnixTimeMilliseconds()));
             Assert.That(secondSequence, Is.EqualTo(Math.Max((ulong)clock.UtcNow.ToUnixTimeMilliseconds(), firstSequence + 1)));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Seq, Is.EqualTo(secondSequence));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).SignedPeerRecord, Is.EqualTo(second.SignedPeerRecord));
-            Assert.That(store.GetPeerInfo(tracked.Peer.Identity.PeerId).Addrs, Is.EquivalentTo(new[] { secondAddress }));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).PeerRecordSequence, Is.EqualTo(secondSequence));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).SignedPeerRecord, Is.EqualTo(second.SignedPeerRecord));
+            Assert.That(store.ReadPeerInfo(tracked.Peer.Identity.PeerId).Addresses, Is.EquivalentTo(new[] { secondAddress }));
         }
     }
 

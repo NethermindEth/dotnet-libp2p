@@ -37,7 +37,7 @@ public static class ServiceCollectionExtensions
             var peer = sp.GetRequiredService<ILocalPeer>();
             if ((peer as IPeerServices)?.GetPeerService<DhtRuntime>() is { } runtime) return runtime.Sender;
             var state = sp.GetRequiredService<SharedDhtState>();
-            var peerStore = sp.GetService<PeerStore>();
+            var peerStore = sp.GetService<IPeerStore>();
             return new Integration.LibP2pKademliaMessageSender(sp.GetRequiredService<KadDhtOptions>(), peer, sp.GetService<ILoggerFactory>(),
                 onPeerDiscovered: node => StorePeerAddresses(node, peerStore), onPingResponse: node => state.AddNodeCallback?.Invoke(node));
         });
@@ -141,7 +141,7 @@ public static class ServiceCollectionExtensions
             if (bootstrapNodes is not null)
                 builder.Services.AddSingleton<DhtRuntime>(provider => DhtRuntime.Create(provider.GetRequiredService<ILocalPeer>(), provider, bootstrapNodes, state));
             var handler = new KadDhtProtocolExtensions.DhtHandlerServices(options, values, providers, validator,
-                (key, excludedPeer) => EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), sp.GetService<PeerStore>()),
+                (key, excludedPeer) => EnrichPeerAddresses(state.GetKNearestPeers(key, options.KSize, excludedPeer), builder.ServiceProvider.GetService<IPeerStore>()),
                 node => state.AddNodeCallback?.Invoke(node));
             builder.AddProtocol(KadDhtProtocolExtensions.CreateProtocol(options, _ =>
             {
@@ -158,19 +158,19 @@ public static class ServiceCollectionExtensions
     /// PeerStore addresses come from Identify's cryptographically signed peer record
     /// and contain the peer's actual listen addresses (not ephemeral connection ports).
     /// </summary>
-    internal static DhtNode EnrichNodeFromPeerStore(DhtNode node, PeerStore? peerStore)
+    internal static DhtNode EnrichNodeFromPeerStore(DhtNode node, IPeerStore? peerStore)
     {
         if (peerStore == null) return node;
 
         try
         {
-            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerStore.PeerInfo? peerInfo) && peerInfo?.Addrs is { Count: > 0 })
+            if (peerStore.TryGetPeerInfo(node.PeerId, out PeerMetadata? metadata) && metadata.Addresses is { Count: > 0 } addresses)
             {
                 return new DhtNode
                 {
                     PeerId = node.PeerId,
                     PublicKey = node.PublicKey,
-                    Multiaddrs = peerInfo.Addrs.Select(a => a.ToString()).ToArray()
+                    Multiaddrs = addresses.Select(a => a.ToString()).ToArray()
                 };
             }
         }
@@ -182,7 +182,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Enriches an array of DhtNodes with addresses from PeerStore.
     /// </summary>
-    internal static DhtNode[] EnrichPeerAddresses(DhtNode[] peers, PeerStore? peerStore)
+    internal static DhtNode[] EnrichPeerAddresses(DhtNode[] peers, IPeerStore? peerStore)
     {
         if (peerStore == null || peers.Length == 0) return peers;
 
@@ -194,7 +194,7 @@ public static class ServiceCollectionExtensions
         return result;
     }
 
-    internal static void StorePeerAddresses(DhtNode node, PeerStore? peerStore)
+    internal static void StorePeerAddresses(DhtNode node, IPeerStore? peerStore)
     {
         if (peerStore == null) return;
         try

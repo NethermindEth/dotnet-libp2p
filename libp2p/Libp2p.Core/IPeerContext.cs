@@ -113,7 +113,8 @@ public class State
         }
     }
 
-    public void RecordVerifiedPeerRecordSequence(ulong sequence)
+    /// <summary>Records a verified sequence and returns the highest sequence known to this session after the update.</summary>
+    public ulong RecordVerifiedPeerRecordSequence(ulong sequence)
     {
         lock (PeerRecordLock)
         {
@@ -121,6 +122,7 @@ public class State
             {
                 _verifiedPeerRecordSequence = sequence;
             }
+            return _verifiedPeerRecordSequence.Value;
         }
     }
 

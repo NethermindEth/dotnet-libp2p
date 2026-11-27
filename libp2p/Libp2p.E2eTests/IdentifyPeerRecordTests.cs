@@ -33,10 +33,10 @@ public class IdentifyPeerRecordTests
         await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
         await ReadIdentifyAsync(remote, store, message, PeerRecordsVerificationPolicy.RequireCorrect, push: push);
 
-        PeerStore.PeerInfo info = store.GetPeerInfo(remote.PeerId);
-        Assert.That(info.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
+        PeerMetadata info = store.ReadPeerInfo(remote.PeerId);
+        Assert.That(info.Addresses!.Select(a => a.ToString()), Is.EqualTo(new[] { address }));
         Assert.That(info.SignedPeerRecord, Is.EqualTo(record));
-        Assert.That(info.Seq, Is.EqualTo(2UL));
+        Assert.That(info.PeerRecordSequence, Is.EqualTo(2UL));
         Assert.That(notifications, Has.Count.EqualTo(1));
     }
 
@@ -53,15 +53,15 @@ public class IdentifyPeerRecordTests
         ByteString stale = SigningHelper.CreateSignedEnvelope(remote, [TestPeers.Multiaddr(remote)], 41);
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = stale },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(current));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(current));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
         Assert.That(state.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
         ByteString next = SigningHelper.CreateSignedEnvelope(remote, [TestPeers.Multiaddr(remote)], 43);
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = next },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
         store.Discover(current);
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(next));
     }
 
     [TestCase(false)]
@@ -76,7 +76,7 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, store, message, push: push, stack: stack);
 
-        string[] protocols = store.GetPeerInfo(remote.PeerId).SupportedProtocols!;
+        IReadOnlyList<string> protocols = store.ReadPeerInfo(remote.PeerId).SupportedProtocols!;
         Assert.That(protocols, Is.EqualTo(new[] { localId }));
         Assert.That(protocols[0], Is.SameAs(localId));
     }
@@ -98,11 +98,11 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, store, message, push: push, stack: stack);
 
-        string[] protocols = store.GetPeerInfo(remote.PeerId).SupportedProtocols!;
+        IReadOnlyList<string> protocols = store.ReadPeerInfo(remote.PeerId).SupportedProtocols!;
         Assert.That(protocols.Take(localProtocols.Length), Is.EqualTo(localProtocols));
         for (int i = 0; i < localProtocols.Length; i++) Assert.That(protocols[i], Is.SameAs(localProtocols[i]));
-        Assert.That(protocols.Length, Is.EqualTo(Math.Max(64, localProtocols.Length)));
-        Assert.That(protocols.Distinct().Count(), Is.EqualTo(protocols.Length));
+        Assert.That(protocols.Count, Is.EqualTo(Math.Max(64, localProtocols.Length)));
+        Assert.That(protocols.Distinct().Count(), Is.EqualTo(protocols.Count));
     }
 
     [Test]
@@ -115,10 +115,10 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, peerStore, identify);
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.2.0" }));
         Assert.That(peerInfo.SignedPeerRecord, Is.Null);
-        Assert.That(peerInfo.Seq, Is.Null);
+        Assert.That(peerInfo.PeerRecordSequence, Is.Null);
     }
 
     [Test]
@@ -134,9 +134,9 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, peerStore, identify);
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SignedPeerRecord, Is.Null);
-        Assert.That(peerInfo.Seq, Is.Null);
+        Assert.That(peerInfo.PeerRecordSequence, Is.Null);
     }
 
     [Test]
@@ -152,9 +152,9 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, peerStore, identify);
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SignedPeerRecord, Is.Null);
-        Assert.That(peerInfo.Seq, Is.Null);
+        Assert.That(peerInfo.PeerRecordSequence, Is.Null);
     }
 
     [Test]
@@ -172,9 +172,9 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, peerStore, identify);
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SignedPeerRecord, Is.Null);
-        Assert.That(peerInfo.Seq, Is.Null);
+        Assert.That(peerInfo.PeerRecordSequence, Is.Null);
     }
 
     [Test]
@@ -260,9 +260,9 @@ public class IdentifyPeerRecordTests
             SignedPeerRecord = signedRecord
         }, PeerRecordsVerificationPolicy.RequireCorrect);
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SignedPeerRecord, Is.EqualTo(signedRecord));
-        Assert.That(peerInfo.Seq, Is.EqualTo(7UL));
+        Assert.That(peerInfo.PeerRecordSequence, Is.EqualTo(7UL));
     }
 
     [Test]
@@ -292,9 +292,9 @@ public class IdentifyPeerRecordTests
             Protocols = { "/meshsub/1.3.0" }
         });
 
-        PeerStore.PeerInfo peerInfo = peerStore.GetPeerInfo(remote.PeerId);
+        PeerMetadata peerInfo = peerStore.ReadPeerInfo(remote.PeerId);
         Assert.That(peerInfo.SignedPeerRecord, Is.EqualTo(newerRecord));
-        Assert.That(peerInfo.Seq, Is.EqualTo(42UL));
+        Assert.That(peerInfo.PeerRecordSequence, Is.EqualTo(42UL));
         Assert.That(peerInfo.SupportedProtocols, Is.EqualTo(new[] { "/meshsub/1.3.0" }));
     }
 
@@ -315,7 +315,7 @@ public class IdentifyPeerRecordTests
             Protocols = { protocols }
         }, push: push);
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(protocols.Take(64)));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(protocols.Take(64)));
     }
 
     [TestCase(false)]
@@ -333,7 +333,7 @@ public class IdentifyPeerRecordTests
             Protocols = { expected[0], new string('c', 129), asciiAtLimit, new string('é', 65), unicodeAtLimit, "/valid/1" }
         }, push: push);
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(expected));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(expected));
     }
 
     [TestCase(0ul)]
@@ -349,13 +349,13 @@ public class IdentifyPeerRecordTests
             PublicKey = remote.PublicKey.ToByteString(),
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(remote, [], sequence)
         }, PeerRecordsVerificationPolicy.RequireCorrect, state: state);
-        store.GetPeerInfo(TestPeers.PeerId(87));
+        store.SetAgentVersion(TestPeers.PeerId(87), null);
         Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.False);
 
         await ReadIdentifyAsync(remote, store, new Identify { Protocols = { "/valid/1" } },
             PeerRecordsVerificationPolicy.RequireCorrect, push: true, state: state);
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
     }
 
     [TestCase(false)]
@@ -370,22 +370,22 @@ public class IdentifyPeerRecordTests
         ByteString older = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.1/tcp/4001/p2p/{remote.PeerId}"], 41);
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
             PeerRecordsVerificationPolicy.RequireCorrect, state: state);
-        store.GetPeerInfo(TestPeers.PeerId(89));
+        store.SetAgentVersion(TestPeers.PeerId(89), null);
         Assert.That(store.TryGetPeerInfo(remote.PeerId, out _), Is.False);
 
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = older },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.Null);
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs, Is.Null);
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.Null);
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses, Is.Null);
 
         int announcements = 0;
         store.OnNewPeer += _ => announcements++;
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(newer));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(42UL));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(newer));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).PeerRecordSequence, Is.EqualTo(42UL));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
         Assert.That(announcements, Is.EqualTo(1));
 
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = newer },
@@ -395,9 +395,9 @@ public class IdentifyPeerRecordTests
         ByteString latest = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}"], 43);
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = latest },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: state);
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(latest));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(43UL));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs!.Select(a => a.ToString()),
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(latest));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).PeerRecordSequence, Is.EqualTo(43UL));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses!.Select(a => a.ToString()),
             Is.EqualTo(new[] { $"/ip4/192.0.2.2/tcp/4002/p2p/{remote.PeerId}" }));
     }
 
@@ -413,18 +413,18 @@ public class IdentifyPeerRecordTests
         ByteString current = SigningHelper.CreateSignedEnvelope(remote, [currentAddress], 42);
         ByteString older = SigningHelper.CreateSignedEnvelope(remote, [$"/ip4/192.0.2.41/tcp/4041/p2p/{remote.PeerId}"], 41);
         store.Discover(current, first);
-        store.GetPeerInfo(TestPeers.PeerId(91));
+        store.SetAgentVersion(TestPeers.PeerId(91), null);
         store.Discover(older, second);
-        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(41UL));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).PeerRecordSequence, Is.EqualTo(41UL));
         Assert.That(first.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
 
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = remote.PublicKey.ToByteString(), SignedPeerRecord = current },
             PeerRecordsVerificationPolicy.RequireCorrect, push: push, state: first);
 
-        PeerStore.PeerInfo info = store.GetPeerInfo(remote.PeerId);
-        Assert.That(info.Seq, Is.EqualTo(42UL));
+        PeerMetadata info = store.ReadPeerInfo(remote.PeerId);
+        Assert.That(info.PeerRecordSequence, Is.EqualTo(42UL));
         Assert.That(info.SignedPeerRecord, Is.EqualTo(current));
-        Assert.That(info.Addrs!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
+        Assert.That(info.Addresses!.Select(a => a.ToString()), Is.EqualTo(new[] { currentAddress }));
         Assert.That(first.VerifiedPeerRecordSequence, Is.EqualTo(42UL));
     }
 
@@ -450,7 +450,7 @@ public class IdentifyPeerRecordTests
 
         await ReadIdentifyAsync(remote, store, new Identify { PublicKey = uncompressed.ToByteString(), Protocols = { "/valid/1" } }, push: push);
 
-        Assert.That(store.GetPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SupportedProtocols, Is.EqualTo(new[] { "/valid/1" }));
     }
 
     [TestCase(false)]

@@ -247,7 +247,7 @@ internal sealed class SenderFixture : IDisposable
     {
         var services = new ServiceCollection();
         services.AddSingleton(Local);
-        services.AddSingleton(Store);
+        services.AddSingleton<IPeerStore>(Store);
         if (integration)
         {
             using var initial = services.BuildServiceProvider();

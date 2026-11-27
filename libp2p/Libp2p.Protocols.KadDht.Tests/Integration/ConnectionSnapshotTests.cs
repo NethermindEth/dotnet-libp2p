@@ -17,6 +17,30 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
 
 public class ConnectionSnapshotTests
 {
+    [Test]
+    public async Task RegisteredResponsesUseInitializedSessionsFromAnInterfacePeer()
+    {
+        ILocalPeer local = Substitute.For<ILocalPeer>();
+        ISession pending = Substitute.For<ISession>();
+        pending.RemotePeerId.Returns(Id(1));
+        ISession initialized = Substitute.For<ISession>();
+        initialized.RemotePeerId.Returns(Id(2));
+        initialized.IsInitialized.Returns(true);
+        IReadOnlyList<ISession> sessions = Array.AsReadOnly(new[] { pending, initialized });
+        local.Sessions.Returns(sessions);
+        using var harness = new KadWireHarness("direct", new KadDhtOptions(),
+            nearest: _ => [Id(1).ToDhtNode(), Id(2).ToDhtNode()], local: local);
+
+        var response = await harness.SendAsync(MessageHelper.CreateFindNodeRequest([1]));
+
+        Assert.That(response.CloserPeers.Select(peer => peer.Connection), Is.EqualTo(new[]
+        {
+            Message.Types.ConnectionType.NotConnected,
+            Message.Types.ConnectionType.Connected,
+        }));
+        _ = pending.DidNotReceive().RemotePeerId;
+    }
+
     [TestCase(Message.Types.MessageType.FindNode, false)]
     [TestCase(Message.Types.MessageType.GetValue, false)]
     [TestCase(Message.Types.MessageType.GetValue, true)]

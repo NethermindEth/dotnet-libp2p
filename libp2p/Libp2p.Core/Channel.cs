@@ -14,6 +14,7 @@ using SharedReadResult = Nethermind.Channels.ReadResult;
 [assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.WebRtc")]
 [assembly: InternalsVisibleTo("Libp2p.Protocols.Pubsub.Tests")]
 [assembly: InternalsVisibleTo("Libp2p.E2eTests")]
+[assembly: InternalsVisibleTo("Nethermind.Libp2p.Protocols.KadDht.Tests")]
 
 namespace Nethermind.Libp2p.Core;
 

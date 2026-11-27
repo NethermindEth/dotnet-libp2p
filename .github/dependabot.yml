@@ -1,0 +1,33 @@
+version: 2
+updates:
+
+  # Both directories hold solution entry points: Libp2p.slnx at the root, Samples.slnx and
+  # Tests.slnx under solutions/. Discovery expands each one's projects, so listing the root
+  # alone would miss the projects only those two solutions reference.
+  - package-ecosystem: nuget
+    directories:
+      - /
+      - /solutions
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    # Google.Protobuf and Google.Protobuf.Tools share the $(ProtobufVersion) property, so a
+    # Protobuf bump raises a pull request for each. An ignore rule would collapse them, but the
+    # NuGet security handler applies the same SemVer exclusions, which would also reject a
+    # security fix for Tools. The duplicate pull request is the cheaper of the two.
+    groups:
+      nuget:
+        # Both directories resolve versions from the same root Directory.Packages.props, so a
+        # dependency they share would otherwise get one pull request per directory, each editing
+        # the same line. Grouping by dependency name gives one pull request per dependency instead.
+        group-by: dependency-name
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

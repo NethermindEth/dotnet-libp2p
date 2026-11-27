@@ -16,6 +16,13 @@ public interface ISession
     Multiaddress RemoteAddress { get; }
     Activity? Activity { get; }
 
+    /// <summary>Whether this session has successfully completed initialization.</summary>
+    /// <remarks>
+    /// The default implementation returns true for sessions without a separate initialization stage.
+    /// Check <see cref="Closed"/> separately for closure.
+    /// </remarks>
+    bool IsInitialized => true;
+
     /// <summary>Canceled when this session starts closing, including transport loss, if lifetime notifications are supported.</summary>
     /// <remarks>
     /// The default implementation returns <see cref="CancellationToken.None"/> for sessions without lifetime notifications.
@@ -55,6 +62,14 @@ public interface ISession
     /// <exception cref="NotSupportedException">The session does not implement instance dialing.</exception>
     Task DialAsync(ISessionProtocol protocol, CancellationToken token = default)
         => Task.FromException(new NotSupportedException("This session does not support dialing protocol instances."));
+
+    /// <summary>Dials the selected protocol instance with a request and returns its response.</summary>
+    /// <param name="protocol">The protocol instance to negotiate.</param>
+    /// <param name="request">The payload passed to the protocol.</param>
+    /// <param name="token">Cancels the queued request or signals cancellation to the running stream invocation.</param>
+    /// <exception cref="NotSupportedException">The session does not implement instance dialing.</exception>
+    Task<TResponse> DialAsync<TRequest, TResponse>(ISessionProtocol<TRequest, TResponse> protocol, TRequest request, CancellationToken token = default)
+        => Task.FromException<TResponse>(new NotSupportedException("This session does not support dialing protocol instances."));
 
     Task DisconnectAsync();
 }

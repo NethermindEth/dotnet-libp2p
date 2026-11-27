@@ -28,6 +28,24 @@ public class ProtocolTests
     private static readonly Oid PubkeyExtensionOid = new("1.3.6.1.4.1.53594.1.1");
     private static readonly byte[] SignaturePrefix = "libp2p-tls-handshake:"u8.ToArray();
 
+    [Test]
+    public void QuicListener_RequiresClientIdentityWithoutMatchingItsHostname()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        CertificateRequest request = new("CN=localhost", key, HashAlgorithmName.SHA256);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        using X509Certificate2 certificate = request.CreateSelfSigned(now.AddMinutes(-1), now.AddMinutes(1));
+        SslServerAuthenticationOptions options = new QuicProtocol().CreateServerAuthenticationOptions(certificate);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(options.ClientCertificateRequired, Is.True);
+            Assert.That(options.CertificateChainPolicy?.VerificationFlags, Is.EqualTo(X509VerificationFlags.IgnoreInvalidName));
+            Assert.That(options.CertificateChainPolicy?.RevocationMode, Is.EqualTo(X509RevocationMode.NoCheck));
+            Assert.That(options.RemoteCertificateValidationCallback?.Invoke(this, certificate, null, SslPolicyErrors.None), Is.False);
+        });
+    }
+
     [TestCase(KeyType.Ed25519)]
     [TestCase(KeyType.Secp256K1)]
     [TestCase(KeyType.Rsa)]

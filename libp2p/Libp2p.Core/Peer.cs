@@ -13,12 +13,12 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Core;
 
-public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
+public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
     ActivitySource? activitySource = null, Activity? rootActivity = null, ILoggerFactory? loggerFactory = null, MultiaddrResolver? multiaddrResolver = null,
     PeerResourceLimits? resourceLimits = null, TimeProvider? timeProvider = null)
     : ILocalPeer, IPeerServices
 {
-    public LocalPeer(Identity identity, PeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
+    public LocalPeer(Identity identity, IPeerStore? peerStore, IProtocolStackSettings protocolStackSettings,
         ActivitySource? activitySource, Activity? rootActivity, ILoggerFactory? loggerFactory, MultiaddrResolver? multiaddrResolver)
         : this(identity, peerStore, protocolStackSettings, activitySource, rootActivity, loggerFactory, multiaddrResolver, null, null) { }
 
@@ -31,7 +31,7 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private const int CanceledDialDisposalGracePeriod = 1_000;
 
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger($"peer-{identity.PeerId}");
-    protected readonly PeerStore? _peerStore = peerStore;
+    protected readonly IPeerStore? _peerStore = peerStore;
     protected readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     protected readonly Activity? peerActivity = activitySource?.StartActivity($"Peer {identity.PeerId}", ActivityKind.Internal, rootActivity?.Id);
     protected readonly MultiaddrResolver _multiaddrResolver = multiaddrResolver ?? new();
@@ -42,7 +42,18 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
     private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
     private readonly HashSet<Session> _connections = [];
     private TaskCompletionSource? _disposal;
-    public ObservableCollection<Session> Sessions { get; } = [];
+    internal ObservableCollection<Session> Sessions { get; } = [];
+
+    IReadOnlyList<ISession> ILocalPeer.Sessions
+    {
+        get
+        {
+            lock (Sessions)
+            {
+                return Array.AsReadOnly<ISession>(Sessions.ToArray());
+            }
+        }
+    }
 
     public override string ToString()
     {
@@ -924,12 +935,12 @@ public partial class LocalPeer(Identity identity, PeerStore? peerStore, IProtoco
         }
         if (pending is not null) return WaitForDialAsync(peerId, pending, token);
 
-        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerStore.PeerInfo? existingPeerInfo) || existingPeerInfo?.Addrs is null)
+        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerMetadata? metadata) || metadata.Addresses is null)
         {
             throw new Libp2pException("Peer not found");
         }
 
-        Multiaddress[] addrs = [.. existingPeerInfo.Addrs.Where(a => a.GetPeerId() == peerId)];
+        Multiaddress[] addrs = [.. metadata.Addresses.Where(a => a.GetPeerId() == peerId)];
         if (addrs.Length == 0) throw new Libp2pException($"No usable address was found for peer {peerId}");
         return DialAsync(addrs, token);
     }

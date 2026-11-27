@@ -90,6 +90,7 @@ internal static class RouterFixture
     private sealed class LocalPeer(Identity identity) : ILocalPeer
     {
         public Identity Identity { get; } = identity;
+        public IReadOnlyList<ISession> Sessions => [];
         public ObservableCollection<Multiaddress> ListenAddresses { get; } = [];
         public event Connected? OnConnected { add { } remove { } }
         public Task<ISession> DialAsync(Multiaddress addr, CancellationToken token = default) => throw new NotSupportedException();

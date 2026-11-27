@@ -287,9 +287,9 @@
       "Nethermind.Libp2p.Core": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.6.2, )",
+          "BouncyCastle.Cryptography": "[2.7.0, )",
           "DnsClient": "[1.8.0, )",
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
@@ -301,7 +301,7 @@
       "Nethermind.Libp2p.Protocols.Identify": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.IpTcp": "[1.0.0, )"
@@ -331,11 +331,11 @@
       "Nethermind.Libp2p.Protocols.Noise": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.6.2, )",
-          "Google.Protobuf": "[3.33.1, )",
+          "BouncyCastle.Cryptography": "[2.7.0, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Noise.NET": "[1.0.0, )",
-          "libsodium": "[1.0.20.1, )"
+          "libsodium": "[1.0.22, )"
         }
       },
       "Nethermind.Libp2p.Protocols.Ping": {
@@ -347,15 +347,15 @@
       "Nethermind.Libp2p.Protocols.Plaintext": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
       },
       "Nethermind.Libp2p.Protocols.Pubsub": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.6.2, )",
-          "Google.Protobuf": "[3.33.1, )",
+          "BouncyCastle.Cryptography": "[2.7.0, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
           "Nethermind.Libp2p.Protocols.Identify": "[1.0.0, )"
         }
@@ -372,7 +372,7 @@
       "Nethermind.Libp2p.Protocols.Quic": {
         "type": "Project",
         "dependencies": {
-          "BouncyCastle.Cryptography": "[2.6.2, )",
+          "BouncyCastle.Cryptography": "[2.7.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
@@ -380,7 +380,7 @@
       "Nethermind.Libp2p.Protocols.Relay": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
@@ -388,7 +388,7 @@
       "Nethermind.Libp2p.Protocols.RequestResponse": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )"
         }
@@ -404,7 +404,7 @@
       "Nethermind.Libp2p.Protocols.WebRtc": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.33.1, )",
+          "Google.Protobuf": "[3.36.2, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "Nethermind.Libp2p.Core": "[1.0.0, )",
@@ -422,9 +422,9 @@
       },
       "BouncyCastle.Cryptography": {
         "type": "CentralTransitive",
-        "requested": "[2.6.2, )",
-        "resolved": "2.6.2",
-        "contentHash": "7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w=="
+        "requested": "[2.7.0, )",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
       },
       "DnsClient": {
         "type": "CentralTransitive",
@@ -434,15 +434,15 @@
       },
       "Google.Protobuf": {
         "type": "CentralTransitive",
-        "requested": "[3.33.1, )",
-        "resolved": "3.33.1",
-        "contentHash": "RztiFmX9aOWDwfhxFzx/nS4fjs4DX7ZC7/XBEBl56k15lPGBftvbSwZkeo1mMCJHrNp1kK5iQYrFXB4MqCmBCA=="
+        "requested": "[3.36.2, )",
+        "resolved": "3.36.2",
+        "contentHash": "Ci1q1iJg74qAE5riTA2FbMS0wPbpruPQI/JQ9DrAsRo2VsSxgt1e/pmxGxgrci+pXJEgrSYg2vPl8rrStZkclQ=="
       },
       "libsodium": {
         "type": "CentralTransitive",
-        "requested": "[1.0.20.1, )",
-        "resolved": "1.0.20.1",
-        "contentHash": "pkiceEqJDQFHjbga3k/oPfTVX9g+GKJZ1VrkuiLhaymt9YNw1Dr7cX9hNuZuNaWcr9WD0moW55k4pMwzQ7JaZQ=="
+        "requested": "[1.0.22, )",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
       },
       "Makaretu.Dns.Multicast": {
         "type": "CentralTransitive",

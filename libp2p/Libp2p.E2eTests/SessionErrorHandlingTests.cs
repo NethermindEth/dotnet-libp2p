@@ -97,7 +97,7 @@ public class SessionErrorHandlingTests
                 return builder;
             })
             .AddSingleton<IProtocolStackSettings, ProtocolStackSettings>()
-            .AddSingleton<PeerStore>()
+            .AddSingleton<IPeerStore, PeerStore>()
             .AddSingleton(channelBus)
             .AddSingleton(sp => sp.GetRequiredService<IPeerFactoryBuilder>().Build())
             .BuildServiceProvider();

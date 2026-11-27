@@ -516,9 +516,11 @@ public class MDnsAdvertisementTests
     [Test]
     public void RoutableAddressesAreOfferedBeforeLinkLocalOnes()
     {
+        Multiaddress mappedLinkLocal = $"/ip6/::ffff:169.254.5.6/tcp/4005/p2p/{Peer}";
         Multiaddress[] mixed =
         [
             Multiaddress.Decode($"/ip6/fe80::1/tcp/4001/p2p/{Peer}"),
+            mappedLinkLocal,
             Multiaddress.Decode($"/ip4/169.254.3.4/tcp/4002/p2p/{Peer}"),
             Multiaddress.Decode($"/ip4/192.168.1.5/tcp/4003/p2p/{Peer}"),
             Multiaddress.Decode($"/ip6/2001:db8::1/tcp/4004/p2p/{Peer}"),
@@ -529,6 +531,7 @@ public class MDnsAdvertisementTests
             $"dnsaddr=/ip4/192.168.1.5/tcp/4003/p2p/{Peer}",
             $"dnsaddr=/ip6/2001:db8::1/tcp/4004/p2p/{Peer}",
             $"dnsaddr=/ip6/fe80::1/tcp/4001/p2p/{Peer}",
+            $"dnsaddr={mappedLinkLocal}",
             $"dnsaddr=/ip4/169.254.3.4/tcp/4002/p2p/{Peer}",
         }));
     }

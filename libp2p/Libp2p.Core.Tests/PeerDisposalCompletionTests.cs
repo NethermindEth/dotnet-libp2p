@@ -23,8 +23,6 @@ internal class PeerDisposalCompletionTests
         await using CompletionPeer peer = new(store, initialization.Task);
         LocalPeer.Session first = Admit(peer, 2);
         LocalPeer.Session second = Admit(peer, 3);
-        PeerStore.PeerInfo firstRetained = store.GetPeerInfo(TestPeers.PeerId(2));
-        PeerStore.PeerInfo secondRetained = store.GetPeerInfo(TestPeers.PeerId(3));
         List<PeerId> connected = [];
         peer.OnConnected += session => connected.Add(session.RemotePeerId);
         using CancellationTokenRegistration registration = first.Closed.Register(() => initialization.TrySetResult());
@@ -41,8 +39,8 @@ internal class PeerDisposalCompletionTests
             Assert.That(second.Connected.IsCanceled, Is.True);
             Assert.That(connected, Is.Empty);
             Assert.That(peer.Sessions, Is.Empty);
-            Assert.That(firstRetained.Sessions, Is.Zero);
-            Assert.That(secondRetained.Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(3)), Is.Zero);
         });
     }
 
@@ -52,7 +50,6 @@ internal class PeerDisposalCompletionTests
         PeerStore store = new(1);
         CompletionPeer peer = new(store);
         LocalPeer.Session session = Admit(peer, 2);
-        PeerStore.PeerInfo retained = store.GetPeerInfo(TestPeers.PeerId(2));
         InvalidOperationException expected = new("Session removal subscriber failed.");
         Task? disposal = null;
         bool disposalFinishedInsideCallback = true;
@@ -83,7 +80,7 @@ internal class PeerDisposalCompletionTests
                 Assert.That(repeatedFailure, Is.SameAs(expected));
                 Assert.That(session.Closed.IsCancellationRequested, Is.True);
                 Assert.That(peer.Sessions, Is.Empty);
-                Assert.That(retained.Sessions, Is.Zero);
+                Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
             });
         }
         finally
@@ -118,7 +115,7 @@ internal class PeerDisposalCompletionTests
             await session.DisconnectAsync().WaitAsync(Deadline);
             connection.Dispose();
             Assert.That(peer.Sessions, Is.Empty);
-            if (upgrade) Assert.That(store.GetPeerInfo(TestPeers.PeerId(2)).Sessions, Is.Zero);
+            if (upgrade) Assert.That(store.GetRetainedSessionCount(TestPeers.PeerId(2)), Is.Zero);
             else Assert.That(store.TryGetPeerInfo(TestPeers.PeerId(2), out _), Is.False);
         }
         finally

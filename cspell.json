@@ -13,6 +13,7 @@
         "applayer",
         "appuser",
         "alpn",
+        "autonat",
         "autoremove",
         "aspnet",
         "autotls",

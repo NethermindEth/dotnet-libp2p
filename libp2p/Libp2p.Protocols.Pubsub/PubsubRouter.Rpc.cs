@@ -994,7 +994,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
                     {
                         prune.Peers.AddRange(topicMesh.ToArray()
                             .Where(pid => GetPeerScore(pid) >= 0)  // Only exchange non-negative scoring peers
-                            .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info?.SignedPeerRecord : null))
+                            .Select(pid => (PeerId: pid, Record: _peerStore.TryGetPeerInfo(pid, out var info) ? info.SignedPeerRecord : null))
                             .Where(pid => pid.Record is not null)
                             .Select(pid => new PeerInfo
                             {
@@ -1082,7 +1082,7 @@ public partial class PubsubRouter : IRoutingStateContainer, IDisposable
         }
 
         if (peerId == localPeer?.Identity.PeerId || peerState.ContainsKey(peerId)) return;
-        if (_peerStore.TryGetPeerInfo(peerId, out Core.Discovery.PeerStore.PeerInfo? known) && known?.Addrs is { Count: > 0 } addrs)
+        if (_peerStore.TryGetPeerInfo(peerId, out var known) && known.Addresses is { Count: > 0 } addrs)
         {
             _onNewPeer?.Invoke([.. addrs]);
         }

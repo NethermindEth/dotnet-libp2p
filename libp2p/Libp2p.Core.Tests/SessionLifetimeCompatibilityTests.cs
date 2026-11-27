@@ -11,6 +11,7 @@ internal class SessionLifetimeCompatibilityTests
 {
     [TestCase(nameof(ISession.RemotePeerId))]
     [TestCase(nameof(ISession.Closed))]
+    [TestCase(nameof(ISession.IsInitialized))]
     public void SessionMetadataHasADefaultImplementation(string propertyName)
     {
         var getter = typeof(ISession).GetProperty(propertyName)!.GetMethod!;
@@ -48,6 +49,7 @@ internal class SessionLifetimeCompatibilityTests
         ISession session = new TestRemotePeer(TestPeers.Multiaddr(2));
 
         Assert.That(session.RemotePeerId, Is.EqualTo(TestPeers.PeerId(2)));
+        Assert.That(session.IsInitialized, Is.True);
         Assert.That(session.Closed, Is.EqualTo(CancellationToken.None));
         Assert.That(session.Closed.CanBeCanceled, Is.False);
         await session.DisconnectAsync();
