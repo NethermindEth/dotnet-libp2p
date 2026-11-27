@@ -6,6 +6,7 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using Nethermind.Channels;
 using Nethermind.Libp2p.Core.Metrics;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -131,6 +132,81 @@ public class OwnedChannelCompatibilityTests
         await channel.CloseAsync();
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ForwardingKeepsBytesAliveAfterTheReadIsDisposed(bool legacyDestination)
+    {
+        Channel source = new();
+        Channel destination = new();
+        IWriter writer = legacyDestination ? new LegacyWriter(destination) : destination;
+        PoisonPool pool = new();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        try
+        {
+            using PooledBuffer buffer = PooledBuffer.Rent(5, pool);
+            new byte[] { 0, 3, 7, 11, 0 }.CopyTo(buffer.Memory);
+            Task<IOResult> write = source.WriteAsync(buffer, 3, offset: 1, token: timeout.Token).AsTask();
+            buffer.Dispose();
+            using ReadResult read = await source.Reverse.ReadOwnedAsync(3, token: timeout.Token);
+            Assert.That(await write, Is.EqualTo(IOResult.Ok));
+
+            ValueTask<IOResult> forwarding = read.WriteToAsync(writer, timeout.Token);
+            read.Dispose();
+            Assert.That(pool.Returns, Is.EqualTo(legacyDestination ? 1 : 0));
+            using ReadResult received = await destination.Reverse.ReadOwnedAsync(3, token: timeout.Token);
+            Assert.That(await forwarding, Is.EqualTo(IOResult.Ok));
+            Assert.That(received.IsOwned, Is.EqualTo(!legacyDestination));
+            Assert.That(received.Data.ToArray(), Is.EqualTo(new byte[] { 3, 7, 11 }));
+            Assert.That(pool.Returns, Is.EqualTo(legacyDestination ? 1 : 0));
+            received.Dispose();
+            Assert.That(pool.Returns, Is.EqualTo(1));
+        }
+        finally
+        {
+            await source.CloseAsync();
+            await destination.CloseAsync();
+        }
+    }
+
+    [Test]
+    public void CustomReaderTransfersTheSuppliedSliceToItsConsumer()
+    {
+        PoisonPool pool = new();
+        using PooledBuffer buffer = PooledBuffer.Rent(4, pool);
+        new byte[] { 0, 3, 7, 0 }.CopyTo(buffer.Memory);
+        using ReadResult read = ReadResult.FromOwnedSlice(buffer[1..3]);
+        buffer.Dispose();
+        Assert.That(read.IsOwned, Is.True);
+        Assert.That(read.OrThrow().ToArray(), Is.EqualTo(new byte[] { 3, 7 }));
+        read.Dispose();
+        Assert.That(pool.Returns, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ForwardingBorrowedDataPreservesSegmentsAndPassesTheWriteResultAndToken()
+    {
+        ReadOnlySequence<byte> sequence = new ReadOnlySequence<byte>(new byte[] { 1, 2 }).Append(new byte[] { 3, 4 });
+        using CancellationTokenSource cancellation = new();
+        IWriter writer = Substitute.For<IWriter>();
+        writer.WriteAsync(sequence, cancellation.Token).Returns(ValueTask.FromResult(IOResult.Aborted));
+
+        ReadResult read = new() { Data = sequence };
+        Assert.That(await read.WriteToAsync(writer, cancellation.Token), Is.EqualTo(IOResult.Aborted));
+        await writer.Received(1).WriteAsync(sequence, cancellation.Token);
+    }
+
+    [TestCase(IOResult.Ended)]
+    [TestCase(IOResult.Cancelled)]
+    [TestCase(IOResult.Aborted)]
+    [TestCase(IOResult.InternalError)]
+    public async Task ForwardingAnUnsuccessfulReadLeavesTheDestinationAlone(IOResult status)
+    {
+        IWriter writer = Substitute.For<IWriter>();
+        ReadResult read = new() { Result = status };
+        Assert.That(await read.WriteToAsync(writer), Is.EqualTo(status));
+        Assert.That(writer.ReceivedCalls(), Is.Empty);
+    }
+
     [Test]
     public async Task StreamReadReleasesItsPooledReadAfterCopyingToTheDestination()
     {
@@ -166,6 +242,35 @@ public class OwnedChannelCompatibilityTests
         Assert.That(await write, Is.EqualTo(IOResult.Ok));
         Assert.That(pool.Returns, Is.EqualTo(1));
         await channel.CloseAsync();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CancellingPendingEnumerationReportsTheCallerToken(bool owned)
+    {
+        Channel channel = new();
+        using CancellationTokenSource cancellation = new();
+        try
+        {
+            IReader reader = channel.Reader;
+            Task reading = owned ? ConsumeAsync(reader.ReadAllOwnedAsync(cancellation.Token))
+                : ConsumeAsync(reader.ReadAllAsync(cancellation.Token));
+            Assert.That(reading.IsCompleted, Is.False);
+            await cancellation.CancelAsync();
+
+            OperationCanceledException? error = Assert.CatchAsync<OperationCanceledException>(
+                async () => await reading.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.That(error!.CancellationToken, Is.EqualTo(cancellation.Token));
+        }
+        finally
+        {
+            await channel.CloseAsync();
+        }
+
+        static async Task ConsumeAsync<T>(IAsyncEnumerable<T> reads)
+        {
+            await foreach (T _ in reads) { }
+        }
     }
 
     private sealed class LegacyWriter(Channel channel) : IWriter

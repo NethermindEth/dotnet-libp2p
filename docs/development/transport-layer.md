@@ -75,13 +75,18 @@ ReadOnlySequence<byte> bytes = read.OrThrow();
 // Consume bytes before disposing read.
 ```
 
-`ReadAllOwnedAsync` keeps each result alive until its iteration ends. `ToSlice()` retains
-an independent pooled reference for forwarding beyond the result's scope. An owned write
-acquires its own reference, so the caller may dispose its slice after starting the write.
-Published bytes must remain unchanged while any reader retains them.
+`ReadAllOwnedAsync` keeps each result alive until its iteration ends. Use
+`read.WriteToAsync(destination, token)` to forward either pooled or borrowed bytes.
+The destination secures its own storage before the method returns, so the caller can
+dispose the read while the write is pending. Published bytes must remain unchanged
+while any reader retains them.
 
 Existing `ReadAsync` still returns indefinitely retainable sequences, copying pooled results
 before release. Writers implementing only the original API also receive detached copies.
+Custom readers can construct a successful read with `ReadResult.Ok(sequence)` for stable
+borrowed data or `ReadResult.FromOwnedSlice(buffer[..length])` for a pooled region.
+The latter transfers that slice to the result. The reader can dispose the buffer it rented,
+and the consumer releases the slice by disposing the result.
 Ordinary sequence writes still require stable storage; their completion does not permit
 overwriting it. Single owned chunks need no payload copy; fragmented exact reads coalesce
 into pooled storage that grows with received bytes. Protocol message limits and consumers
@@ -150,6 +155,5 @@ it after protocol teardown. Listener activities retain readiness diagnostics wit
 accumulating an event for every historical accept.
 
 A transport's connection cancellation registrations must be disposed when its pumps
-stop. TCP cancels and joins both pumps, preserves one pooled scratch receive buffer
-per pump, and publishes exact-sized owned copies. Downstream readers may retain
-fragments after a channel write completes; never publish the pooled scratch array.
+stop. TCP cancels and joins both pumps. The shared receive pump releases its buffer
+on exit, and any downstream reads keep their own leases until disposal.

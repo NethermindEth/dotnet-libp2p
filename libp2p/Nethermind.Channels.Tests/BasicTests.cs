@@ -102,6 +102,60 @@ public class BasicTests
         await destination.CloseAsync();
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task WriteToForwardsTheOriginalStorageWhileTheWriterIsBusy(bool pooled)
+    {
+        Channel source = new();
+        Channel destination = new();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(5));
+        byte[] data = [3, 7, 11];
+        using PooledBuffer? buffer = pooled ? PooledBuffer.Rent(data.Length) : null;
+        ReadOnlyMemory<byte> storage = data;
+        if (buffer is not null)
+        {
+            data.CopyTo(buffer.Memory);
+            storage = buffer.ReadOnlyMemory;
+        }
+
+        ValueTask<IOResult> firstWrite = buffer is null
+            ? source.WriteAsync(new ReadOnlySequence<byte>(storage), deadline.Token)
+            : source.WriteAsync(buffer, data.Length, token: deadline.Token);
+        using ReadResult read = await source.Reverse.ReadAsync(data.Length, token: deadline.Token);
+        Assert.That(await firstWrite, Is.EqualTo(IOResult.Ok));
+        buffer?.Dispose();
+        ValueTask<IOResult> busy = destination.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 2 }), deadline.Token);
+        ValueTask<IOResult> forwarding = read.WriteToAsync(destination, deadline.Token);
+        Assert.That(forwarding.IsCompleted, Is.False);
+        read.Dispose();
+
+        using ReadResult first = await destination.Reverse.ReadAsync(1, token: deadline.Token);
+        Assert.That(await busy, Is.EqualTo(IOResult.Ok));
+        using ReadResult forwarded = await destination.Reverse.ReadAsync(data.Length, token: deadline.Token);
+        Assert.That(await forwarding, Is.EqualTo(IOResult.Ok));
+        Assert.That(forwarded.IsOwned, Is.EqualTo(pooled));
+        Assert.That(forwarded.Memory.Equals(storage), Is.True);
+        Assert.That(forwarded.ToArray(), Is.EqualTo(data));
+    }
+
+    [Test]
+    public async Task WriteToReturnsAnUnsuccessfulReadWithoutWriting()
+    {
+        Channel channel = new();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(5));
+        ValueTask<IOResult> pending = channel.WriteAsync(new ReadOnlySequence<byte>(new byte[] { 1 }), deadline.Token);
+        foreach (ReadResult read in new[] { ReadResult.Aborted, ReadResult.Cancelled, ReadResult.Ended })
+        {
+            ValueTask<IOResult> result = read.WriteToAsync(channel, deadline.Token);
+            Assert.That(result.IsCompletedSuccessfully, Is.True);
+            Assert.That(await result, Is.EqualTo(read.Result));
+        }
+
+        using ReadResult delivered = await channel.Reverse.ReadAsync(1, token: deadline.Token);
+        Assert.That(await pending, Is.EqualTo(IOResult.Ok));
+        Assert.That(delivered.ToArray(), Is.EqualTo(new byte[] { 1 }));
+    }
+
     [Test]
     public async Task CopiedReadResultReleasesItsLeaseOnlyOnce()
     {

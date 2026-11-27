@@ -44,7 +44,8 @@ public interface IWriter
     ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
         => WriteAsync(new ReadOnlySequence<byte>(buffer.Memory.Slice(offset, length).ToArray()), token);
 
-    /// <summary>Writes a retained slice without consuming the caller's lease.</summary>
+    /// <summary>Writes a pooled slice without consuming the caller's lease.</summary>
+    /// <remarks>The writer must retain its own lease or detach a copy before this method returns.</remarks>
     ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default)
         => WriteAsync(new ReadOnlySequence<byte>(slice.ReadOnlyMemory.ToArray()), token);
 
@@ -101,6 +102,8 @@ public interface IWriter
     /// Writes <paramref name="bytes"/> as one chunk, which is delivered whole or not at all.
     /// </summary>
     /// <remarks>
+    /// Readers may retain the sequence after this write completes. Its storage must stay unchanged.
+    /// To forward a channel read with its storage lifetime intact, use <see cref="ReadResult.WriteToAsync"/>.
     /// Cancelling before any of the chunk has been read retracts it and reports
     /// <see cref="IOResult.Cancelled"/>. Once a read has taken part of it the remainder is still
     /// owed to the reader, so the call returns only after that remainder is consumed — reporting

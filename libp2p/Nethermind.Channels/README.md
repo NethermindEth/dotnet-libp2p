@@ -1,7 +1,7 @@
 # Channels and pooled buffers
 
 `Nethermind.Channels` supplies the byte-channel engine used by libp2p. It is included in
-`libp2p/Libp2p.slnx`, CI tests, and package publishing.
+the [root solution](../../Libp2p.slnx), CI tests, and package publishing.
 
 ## Ownership
 
@@ -41,14 +41,19 @@ potentially large requested length. Borrowed sequence writes remain segmented wi
 copying. An atomic multi-slice write coalesces its inputs into one pooled publication.
 
 ```csharp
-using ReadResult read = await incoming.ReadAsync(length).OrThrow();
-using PooledBuffer.Slice forwarding = read.ToSlice();
-await outgoing.WriteAsync(forwarding);
+using ReadResult read = await incoming.ReadAsync(length, token: token);
+await read.WriteToAsync(outgoing, token).OrThrow();
 ```
 
 `ReadAllAsync` keeps the current result alive for its iteration and disposes it when the
-enumerator advances or is disposed. Retain a slice to keep owned bytes beyond an iteration.
-Borrowed writes have no pool lease and can be forwarded through `WriteAsync(read.Sequence)`.
+enumerator advances or is disposed. Use `WriteToAsync` to forward either borrowed or
+pooled bytes. The destination takes its own lease on pooled data before the call returns.
+Use `ToSlice()` when you need to keep a pooled read beyond its iteration.
+
+Custom readers can return `ReadResult.Ok(sequence)` for stable borrowed storage.
+To return pooled data, pass a slice to `ReadResult.FromOwnedSlice(buffer[..length])`.
+This transfers the slice lease to the result. The reader can dispose its root buffer,
+and the consumer releases the slice by disposing the result.
 
 `WaitAll` waits for the requested length, `WaitAny` takes the available prefix, and
 `DoNotWait` returns an empty successful result when no data is available. Cancellation

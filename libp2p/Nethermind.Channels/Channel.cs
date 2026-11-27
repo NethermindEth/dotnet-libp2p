@@ -17,25 +17,24 @@ public class Channel : IChannel
     private IChannel? _reversedChannel;
     private readonly ReaderWriter _reader;
     private readonly ReaderWriter _writer;
-    private TaskCompletionSource Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _completion;
 
     public Channel()
     {
+        _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _reader = new ReaderWriter(this);
         _writer = new ReaderWriter(this);
     }
 
-    private Channel(ReaderWriter reader, ReaderWriter writer)
+    private Channel(Channel reverse)
     {
-        _reader = reader;
-        _writer = writer;
+        _reader = reverse._writer;
+        _writer = reverse._reader;
+        _completion = reverse._completion;
+        _reversedChannel = reverse;
     }
 
-    public IChannel Reverse => _reversedChannel ??= new Channel(_writer, _reader)
-    {
-        _reversedChannel = this,
-        Completion = Completion
-    };
+    public IChannel Reverse => _reversedChannel ??= new Channel(this);
 
     public IReader Reader => _reader;
     public IWriter Writer => _writer;
@@ -56,7 +55,7 @@ public class Channel : IChannel
         => _writer.WriteAsync(slices, token);
 
     public ValueTask<IOResult> WriteEofAsync(CancellationToken token = default) => _writer.WriteEofAsync(token);
-    public TaskAwaiter GetAwaiter() => Completion.Task.GetAwaiter();
+    public TaskAwaiter GetAwaiter() => _completion.Task.GetAwaiter();
 
     public ValueTask CloseAsync()
     {
@@ -67,9 +66,10 @@ public class Channel : IChannel
         // Discarded inbound data must not abort an already completed outbound reply.
         if (outboundIncomplete || (inboundIncomplete && !_writer._eow))
             _writer.MarkAborted();
-        _reader.CompleteAbort();
-        _writer.CompleteAbort();
-        Completion.TrySetResult();
+        // A pool's Return callback can reenter the channel. Finish both directions before releasing storage.
+        using PooledBuffer.Slice? discardedInbound = _reader.CompleteAbort();
+        using PooledBuffer.Slice? discardedOutbound = _writer.CompleteAbort();
+        _completion.TrySetResult();
         return ValueTask.CompletedTask;
     }
 
@@ -90,7 +90,7 @@ public class Channel : IChannel
     {
         _reader.MarkClosed();
         _reader.MarkAborted();
-        _reader.CompleteAbort();
+        _reader.CompleteAbort()?.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -99,7 +99,7 @@ public class Channel : IChannel
         // Publish this direction's EOF before observing the other direction. If both finish
         // concurrently, at least one observer must see both ends.
         Thread.MemoryBarrier();
-        if (_reader._eow && _writer._eow) Completion.TrySetResult();
+        if (_reader._eow && _writer._eow) _completion.TrySetResult();
     }
 
     internal class ReaderWriter : IReader, IWriter
@@ -161,8 +161,9 @@ public class Channel : IChannel
             }
         }
 
-        internal void CompleteAbort()
+        internal PooledBuffer.Slice? CompleteAbort()
         {
+            PooledBuffer.Slice? discarded = null;
             lock (_dataLock)
             {
                 _eow = true;
@@ -170,20 +171,22 @@ public class Channel : IChannel
                 {
                     Interlocked.And(ref _state, ~PendingWrite);
                     Interlocked.Or(ref _state, WriteDiscarded);
-                    DiscardPublished();
+                    discarded = DetachPublished();
                     _read.Release();
                 }
             }
             _closed.Cancel();
             _externalCompletionMonitor?.TryComplete();
+            return discarded;
         }
 
-        private void DiscardPublished()
+        private PooledBuffer.Slice? DetachPublished()
         {
+            PooledBuffer.Slice? owner = _owner;
             _bytes = default;
-            _owner?.Dispose();
             _owner = null;
             _ownerOffset = 0;
+            return owner;
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -219,14 +222,7 @@ public class Channel : IChannel
                     await _canRead.WaitAsync(token, _closed.Token).ConfigureAwait(false);
                 }
 
-                long remaining;
-                lock (_dataLock)
-                {
-                    if (_eow) return ClosedReadResult;
-                    remaining = length == 0 ? _bytes.Length
-                        : blockingMode == ReadBlockingMode.WaitAll ? length : Math.Min(length, _bytes.Length);
-                }
-
+                long remaining = length;
                 do
                 {
                     ReadOnlySequence<byte> part;
@@ -235,7 +231,7 @@ public class Channel : IChannel
                     lock (_dataLock)
                     {
                         if (_eow) return ClosedReadResult;
-                        long take = Math.Min(remaining, _bytes.Length);
+                        long take = length == 0 ? _bytes.Length : Math.Min(remaining, _bytes.Length);
                         part = _bytes.Slice(0, take);
                         consumed = take == _bytes.Length;
                         if (_owner is not null)
@@ -260,8 +256,8 @@ public class Channel : IChannel
                                 _ownerOffset += checked((int)take);
                             }
                         }
-                        _bytes = _bytes.Slice(take);
-                        remaining -= take;
+                        _bytes = consumed ? default : _bytes.Slice(take);
+                        remaining = blockingMode == ReadBlockingMode.WaitAll ? remaining - take : 0;
                         if (consumed && remaining != 0 && (Interlocked.Or(ref _state, PendingRead) & Closed) != 0)
                             MarkAborted();
                     }
@@ -284,7 +280,7 @@ public class Channel : IChannel
                                 _read.Release();
                             }
                         }
-                        CompleteAbort();
+                        CompleteAbort()?.Dispose();
                         throw;
                     }
 
@@ -315,12 +311,12 @@ public class Channel : IChannel
             }
             finally
             {
-                accumulated.Dispose();
                 if (readLockTaken)
                 {
                     Interlocked.And(ref _state, ~PendingRead);
                     _readLock.Release();
                 }
+                accumulated.Dispose();
             }
         }
 
@@ -330,6 +326,7 @@ public class Channel : IChannel
         public ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default)
         {
             ArgumentNullException.ThrowIfNull(buffer);
+            // The caller may release its lease as soon as this method returns, even when the write is queued.
             PooledBuffer.Slice owner = buffer.LeaseSlice(offset, length);
             return WriteCoreAsync(new ReadOnlySequence<byte>(owner.ReadOnlyMemory), owner, token);
         }
@@ -401,7 +398,7 @@ public class Channel : IChannel
                             if (_bytes.Length == bytes.Length)
                             {
                                 Interlocked.And(ref _state, ~PendingWrite);
-                                DiscardPublished();
+                                owner = DetachPublished();
                                 throw;
                             }
                         }
@@ -420,9 +417,9 @@ public class Channel : IChannel
             }
             finally
             {
-                owner?.Dispose();
                 // Keep the write gate until this write receives its own acknowledgement.
                 if (canWriteTaken) _canWrite.Release();
+                owner?.Dispose();
             }
         }
 
@@ -548,13 +545,13 @@ public class Channel : IChannel
                 PooledBuffer.Slice owner = _combined.LeaseSlice(0, _written);
                 _combined.Dispose();
                 _combined = null;
-                return ReadResult.Ok(owner);
+                return ReadResult.FromOwnedSlice(owner);
             }
             if (_owner is not null)
             {
                 PooledBuffer.Slice owner = _owner;
                 _owner = null;
-                return ReadResult.Ok(owner);
+                return ReadResult.FromOwnedSlice(owner);
             }
             return ReadResult.Ok(_sequence);
         }

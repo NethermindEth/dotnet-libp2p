@@ -9,6 +9,26 @@ namespace Nethermind.Channels.Tests;
 
 public class OwnedChannelTests
 {
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ReadAllObservesCancellationBeforeOrDuringTheRead(bool cancelBeforeReading)
+    {
+        Channel channel = new();
+        using CancellationTokenSource cancellation = new();
+        await using IAsyncEnumerator<ReadResult> reads = channel.Reader.ReadAllAsync(cancellation.Token).GetAsyncEnumerator();
+        if (cancelBeforeReading) cancellation.Cancel();
+        Task<bool> next = reads.MoveNextAsync().AsTask();
+        if (!cancelBeforeReading)
+        {
+            Assert.That(next.IsCompleted, Is.False);
+            cancellation.Cancel();
+        }
+
+        OperationCanceledException? exception = Assert.CatchAsync<OperationCanceledException>(
+            async () => await next.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.That(exception!.CancellationToken, Is.EqualTo(cancellation.Token));
+    }
+
     [Test]
     public async Task ConcurrentProtocolCompletionPreservesReplyEof()
     {
@@ -109,12 +129,71 @@ public class OwnedChannelTests
         await channel.CloseAsync();
     }
 
+    [Test]
+    public async Task CancelledReadReleasesTheReadGateBeforeCallingThePool()
+    {
+        Channel channel = new();
+        InvalidOperationException failure = new("Pool return failed");
+        Task<ReadResult>? poll = null;
+        bool completedDuringReturn = false;
+        PoisonPool pool = new()
+        {
+            OnReturn = () =>
+            {
+                poll = channel.Reverse.ReadAsync(1, ReadBlockingMode.DoNotWait).AsTask();
+                completedDuringReturn = poll.IsCompletedSuccessfully;
+                throw failure;
+            }
+        };
+        using CancellationTokenSource cancellation = new();
+        Task<ReadResult> reading = channel.Reverse.ReadAsync(2, token: cancellation.Token).AsTask();
+        using (PooledBuffer first = PooledBuffer.Rent(1, pool))
+        {
+            Assert.That(await channel.WriteAsync(first, 1), Is.EqualTo(IOResult.Ok));
+        }
+
+        try
+        {
+            cancellation.Cancel();
+            Assert.That(Assert.ThrowsAsync<InvalidOperationException>(async () => await reading), Is.SameAs(failure));
+            Assert.That(completedDuringReturn, Is.True);
+            using ReadResult empty = await poll!;
+            Assert.That(empty.Result, Is.EqualTo(IOResult.Ok));
+            Assert.That(empty.Length, Is.Zero);
+        }
+        finally
+        {
+            await channel.CloseAsync();
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ChannelReleasesItsReferenceToAFullyConsumedPublication(bool close)
+    {
+        Channel channel = new();
+        byte[] payload = [3, 7, 11];
+        ValueTask<IOResult> writing = channel.WriteAsync(new ReadOnlySequence<byte>(payload));
+        using ReadResult result = await channel.Reverse.ReadAsync(payload.Length);
+        Assert.That(await writing, Is.EqualTo(IOResult.Ok));
+        if (close) await channel.CloseAsync();
+
+        FieldInfo field = typeof(Channel.ReaderWriter).GetField("_bytes", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        ReadOnlySequence<byte> buffered = (ReadOnlySequence<byte>)field.GetValue(channel.Writer)!;
+        Assert.That(buffered.Start.GetObject(), Is.Not.SameAs(payload),
+            "An empty tail slice would keep the last publication alive for the lifetime of the channel.");
+        Assert.That(result.Memory.Equals(payload.AsMemory()), Is.True);
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task UnconsumedWriteReleasesChannelLeaseOnCancellationOrAbort(bool cancel)
     {
         Channel channel = new();
-        PoisonPool pool = new();
+        Lock dataLock = (Lock)typeof(Channel.ReaderWriter)
+            .GetField("_dataLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(channel.Writer)!;
+        bool returnedUnderLock = false;
+        PoisonPool pool = new() { OnReturn = () => returnedUnderLock = dataLock.IsHeldByCurrentThread };
         using CancellationTokenSource cancellation = new();
         Task<IOResult> writing;
         using (PooledBuffer input = PooledBuffer.Rent(8, pool))
@@ -128,6 +207,7 @@ public class OwnedChannelTests
         else await channel.AbortAsync();
         Assert.That(await writing.WaitAsync(TimeSpan.FromSeconds(10)), Is.EqualTo(cancel ? IOResult.Cancelled : IOResult.Aborted));
         Assert.That(pool.Returned, Is.EqualTo(1));
+        Assert.That(returnedUnderLock, Is.False, "Returning storage to an external pool must release the channel's data lock first.");
 
         if (cancel)
         {
@@ -293,10 +373,12 @@ public class OwnedChannelTests
     private class PoisonPool : ArrayPool<byte>
     {
         private int _returned;
+        public Action? OnReturn { get; init; }
         public int Returned => Volatile.Read(ref _returned);
         public override byte[] Rent(int minimumLength) => new byte[minimumLength];
         public override void Return(byte[] array, bool clearArray = false)
         {
+            OnReturn?.Invoke();
             array.AsSpan().Fill(0xee);
             Interlocked.Increment(ref _returned);
         }

@@ -19,13 +19,14 @@ public interface IReader
         ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default) => ReadAsync(length, blockingMode, token);
 
+    /// <summary>Reads bytes that can be retained indefinitely. Pooled channels copy the data when necessary.</summary>
     ValueTask<ReadResult> ReadAsync(int length,
         ReadBlockingMode blockingMode = ReadBlockingMode.WaitAll,
         CancellationToken token = default);
 
     #region Read helpers
     /// <summary>Reads scoped chunks. Each result is disposed when enumeration advances or ends.</summary>
-    /// <remarks>Retain <see cref="ReadResult.ToSlice"/> to forward pooled bytes beyond an iteration.</remarks>
+    /// <remarks>Use <see cref="ReadResult.WriteToAsync"/> to forward a chunk during its iteration.</remarks>
     async IAsyncEnumerable<ReadResult> ReadAllOwnedAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
@@ -33,9 +34,7 @@ public interface IReader
         {
             token.ThrowIfCancellationRequested();
             using ReadResult result = await ReadOwnedAsync(0, ReadBlockingMode.WaitAny, token).ConfigureAwait(false);
-            if (result.Result == IOResult.Ended) yield break;
-            if (result.Result == IOResult.Aborted) throw new ChannelAbortedException();
-            if (result.Result != IOResult.Ok) throw new ChannelClosedException(result.Result);
+            if (!HasData(result.Result, token)) yield break;
             yield return result;
         }
     }
@@ -43,19 +42,23 @@ public interface IReader
     async IAsyncEnumerable<ReadOnlySequence<byte>> ReadAllAsync(
         [EnumeratorCancellation] CancellationToken token = default)
     {
-        for (; ; )
+        while (true)
         {
             token.ThrowIfCancellationRequested();
-
-            switch (await ReadAsync(0, ReadBlockingMode.WaitAny, token: token))
-            {
-                case { Result: IOResult.Ok, Data: ReadOnlySequence<byte> data }: yield return data; break;
-                case { Result: IOResult.Ended }: yield break;
-                case { Result: IOResult.Aborted }: throw new ChannelAbortedException();
-                default: throw new Exception();
-            }
+            ReadResult result = await ReadAsync(0, ReadBlockingMode.WaitAny, token).ConfigureAwait(false);
+            if (!HasData(result.Result, token)) yield break;
+            yield return result.Data;
         }
     }
+
+    private static bool HasData(IOResult result, CancellationToken token) => result switch
+    {
+        IOResult.Ok => true,
+        IOResult.Ended => false,
+        IOResult.Cancelled when token.IsCancellationRequested => throw new OperationCanceledException(token),
+        IOResult.Aborted => throw new ChannelAbortedException(),
+        _ => throw new ChannelClosedException(result),
+    };
 
     /// <summary>Reads a UTF-8 line with a maximum payload of 1,024 bytes, including any trailing newline.</summary>
     /// <exception cref="InvalidDataException">The declared payload exceeds 1,024 bytes.</exception>

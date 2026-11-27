@@ -23,8 +23,19 @@ public readonly struct ReadResult : IDisposable
     /// <summary>Whether this result retains pooled storage that requires disposal.</summary>
     public bool IsOwned => _owned.IsOwned;
 
-    /// <summary>Retains a slice for forwarding beyond this result's lifetime.</summary>
+    /// <summary>Retains an independent slice of an owned read.</summary>
+    /// <exception cref="InvalidOperationException">The read uses borrowed storage.</exception>
     public Channels.PooledBuffer.Slice ToSlice() => _owned.ToSlice();
+
+    /// <summary>Forwards the data as one write. The caller can dispose this read as soon as the method returns.</summary>
+    /// <remarks>The writer retains pooled data or receives a stable copy. Borrowed data keeps its original segments.</remarks>
+    /// <returns>The destination's write status, or an unsuccessful read's status without writing to the destination.</returns>
+    public ValueTask<IOResult> WriteToAsync(IWriter writer, CancellationToken token = default)
+    {
+        if (Result != IOResult.Ok) return ValueTask.FromResult(Result);
+        ArgumentNullException.ThrowIfNull(writer);
+        return _owned.Owner is { } slice ? writer.WriteAsync(slice, token) : writer.WriteAsync(Data, token);
+    }
 
     public void Dispose() => _owned.Dispose();
 
@@ -36,5 +47,10 @@ public readonly struct ReadResult : IDisposable
 
     internal static ReadResult FromOwned(Channels.ReadResult result) => new(result);
 
-    internal static ReadResult Ok(ReadOnlySequence<byte> data) => new() { Result = IOResult.Ok, Data = data };
+    /// <summary>Creates a successful read over stable borrowed data.</summary>
+    public static ReadResult Ok(ReadOnlySequence<byte> data) => new() { Result = IOResult.Ok, Data = data };
+
+    /// <summary>Creates a successful read that takes ownership of the supplied slice.</summary>
+    /// <remarks>Dispose the result to release the slice. A reader can pass a fresh slice such as <c>buffer[..length]</c>.</remarks>
+    public static ReadResult FromOwnedSlice(Channels.PooledBuffer.Slice slice) => new(Channels.ReadResult.FromOwnedSlice(slice));
 }

@@ -30,6 +30,7 @@ public interface IReader
             token.ThrowIfCancellationRequested();
             using ReadResult result = await ReadAsync(0, ReadBlockingMode.WaitAny, token).ConfigureAwait(false);
             if (result.Result == IOResult.Ended) yield break;
+            if (result.Result == IOResult.Cancelled) token.ThrowIfCancellationRequested();
             if (result.Result != IOResult.Ok) throw new ChannelClosedException(result.Result);
             yield return result;
         }
@@ -50,6 +51,7 @@ public interface IWriter
     /// <remarks>The channel retains its own lease before returning. Published bytes must not be mutated while readers retain them.</remarks>
     ValueTask<IOResult> WriteAsync(PooledBuffer buffer, int length, int offset = 0, CancellationToken token = default);
 
+    /// <summary>Retains the slice before returning. The caller keeps its own lease.</summary>
     ValueTask<IOResult> WriteAsync(PooledBuffer.Slice slice, CancellationToken token = default);
 
     /// <summary>Writes the slices atomically in order. The caller retains ownership of each slice.</summary>
