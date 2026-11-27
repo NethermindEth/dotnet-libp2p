@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
+// cspell:ignore abfe
+
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Multiformats.Address;
