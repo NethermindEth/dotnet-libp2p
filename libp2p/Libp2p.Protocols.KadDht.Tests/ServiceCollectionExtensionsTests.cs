@@ -36,7 +36,7 @@ public class ServiceCollectionExtensionsTests
         PeerStore store = new();
         ByteString record = SigningHelper.CreateSignedEnvelope(remote, [], 5);
         store.Discover(record);
-        _services.AddSingleton(store);
+        _services.AddSingleton<IPeerStore>(store);
         _services.AddKadDht();
         using var provider = _services.BuildServiceProvider();
         var sender = provider.GetRequiredService<KademliaMessageSender>();
@@ -48,18 +48,18 @@ public class ServiceCollectionExtensionsTests
         session.DialAsync<RequestResponseProtocol<Message, Message>, Message, Message>(
             Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(_ => MessageHelper.CreateFindNodeResponse([node]));
         await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
         node = remote.PeerId.ToDhtNode([second]);
         await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { second }));
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(record));
-        Assert.That(store.GetPeerInfo(remote.PeerId).Seq, Is.EqualTo(5UL));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses?.Select(a => a.ToString()), Is.EqualTo(new[] { second }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(record));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).PeerRecordSequence, Is.EqualTo(5UL));
 
         ByteString signedAddresses = SigningHelper.CreateSignedEnvelope(remote, [first], 6);
         store.Discover(signedAddresses);
         await sender.FindNeighbours(remote.PeerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
-        Assert.That(store.GetPeerInfo(remote.PeerId).Addrs?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
-        Assert.That(store.GetPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(signedAddresses));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).Addresses?.Select(a => a.ToString()), Is.EqualTo(new[] { first }));
+        Assert.That(store.ReadPeerInfo(remote.PeerId).SignedPeerRecord, Is.EqualTo(signedAddresses));
     }
 
     [Test]
@@ -68,7 +68,7 @@ public class ServiceCollectionExtensionsTests
         PeerStore store = new(1);
         store.Discover([TestPeers.Multiaddr(2)]);
         var missing = TestPeers.PeerId(3).ToDhtNode();
-        _services.AddSingleton(store);
+        _services.AddSingleton<IPeerStore>(store);
         _services.AddKadDht();
         using var serviceProvider = _services.BuildServiceProvider();
         serviceProvider.GetRequiredService<KadDhtProtocol>().AddNode(missing);
@@ -135,7 +135,7 @@ public class ServiceCollectionExtensionsTests
         string relayAddress = $"/ip4/127.0.0.1/tcp/4001/p2p/{relayId}/p2p-circuit";
         var node = peerId.ToDhtNode([includeDestination ? $"{relayAddress}/p2p/{peerId}" : relayAddress]);
         var store = new PeerStore();
-        _services.AddSingleton(store);
+        _services.AddSingleton<IPeerStore>(store);
         _services.AddKadDht();
         using var serviceProvider = _services.BuildServiceProvider();
         var sender = serviceProvider.GetRequiredService<KademliaMessageSender>();
@@ -147,9 +147,9 @@ public class ServiceCollectionExtensionsTests
 
         await sender.FindNeighbours(peerId.ToDhtNode(), node.PublicKey, CancellationToken.None);
 
-        Assert.That(store.GetPeerInfo(peerId).Addrs?.Select(a => a.ToString()),
+        Assert.That(store.ReadPeerInfo(peerId).Addresses?.Select(a => a.ToString()),
             Is.EqualTo(new[] { $"{relayAddress}/p2p/{peerId}" }));
-        Assert.That(store.GetPeerInfo(relayId).Addrs, Is.Null);
+        Assert.That(store.TryGetPeerInfo(relayId, out _), Is.False);
     }
 
     [TestCase(true)]

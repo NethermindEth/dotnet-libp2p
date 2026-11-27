@@ -4,6 +4,7 @@
 using Google.Protobuf;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.ObjectModel;
 
@@ -26,7 +27,7 @@ public class ConnectionManagementTests
         await router.StartAsync(peer);
         store.Discover([discovered]);
 
-        Assert.That(store.GetPeerInfo(discovered.GetPeerId()!).Addrs, Has.Member(discovered));
+        Assert.That(store.ReadPeerInfo(discovered.GetPeerId()!).Addresses, Has.Member(discovered));
         await peer.Received(autoConnect ? 1 : 0).DialAsync(
             Arg.Is<Multiaddress[]>(a => a.Contains(known)), Arg.Any<CancellationToken>());
         await peer.Received(autoConnect ? 1 : 0).DialAsync(
@@ -48,7 +49,7 @@ public class ConnectionManagementTests
 
         await router.StartAsync(peer);
 
-        Assert.That(store.GetPeerInfo(direct.GetPeerId()!).Addrs, Has.Member(direct));
+        Assert.That(store.ReadPeerInfo(direct.GetPeerId()!).Addresses, Has.Member(direct));
         await peer.Received(autoConnect ? 1 : 0).DialAsync(
             Arg.Is<Multiaddress[]>(a => a.Contains(direct)), Arg.Any<CancellationToken>());
     }
@@ -122,7 +123,7 @@ public class ConnectionManagementTests
                 },
             });
 
-            Assert.That(store.GetPeerInfo(exchanged.GetPeerId()!).Addrs, Has.Member(exchanged));
+            Assert.That(store.ReadPeerInfo(exchanged.GetPeerId()!).Addresses, Has.Member(exchanged));
             await peer.Received(autoConnect ? 1 : 0).DialAsync(
                 Arg.Is<Multiaddress[]>(a => a.Contains(exchanged)), Arg.Any<CancellationToken>());
         }

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core.Context;
 using Nethermind.Libp2p.Core.TestsBase;
+using NSubstitute;
 
 namespace Nethermind.Libp2p.Core.Tests;
 
@@ -12,12 +13,22 @@ internal class SessionResponseCompatibilityTests
 {
     [TestCase(typeof(ISession))]
     [TestCase(typeof(ISessionContext))]
-    public void TypedDialHasADefaultImplementation(Type sessionType)
+    public void TypedDialWithoutRequestHasADefaultImplementation(Type sessionType)
     {
         var typedDial = sessionType.GetMethods().Single(method =>
-            method.Name == nameof(ISession.DialAsync) && method.GetGenericArguments().Length == 2);
+            method.Name == nameof(ISession.DialAsync) && method.GetGenericArguments().Length == 2 &&
+            method.GetParameters().Length == 1);
 
         Assert.That(typedDial.IsAbstract, Is.False, "Existing session implementations must not require a new member.");
+    }
+
+    [Test]
+    public void LegacySessionReportsUnsupportedTypedInstanceDialing()
+    {
+        ISession session = new LegacySession();
+        ISessionProtocol<int, string> protocol = Substitute.For<ISessionProtocol<int, string>>();
+
+        Assert.ThrowsAsync<NotSupportedException>(async () => await session.DialAsync(protocol, 42));
     }
 
     [TestCase(false)]

@@ -1,6 +1,6 @@
 # Working with sessions
 
-A session represents an established connection to a remote peer. It is created by dialing a peer address, an address set, or a peer id known to the `PeerStore`.
+A session represents a connection to a remote peer after transport negotiation. You can establish one by dialing a peer address, a set of addresses, or a peer ID known to the `IPeerStore`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -82,7 +82,7 @@ If discovery has populated the peer store, you can dial by peer id instead of ca
 ```csharp
 using Nethermind.Libp2p.Core.Discovery;
 
-PeerStore peerStore = provider.GetRequiredService<PeerStore>();
+IPeerStore peerStore = provider.GetRequiredService<IPeerStore>();
 peerStore.Discover([remoteAddress]);
 
 PeerId remotePeerId = remoteAddress.GetPeerId()!;
@@ -93,9 +93,28 @@ The address must include a `/p2p/<peer-id>` component so the peer store can asso
 
 Simultaneous dials reuse a live session for the authenticated peer. When both peers have already registered outbound sessions that are still initializing, a peer-id tie-break prefers the connection dialed by the smaller peer: the larger peer can initialize an inbound replacement for its pending outbound session. The original stays alive until the replacement initializes successfully. Established sessions and existing inbound sessions are retained, including an inbound session whose initialization is still pending. A later outbound attempt reuses that inbound session rather than replacing it. A failed replacement leaves the original available.
 
+## Inspecting sessions
+
+Read `peer.Sessions` to capture a read-only snapshot of registered inbound and outbound sessions. A registered session can still be initializing. Its remote peer ID and address are already available.
+
+```csharp
+IReadOnlyList<ISession> sessions = peer.Sessions;
+foreach (ISession session in sessions)
+{
+    if (session.IsInitialized && !session.Closed.IsCancellationRequested)
+    {
+        Console.WriteLine($"Connected to {session.RemotePeerId} at {session.RemoteAddress}");
+    }
+}
+```
+
+The snapshot keeps its membership while connections change. Read `peer.Sessions` again for updated membership. A closing session can still appear until removal completes. After `DisconnectAsync` completes, fresh snapshots exclude the session.
+
+`OnConnected` signals that a session completed initialization. If a session exposes a cancelable `Closed` token, its cancellation signals that closure has started.
+
 ## Incoming sessions
 
-Subscribe to `OnConnected` to react when a remote peer establishes a session with the local peer:
+Subscribe to `OnConnected` to react when an inbound or outbound session completes initialization.
 
 ```csharp
 peer.OnConnected += async remoteSession =>

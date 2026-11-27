@@ -2,17 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 using System.Net;
-using System.Net.Sockets;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
-using Multiformats.Address.Protocols;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.AutoNat;
 using Nethermind.Libp2p.Protocols.AutoNat.Dto;
-using Nethermind.Libp2p.Protocols.Identify;
 using ResponseStatus = Nethermind.Libp2p.Protocols.AutoNat.Dto.DialResponse.Types.ResponseStatus;
 
 namespace Nethermind.Libp2p.Protocols;
@@ -90,7 +87,7 @@ public class AutoNatV2ServerProtocol : ISessionListenerProtocol
         }
 
         // Amplification attack prevention: dialing an IP other than the requester's costs them dial data.
-        if (!Equals(GetIp(context.State.RemoteAddress), ip))
+        if (!Equals(NormalizeIPv4MappedAddress(context.State.RemoteAddress.GetDirectIPAddress()), ip))
         {
             if (!_limiter.TryAcceptDialData())
             {
@@ -133,12 +130,11 @@ public class AutoNatV2ServerProtocol : ISessionListenerProtocol
                 continue;
             }
 
-            // shortcut: DNS addresses are refused, not resolved; resolve them first if clients start sending them.
-            IPAddress? ip = GetIp(addr);
-            if (ip is null || (!_settings.AllowPrivateAddresses && !IsPublic(ip))) continue;
+            IPAddress? ip = addr.GetDirectIPAddress();
+            if (ip is null || (!_settings.AllowPrivateAddresses && !ip.IsPublicAddressCandidate())) continue;
             if (addr.GetPeerId() is { } target && target != peer) continue;
             if (!_dialBack.CanDial(addr)) continue;
-            return (i, addr, ip);
+            return (i, addr, NormalizeIPv4MappedAddress(ip));
         }
 
         return (-1, null, null);
@@ -167,23 +163,8 @@ public class AutoNatV2ServerProtocol : ISessionListenerProtocol
         }
     }
 
-    private static IPAddress? GetIp(Multiaddress? addr)
-    {
-        // Exactly one IP: we can't dial an address with more, and Multiaddress.Get<T>() throws on a repeat.
-        MultiaddressProtocol[] ips = addr is null ? [] : [.. addr.Protocols.Where(p => p is IP4 or IP6)];
-        if (ips.Length != 1) return null;
-        IPAddress ip = IPAddress.Parse(ips[0].ToString());
-        return ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip;
-    }
-
-    private static bool IsPublic(IPAddress ip)
-    {
-        if (ip.IsPrivate() || ip.IsIPv6Multicast || ip.Equals(IPAddress.IPv6Any)) return false;
-        if (ip.AddressFamily != AddressFamily.InterNetwork) return true;
-        byte[] b = ip.GetAddressBytes();
-        // 0.0.0.0/8, carrier-grade NAT 100.64.0.0/10, multicast and reserved 224.0.0.0/3
-        return b[0] != 0 && !(b[0] == 100 && (b[1] & 0xC0) == 64) && b[0] < 224;
-    }
+    private static IPAddress? NormalizeIPv4MappedAddress(IPAddress? ip)
+        => ip?.IsIPv4MappedToIPv6 == true ? ip.MapToIPv4() : ip;
 
     private static ValueTask WriteResponseAsync(IChannel channel, DialResponse response)
         => channel.WriteSizeAndProtobufAsync(new Message { DialResponse = response });

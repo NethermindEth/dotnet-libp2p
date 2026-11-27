@@ -22,6 +22,7 @@ public partial class LocalPeer
 
         public Multiaddress RemoteAddress => State.RemoteAddress ?? throw new Libp2pException("Session contains uninitialized remote address.");
         public PeerId RemotePeerId => State.RemotePeerId ?? throw new Libp2pException("Session contains uninitialized remote peer id.");
+        public bool IsInitialized => Connected.IsCompletedSuccessfully;
         public CancellationToken Closed => ConnectionToken;
 
         private readonly BlockingCollection<UpgradeOptions> SubDialRequests = [];
@@ -58,7 +59,7 @@ public partial class LocalPeer
             return (TResponse)result!;
         }
 
-        /// <summary>Dials a specific protocol instance with a request and returns its response.</summary>
+        /// <inheritdoc />
         public async Task<TResponse> DialAsync<TRequest, TResponse>(ISessionProtocol<TRequest, TResponse> protocol, TRequest request, CancellationToken token = default)
         {
             object? result = await DialAsyncCore(protocol, request, token);

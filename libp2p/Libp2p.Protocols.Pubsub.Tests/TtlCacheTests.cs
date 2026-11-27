@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Demerzel Solutions Limited
 // SPDX-License-Identifier: MIT
 
-using NSubstitute;
-
 namespace Nethermind.Libp2p.Protocols.Pubsub.Tests;
 
 [TestFixture]
@@ -12,7 +10,7 @@ public class TtlCacheTests
     public void RemoveExpired_RemovesEntriesRegardlessOfKeyOrder()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId> cache = new(500, clock);
+        TtlCache<MessageId> cache = new(500, clock);
         MessageId expiredHigh = new([0xFF]);
         MessageId liveLow = new([0x01]);
 
@@ -34,7 +32,7 @@ public class TtlCacheTests
     public void ContainsByBytes_FindsLiveEntriesAndRemovesExpiredOnes()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId> cache = new(500, int.MaxValue, clock, MessageIdComparer.Instance);
+        TtlCache<MessageId> cache = new(500, int.MaxValue, clock, MessageIdComparer.Instance);
         cache.Add(new MessageId([1, 2]));
 
         Assert.Multiple(() =>
@@ -61,7 +59,7 @@ public class TtlCacheTests
     public void ExpiredEntries_AreNotReturnedBeforeSweeping(string operation)
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId, string> cache = new(500, clock);
+        TtlCache<MessageId, string> cache = new(500, clock);
         MessageId id = new([0x01]);
         cache.Add(id, "value");
         clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
@@ -90,7 +88,7 @@ public class TtlCacheTests
     public void ToList_ReturnsOnlyLiveEntries()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId, string> cache = new(500, clock);
+        TtlCache<MessageId, string> cache = new(500, clock);
         cache.Add(new([0x01]), "expired");
         clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
         cache.Add(new([0x02]), "live");
@@ -103,7 +101,7 @@ public class TtlCacheTests
     public void Add_ReplacesAnExpiredEntry()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId, string> cache = new(500, clock);
+        TtlCache<MessageId, string> cache = new(500, clock);
         MessageId id = new([0x01]);
         cache.Add(id, "expired");
         clock.UtcNow = clock.UtcNow.AddMilliseconds(500);
@@ -119,7 +117,7 @@ public class TtlCacheTests
     public void Add_DoesNotReplaceOrRefreshALiveEntry()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId, string> cache = new(500, clock);
+        TtlCache<MessageId, string> cache = new(500, clock);
         MessageId id = new([0x01]);
         cache.Add(id, "original");
         clock.UtcNow = clock.UtcNow.AddMilliseconds(250);
@@ -134,7 +132,7 @@ public class TtlCacheTests
     public void Add_EvictsTheOldestLiveEntryAtCapacity()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId, string> cache = new(ttl: 500, maxEntries: 2, timeProvider: clock);
+        TtlCache<MessageId, string> cache = new(ttl: 500, maxEntries: 2, timeProvider: clock);
         MessageId first = new([0x01]);
         MessageId second = new([0x02]);
         MessageId third = new([0x03]);
@@ -155,7 +153,7 @@ public class TtlCacheTests
     public void RemoveExpired_RemovesLaterEntriesAfterClockMovesBackward()
     {
         TestTimeProvider clock = new();
-        using TtlCache<MessageId> cache = new(500, clock);
+        TtlCache<MessageId> cache = new(500, clock);
         MessageId first = new([0x01]);
         MessageId second = new([0x02]);
         cache.Add(first);
@@ -175,9 +173,5 @@ public class TtlCacheTests
         public DateTimeOffset UtcNow { get; set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         public override DateTimeOffset GetUtcNow() => UtcNow;
-
-        // Keep the background sweeper dormant so each test controls expiry explicitly.
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-            => Substitute.For<ITimer>();
     }
 }

@@ -32,6 +32,10 @@ public class TcpPeerFactoryBuilder(IServiceProvider provider)
 Register a derived builder with `services.AddLibp2p<TcpPeerFactoryBuilder>()`.
 The existing `With*` options continue to control the base hook implementations.
 
+For pubsub, register the router with `services.AddPubsub()` and select the handlers
+with `builder.WithPubsub()`. See the [pubsub setup guide](../Libp2p.Protocols.Pubsub/README.md#setup)
+for router configuration and startup.
+
 WebSockets, WebRTC Direct and Kademlia DHT ship as separate packages and are not
 dependencies of this package. To add a transport from another package, extend the
 transport hook of a derived builder:

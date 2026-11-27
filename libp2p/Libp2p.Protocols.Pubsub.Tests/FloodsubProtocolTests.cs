@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Nethermind.Libp2p.Core.Discovery;
+using Nethermind.Libp2p.Core.TestsBase;
 using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols.Pubsub.Dto;
 using System.Collections.Concurrent;
@@ -20,6 +21,7 @@ public class FloodsubProtocolTests
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
         FloodsubEndpoint endpoint = new(deadline.Token);
         await using ServiceProvider localServices = new ServiceCollection()
+            .AddPubsub()
             .AddLibp2p(builder => builder.WithPubsub())
             .AddSingleton(new PubsubSettings { HeartbeatInterval = int.MaxValue, ReconnectionPeriod = int.MaxValue })
             .BuildServiceProvider();
@@ -34,7 +36,7 @@ public class FloodsubProtocolTests
         remotePeer.OnConnected += sessions.Add;
         PubsubRouter router = localServices.GetRequiredService<PubsubRouter>();
         IRoutingStateContainer state = router;
-        PeerStore peerStore = localServices.GetRequiredService<PeerStore>();
+        IPeerStore peerStore = localServices.GetRequiredService<IPeerStore>();
         const string commonTopic = "topic1";
         byte[] marker = "remote subscription processed"u8.ToArray();
         byte[] payload = "local floodsub publication"u8.ToArray();
@@ -54,7 +56,7 @@ public class FloodsubProtocolTests
             Rpc snapshot = await endpoint.WaitAsync(endpoint.Subscription.Task, "the local subscription snapshot");
             Assert.That(snapshot.Subscriptions.Select(s => (s.Topicid, s.Subscribe)),
                 Is.EqualTo(new[] { (commonTopic, true) }));
-            string[] protocols = peerStore.GetPeerInfo(remotePeer.Identity.PeerId).SupportedProtocols ?? [];
+            IReadOnlyList<string> protocols = peerStore.ReadPeerInfo(remotePeer.Identity.PeerId).SupportedProtocols ?? [];
             Assert.That(protocols
                 .Where(p => p == PubsubRouter.FloodsubProtocolVersion || p.StartsWith("/meshsub/", StringComparison.Ordinal)),
                 Is.EqualTo(new[] { PubsubRouter.FloodsubProtocolVersion }));

@@ -51,7 +51,7 @@ public class ResourceDeadlineTests
             LocalPeer.Session session = NewSession(peer, i);
             sessions.Add(session);
             peer.UpgradeToSession(session, peer.Protocol, listener, null);
-            Assert.That(store.GetPeerInfo(session.RemotePeerId).Sessions, Is.EqualTo(1));
+            Assert.That(store.GetRetainedSessionCount(session.RemotePeerId), Is.EqualTo(1));
         }
         Assert.Throws<Libp2pException>(() => peer.UpgradeToSession(NewSession(peer, 4), peer.Protocol, listener, null));
         foreach (Clock.Deadline deadline in clock.Deadlines.ToArray()) deadline.Fire();
@@ -60,7 +60,7 @@ public class ResourceDeadlineTests
             Assert.That(session.Closed.IsCancellationRequested, Is.True, "The deadline itself must cancel the connection.");
             await session.DisconnectAsync();
             Assert.That(session.Connected.IsCompletedSuccessfully, Is.False);
-            Assert.That(store.GetPeerInfo(session.RemotePeerId).Sessions, Is.Zero);
+            Assert.That(store.GetRetainedSessionCount(session.RemotePeerId), Is.Zero);
         }
         await peer.AllStopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(peer.Sessions, Is.Empty);
@@ -68,7 +68,7 @@ public class ResourceDeadlineTests
         LocalPeer.Session healthy = NewSession(peer, 4);
         peer.UpgradeToSession(healthy, peer.Protocol, listener, null);
         await healthy.Connected.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.That(store.GetPeerInfo(healthy.RemotePeerId).Sessions, Is.EqualTo(1));
+        Assert.That(store.GetRetainedSessionCount(healthy.RemotePeerId), Is.EqualTo(1));
     }
 
     [Test]
@@ -83,7 +83,7 @@ public class ResourceDeadlineTests
         clock.Deadlines.Single().Fire();
         Assert.That(first.Closed.IsCancellationRequested, Is.True);
         await first.DisconnectAsync();
-        Assert.That(store.GetPeerInfo(first.RemotePeerId).Sessions, Is.Zero);
+        Assert.That(store.GetRetainedSessionCount(first.RemotePeerId), Is.Zero);
         Assert.Throws<Libp2pException>(() => peer.UpgradeToSession(NewSession(peer, 2), peer.Protocol, true, null));
         Assert.That(peer.Initializers, Is.EqualTo(1));
         release.SetResult();

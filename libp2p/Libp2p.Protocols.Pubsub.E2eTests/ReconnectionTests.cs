@@ -23,7 +23,7 @@ public class ReconnectionTests
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
-        foreach ((_, PeerStore peerStore) in test.PeerStores.Skip(1))
+        foreach ((_, IPeerStore peerStore) in test.PeerStores.Skip(1))
         {
             peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
@@ -49,7 +49,7 @@ public class ReconnectionTests
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
-        foreach ((_, PeerStore peerStore) in test.PeerStores.Skip(1))
+        foreach ((_, IPeerStore peerStore) in test.PeerStores.Skip(1))
         {
             peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }
@@ -75,7 +75,7 @@ public class ReconnectionTests
 
         await test.AddPeersAsync(totalCount);
         test.Subscribe(commonTopic);
-        foreach ((_, PeerStore peerStore) in test.PeerStores.Skip(1))
+        foreach ((_, IPeerStore peerStore) in test.PeerStores.Skip(1))
         {
             peerStore.Discover([.. test.Peers[0].ListenAddresses]);
         }

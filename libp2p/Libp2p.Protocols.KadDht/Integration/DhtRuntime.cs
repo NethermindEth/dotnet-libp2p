@@ -23,7 +23,7 @@ internal sealed class DhtRuntime : IDisposable, IAsyncDisposable
     {
         var options = sp.GetRequiredService<KadDhtOptions>();
         var loggerFactory = sp.GetService<ILoggerFactory>();
-        var peerStore = sp.GetService<PeerStore>();
+        var peerStore = sp.GetService<IPeerStore>();
         var values = sp.GetRequiredService<IValueStore>();
         var providers = sp.GetRequiredService<IProviderStore>();
         var validator = sp.GetRequiredService<IRecordValidator>();

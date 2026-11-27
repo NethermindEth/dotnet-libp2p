@@ -18,7 +18,7 @@ using System.Text;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, PeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
+public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackSettings, IdentifyProtocolSettings? settings = null, IPeerStore? peerStore = null, ILoggerFactory? loggerFactory = null, TimeProvider? timeProvider = null)
 {
     // Match go-libp2p's signed identify message cap and read deadline, for both Identify and Push.
     private const int MaxMessageLength = 8 * 1024;
@@ -28,7 +28,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
     private const int DefaultProtocolCapacity = 64;
     private const int MaxStoredProtocolIdBytes = 128;
     protected readonly ILogger? _logger = loggerFactory?.CreateLogger<IdentifyProtocol>();
-    private readonly PeerStore? _peerStore = peerStore;
+    private readonly IPeerStore? _peerStore = peerStore;
     private readonly IProtocolStackSettings _protocolStackSettings = protocolStackSettings;
     private readonly IdentifyProtocolSettings _settings = settings ?? new IdentifyProtocolSettings();
 
@@ -51,7 +51,8 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
 
         ByteString? signedPeerRecord = identify.HasSignedPeerRecord ? identify.SignedPeerRecord : null;
         ulong? priorSeq = context.State.VerifiedPeerRecordSequence;
-        if (_peerStore?.GetVerifiedPeerRecordSequence(context.State.RemotePeerId) is { } cachedSeq)
+        if (_peerStore is not null && _peerStore.TryGetPeerInfo(context.State.RemotePeerId, out PeerMetadata? metadata) &&
+            metadata is { SignedPeerRecord: not null, PeerRecordSequence: { } cachedSeq })
         {
             if (priorSeq is null || cachedSeq > priorSeq) priorSeq = cachedSeq;
         }
@@ -88,7 +89,7 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
                     if (protocols.Count >= DefaultProtocolCapacity) break;
                     if (protocol.Length <= MaxStoredProtocolIdBytes && Encoding.UTF8.GetByteCount(protocol) <= MaxStoredProtocolIdBytes && selected.Add(protocol)) protocols.Add(protocol);
                 }
-                _peerStore.SetSupportedProtocols(context.State.RemotePeerId, protocols.ToArray());
+                _peerStore.SetSupportedProtocols(context.State.RemotePeerId, protocols);
             }
             if (verifiedPeerRecord)
             {
@@ -187,19 +188,12 @@ public abstract class IdentifyProtocolBase(IProtocolStackSettings protocolStackS
             SignedPeerRecord = SigningHelper.CreateSignedEnvelope(context.Peer.Identity, advertisedAddresses, idVersion),
         };
 
-        // Include all routable addresses in ListenAddrs — only exclude loopback
-        // and unspecified (0.0.0.0/::). Private/LAN addresses (192.168.x.x, 10.x.x.x, etc.)
-        // are kept because they are routable within the local network.
+        // Keep LAN addresses in ListenAddrs. Exclude loopback and unspecified addresses.
         ByteString[] endpoints = advertisedAddresses
-            .Where(a =>
-            {
-                IPAddress ip = a.ToEndPoint().Address;
-                return !IPAddress.IsLoopback(ip)
-                    && !ip.Equals(IPAddress.Any)
-                    && !ip.Equals(IPAddress.IPv6Any);
-            })
-            .Select(a => a.ToEndPoint(out ProtocolType proto).ToMultiaddress(proto))
-            .Select(a => ByteString.CopyFrom(a.ToBytes())).ToArray();
+            .Select(a => (Endpoint: a.ToEndPoint(out ProtocolType protocol), Protocol: protocol))
+            .Where(a => !a.Endpoint.Address.IsLoopbackAddress() && !a.Endpoint.Address.IsUnspecified())
+            .Select(a => ByteString.CopyFrom(a.Endpoint.ToMultiaddress(a.Protocol).ToBytes()))
+            .ToArray();
 
         identify.ListenAddrs.AddRange(endpoints);
 

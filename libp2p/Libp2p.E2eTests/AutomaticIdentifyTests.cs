@@ -120,7 +120,7 @@ public class AutomaticIdentifyTests
         await remoteConnected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(session.RemoteAddress.GetPeerId(), Is.EqualTo(setup.Peers[1].Identity.PeerId));
         if (mode == 0) return;
-        Assert.That(setup.PeerStores[1].GetPeerInfo(setup.Peers[0].Identity.PeerId).Seq, Is.EqualTo(1));
+        Assert.That(setup.PeerStores[1].ReadPeerInfo(setup.Peers[0].Identity.PeerId).PeerRecordSequence, Is.EqualTo(1));
 
         Multiaddress advertised = $"/ip4/192.0.2.1/tcp/12345/p2p/{setup.Peers[0].Identity.PeerId}";
         TaskCompletionSource received = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -132,8 +132,8 @@ public class AutomaticIdentifyTests
         setup.Peers[0].ListenAddresses.Add(advertised);
 
         await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        PeerStore.PeerInfo info = setup.PeerStores[1].GetPeerInfo(setup.Peers[0].Identity.PeerId);
-        Assert.That(info.Seq, Is.GreaterThan(1));
+        PeerMetadata info = setup.PeerStores[1].ReadPeerInfo(setup.Peers[0].Identity.PeerId);
+        Assert.That(info.PeerRecordSequence, Is.GreaterThan(1));
     }
 
     private sealed class AutomaticSetup(int mode) : E2eTestSetup
@@ -161,10 +161,10 @@ public class AutomaticIdentifyTests
         }
     }
 
-    private sealed class DerivedIdentify(IProtocolStackSettings stack, PeerStore store) : IdentifyProtocol(stack, peerStore: store);
-    private sealed class DerivedPush(IProtocolStackSettings stack, PeerStore store) : IdentifyPushProtocol(stack, peerStore: store);
+    private sealed class DerivedIdentify(IProtocolStackSettings stack, IPeerStore store) : IdentifyProtocol(stack, peerStore: store);
+    private sealed class DerivedPush(IProtocolStackSettings stack, IPeerStore store) : IdentifyPushProtocol(stack, peerStore: store);
 
-    private sealed class ForwardedIdentify(IProtocolStackSettings stack, PeerStore store) : ISessionProtocol
+    private sealed class ForwardedIdentify(IProtocolStackSettings stack, IPeerStore store) : ISessionProtocol
     {
         private readonly IdentifyProtocol _inner = new(stack, peerStore: store);
         public string Id => IdentifyProtocol.ProtocolId;
@@ -172,7 +172,7 @@ public class AutomaticIdentifyTests
         public Task ListenAsync(IChannel channel, ISessionContext context) => _inner.ListenAsync(channel, context);
     }
 
-    private sealed class ForwardedPush(IProtocolStackSettings stack, PeerStore store) : ISessionProtocol<ulong, ulong>
+    private sealed class ForwardedPush(IProtocolStackSettings stack, IPeerStore store) : ISessionProtocol<ulong, ulong>
     {
         private readonly IdentifyPushProtocol _inner = new(stack, peerStore: store);
         public string Id => IdentifyPushProtocol.ProtocolId;
