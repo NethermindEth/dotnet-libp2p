@@ -55,11 +55,16 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         // A cached session is not proof of a live connection, so a failed probe evicts it in WithSession.
         LivenessProbe.EnsureSupported(_localPeer);
         // This path reports liveness by completing rather than by a value, so a refusal must not escape.
-        using CancellationTokenSource operation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        operation.CancelAfter(LivenessProbe.DefaultTimeout);
-        await WithSession(receiver, "liveness check", token,
-            session => LivenessProbe.ProbeWaitingForStreamAsync(
-                session, LivenessProbe.DefaultTimeout, token, operation.Token));
+        await WithSession(receiver, "liveness check", token, async session =>
+        {
+            // The deadline starts here, once the connection slot and the session are in hand. Starting
+            // it earlier would charge the probe for time spent queueing behind other operations, and
+            // an expiry before any ping was sent reads as a dead peer.
+            using CancellationTokenSource operation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            operation.CancelAfter(LivenessProbe.DefaultTimeout);
+            await LivenessProbe.ProbeWaitingForStreamAsync(
+                session, LivenessProbe.DefaultTimeout, token, operation.Token);
+        });
     }
 
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)
