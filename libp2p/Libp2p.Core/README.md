@@ -49,6 +49,8 @@ always uses the requested identity, even if an older or directly modified cache
 entry contains other addresses. An entirely unidentified list is rejected explicitly.
 
 DNS budgets limit lookups and derived addresses. Caller literals remain candidates,
-with at most 16 transport attempts active at once under one connection deadline.
+with at most 16 transport attempts active at once under one connection deadline
+that starts after resolution and includes session initialization. Configure it with
+`PeerResourceLimits.ConnectionTimeout`, which defaults to 15 seconds.
 Failed attempts free a slot immediately; later fallbacks are not truncated. Cancellation
 or success cancels losing attempts without starting the remaining candidates.

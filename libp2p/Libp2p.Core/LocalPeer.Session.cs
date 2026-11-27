@@ -14,6 +14,12 @@ public partial class LocalPeer
     public class Session(LocalPeer peer, Activity? activity = null) : ISession
     {
         private static int SessionIdCounter;
+        private PendingDial? _pendingDial;
+
+        internal Session(LocalPeer peer, Activity? activity, PendingDial pendingDial) : this(peer, activity)
+        {
+            _pendingDial = pendingDial;
+        }
 
         public string Id { get; } = Interlocked.Increment(ref SessionIdCounter).ToString();
         public State State { get; } = new();
@@ -282,12 +288,17 @@ public partial class LocalPeer
             lock (peer.Sessions)
                 lock (_lifecycleLock)
                 {
-                    if (peer._disposal is not null || _disconnection is not null || _deadlineExpired || DuplicateSessionFailure is not null) return false;
+                    // A transport can finish setup after the shared dial expires but before its own token is canceled.
+                    if (peer._disposal is not null || _disconnection is not null || _deadlineExpired ||
+                        DuplicateSessionFailure is not null || _pendingDial?.ConnectionCancellation.IsCancellationRequested == true) return false;
                     _deadlineStage = 3;
                     _deadline?.Dispose();
                     _deadline = null;
                     if (_applicationOperations == 0) _idleSince = peer.Clock.GetTimestamp();
-                    return ConnectedTcs.TrySetResult();
+                    if (_pendingDial is not { } pendingDial) return ConnectedTcs.TrySetResult();
+                    if (!pendingDial.TrySetConnected(this)) return false;
+                    _pendingDial = null;
+                    return true;
                 }
         }
 
@@ -300,6 +311,7 @@ public partial class LocalPeer
             {
                 if (_disconnection is not null) return _disconnection.Task;
                 _disconnection = disconnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                _pendingDial = null;
                 _deadlineStage = 3;
                 _deadline?.Dispose();
                 _deadline = null;

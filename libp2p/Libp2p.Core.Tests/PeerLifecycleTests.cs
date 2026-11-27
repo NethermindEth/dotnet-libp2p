@@ -916,6 +916,171 @@ internal class PeerLifecycleTests
     }
 
     [Test]
+    public async Task ConnectionBudgetStartsAfterAddressResolution()
+    {
+        TimeSpan budget = TimeSpan.FromSeconds(2);
+        TimeSpan guard = TimeSpan.FromSeconds(5);
+        ManualTimeProvider clock = new();
+        IDnsLookup dns = Substitute.For<IDnsLookup>();
+        TaskCompletionSource queryStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<IEnumerable<string>> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        dns.QueryTxtAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            queryStarted.SetResult();
+            return answer.Task.WaitAsync(call.Arg<CancellationToken>());
+        });
+        GateTransport transport = new();
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport, resolver: new MultiaddrResolver(dns, clock),
+            resourceLimits: new PeerResourceLimits(connectionTimeout: budget), clock: clock);
+        Multiaddress literal = $"/ip4/127.0.0.1/tcp/4001/p2p/{TestPeers.PeerId(2)}";
+        Multiaddress name = $"/dnsaddr/pending.test/p2p/{TestPeers.PeerId(2)}";
+        using CancellationTokenSource caller = new();
+        Task<ISession> dial = peer.DialAsync([literal, name], caller.Token);
+        try
+        {
+            await queryStarted.Task.WaitAsync(guard);
+            Assert.That(clock.ActiveTimersFor(budget), Is.Zero);
+            clock.Advance(budget + TimeSpan.FromSeconds(1));
+            Assert.That(transport.Started.Task.IsCompleted, Is.False);
+            Assert.That(dial.IsCompleted, Is.False);
+
+            answer.SetResult([$"dnsaddr={literal}"]);
+            await transport.Started.Task.WaitAsync(guard);
+            Assert.That(clock.ActiveTimersFor(TimeSpan.FromSeconds(15)), Is.Zero);
+            Assert.That(clock.ActiveTimersFor(budget), Is.EqualTo(1));
+            clock.Advance(budget);
+            await Task.WhenAny(dial).WaitAsync(guard);
+            Assert.ThrowsAsync<TimeoutException>(async () => await dial);
+            await transport.Canceled.Task.WaitAsync(guard);
+        }
+        finally { caller.Cancel(); }
+    }
+
+    [Test]
+    public async Task ExpiredAttemptCannotPublishAsConnectedDuringTransportStartup()
+    {
+        TimeSpan budget = TimeSpan.FromSeconds(2);
+        TimeSpan guard = TimeSpan.FromSeconds(5);
+        ManualTimeProvider clock = new();
+        GateTransport transport = new()
+        {
+            BeforeDial = (_, _) =>
+            {
+                clock.Advance(budget);
+                return Task.CompletedTask;
+            }
+        };
+        transport.CompleteDial.SetResult();
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport,
+            resourceLimits: new PeerResourceLimits(connectionTimeout: budget), clock: clock);
+        bool published = false;
+        peer.OnConnected += _ => published = true;
+
+        Task<ISession> dial = peer.DialAsync(TestPeers.Multiaddr(2));
+        await Task.WhenAny(dial).WaitAsync(guard);
+        Assert.ThrowsAsync<TimeoutException>(async () => await dial);
+        await transport.ConnectionClosed.Task.WaitAsync(guard);
+        Assert.That(published, Is.False);
+        Assert.That(peer.Sessions, Is.Empty);
+    }
+
+    [Test]
+    public async Task SharedDeadlinePreventsPublishingReadinessWhileInitializationFinishes()
+    {
+        TimeSpan budget = TimeSpan.FromSeconds(2);
+        TimeSpan guard = TimeSpan.FromSeconds(5);
+        BlockingTimestampClock clock = new();
+        GateTransport transport = new();
+        TaskCompletionSource initializing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport, () =>
+        {
+            initializing.SetResult();
+            return initialization.Task;
+        }, resourceLimits: new PeerResourceLimits(connectionTimeout: budget), clock: clock);
+        TaskCompletionSource published = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        peer.OnConnected += _ => published.TrySetResult();
+
+        // Post the dial continuations so transport cancellation can race with the
+        // initializer without synchronously waiting for its lifecycle lock.
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        Task<ISession> dial;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(new PostingSynchronizationContext());
+            dial = peer.DialAsync(TestPeers.Multiaddr(2));
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); }
+        transport.CompleteDial.SetResult();
+        await initializing.Task.WaitAsync(guard);
+        ISession session = peer.Sessions.Single();
+        Task expire = Task.CompletedTask;
+        try
+        {
+            initialization.SetResult();
+            await clock.TimestampRequested.Task.WaitAsync(guard);
+            expire = Task.Run(() => clock.Advance(budget));
+            await Task.WhenAny(dial).WaitAsync(guard);
+            Assert.ThrowsAsync<TimeoutException>(async () => await dial);
+        }
+        finally
+        {
+            clock.ReleaseTimestamp.TrySetResult();
+            await expire.WaitAsync(guard);
+        }
+
+        await transport.ConnectionClosed.Task.WaitAsync(guard);
+        await session.DisconnectAsync().WaitAsync(guard);
+        Assert.That(session.IsInitialized, Is.False);
+        Assert.That(published.Task.IsCompleted, Is.False);
+        Assert.That(peer.Sessions, Is.Empty);
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task ReadyAttemptKeepsTransportWhenDeadlineFiresBeforeDialReturns()
+    {
+        TimeSpan budget = TimeSpan.FromSeconds(2);
+        TimeSpan guard = TimeSpan.FromSeconds(5);
+        ManualTimeProvider clock = new();
+        GateTransport transport = new();
+        TaskCompletionSource recordingDuration = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseMeasurement = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Histogram<double> dialDuration = Libp2pMetrics.DialDuration;
+        using MeterListener listener = new();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument == dialDuration) meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<double>((_, _, _, _) =>
+        {
+            recordingDuration.TrySetResult();
+            releaseMeasurement.Task.GetAwaiter().GetResult();
+        });
+        listener.Start();
+
+        await using ControlledPeer peer = new(TestPeers.Identity(1), transport,
+            resourceLimits: new PeerResourceLimits(connectionTimeout: budget), clock: clock);
+        Task<ISession> dial = peer.DialAsync(TestPeers.Multiaddr(2));
+        ISession session;
+        try
+        {
+            transport.CompleteDial.SetResult();
+            await recordingDuration.Task.WaitAsync(guard);
+            Assert.That(dial.IsCompleted, Is.False);
+            clock.Advance(budget);
+            session = await dial.WaitAsync(guard);
+        }
+        finally { releaseMeasurement.TrySetResult(); }
+
+        Assert.That(session.IsInitialized, Is.True);
+        Assert.That(session.Closed.IsCancellationRequested, Is.False);
+        Assert.That(transport.PostUpgradeDialCanceled.Task.IsCompleted, Is.False);
+        await session.DisconnectAsync();
+        await transport.ConnectionClosed.Task.WaitAsync(guard);
+    }
+
+    [Test]
     public async Task CancelingLastWaiterAfterUpgradeDisconnectsPendingSession()
     {
         GateTransport transport = new();
@@ -1085,8 +1250,9 @@ internal class PeerLifecycleTests
         return session;
     }
 
-    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, IPeerStore? store = null, ILoggerFactory? loggerFactory = null)
-        : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, loggerFactory: loggerFactory, multiaddrResolver: resolver)
+    private sealed class ControlledPeer(Identity identity, ITransportProtocol? transport = null, Func<Task>? connectedTo = null, ActivitySource? activitySource = null, MultiaddrResolver? resolver = null, IPeerStore? store = null, ILoggerFactory? loggerFactory = null,
+        PeerResourceLimits? resourceLimits = null, TimeProvider? clock = null)
+        : LocalPeer(identity, store, new ProtocolStackSettings(), activitySource, loggerFactory: loggerFactory, multiaddrResolver: resolver, resourceLimits: resourceLimits, timeProvider: clock)
     {
         protected override ProtocolRef SelectProtocol(Multiaddress addr) => new(transport ?? new GateTransport());
         protected override Task ConnectedTo(ISession session, bool isDialer) => connectedTo?.Invoke() ?? Task.CompletedTask;
@@ -1109,6 +1275,27 @@ internal class PeerLifecycleTests
 
         public void Expire() => _callback!(_state);
     }
+
+    private sealed class BlockingTimestampClock : TimeProvider
+    {
+        private readonly ManualTimeProvider _clock = new();
+        public TaskCompletionSource TimestampRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseTimestamp { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override long GetTimestamp()
+        {
+            TimestampRequested.TrySetResult();
+            ReleaseTimestamp.Task.GetAwaiter().GetResult();
+            return base.GetTimestamp();
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            => _clock.CreateTimer(callback, state, dueTime, period);
+
+        public void Advance(TimeSpan elapsed) => _clock.Advance(elapsed);
+    }
+
+    private sealed class PostingSynchronizationContext : SynchronizationContext;
 
     private sealed class BlockingFailureLogger : ILogger, ILoggerFactory
     {
