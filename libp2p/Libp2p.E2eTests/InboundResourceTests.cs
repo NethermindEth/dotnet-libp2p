@@ -9,6 +9,7 @@ using Multiformats.Address.Net;
 using Nethermind.Libp2p;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Core.Discovery;
 using Nethermind.Libp2p.Core.TestsBase;
 
@@ -59,7 +60,7 @@ public class InboundResourceTests
     [Test]
     public void RegisteredBuiltInProtocolsHaveFiniteLimits()
     {
-        using ServiceProvider services = new ServiceCollection().AddLibp2p(builder => builder.WithPubsub().WithRelay()).BuildServiceProvider();
+        using ServiceProvider services = new ServiceCollection().AddPubsub().AddLibp2p(builder => builder.WithPubsub().WithRelay()).BuildServiceProvider();
         _ = services.GetRequiredService<IPeerFactory>();
         var protocols = services.GetRequiredService<IProtocolStackSettings>().Protocols!.Keys;
         foreach (ProtocolRef protocol in protocols.Where(p => p.Protocol is ISessionListenerProtocol or ISessionProtocol))

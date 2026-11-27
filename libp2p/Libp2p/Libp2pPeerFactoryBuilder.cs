@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics.CodeAnalysis;
 using Nethermind.Libp2p.Core;
 using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Pubsub;
 using Nethermind.Libp2p.Protocols.Tls;
 
 namespace Nethermind.Libp2p;
@@ -52,6 +53,7 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
         return this;
     }
 
+    /// <inheritdoc />
     public ILibp2pPeerFactoryBuilder WithPubsub()
     {
         EnsureConfigurable();
@@ -98,13 +100,22 @@ public class Libp2pPeerFactoryBuilder : PeerFactoryBuilderBase<Libp2pPeerFactory
     protected virtual ProtocolRef[] Relay() => addRelay ? [Get<RelayStopProtocol>(ProtocolLimits.RelayStop), Get<RelayHopProtocol>(ProtocolLimits.RelayHop)] : [];
 
     /// <summary>Pubsub application protocols, in negotiation order.</summary>
-    protected virtual ProtocolRef[] Pubsub() => addPubsub ? [
-        Get<GossipsubProtocolV13>(ProtocolLimits.Pubsub),
-        Get<GossipsubProtocolV12>(ProtocolLimits.Pubsub),
-        Get<GossipsubProtocolV11>(ProtocolLimits.Pubsub),
-        Get<GossipsubProtocol>(ProtocolLimits.Pubsub),
-        Get<FloodsubProtocol>(ProtocolLimits.Pubsub)
-        ] : [];
+    protected virtual ProtocolRef[] Pubsub()
+    {
+        if (!addPubsub) return [];
+        if (ServiceProvider.GetService<PubsubRouter>() is null)
+        {
+            throw new InvalidOperationException("WithPubsub() requires a registered PubsubRouter. Call AddPubsub() on the service collection used by this builder.");
+        }
+
+        return [
+            Get<GossipsubProtocolV13>(ProtocolLimits.Pubsub),
+            Get<GossipsubProtocolV12>(ProtocolLimits.Pubsub),
+            Get<GossipsubProtocolV11>(ProtocolLimits.Pubsub),
+            Get<GossipsubProtocol>(ProtocolLimits.Pubsub),
+            Get<FloodsubProtocol>(ProtocolLimits.Pubsub)
+        ];
+    }
 
     protected override ProtocolRef[] BuildStack(IEnumerable<ProtocolRef> additionalProtocols)
     {

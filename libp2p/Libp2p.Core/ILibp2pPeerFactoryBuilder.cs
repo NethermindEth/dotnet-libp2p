@@ -14,7 +14,10 @@ public interface ILibp2pPeerFactoryBuilder : IPeerFactoryBuilder
     IServiceCollection Services { get; }
 
     public ILibp2pPeerFactoryBuilder WithPlaintextEnforced();
+
+    /// <summary>Selects the standard pubsub handlers. Register a router with <c>AddPubsub()</c> and start it explicitly.</summary>
     public ILibp2pPeerFactoryBuilder WithPubsub();
+
     public ILibp2pPeerFactoryBuilder WithRelay();
     public ILibp2pPeerFactoryBuilder WithQuic();
 }
