@@ -38,6 +38,8 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
 
     private readonly Dictionary<object, ListenerRegistration> _listeners = [];
     private readonly CancellationTokenSource _listenerLifetime = new();
+    internal CancellationToken ShutdownToken => _listenerLifetime.Token;
+    internal bool IsDisposing => Volatile.Read(ref _disposal) is not null;
     private readonly Lock _pendingDialsLock = new();
     private readonly Dictionary<PeerId, PendingDial> _pendingDials = [];
     private readonly HashSet<Session> _connections = [];
@@ -266,7 +268,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         }
         catch
         {
-            if (session is not null) _ = session.DisconnectAsync();
+            if (session is not null) _ = session.DisconnectAsync(SessionCloseReason.ConnectionLost);
             throw;
         }
         activity?.SetTag("session.id", session.Id);
@@ -321,7 +323,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         }
         catch
         {
-            ObserveLateFailure(initializationStarted ? FinishFailedInitializationAsync(session) : session.DisconnectAsync());
+            ObserveLateFailure(initializationStarted ? FinishFailedInitializationAsync(session) : session.DisconnectAsync(SessionCloseReason.ConnectionLost));
             throw;
         }
 
@@ -353,6 +355,8 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         }
         catch (Exception failure)
         {
+            // After initialization publishes readiness, only the local callback can fail here.
+            SessionCloseReason reason = connected ? SessionCloseReason.LocalDisconnect : SessionCloseReason.ConnectionLost;
             connected = false;
             try
             {
@@ -366,7 +370,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
                         loggedFailure, "Disconnecting due to exception");
                 }
             }
-            finally { await session.DisconnectAsync(); }
+            finally { await session.DisconnectAsync(reason); }
         }
         finally
         {
@@ -406,7 +410,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
             }
             if (alternative is null)
             {
-                if (displaced is not null) ObserveLateFailure(displaced.DisconnectAsync());
+                if (displaced is not null) ObserveLateFailure(displaced.DisconnectAsync(SessionCloseReason.ConnectionLost));
                 return connected;
             }
             // Do not publish the old connection while the preferred alternative is undecided.
@@ -420,7 +424,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
     {
         try
         {
-            try { await session.DisconnectAsync(); }
+            try { await session.DisconnectAsync(SessionCloseReason.ConnectionLost); }
             finally { await session.DrainUpgradesAsync(); }
         }
         finally { session.EndInitialization(); }
@@ -784,7 +788,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
             }
             catch (Exception failure)
             {
-                await session.DisconnectAsync();
+                await session.DisconnectAsync(SessionCloseReason.ConnectionLost);
                 Libp2pMetrics.DialFailures.Add(1);
                 dialActivity?.SetStatus(ActivityStatusCode.Error, failure.Message);
                 dialActivity?.Dispose();
@@ -804,7 +808,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
                 // A completed session may already be in use by another caller.
                 if (!session.Connected.IsCompletedSuccessfully)
                 {
-                    await session.DisconnectAsync();
+                    await session.DisconnectAsync(SessionCloseReason.ConnectionLost);
                 }
                 Libp2pMetrics.DialFailures.Add(1);
                 dialActivity?.SetStatus(ActivityStatusCode.Error, "Dial was cancelled");
@@ -814,7 +818,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
 
             if (dialingResult == dialingTask)
             {
-                await session.DisconnectAsync();
+                await session.DisconnectAsync(SessionCloseReason.ConnectionLost);
                 Libp2pMetrics.DialFailures.Add(1);
                 if (dialingResult.IsCanceled && session.GetDuplicateFailure() is null)
                 {
@@ -919,8 +923,21 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         {
             return Task.FromCanceled<ISession>(token);
         }
-        ThrowIfDisposed();
+        if (TryReuseDial(peerId, token) is { } reusable) return reusable;
 
+        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerMetadata? metadata) || metadata.Addresses is null)
+        {
+            throw new Libp2pException("Peer not found");
+        }
+
+        Multiaddress[] addrs = [.. metadata.Addresses.Where(a => a.GetPeerId() == peerId)];
+        if (addrs.Length == 0) throw new Libp2pException($"No usable address was found for peer {peerId}");
+        return DialAsync(addrs, token);
+    }
+
+    internal Task<ISession>? TryReuseDial(PeerId peerId, CancellationToken token)
+    {
+        ThrowIfDisposed();
         Session? existingSession = FindSession(peerId);
 
         if (existingSession is not null)
@@ -933,16 +950,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
         {
             if (_pendingDials.TryGetValue(peerId, out pending)) pending.Waiters++;
         }
-        if (pending is not null) return WaitForDialAsync(peerId, pending, token);
-
-        if (_peerStore is null || !_peerStore.TryGetPeerInfo(peerId, out PeerMetadata? metadata) || metadata.Addresses is null)
-        {
-            throw new Libp2pException("Peer not found");
-        }
-
-        Multiaddress[] addrs = [.. metadata.Addresses.Where(a => a.GetPeerId() == peerId)];
-        if (addrs.Length == 0) throw new Libp2pException($"No usable address was found for peer {peerId}");
-        return DialAsync(addrs, token);
+        return pending is null ? null : WaitForDialAsync(peerId, pending, token);
     }
 
     private PeerConnectionException CreatePeerConnectionException(Multiaddress remoteAddress, Session session, Task dialingResult)
@@ -1287,7 +1295,7 @@ public partial class LocalPeer(Identity identity, IPeerStore? peerStore, IProtoc
             try { _listenerLifetime.Cancel(); }
             catch (Exception failure) { failures.Add(failure); }
             // Start every cleanup even if a listener cancellation callback failed.
-            Task cleanup = Task.WhenAll(listeners.Concat(sessions.Select(session => session.DisconnectAsync())));
+            Task cleanup = Task.WhenAll(listeners.Concat(sessions.Select(session => session.DisconnectAsync(SessionCloseReason.PeerShutdown))));
             try { await cleanup; }
             catch { failures.AddRange(cleanup.Exception!.InnerExceptions); }
         }

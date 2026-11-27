@@ -112,6 +112,52 @@ The snapshot keeps its membership while connections change. Read `peer.Sessions`
 
 `OnConnected` signals that a session completed initialization. If a session exposes a cancelable `Closed` token, its cancellation signals that closure has started.
 
+## Maintaining selected application connections
+
+Enable `WithSessionRecovery()` on the peer factory builder. Recovery starts when an application enumerates `WatchAsync` for a remote peer. For example, add the service when configuring the stack.
+
+```csharp
+ServiceProvider provider = new ServiceCollection()
+    .AddLibp2p(builder => builder.WithSessionRecovery())
+    .BuildServiceProvider();
+```
+
+After creating the peer and populating the peer store, start a watch. This example opens a new ping stream whenever the watch reports a ready session. `stoppingToken` belongs to the application.
+
+```csharp
+ISessionRecovery recovery = peer.GetSessionRecovery();
+
+await foreach (SessionRecoveryUpdate update in recovery.WatchAsync(remotePeerId, stoppingToken))
+{
+    if (update.Session is { } ready && !ready.Closed.IsCancellationRequested)
+    {
+        try
+        {
+            await ready.DialAsync<PingProtocol>(stoppingToken);
+        }
+        catch (OperationCanceledException) when (ready.Closed.IsCancellationRequested
+            && !stoppingToken.IsCancellationRequested)
+        {
+            // This ping ended with the session.
+        }
+    }
+    else if (update.IsTerminal)
+    {
+        Console.WriteLine($"Recovery ended in {update.State} ({update.CloseReason}).");
+    }
+}
+```
+
+Watches on the same local peer share recovery for a given remote peer ID. Ready updates provide an initialized session and may reuse a session established by another caller or by an inbound connection. Updates are snapshots, so a slow observer may miss intermediate states. Canceling the watch or exiting the enumeration releases that observer. The last observer leaving cancels any pending backoff or dial wait. Already established sessions remain available to other callers.
+
+A new watch dials immediately. By default it allows four attempts per outage, reading the current peer store on each dial. Retries double from a one-second delay, capped at sixteen seconds. After connection loss, the first recovery dial also waits for the backoff. A ready session resets the attempt count. Exhaustion ends the watch and reports the last failure.
+
+Pass `SessionRecoveryOptions` to the builder to supply an attempt limit, a retry-delay function, or an address selector. The selector gets the requested peer ID and a cancellation token whenever recovery needs fresh candidates. Return an empty array to try again after backoff. Throwing an exception or returning an address for another peer ends the watch with `Faulted`.
+
+Native sessions publish `CloseReason` before canceling `Closed`. Only `ConnectionLost` triggers recovery. Disconnection through `ISession.DisconnectAsync`, an exception from an `OnConnected` handler, idle eviction, and local peer shutdown end the watch. The first closure cause stays recorded. Custom sessions must return an initialized session with the requested peer identity and a stable, cancelable `Closed` token. The watch reports `Faulted` if that contract is missing. When providing a close reason, set it before canceling `Closed`. The default `Unknown` reason ends the watch when closure is observed.
+
+Recovery maintains sessions with the lower protocol stack. The application chooses which streams to reopen and which state to restore. A request whose response was lost may already have been processed, so any request retry needs an explicit application policy. Pubsub follows its own connection policy.
+
 ## Incoming sessions
 
 Subscribe to `OnConnected` to react when an inbound or outbound session completes initialization.

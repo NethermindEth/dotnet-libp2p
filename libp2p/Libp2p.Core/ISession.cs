@@ -30,6 +30,13 @@ public interface ISession
     /// </remarks>
     CancellationToken Closed => CancellationToken.None;
 
+    /// <summary>The reason this session started closing. Read it after <see cref="Closed"/> is canceled.</summary>
+    /// <remarks>
+    /// Sessions that report a reason must set it before canceling <see cref="Closed"/> and keep it stable afterward.
+    /// The default implementation reports <see cref="SessionCloseReason.Unknown"/>.
+    /// </remarks>
+    SessionCloseReason CloseReason => SessionCloseReason.Unknown;
+
     /// <summary>
     /// Dials a session protocol that does not require a request payload.
     /// </summary>
@@ -71,5 +78,7 @@ public interface ISession
     Task<TResponse> DialAsync<TRequest, TResponse>(ISessionProtocol<TRequest, TResponse> protocol, TRequest request, CancellationToken token = default)
         => Task.FromException<TResponse>(new NotSupportedException("This session does not support dialing protocol instances."));
 
+    /// <summary>Requests disconnection of the session.</summary>
+    /// <remarks>A native session reports <see cref="SessionCloseReason.LocalDisconnect"/> when this request starts closure.</remarks>
     Task DisconnectAsync();
 }

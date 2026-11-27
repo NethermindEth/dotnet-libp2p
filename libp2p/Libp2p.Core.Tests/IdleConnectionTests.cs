@@ -20,7 +20,8 @@ public class IdleConnectionTests
         clock.Advance(TimeSpan.FromMinutes(2));
         Assert.That(connection.TryDisconnectIfIdle(TimeSpan.FromSeconds(60)), Is.False);
         _ = connection.UpgradeToSession();
-        await peer.Sessions.Single().Connected;
+        LocalPeer.Session session = peer.Sessions.Single();
+        await session.Connected;
         clock.Advance(TimeSpan.FromSeconds(59));
         Assert.That(connection.TryDisconnectIfIdle(TimeSpan.FromSeconds(60)), Is.False);
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -28,6 +29,7 @@ public class IdleConnectionTests
         Assert.That(connection.TryDisconnectIfIdle(TimeSpan.FromSeconds(60)), Is.False);
         await connection.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(connection.Token.IsCancellationRequested, Is.True);
+        Assert.That(session.CloseReason, Is.EqualTo(SessionCloseReason.IdleEviction));
         Assert.That(store.GetRetainedSessionCount(TestPeers.Identity(2).PeerId), Is.Zero);
     }
 
