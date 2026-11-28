@@ -24,4 +24,5 @@
     <Project Path="../libp2p/Libp2p.Samples.Perf.Tests/Libp2p.Samples.Perf.Tests.csproj" />
   </Folder>
   <Project Path="../libp2p/Libp2p.E2eTests/Libp2p.E2eTests.csproj" />
+  <Project Path="../libp2p/Nethermind.Channels.Tests/Nethermind.Channels.Tests.csproj" />
 </Solution>

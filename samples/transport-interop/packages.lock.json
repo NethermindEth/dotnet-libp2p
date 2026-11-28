@@ -259,6 +259,9 @@
         "resolved": "0.2.0",
         "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
       },
+      "nethermind.channels": {
+        "type": "Project"
+      },
       "Nethermind.Libp2p": {
         "type": "Project",
         "dependencies": {
@@ -290,6 +293,7 @@
           "Microsoft.Extensions.DependencyInjection": "[10.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
+          "Nethermind.Channels": "[1.0.0, )",
           "Nethermind.Multiformats.Address": "[1.1.11, )",
           "SimpleBase": "[4.0.2, )"
         }

@@ -231,8 +231,9 @@ public class TlsProtocol : IConnectionProtocol
 
         async Task<bool> WriteAsync()
         {
-            await foreach (ReadOnlySequence<byte> data in upChannel.ReadAllAsync(token))
+            await foreach (ReadResult read in upChannel.ReadAllOwnedAsync(token))
             {
+                ReadOnlySequence<byte> data = read.Data;
                 if (data.IsSingleSegment)
                 {
                     await sslStream.WriteAsync(data.First, token);
@@ -260,19 +261,10 @@ public class TlsProtocol : IConnectionProtocol
 
         async Task<bool> ReadAsync()
         {
-            byte[] scratch = new byte[MaxTlsRecordPlaintext];
-            while (true)
-            {
-                int length = await sslStream.ReadAsync(scratch, token);
-                if (length == 0)
-                {
-                    await upChannel.WriteEofAsync(token);
-                    return true;
-                }
-                // Channel readers may keep the published bytes, so publish an owned exact-length copy.
-                IOResult result = await upChannel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), token);
-                if (result != IOResult.Ok) return result == IOResult.Ended;
-            }
+            IOResult result = await upChannel.WriteFromAsync(sslStream.ReadAsync, MaxTlsRecordPlaintext, token);
+            if (result != IOResult.Ok) return result == IOResult.Ended;
+            await upChannel.WriteEofAsync(token);
+            return true;
         }
     }
 }

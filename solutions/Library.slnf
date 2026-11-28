@@ -24,7 +24,8 @@
       "libp2p/Libp2p.Protocols.Tls/Libp2p.Protocols.Tls.csproj",
       "libp2p/Libp2p.Protocols.WebRtc/Libp2p.Protocols.WebRtc.csproj",
       "libp2p/Libp2p.Protocols.WebSockets/Libp2p.Protocols.WebSockets.csproj",
-      "libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj"
+      "libp2p/Libp2p.Protocols.Yamux/Libp2p.Protocols.Yamux.csproj",
+      "libp2p/Nethermind.Channels/Nethermind.Channels.csproj"
     ]
   }
 }

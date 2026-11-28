@@ -19,21 +19,9 @@ using System.Diagnostics;
 
 namespace Nethermind.Libp2p.Protocols;
 
-public class IpTcpProtocol : ITransportProtocol
+public class IpTcpProtocol(ILoggerFactory? loggerFactory = null) : ITransportProtocol
 {
-    private readonly ILogger? _logger;
-    private readonly ArrayPool<byte> _receiveBufferPool;
-
-    public IpTcpProtocol(ILoggerFactory? loggerFactory = null) : this(loggerFactory, ArrayPool<byte>.Shared)
-    {
-    }
-
-    internal IpTcpProtocol(ILoggerFactory? loggerFactory, ArrayPool<byte> receiveBufferPool)
-    {
-        _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
-        _receiveBufferPool = receiveBufferPool;
-    }
-
+    private readonly ILogger? _logger = loggerFactory?.CreateLogger<IpTcpProtocol>();
     private static Multiaddress ToTcpMultiAddress(IPAddress a, PeerId peerId) => Multiaddress.Decode($"/{(a.AddressFamily is AddressFamily.InterNetwork ? "ip4" : "ip6")}/{a}/tcp/0/p2p/{peerId}");
 
     internal static async ValueTask<bool> SendAllAsync(Socket socket, ReadOnlySequence<byte> data, CancellationToken token = default)
@@ -249,23 +237,17 @@ public class IpTcpProtocol : ITransportProtocol
 
             async Task<bool> ReceiveAsync()
             {
-                byte[]? scratch = null;
+                bool receiving = false;
                 try
                 {
-                    int capacity = client.ReceiveBufferSize;
-                    scratch = _receiveBufferPool.Rent(capacity);
-                    while (true)
+                    IOResult result = await channel.WriteFromAsync((memory, cancellation) =>
                     {
-                        int length = await client.ReceiveAsync(scratch.AsMemory(0, capacity), SocketFlags.None, lifetime.Token);
-                        // WaitAll readers may retain fragments: publish only compact, owned storage.
-                        if (length == 0)
-                        {
-                            await channel.WriteEofAsync(lifetime.Token);
-                            return true;
-                        }
-                        IOResult result = await channel.WriteAsync(new ReadOnlySequence<byte>(scratch.AsSpan(0, length).ToArray()), lifetime.Token);
-                        if (result != IOResult.Ok) return result == IOResult.Ended;
-                    }
+                        receiving = true;
+                        return client.ReceiveAsync(memory, SocketFlags.None, cancellation);
+                    }, client.ReceiveBufferSize, lifetime.Token);
+                    if (result != IOResult.Ok) return result == IOResult.Ended;
+                    await channel.WriteEofAsync(lifetime.Token);
+                    return true;
                 }
                 catch (SocketException failure)
                 {
@@ -280,18 +262,17 @@ public class IpTcpProtocol : ITransportProtocol
                         _logger?.LogDebug("Ctx({0}): end receiving, socket exception {1}", connection.Id, failure.Message);
                     }
                     // No receive began when setup failed. Preserve orderly completion for this path;
-                    // socket failures after renting remain transport failures and abort the connection.
-                    if (scratch is not null) throw;
+                    // socket failures after receiving starts remain transport failures and abort the connection.
+                    if (receiving) throw;
                     await channel.WriteEofAsync(lifetime.Token);
                     return true;
                 }
-                finally { if (scratch is not null) _receiveBufferPool.Return(scratch); }
             }
 
             async Task<bool> SendAsync()
             {
-                await foreach (ReadOnlySequence<byte> data in channel.ReadAllAsync(lifetime.Token))
-                    if (!await SendAllAsync(client, data, lifetime.Token)) return false;
+                await foreach (ReadResult read in channel.ReadAllOwnedAsync(lifetime.Token))
+                    if (!await SendAllAsync(client, read.Data, lifetime.Token)) return false;
                 return true;
             }
         }
