@@ -39,13 +39,14 @@ internal static class LivenessProbe
     /// failure removes the peer, and reporting success clears its recorded failures without a pong. Waiting
     /// for the stream and then pinging produces a real answer instead.
     /// <para>
-    /// <paramref name="waitToken"/> bounds the waiting only. The ping that follows gets its own
+    /// <paramref name="waitToken"/> bounds the waiting only, and is required: without it a stream that
+    /// never frees would be retried forever. The ping that follows gets its own
     /// <paramref name="timeout"/>, so time spent behind another ping is not charged to the round trip;
     /// a peer is judged on a request it actually had the time to answer.
     /// </para>
     /// </remarks>
     public static async Task ProbeWaitingForStreamAsync(ISession session, TimeSpan timeout,
-        CancellationToken callerToken, CancellationToken waitToken = default)
+        CancellationToken callerToken, CancellationToken waitToken)
     {
         while (true)
         {
@@ -59,8 +60,18 @@ internal static class LivenessProbe
             }
             catch (ProtocolBusyException)
             {
-                // Only the waiting is charged to the caller's budget.
-                await Task.Delay(ContentionRetryDelay, waitToken).ConfigureAwait(false);
+                // Only the waiting is charged to the caller's budget. Running out of it means the
+                // stream never freed, which is still local contention and still says nothing about
+                // the remote, so it stays distinguishable from a probe the peer actually failed.
+                try
+                {
+                    await Task.Delay(ContentionRetryDelay, waitToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (waitToken.IsCancellationRequested && !callerToken.IsCancellationRequested)
+                {
+                    throw new ProtocolBusyException(
+                        "The peer's outbound ping stream stayed held for the whole wait; no ping was sent.");
+                }
             }
         }
     }

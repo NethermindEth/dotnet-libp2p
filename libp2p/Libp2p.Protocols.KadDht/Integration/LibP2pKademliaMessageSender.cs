@@ -113,7 +113,9 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
 
         try
         {
-            // The probe is shared, so no one caller owns its lifetime; the operation timeout bounds it.
+            // The probe is shared, so no one caller owns its lifetime. This budget bounds the dial and
+            // the wait for a contended stream; the ping that follows carries its own timeout, so a
+            // contended probe can run for this budget plus one more timeout before it gives up.
             using var timeoutCts = new CancellationTokenSource(_operationTimeout);
 
             // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.

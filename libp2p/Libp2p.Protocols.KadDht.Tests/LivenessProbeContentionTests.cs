@@ -50,27 +50,80 @@ public class LivenessProbeContentionTests
     /// that runs for most of the caller's budget would otherwise leave the waiter no time to answer,
     /// and the expiry reads as a dead peer.
     /// </summary>
+    /// <remarks>
+    /// Driven by handoffs rather than wall-clock margins: the wait budget is cancelled while the ping
+    /// is in flight, which only a ping that carries its own deadline can survive.
+    /// </remarks>
     [Test]
     public async Task TheRoundTripGetsItsOwnDeadlineAfterTheWait()
     {
-        TimeSpan waitBudget = TimeSpan.FromMilliseconds(300);
-        TimeSpan pingDuration = TimeSpan.FromMilliseconds(500);
+        TaskCompletionSource streamFreed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource refusedOnce = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource pingStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource pingMayFinish = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken pingToken = default;
         ISession session = Substitute.For<ISession>();
-        int attempts = 0;
         session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(async call =>
         {
-            // Hold the stream until the caller's wait budget is nearly spent, then answer slowly
-            // enough that only a fresh deadline can accommodate the round trip.
-            if (Interlocked.Increment(ref attempts) * 50 < waitBudget.TotalMilliseconds - 50)
+            if (!streamFreed.Task.IsCompleted)
+            {
+                refusedOnce.TrySetResult();
                 throw new ProtocolBusyException("a ping is already in flight");
-            await Task.Delay(pingDuration, call.Arg<CancellationToken>());
+            }
+
+            pingToken = call.Arg<CancellationToken>();
+            pingStarted.TrySetResult();
+            await pingMayFinish.Task.WaitAsync(pingToken);
         });
 
-        using CancellationTokenSource wait = new(waitBudget);
-        await LivenessProbe.ProbeWaitingForStreamAsync(session, Timeout, CancellationToken.None, wait.Token)
-            .WaitAsync(TimeSpan.FromSeconds(10));
+        using CancellationTokenSource wait = new();
+        Task probe = LivenessProbe.ProbeWaitingForStreamAsync(
+            session, Timeout, CancellationToken.None, wait.Token);
 
-        Assert.That(attempts, Is.GreaterThan(1), "The holder must have forced a wait.");
-        session.DidNotReceive().DisconnectAsync();
+        await refusedOnce.Task.WaitAsync(Timeout);
+        streamFreed.TrySetResult();
+        await pingStarted.Task.WaitAsync(Timeout);
+
+        // The caller's budget runs out mid-flight. Cancelling a linked token is synchronous, so if the
+        // ping were bound by that budget it would already be cancelled here.
+        await wait.CancelAsync();
+        Assert.That(pingToken.IsCancellationRequested, Is.False,
+            "The in-flight ping must carry its own deadline, not the caller's wait budget.");
+
+        pingMayFinish.TrySetResult();
+
+        await probe.WaitAsync(Timeout);
+        await session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>
+    /// A stream that never frees is still local contention. It must stay distinguishable from a probe
+    /// the peer failed, so callers do not tear down a healthy session or evict a peer over it.
+    /// </summary>
+    [Test]
+    public void AWaitThatNeverGetsTheStreamIsReportedAsContention()
+    {
+        ISession session = Substitute.For<ISession>();
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new ProtocolBusyException("held throughout")));
+        using CancellationTokenSource wait = new(TimeSpan.FromMilliseconds(120));
+
+        Assert.ThrowsAsync<ProtocolBusyException>(async () => await LivenessProbe
+            .ProbeWaitingForStreamAsync(session, Timeout, CancellationToken.None, wait.Token));
+    }
+
+    /// <summary>A caller giving up is cancellation, not contention, whatever the stream is doing.</summary>
+    [Test]
+    public void ACallerGivingUpWhileWaitingStillReportsCancellation()
+    {
+        ISession session = Substitute.For<ISession>();
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new ProtocolBusyException("held throughout")));
+        using CancellationTokenSource caller = new(TimeSpan.FromMilliseconds(120));
+        using CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(caller.Token);
+
+        // CatchAsync, not ThrowsAsync: Task.Delay surfaces the derived TaskCanceledException.
+        Assert.CatchAsync<OperationCanceledException>(async () => await LivenessProbe
+            .ProbeWaitingForStreamAsync(session, Timeout, caller.Token, wait.Token));
     }
 }

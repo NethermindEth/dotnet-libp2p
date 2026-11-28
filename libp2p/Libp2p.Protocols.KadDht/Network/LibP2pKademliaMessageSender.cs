@@ -185,6 +185,13 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
             _logger.LogWarning("{Operation} to {Node} cancelled", operation, receiver);
             throw;
         }
+        catch (ProtocolBusyException)
+        {
+            // We never got our own stream. The connection is fine and another ping is using it, so
+            // dropping it here would destroy a healthy session over local contention.
+            _logger.LogDebug("{Operation} to {Node} never got the stream; keeping the session", operation, receiver);
+            throw;
+        }
         catch (Exception ex)
         {
             // Any other failure, including InvalidOperationException and a closed connection surfacing as
