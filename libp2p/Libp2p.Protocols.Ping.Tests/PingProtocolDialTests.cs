@@ -19,14 +19,17 @@ public class PingProtocolDialTests
         const int Workers = 8;
         const int DialsPerWorker = 2_500;
         PingProtocol protocol = new();
-        ISessionContext context = Substitute.For<ISessionContext>();
-        context.State.Returns(new State { RemoteAddress = "/ip4/127.0.0.1/tcp/1234" });
         ConcurrentDictionary<string, byte> payloads = new();
         int duplicates = 0;
         using Barrier start = new(Workers);
 
-        Task[] workers = Enumerable.Range(0, Workers).Select(_ => Task.Factory.StartNew(() =>
+        // One session per worker, dialled sequentially within it, mirroring the one outbound ping
+        // per peer the session allows. This test is about payload randomness, and the concurrency
+        // that matters for it is several threads drawing from Random.Shared at once.
+        Task[] workers = Enumerable.Range(0, Workers).Select(worker => Task.Factory.StartNew(() =>
         {
+            ISessionContext context = Substitute.For<ISessionContext>();
+            context.State.Returns(new State { RemoteAddress = $"/ip4/127.0.0.1/tcp/{1234 + worker}" });
             start.SignalAndWait();
             for (int i = 0; i < DialsPerWorker; i++)
             {

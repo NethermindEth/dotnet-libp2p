@@ -71,27 +71,48 @@ public partial class LocalPeer
             token.ThrowIfCancellationRequested();
             CancellationToken connectionToken = ConnectionToken;
             connectionToken.ThrowIfCancellationRequested();
-            TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
-            using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
-            lock (_lifecycleLock)
+
+            // Taken before the request is queued, so a refused stream is never requested and the
+            // remote never negotiates it. A protocol checking this inside its own DialAsync would
+            // run only after multistream had already selected it.
+            IDisposable? outboundAllowance = null;
+            if (protocol is IOutboundStreamLimited limited)
             {
-                if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
-                token.ThrowIfCancellationRequested();
-                connectionToken.ThrowIfCancellationRequested();
-                // Publish before releasing the lock: disconnect sets _disconnection under
-                // this lock, rejecting later dials before draining the queue outside the lock.
-                SubDialRequests.Add(new UpgradeOptions()
+                outboundAllowance = limited.TryAcquireOutboundStream(peer, State.RemotePeerId);
+                if (outboundAllowance is null)
                 {
-                    CompletionSource = tcs,
-                    SelectedProtocol = protocol,
-                    Argument = argument,
-                    CancellationToken = token
-                });
-                _applicationOperations++;
+                    throw new ProtocolBusyException(limited.DescribeOutboundRefusal(State.RemotePeerId));
+                }
             }
-            try { return await tcs.Task; }
-            finally { lock (_lifecycleLock) EndApplicationOperation(); }
+
+            try
+            {
+                TaskCompletionSource<object?> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenRegistration registration = token.Register(() => tcs.TrySetCanceled(token));
+                using CancellationTokenRegistration connectionRegistration = connectionToken.Register(() => tcs.TrySetCanceled(connectionToken));
+                lock (_lifecycleLock)
+                {
+                    if (_idleEviction || _disconnection is not null) throw new OperationCanceledException(connectionToken);
+                    token.ThrowIfCancellationRequested();
+                    connectionToken.ThrowIfCancellationRequested();
+                    // Publish before releasing the lock: disconnect sets _disconnection under
+                    // this lock, rejecting later dials before draining the queue outside the lock.
+                    SubDialRequests.Add(new UpgradeOptions()
+                    {
+                        CompletionSource = tcs,
+                        SelectedProtocol = protocol,
+                        Argument = argument,
+                        CancellationToken = token
+                    });
+                    _applicationOperations++;
+                }
+                try { return await tcs.Task; }
+                finally { lock (_lifecycleLock) EndApplicationOperation(); }
+            }
+            finally
+            {
+                outboundAllowance?.Dispose();
+            }
         }
 
 

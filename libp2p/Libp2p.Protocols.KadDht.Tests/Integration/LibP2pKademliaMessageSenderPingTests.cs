@@ -5,6 +5,7 @@ using Libp2p.Protocols.KadDht.Integration;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using NSubstitute;
 using NUnit.Framework;
@@ -15,6 +16,7 @@ namespace Nethermind.Libp2p.Protocols.KadDht.Tests.Integration;
 public class LibP2pKademliaMessageSenderPingTests
 {
     private const string Address = "/ip4/127.0.0.1/tcp/4001";
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
     private ILocalPeer _localPeer = null!;
     private ISession _session = null!;
@@ -66,5 +68,122 @@ public class LibP2pKademliaMessageSenderPingTests
 
         Assert.That(async () => await sender.Ping(_node, cts.Token), Throws.InstanceOf<OperationCanceledException>());
         await _session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>
+    /// The ping protocol keeps one outbound stream per peer, so overlapping checks must share the
+    /// probe already running. The loser's refusal would otherwise reach the health tracker as a
+    /// failed request and evict a peer that is answering (#250).
+    /// </summary>
+    [Test]
+    public async Task Ping_OverlappingChecks_ShareOneProbeAndItsAnswer()
+    {
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int probes = 0;
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            Interlocked.Increment(ref probes);
+            reached.TrySetResult();
+            return release.Task;
+        });
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+
+        Task<bool> first = sender.Ping(_node, CancellationToken.None);
+        await reached.Task.WaitAsync(TestTimeout);
+        Task<bool> second = sender.Ping(_node, CancellationToken.None);
+        release.TrySetResult();
+
+        Assert.That(await first.WaitAsync(TestTimeout), Is.True);
+        Assert.That(await second.WaitAsync(TestTimeout), Is.True);
+        Assert.That(probes, Is.EqualTo(1), "The second check must join the running probe, not open a stream.");
+        await _session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>One caller giving up must not end a probe the others are still waiting on.</summary>
+    [Test]
+    public async Task Ping_CallerCancelsWhileAnotherWaits_LeavesTheSharedProbeRunning()
+    {
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            reached.TrySetResult();
+            return release.Task;
+        });
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+        using CancellationTokenSource giveUp = new();
+
+        Task<bool> abandoned = sender.Ping(_node, giveUp.Token);
+        await reached.Task.WaitAsync(TestTimeout);
+        Task<bool> waiting = sender.Ping(_node, CancellationToken.None);
+        giveUp.Cancel();
+
+        Assert.That(async () => await abandoned.WaitAsync(TestTimeout), Throws.InstanceOf<OperationCanceledException>());
+        Assert.That(waiting.IsCompleted, Is.False, "The shared probe outlives the caller that left.");
+
+        release.TrySetResult();
+        Assert.That(await waiting.WaitAsync(TestTimeout), Is.True);
+    }
+
+    /// <summary>
+    /// Once our own checks are coalesced, a refusal means a ping from elsewhere in the process holds
+    /// the stream. Neither answer may be invented: reporting a failure removes the peer, and reporting
+    /// success clears its recorded failures without a pong. The probe waits for the stream instead.
+    /// </summary>
+    [Test]
+    public async Task Ping_AnotherPingHoldsTheStream_WaitsForItThenProbes()
+    {
+        int attempts = 0;
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+            Interlocked.Increment(ref attempts) == 1
+                ? Task.FromException(new ProtocolBusyException("a ping is already in flight"))
+                : Task.CompletedTask);
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+
+        bool alive = await sender.Ping(_node, CancellationToken.None).WaitAsync(TestTimeout);
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(alive, Is.True);
+            Assert.That(attempts, Is.EqualTo(2), "Liveness must come from a ping that actually ran.");
+        }
+        await _session.DidNotReceive().DisconnectAsync();
+    }
+
+    /// <summary>
+    /// A probe outlives the caller that starts it, so a caller that has already given up must not
+    /// start one: it would dial, and on timeout disconnect the session, on nobody's behalf.
+    /// </summary>
+    [Test]
+    public async Task Ping_CallerAlreadyCancelled_NeverDials()
+    {
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync();
+
+        Assert.That(async () => await sender.Ping(_node, cancelled.Token),
+            Throws.InstanceOf<OperationCanceledException>());
+
+        await _localPeer.DidNotReceive().DialAsync(Arg.Any<Multiaddress>(), Arg.Any<CancellationToken>());
+        await _session.DidNotReceive().DialAsync<PingProtocol>(Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>A finished probe must not keep answering for the next check.</summary>
+    [Test]
+    public async Task Ping_AfterAProbeFinishes_TheNextCheckProbesAgain()
+    {
+        int probes = 0;
+        _session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            Interlocked.Increment(ref probes);
+            return Task.CompletedTask;
+        });
+        var sender = new LibP2pKademliaMessageSender(_localPeer, operationTimeout: TimeSpan.FromSeconds(30));
+
+        await sender.Ping(_node, CancellationToken.None).WaitAsync(TestTimeout);
+        await sender.Ping(_node, CancellationToken.None).WaitAsync(TestTimeout);
+
+        Assert.That(probes, Is.EqualTo(2));
     }
 }

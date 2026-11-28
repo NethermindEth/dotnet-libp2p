@@ -5,7 +5,9 @@ using Google.Protobuf;
 using Libp2p.Protocols.KadDht.Kademlia;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
+using System.Collections.Concurrent;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
@@ -19,6 +21,8 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
     private readonly TimeSpan _operationTimeout;
     private readonly Action<DhtNode>? _onPeerDiscovered;
     private readonly Action<DhtNode>? _onPingResponse;
+    /// <summary>Liveness checks in flight, one per peer, so overlapping checks share an answer.</summary>
+    private readonly ConcurrentDictionary<PeerId, Task<bool>> _livenessProbes = new();
 
     public LibP2pKademliaMessageSender(
         ILocalPeer localPeer,
@@ -47,32 +51,84 @@ public class LibP2pKademliaMessageSender : IDhtMessageSender
         _onPingResponse = onPingResponse;
     }
 
+    /// <summary>
+    /// Checks whether <paramref name="receiver"/> answers a ping.
+    /// </summary>
+    /// <remarks>
+    /// The ping protocol keeps one outbound stream per peer, so overlapping checks for the same peer
+    /// share the probe that is already running instead of racing it. Without that, the loser's refusal
+    /// would reach the health tracker as a failed request and evict a peer that is answering: the
+    /// tracker removes a node whose refresh is still pending, both when the probe reports false and
+    /// when it throws. Sharing the answer also keeps one caller's cancellation from ending a probe the
+    /// others are still waiting on, so the probe runs on the operation timeout alone.
+    /// </remarks>
     public async Task<bool> Ping(DhtNode receiver, CancellationToken token = default)
+    {
+        // A misconfigured stack is a setup error, not a dead peer, so it is thrown rather than reported as false.
+        LivenessProbe.EnsureSupported(_localPeer);
+        // A probe outlives the caller that started it, so a caller that has already given up must not
+        // start one: it would dial, and on timeout disconnect the session, for nobody.
+        token.ThrowIfCancellationRequested();
+        PeerId peerId = receiver.PeerId;
+
+        while (true)
+        {
+            if (_livenessProbes.TryGetValue(peerId, out Task<bool>? running))
+            {
+                _logger?.LogTrace("Joining the liveness check already running for {NodeId}", peerId);
+                return await running.WaitAsync(token).ConfigureAwait(false);
+            }
+
+            TaskCompletionSource<bool> probe = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Lost the race to publish; join the winner rather than open a second stream.
+            if (!_livenessProbes.TryAdd(peerId, probe.Task)) continue;
+
+            _ = RunLivenessProbeAsync(receiver, peerId, probe);
+            return await probe.Task.WaitAsync(token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Runs the shared probe, completes its waiters, and retires the entry it published.</summary>
+    private async Task RunLivenessProbeAsync(DhtNode receiver, PeerId peerId, TaskCompletionSource<bool> probe)
+    {
+        try
+        {
+            probe.TrySetResult(await ProbeLivenessAsync(receiver).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            probe.TrySetException(ex);
+        }
+        finally
+        {
+            // Keyed on the published task as well, so a probe that has already been replaced
+            // cannot retire its successor.
+            _livenessProbes.TryRemove(new KeyValuePair<PeerId, Task<bool>>(peerId, probe.Task));
+        }
+    }
+
+    private async Task<bool> ProbeLivenessAsync(DhtNode receiver)
     {
         _logger?.LogDebug("Checking liveness of {NodeId}", receiver.PeerId);
 
-        // A misconfigured stack is a setup error, not a dead peer, so it is thrown rather than reported as false.
-        LivenessProbe.EnsureSupported(_localPeer);
-
         try
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(_operationTimeout);
+            // The probe is shared, so no one caller owns its lifetime. This budget bounds the dial and
+            // the wait for a contended stream; the ping that follows carries its own timeout, so a
+            // contended probe can run for this budget plus one more timeout before it gives up.
+            using var timeoutCts = new CancellationTokenSource(_operationTimeout);
 
             // Kad-DHT PING is deprecated and must not be sent; probe with the ping protocol instead.
             // A successful dial alone can return a cached session without touching the wire.
             var session = await DialNodeAsync(receiver, timeoutCts.Token);
-            await LivenessProbe.ProbeAsync(session, _operationTimeout, token, timeoutCts.Token);
+            // Coalescing keeps our own checks off the contended path, so a refusal here means a ping
+            // from elsewhere in the process holds the stream.
+            await LivenessProbe.ProbeWaitingForStreamAsync(session, _operationTimeout, CancellationToken.None, timeoutCts.Token);
 
             _logger?.LogTrace("Connection to {NodeId} is alive", receiver.PeerId);
             // Bootstrap relies on the transport to re-admit responding bootnodes.
             _onPingResponse?.Invoke(receiver);
             return true;
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-            _logger?.LogDebug("Ping to {NodeId} cancelled", receiver.PeerId);
-            throw;
         }
         catch (Exception ex)
         {

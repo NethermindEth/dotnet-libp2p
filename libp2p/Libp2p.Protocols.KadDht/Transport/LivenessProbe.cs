@@ -26,6 +26,56 @@ internal static class LivenessProbe
                 $"Kad-DHT liveness checks need {nameof(PingProtocol)} in the peer's protocol stack, but it is not registered.");
     }
 
+    /// <summary>How long to wait before retrying a ping that another caller currently holds.</summary>
+    private static readonly TimeSpan ContentionRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// Pings the remote end of <paramref name="session"/>, waiting out a ping that someone else already
+    /// holds for this peer.
+    /// </summary>
+    /// <remarks>
+    /// The ping protocol keeps one outbound stream per peer, so a refusal means another ping is mid-flight.
+    /// That is not an answer about the remote, and a health tracker reads either answer as one: reporting a
+    /// failure removes the peer, and reporting success clears its recorded failures without a pong. Waiting
+    /// for the stream and then pinging produces a real answer instead.
+    /// <para>
+    /// <paramref name="waitToken"/> bounds the waiting only, and is required: without it a stream that
+    /// never frees would be retried forever. The ping that follows gets its own
+    /// <paramref name="timeout"/>, so time spent behind another ping is not charged to the round trip;
+    /// a peer is judged on a request it actually had the time to answer.
+    /// </para>
+    /// </remarks>
+    public static async Task ProbeWaitingForStreamAsync(ISession session, TimeSpan timeout,
+        CancellationToken callerToken, CancellationToken waitToken)
+    {
+        while (true)
+        {
+            try
+            {
+                // Deliberately not bounded by waitToken: each attempt gets the full timeout, so a
+                // holder that ran for most of the wait does not leave the round trip no time to
+                // answer. ProbeAsync applies the timeout itself, so the attempt is still bounded.
+                await ProbeAsync(session, timeout, callerToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ProtocolBusyException)
+            {
+                // Only the waiting is charged to the caller's budget. Running out of it means the
+                // stream never freed, which is still local contention and still says nothing about
+                // the remote, so it stays distinguishable from a probe the peer actually failed.
+                try
+                {
+                    await Task.Delay(ContentionRetryDelay, waitToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (waitToken.IsCancellationRequested && !callerToken.IsCancellationRequested)
+                {
+                    throw new ProtocolBusyException(
+                        "The peer's outbound ping stream stayed held for the whole wait; no ping was sent.");
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Pings the remote end of <paramref name="session"/>. Any failure other than <paramref name="callerToken"/>
     /// cancelling (timeout, closed connection, bad pong) disconnects the session so that the next dial is a fresh one.
@@ -44,6 +94,13 @@ internal static class LivenessProbe
         }
         catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (ProtocolBusyException)
+        {
+            // Another probe already holds this session's ping. That says nothing about the remote,
+            // so disconnecting would turn our own concurrency into a lost connection -- and would
+            // interrupt the probe that is actually running.
             throw;
         }
         catch (Exception ex)

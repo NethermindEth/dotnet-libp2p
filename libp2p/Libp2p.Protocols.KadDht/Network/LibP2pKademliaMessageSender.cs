@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Multiformats.Address;
 using Nethermind.Libp2p.Core;
+using Nethermind.Libp2p.Core.Exceptions;
 using Nethermind.Libp2p.Protocols;
 using Nethermind.Libp2P.Protocols.KadDht.Dto;
 
@@ -53,8 +54,17 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         // Kad-DHT PING is deprecated and must not be sent; probe the cached session with the ping protocol.
         // A cached session is not proof of a live connection, so a failed probe evicts it in WithSession.
         LivenessProbe.EnsureSupported(_localPeer);
-        await WithSession(receiver, "liveness check", token,
-            session => LivenessProbe.ProbeAsync(session, LivenessProbe.DefaultTimeout, token));
+        // This path reports liveness by completing rather than by a value, so a refusal must not escape.
+        await WithSession(receiver, "liveness check", token, async session =>
+        {
+            // The deadline starts here, once the connection slot and the session are in hand. Starting
+            // it earlier would charge the probe for time spent queueing behind other operations, and
+            // an expiry before any ping was sent reads as a dead peer.
+            using CancellationTokenSource operation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            operation.CancelAfter(LivenessProbe.DefaultTimeout);
+            await LivenessProbe.ProbeWaitingForStreamAsync(
+                session, LivenessProbe.DefaultTimeout, token, operation.Token);
+        });
     }
 
     public async Task<TNode[]> FindNeighbours(TNode receiver, TPublicKey target, CancellationToken token)
@@ -173,6 +183,13 @@ public sealed class LibP2pKademliaMessageSender<TPublicKey, TNode> : IKademliaMe
         {
             // The caller gave up; that says nothing about the cached session.
             _logger.LogWarning("{Operation} to {Node} cancelled", operation, receiver);
+            throw;
+        }
+        catch (ProtocolBusyException)
+        {
+            // We never got our own stream. The connection is fine and another ping is using it, so
+            // dropping it here would destroy a healthy session over local contention.
+            _logger.LogDebug("{Operation} to {Node} never got the stream; keeping the session", operation, receiver);
             throw;
         }
         catch (Exception ex)

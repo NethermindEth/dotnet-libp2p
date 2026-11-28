@@ -26,6 +26,16 @@ public class ChannelClosedException : Libp2pException
 public class ChannelAbortedException() : IOException("Channel aborted before all bytes were delivered.");
 
 /// <summary>
+/// A protocol that permits only one invocation at a time on a session was asked for a second one.
+/// </summary>
+/// <remarks>
+/// Local contention, not a fault of the remote peer: callers that treat a failed exchange as
+/// evidence the peer is gone must not do so for this, or a concurrent caller of their own making
+/// would cost them the session.
+/// </remarks>
+public class ProtocolBusyException(string? message) : Libp2pException(message);
+
+/// <summary>
 /// Appears when libp2p is not set up properly in part of protocol tack, IoC, etc.
 /// </summary>
 /// <param name="message"></param>
