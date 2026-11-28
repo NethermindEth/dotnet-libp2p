@@ -37,22 +37,30 @@ internal static class LivenessProbe
     /// The ping protocol keeps one outbound stream per peer, so a refusal means another ping is mid-flight.
     /// That is not an answer about the remote, and a health tracker reads either answer as one: reporting a
     /// failure removes the peer, and reporting success clears its recorded failures without a pong. Waiting
-    /// for the stream and then pinging produces a real answer instead. If the stream never frees before
-    /// <paramref name="operationToken"/> expires, that expiry is a failed probe like any other.
+    /// for the stream and then pinging produces a real answer instead.
+    /// <para>
+    /// <paramref name="waitToken"/> bounds the waiting only. The ping that follows gets its own
+    /// <paramref name="timeout"/>, so time spent behind another ping is not charged to the round trip;
+    /// a peer is judged on a request it actually had the time to answer.
+    /// </para>
     /// </remarks>
     public static async Task ProbeWaitingForStreamAsync(ISession session, TimeSpan timeout,
-        CancellationToken callerToken, CancellationToken operationToken = default)
+        CancellationToken callerToken, CancellationToken waitToken = default)
     {
         while (true)
         {
             try
             {
-                await ProbeAsync(session, timeout, callerToken, operationToken).ConfigureAwait(false);
+                // Deliberately not bounded by waitToken: each attempt gets the full timeout, so a
+                // holder that ran for most of the wait does not leave the round trip no time to
+                // answer. ProbeAsync applies the timeout itself, so the attempt is still bounded.
+                await ProbeAsync(session, timeout, callerToken).ConfigureAwait(false);
                 return;
             }
             catch (ProtocolBusyException)
             {
-                await Task.Delay(ContentionRetryDelay, operationToken).ConfigureAwait(false);
+                // Only the waiting is charged to the caller's budget.
+                await Task.Delay(ContentionRetryDelay, waitToken).ConfigureAwait(false);
             }
         }
     }

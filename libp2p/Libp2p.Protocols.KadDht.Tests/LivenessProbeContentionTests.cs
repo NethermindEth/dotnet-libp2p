@@ -44,4 +44,33 @@ public class LivenessProbeContentionTests
 
         session.Received(1).DisconnectAsync();
     }
+
+    /// <summary>
+    /// Waiting for a contending ping must not be charged to the round trip that follows. A holder
+    /// that runs for most of the caller's budget would otherwise leave the waiter no time to answer,
+    /// and the expiry reads as a dead peer.
+    /// </summary>
+    [Test]
+    public async Task TheRoundTripGetsItsOwnDeadlineAfterTheWait()
+    {
+        TimeSpan waitBudget = TimeSpan.FromMilliseconds(300);
+        TimeSpan pingDuration = TimeSpan.FromMilliseconds(500);
+        ISession session = Substitute.For<ISession>();
+        int attempts = 0;
+        session.DialAsync<PingProtocol>(Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            // Hold the stream until the caller's wait budget is nearly spent, then answer slowly
+            // enough that only a fresh deadline can accommodate the round trip.
+            if (Interlocked.Increment(ref attempts) * 50 < waitBudget.TotalMilliseconds - 50)
+                throw new ProtocolBusyException("a ping is already in flight");
+            await Task.Delay(pingDuration, call.Arg<CancellationToken>());
+        });
+
+        using CancellationTokenSource wait = new(waitBudget);
+        await LivenessProbe.ProbeWaitingForStreamAsync(session, Timeout, CancellationToken.None, wait.Token)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.That(attempts, Is.GreaterThan(1), "The holder must have forced a wait.");
+        session.DidNotReceive().DisconnectAsync();
+    }
 }
